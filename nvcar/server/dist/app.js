@@ -1,0 +1,97 @@
+"use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.createApp = void 0;
+const express_1 = __importDefault(require("express"));
+const cors_1 = __importDefault(require("cors"));
+const body_parser_1 = __importDefault(require("body-parser"));
+const auth_1 = require("./routes/auth");
+const categories_1 = require("./routes/categories");
+const students_1 = require("./routes/students");
+const import_1 = require("./routes/import");
+const pdf_1 = require("./routes/pdf");
+const db_1 = require("./db");
+const templates_1 = require("./routes/templates");
+const users_1 = require("./routes/users");
+const signatures_1 = require("./routes/signatures");
+const schoolYears_1 = require("./routes/schoolYears");
+const media_1 = require("./routes/media");
+const path_1 = __importDefault(require("path"));
+const User_1 = require("./models/User");
+const bcrypt = __importStar(require("bcryptjs"));
+const classes_1 = require("./routes/classes");
+const createApp = () => {
+    const app = (0, express_1.default)();
+    app.use((0, cors_1.default)({
+        origin: (origin, cb) => {
+            if (!origin)
+                return cb(null, true);
+            if (origin.startsWith('http://localhost:5173') || origin.startsWith('http://localhost:5174'))
+                return cb(null, true);
+            return cb(null, true);
+        },
+        credentials: true,
+    }));
+    app.use(body_parser_1.default.json({ limit: '2mb' }));
+    app.use('/auth', auth_1.authRouter);
+    app.use('/categories', categories_1.categoriesRouter);
+    app.use('/students', students_1.studentsRouter);
+    app.use('/import', import_1.importRouter);
+    app.use('/pdf', pdf_1.pdfRouter);
+    app.use('/templates', templates_1.templatesRouter);
+    app.use('/users', users_1.usersRouter);
+    app.use('/signatures', signatures_1.signaturesRouter);
+    app.use('/school-years', schoolYears_1.schoolYearsRouter);
+    app.use('/classes', classes_1.classesRouter);
+    app.use('/media', media_1.mediaRouter);
+    app.use('/uploads', express_1.default.static(path_1.default.join(process.cwd(), 'public', 'uploads')));
+    app.get('/health', (_, res) => res.json({ ok: true }));
+    (0, db_1.connectDb)()
+        .then(async () => {
+        console.log('mongo connected');
+        const admin = await User_1.User.findOne({ email: 'admin' });
+        if (!admin) {
+            const hash = await bcrypt.hash('admin', 10);
+            await User_1.User.create({ email: 'admin', passwordHash: hash, role: 'ADMIN', displayName: 'Admin' });
+            console.log('seeded default admin user');
+        }
+    })
+        .catch(e => console.error('mongo error', e));
+    return app;
+};
+exports.createApp = createApp;
