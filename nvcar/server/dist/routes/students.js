@@ -8,6 +8,25 @@ const Class_1 = require("../models/Class");
 const StudentCompetencyStatus_1 = require("../models/StudentCompetencyStatus");
 const auth_1 = require("../auth");
 exports.studentsRouter = (0, express_1.Router)();
+exports.studentsRouter.get('/', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', 'TEACHER']), async (req, res) => {
+    const students = await Student_1.Student.find({}).lean();
+    const ids = students.map(s => String(s._id));
+    const enrolls = await Enrollment_1.Enrollment.find({ studentId: { $in: ids } }).lean();
+    const enrollByStudent = {};
+    for (const e of enrolls)
+        enrollByStudent[e.studentId] = e;
+    const classIds = enrolls.map(e => e.classId);
+    const classes = await Class_1.ClassModel.find({ _id: { $in: classIds } }).lean();
+    const classMap = {};
+    for (const c of classes)
+        classMap[String(c._id)] = c;
+    const out = students.map(s => {
+        const enr = enrollByStudent[String(s._id)];
+        const cls = enr ? classMap[enr.classId] : null;
+        return { ...s, classId: enr ? enr.classId : undefined, className: cls ? cls.name : undefined };
+    });
+    res.json(out);
+});
 exports.studentsRouter.get('/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', 'TEACHER']), async (req, res) => {
     const { id } = req.params;
     const student = await Student_1.Student.findById(id).lean();
@@ -71,4 +90,27 @@ exports.studentsRouter.post('/', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN']),
         await Enrollment_1.Enrollment.create({ studentId: String(student._id), classId, schoolYearId: clsDoc ? clsDoc.schoolYearId : '' });
     }
     res.json(student);
+});
+exports.studentsRouter.patch('/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN']), async (req, res) => {
+    const { id } = req.params;
+    const data = { ...req.body };
+    if (data.dateOfBirth)
+        data.dateOfBirth = new Date(data.dateOfBirth);
+    const updated = await Student_1.Student.findByIdAndUpdate(id, data, { new: true });
+    if (req.body.classId) {
+        const classId = String(req.body.classId);
+        const enr = await Enrollment_1.Enrollment.findOne({ studentId: id });
+        const clsDoc = await Class_1.ClassModel.findById(classId).lean();
+        if (enr) {
+            if (enr.classId !== classId) {
+                enr.classId = classId;
+                enr.schoolYearId = clsDoc ? clsDoc.schoolYearId : enr.schoolYearId;
+                await enr.save();
+            }
+        }
+        else {
+            await Enrollment_1.Enrollment.create({ studentId: id, classId, schoolYearId: clsDoc ? clsDoc.schoolYearId : '' });
+        }
+    }
+    res.json(updated);
 });

@@ -54,3 +54,15 @@ exports.usersRouter.post('/', (0, auth_1.requireAuth)(['ADMIN']), async (req, re
     const user = await User_1.User.create({ email, passwordHash, role, displayName: displayName || email });
     res.json(user);
 });
+exports.usersRouter.patch('/:id/password', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
+    const { id } = req.params;
+    const { password } = req.body;
+    if (!password)
+        return res.status(400).json({ error: 'missing_password' });
+    const user = await User_1.User.findById(id);
+    if (!user)
+        return res.status(404).json({ error: 'not_found' });
+    user.passwordHash = await bcrypt.hash(password, 10);
+    await user.save();
+    res.json({ ok: true });
+});

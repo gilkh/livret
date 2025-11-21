@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useRef } from 'react'
 import api from '../api'
 
 type Block = { type: string; props: any }
@@ -27,21 +27,28 @@ export default function TemplateBuilder() {
   const [clipboard, setClipboard] = useState<Block[] | null>(null)
   const [list, setList] = useState<Template[]>([])
   const [saveStatus, setSaveStatus] = useState('')
+
   const [error, setError] = useState('')
+  const pptxInputRef = useRef<HTMLInputElement>(null)
+
   const blocksPalette: Block[] = useMemo(() => ([
     { type: 'text', props: { text: 'Titre', fontSize: 20, color: '#333' } },
     { type: 'image', props: { url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/16/Eo_circle_pink_blank.svg/120px-Eo_circle_pink_blank.svg.png', width: 120, height: 120 } },
-    { type: 'student_info', props: { fields: ['name','class','dob'], fontSize: 12, color: '#2d3436' } },
+    { type: 'student_info', props: { fields: ['name', 'class', 'dob'], fontSize: 12, color: '#2d3436' } },
     { type: 'category_title', props: { categoryId: '', fontSize: 16, color: '#6c5ce7' } },
     { type: 'competency_list', props: { fontSize: 12, color: '#2d3436' } },
-    { type: 'signature', props: { labels: ['Directeur','Enseignant','Parent'], fontSize: 12 } },
+    { type: 'signature', props: { labels: ['Directeur', 'Enseignant', 'Parent'], fontSize: 12 } },
     { type: 'rect', props: { width: 160, height: 80, color: '#eef1f7' } },
     { type: 'circle', props: { radius: 60, color: '#ffeaa7' } },
-    { type: 'language_toggle', props: { radius: 40, spacing: 12, items: [
-      { code: 'en', label: 'English', logo: 'https://upload.wikimedia.org/wikipedia/commons/a/a4/Flag_of_the_United_States.svg', active: false },
-      { code: 'fr', label: 'Français', logo: 'https://upload.wikimedia.org/wikipedia/en/c/c3/Flag_of_France.svg', active: false },
-      { code: 'ar', label: 'العربية', logo: 'https://upload.wikimedia.org/wikipedia/commons/2/2c/Flag_of_Morocco.svg', active: false },
-    ] } },
+    {
+      type: 'language_toggle', props: {
+        radius: 40, spacing: 12, items: [
+          { code: 'en', label: 'English', logo: 'https://upload.wikimedia.org/wikipedia/commons/a/a4/Flag_of_the_United_States.svg', active: false },
+          { code: 'fr', label: 'Français', logo: 'https://upload.wikimedia.org/wikipedia/en/c/c3/Flag_of_France.svg', active: false },
+          { code: 'ar', label: 'العربية', logo: 'https://upload.wikimedia.org/wikipedia/commons/2/2c/Flag_of_Morocco.svg', active: false },
+        ]
+      }
+    },
     { type: 'line', props: { x2: 300, y2: 0, stroke: '#b2bec3', strokeWidth: 2 } },
     { type: 'arrow', props: { x2: 120, y2: 0, stroke: '#6c5ce7', strokeWidth: 2 } },
     { type: 'dynamic_text', props: { text: '{student.firstName} {student.lastName}', fontSize: 14, color: '#2d3436' } },
@@ -110,24 +117,49 @@ export default function TemplateBuilder() {
   const previewUrl = tpl._id && studentId ? `http://localhost:4000/pdf/student/${studentId}?templateId=${tpl._id}` : ''
   const bulkUrl = tpl._id && classId ? `http://localhost:4000/pdf/class/${classId}/batch?templateId=${tpl._id}` : ''
 
-  const refreshGallery = async () => { try { const r = await api.get('/media/list'); setGallery(r.data) } catch {} }
+  const refreshGallery = async () => { try { const r = await api.get('/media/list'); setGallery(r.data) } catch { } }
   const loadTemplates = async () => { try { setError(''); const r = await api.get('/templates'); setList(r.data) } catch (e: any) { setError('Impossible de charger les templates') } }
-  const loadYears = async () => { try { const r = await api.get('/school-years'); setYears(r.data) } catch {} }
-  const loadClasses = async (yr: string) => { try { const r = await api.get('/classes', { params: { schoolYearId: yr } }); setClasses(r.data) } catch {} }
-  const loadStudents = async (cls: string) => { try { const r = await api.get(`/students/by-class/${cls}`); setStudents(r.data) } catch {} }
+  const loadYears = async () => { try { const r = await api.get('/school-years'); setYears(r.data) } catch { } }
+  const loadClasses = async (yr: string) => { try { const r = await api.get('/classes', { params: { schoolYearId: yr } }); setClasses(r.data) } catch { } }
+  const loadStudents = async (cls: string) => { try { const r = await api.get(`/students/by-class/${cls}`); setStudents(r.data) } catch { } }
+
+
+  const handlePptxImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    const fd = new FormData()
+    fd.append('file', file)
+
+    try {
+      setSaveStatus('Importation en cours...')
+      const r = await api.post('/templates/import-pptx', fd)
+      setTpl(r.data)
+      setSaveStatus('Importé avec succès')
+      await loadTemplates()
+    } catch (err) {
+      console.error(err)
+      setError('Échec de l\'importation PPTX')
+      setSaveStatus('')
+    }
+
+    // Reset input
+    if (pptxInputRef.current) pptxInputRef.current.value = ''
+  }
+
   useEffect(() => { refreshGallery(); loadTemplates(); loadYears() }, [])
   useEffect(() => { if (yearId) { loadClasses(yearId); setClassId(''); setStudents([]); setStudentId('') } }, [yearId])
   useEffect(() => { if (classId) { loadStudents(classId); setStudentId('') } }, [classId])
 
   return (
-    <div className="container">
+    <div style={{ padding: 24 }}>
       <div className="card">
         <h2 className="title">Éditeur de template</h2>
         <div className="toolbar" style={{ marginBottom: 12, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
           <input placeholder="Nom du template" value={tpl.name} onChange={e => setTpl({ ...tpl, name: e.target.value })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
           <button className="btn" onClick={() => { const pages = [...tpl.pages, { title: `Page ${tpl.pages.length + 1}`, blocks: [] }]; setTpl({ ...tpl, pages }); setSelectedPage(pages.length - 1); setSelectedIndex(null) }}>Ajouter une page</button>
           <select value={selectedPage} onChange={e => setSelectedPage(Number(e.target.value))} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }}>
-            {tpl.pages.map((p, i) => <option key={i} value={i}>{p.title || `Page ${i+1}`}</option>)}
+            {tpl.pages.map((p, i) => <option key={i} value={i}>{p.title || `Page ${i + 1}`}</option>)}
           </select>
           <input placeholder="Couleur de fond (ex: #f9f1ff)" value={tpl.pages[selectedPage].bgColor || ''} onChange={e => { const pages = [...tpl.pages]; pages[selectedPage] = { ...pages[selectedPage], bgColor: e.target.value }; setTpl({ ...tpl, pages }) }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
           <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}><input type="checkbox" checked={snap} onChange={e => setSnap(e.target.checked)} /> Snap</label>
@@ -164,7 +196,11 @@ export default function TemplateBuilder() {
             a.click()
             a.remove()
             URL.revokeObjectURL(url)
+            a.remove()
+            URL.revokeObjectURL(url)
           }}>Télécharger JSON</button>
+          <button className="btn secondary" onClick={() => pptxInputRef.current?.click()}>Importer PPTX</button>
+          <input type="file" ref={pptxInputRef} style={{ display: 'none' }} accept=".pptx" onChange={handlePptxImport} />
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr 280px', gap: 12 }}>
           <div className="card">
@@ -190,12 +226,12 @@ export default function TemplateBuilder() {
           </div>
           <div className="card page-canvas" style={{ transform: `scale(${scale})`, transformOrigin: 'top left', height: pageHeight, width: pageWidth, background: tpl.pages[selectedPage].bgColor || '#fff', overflow: 'hidden' }}>
             <div className="page-margins" />
-          {tpl.pages[selectedPage].blocks.map((b, idx) => (
-            <div key={idx} style={{ position: 'absolute', left: b.props.x || 0, top: b.props.y || 0, zIndex: (b.props.z ?? idx), border: selectedIndex === idx ? '2px solid var(--accent)' : '1px dashed #ccc', padding: 6, borderRadius: 6 }} onMouseDown={(e) => onDrag(e, idx)} onClick={() => setSelectedIndex(idx)}>
+            {tpl.pages[selectedPage].blocks.map((b, idx) => (
+              <div key={idx} style={{ position: 'absolute', left: b.props.x || 0, top: b.props.y || 0, zIndex: (b.props.z ?? idx), border: selectedIndex === idx ? '2px solid var(--accent)' : '1px dashed #ccc', padding: 6, borderRadius: 6 }} onMouseDown={(e) => onDrag(e, idx)} onClick={() => setSelectedIndex(idx)}>
                 {b.type === 'text' && <div style={{ color: b.props.color, fontSize: b.props.fontSize }}>{b.props.text}</div>}
                 {b.type === 'image' && <img src={b.props.url} style={{ width: b.props.width || 120, height: b.props.height || 120, borderRadius: 8 }} />}
                 {b.type === 'rect' && <div style={{ width: b.props.width, height: b.props.height, background: b.props.color, borderRadius: b.props.radius || 8 }} />}
-                {b.type === 'circle' && <div style={{ width: (b.props.radius||60)*2, height: (b.props.radius||60)*2, background: b.props.color, borderRadius: '50%' }} />}
+                {b.type === 'circle' && <div style={{ width: (b.props.radius || 60) * 2, height: (b.props.radius || 60) * 2, background: b.props.color, borderRadius: '50%' }} />}
                 {b.type === 'language_toggle' && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: b.props.spacing || 12 }}>
                     {(b.props.items || []).map((it: any, i: number) => {
@@ -218,50 +254,87 @@ export default function TemplateBuilder() {
                 {b.type === 'category_title' && <div style={{ color: b.props.color, fontSize: b.props.fontSize }}>Titre catégorie</div>}
                 {b.type === 'competency_list' && <div style={{ color: b.props.color, fontSize: b.props.fontSize }}>Liste des compétences</div>}
                 {b.type === 'signature' && <div style={{ fontSize: b.props.fontSize }}>{(b.props.labels || []).join(' / ')}</div>}
-                {(b.type === 'image' || b.type === 'text') && (
-                  <div style={{ position: 'absolute', right: -6, bottom: -6, width: 12, height: 12, background: '#fff', border: '1px solid #aaa', borderRadius: 2, cursor: 'nwse-resize' }}
-                    onMouseDown={(ev) => {
-                      ev.stopPropagation()
-                      const startX = ev.clientX
-                      const startY = ev.clientY
-                      const bw = b.props.width || 120
-                      const bh = b.props.height || 60
-                      const onMove = (mv: MouseEvent) => {
-                        const dw = mv.clientX - startX
-                        const dh = mv.clientY - startY
-                        updateSelected({ width: Math.max(20, bw + dw), height: Math.max(20, bh + dh) })
+                {(b.type === 'image' || b.type === 'text') && selectedIndex === idx && (
+                  <>
+                    {['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'].map((dir) => {
+                      const style: React.CSSProperties = {
+                        position: 'absolute', width: 10, height: 10, background: '#fff', border: '1px solid #6c5ce7', borderRadius: '50%', zIndex: 10,
+                        cursor: `${dir}-resize`
                       }
-                      const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
-                      window.addEventListener('mousemove', onMove)
-                      window.addEventListener('mouseup', onUp)
-                    }} />
+                      if (dir.includes('n')) style.top = -5
+                      if (dir.includes('s')) style.bottom = -5
+                      if (dir.includes('w')) style.left = -5
+                      if (dir.includes('e')) style.right = -5
+                      if (dir === 'n' || dir === 's') style.left = 'calc(50% - 5px)'
+                      if (dir === 'e' || dir === 'w') style.top = 'calc(50% - 5px)'
+
+                      return (
+                        <div key={dir} style={style}
+                          onMouseDown={(ev) => {
+                            ev.stopPropagation()
+                            const startX = ev.clientX
+                            const startY = ev.clientY
+                            const startW = b.props.width || (b.type === 'text' ? 120 : 120)
+                            const startH = b.props.height || (b.type === 'text' ? 60 : 120)
+                            const startXPos = b.props.x || 0
+                            const startYPos = b.props.y || 0
+
+                            const onMove = (mv: MouseEvent) => {
+                              const dx = mv.clientX - startX
+                              const dy = mv.clientY - startY
+                              let newW = startW
+                              let newH = startH
+                              let newX = startXPos
+                              let newY = startYPos
+
+                              if (dir.includes('e')) newW = Math.max(20, startW + dx)
+                              if (dir.includes('s')) newH = Math.max(20, startH + dy)
+                              if (dir.includes('w')) {
+                                newW = Math.max(20, startW - dx)
+                                newX = startXPos + (startW - newW)
+                              }
+                              if (dir.includes('n')) {
+                                newH = Math.max(20, startH - dy)
+                                newY = startYPos + (startH - newH)
+                              }
+
+                              updateSelected({ width: newW, height: newH, x: newX, y: newY })
+                            }
+                            const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
+                            window.addEventListener('mousemove', onMove)
+                            window.addEventListener('mouseup', onUp)
+                          }}
+                        />
+                      )
+                    })}
+                  </>
                 )}
               </div>
             ))}
           </div>
-            <div className="card">
-              <h3>Propriétés</h3>
-              {saveStatus && <div className="note">{saveStatus}</div>}
-              {selectedIndex != null ? (
-                <div style={{ display: 'grid', gap: 8 }}>
-                  <div className="note">Type: {tpl.pages[selectedPage].blocks[selectedIndex].type}</div>
-                  <input placeholder="X" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.x || 0} onChange={e => updateSelected({ x: Number(e.target.value) })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
-                  <input placeholder="Y" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.y || 0} onChange={e => updateSelected({ y: Number(e.target.value) })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
-                  <div className="toolbar" style={{ display: 'flex', gap: 8 }}>
-                    <input placeholder="Z-index" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.z ?? selectedIndex} onChange={e => updateSelected({ z: Number(e.target.value) })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
-                    <button className="btn secondary" onClick={() => {
-                      const zs = tpl.pages[selectedPage].blocks.map(b => (b.props?.z ?? 0))
-                      const maxZ = zs.length ? Math.max(...zs) : 0
-                      updateSelected({ z: maxZ + 1 })
-                    }}>Mettre devant</button>
-                    <button className="btn secondary" onClick={() => {
-                      const zs = tpl.pages[selectedPage].blocks.map(b => (b.props?.z ?? 0))
-                      const minZ = zs.length ? Math.min(...zs) : 0
-                      updateSelected({ z: minZ - 1 })
-                    }}>Mettre derrière</button>
-                  </div>
-                  <input placeholder="Couleur" value={tpl.pages[selectedPage].blocks[selectedIndex].props.color || ''} onChange={e => updateSelected({ color: e.target.value })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
-                  <input placeholder="Taille police" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.fontSize || tpl.pages[selectedPage].blocks[selectedIndex].props.size || 12} onChange={e => updateSelected({ fontSize: Number(e.target.value), size: Number(e.target.value) })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+          <div className="card">
+            <h3>Propriétés</h3>
+            {saveStatus && <div className="note">{saveStatus}</div>}
+            {selectedIndex != null ? (
+              <div style={{ display: 'grid', gap: 8 }}>
+                <div className="note">Type: {tpl.pages[selectedPage].blocks[selectedIndex].type}</div>
+                <input placeholder="X" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.x || 0} onChange={e => updateSelected({ x: Number(e.target.value) })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+                <input placeholder="Y" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.y || 0} onChange={e => updateSelected({ y: Number(e.target.value) })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+                <div className="toolbar" style={{ display: 'flex', gap: 8 }}>
+                  <input placeholder="Z-index" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.z ?? selectedIndex} onChange={e => updateSelected({ z: Number(e.target.value) })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+                  <button className="btn secondary" onClick={() => {
+                    const zs = tpl.pages[selectedPage].blocks.map(b => (b.props?.z ?? 0))
+                    const maxZ = zs.length ? Math.max(...zs) : 0
+                    updateSelected({ z: maxZ + 1 })
+                  }}>Mettre devant</button>
+                  <button className="btn secondary" onClick={() => {
+                    const zs = tpl.pages[selectedPage].blocks.map(b => (b.props?.z ?? 0))
+                    const minZ = zs.length ? Math.min(...zs) : 0
+                    updateSelected({ z: minZ - 1 })
+                  }}>Mettre derrière</button>
+                </div>
+                <input placeholder="Couleur" value={tpl.pages[selectedPage].blocks[selectedIndex].props.color || ''} onChange={e => updateSelected({ color: e.target.value })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+                <input placeholder="Taille police" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.fontSize || tpl.pages[selectedPage].blocks[selectedIndex].props.size || 12} onChange={e => updateSelected({ fontSize: Number(e.target.value), size: Number(e.target.value) })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
                 {tpl.pages[selectedPage].blocks[selectedIndex].type === 'text' && (
                   <textarea placeholder="Texte" rows={4} value={tpl.pages[selectedPage].blocks[selectedIndex].props.text || ''} onChange={e => updateSelected({ text: e.target.value })} style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
                 )}

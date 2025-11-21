@@ -34,7 +34,7 @@ export default function StudentPage() {
     load()
   }, [id])
 
-  const toggle = async (compId: string, lang: 'en'|'fr'|'ar') => {
+  const toggle = async (compId: string, lang: 'en' | 'fr' | 'ar') => {
     const prev = statuses[compId]
     const next = { ...prev, competencyId: compId, [lang]: !prev?.[lang] }
     setStatuses({ ...statuses, [compId]: next })
@@ -61,7 +61,7 @@ export default function StudentPage() {
                   {templates.map(t => <option key={t._id} value={t._id}>{t.name}</option>)}
                 </select>
                 <input placeholder="Mot de passe export" value={exportPwd} onChange={e => setExportPwd(e.target.value)} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
-                <a className="btn" href={`http://localhost:4000/pdf/student/${id}${templateId ? (`?templateId=${templateId}${exportPwd ? `&pwd=${encodeURIComponent(exportPwd)}`:''}`) : ''}`} target="_blank">📄 Exporter le Carnet</a>
+                <a className="btn" href={`http://localhost:4000/pdf/student/${id}${templateId ? (`?templateId=${templateId}${exportPwd ? `&pwd=${encodeURIComponent(exportPwd)}` : ''}`) : ''}`} target="_blank">📄 Exporter le Carnet</a>
               </div>
             </div>
           </div>
@@ -110,10 +110,10 @@ function SignatureEditor({ studentId }: { studentId: string }) {
         <div key={idx} className="competency">
           <input placeholder="Label" value={it.label} onChange={e => { const c = [...items]; c[idx] = { ...it, label: e.target.value }; setItems(c) }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
           <input placeholder="Data URL image" value={it.dataUrl || ''} onChange={e => { const c = [...items]; c[idx] = { ...it, dataUrl: e.target.value }; setItems(c) }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', flex: 1 }} />
-          <input type="file" accept="image/*" onChange={async e => { const f = e.target.files?.[0]; if (!f) return; const fd = new FormData(); fd.append('file', f); const r = await fetch('http://localhost:4000/media/upload', { method: 'POST', headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` }, body: fd }); const data = await r.json(); if (data?.url) { const c = [...items]; c[idx] = { ...it, url: data.url.startsWith('http') ? data.url : `http://localhost:4000${data.url}` }; setItems(c) } }} />
+          <input type="file" accept="image/*" onChange={async e => { const f = e.target.files?.[0]; if (!f) return; const fd = new FormData(); fd.append('file', f); const r = await fetch('http://localhost:4000/media/upload', { method: 'POST', headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` }, body: fd }); const data = await r.json(); if (data?.url) { const c = [...items]; c[idx] = { ...it, dataUrl: data.url.startsWith('http') ? data.url : `http://localhost:4000${data.url}` }; setItems(c) } }} />
           <button className="btn" onClick={async () => { const r = await api.get('/media/list'); if (Array.isArray(r.data)) { /* no-op, gallery automatically updates via query */ } }}>Rafraîchir la galerie</button>
           {Array.isArray(gallery) && (
-            <select value={(it as any).url || ''} onChange={e => { const c = [...items]; c[idx] = { ...it, url: `http://localhost:4000${e.target.value}` }; setItems(c) }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }}>
+            <select value={(it as any).dataUrl || ''} onChange={e => { const c = [...items]; c[idx] = { ...it, dataUrl: `http://localhost:4000${e.target.value}` }; setItems(c) }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }}>
               <option value="">Choisir depuis la galerie</option>
               {gallery.map((u: string) => <option key={u} value={u}>{u}</option>)}
             </select>
