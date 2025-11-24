@@ -4,26 +4,44 @@ export default function NavBar() {
   const role = typeof window !== 'undefined' ? localStorage.getItem('role') : null
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
   const navigate = useNavigate()
-  const logout = () => { localStorage.removeItem('token'); localStorage.removeItem('role'); navigate('/login') }
+  const logout = () => {
+    localStorage.removeItem('token')
+    localStorage.removeItem('role')
+    localStorage.removeItem('displayName')
+    navigate('/login')
+  }
+
   return (
     <div className="navbar">
       <div className="nav-left">
-        <Link to={role === 'ADMIN' || role === 'SUBADMIN' ? '/admin' : '/'} className="nav-brand">NVCar</Link>
+        <Link to={
+          role === 'ADMIN' ? '/admin' :
+            role === 'SUBADMIN' ? '/subadmin/dashboard' :
+              '/teacher/classes'
+        } className="nav-brand">NVCar</Link>
       </div>
       <div className="nav-center">
-        {role === 'ADMIN' || role === 'SUBADMIN' ? (
+        {role === 'ADMIN' && (
           <>
-            <Link to="/admin" className="nav-link">Accueil Admin</Link>
+            <Link to="/admin" className="nav-link">Accueil</Link>
             <Link to="/admin/users" className="nav-link">Utilisateurs</Link>
-            <Link to="/admin/students" className="nav-link">Élèves</Link>
+            <Link to="/admin/assignments" className="nav-link">Assignations</Link>
             <Link to="/admin/template-builder" className="nav-link">Templates</Link>
             <Link to="/admin/media" className="nav-link">Média</Link>
           </>
-        ) : token ? (
+        )}
+        {role === 'SUBADMIN' && (
           <>
-            <Link to="/" className="nav-link">Accueil Enseignant</Link>
+            <Link to="/subadmin/dashboard" className="nav-link">Tableau de bord</Link>
+            <Link to="/admin/template-builder" className="nav-link">Templates</Link>
+            <Link to="/admin/media" className="nav-link">Média</Link>
           </>
-        ) : null}
+        )}
+        {role === 'TEACHER' && token && (
+          <>
+            <Link to="/teacher/classes" className="nav-link">Mes Classes</Link>
+          </>
+        )}
       </div>
       <div className="nav-right">
         {!token ? (

@@ -16,6 +16,12 @@ import path from 'path'
 import { User } from './models/User'
 import * as bcrypt from 'bcryptjs'
 import { classesRouter } from './routes/classes'
+import { teacherAssignmentsRouter } from './routes/teacherAssignments'
+import { templateAssignmentsRouter } from './routes/templateAssignments'
+import { subAdminAssignmentsRouter } from './routes/subAdminAssignments'
+import { teacherTemplatesRouter } from './routes/teacherTemplates'
+import { subAdminTemplatesRouter } from './routes/subAdminTemplates'
+import { auditLogsRouter } from './routes/auditLogs'
 
 export const createApp = () => {
   const app = express()
@@ -40,6 +46,12 @@ export const createApp = () => {
   app.use('/school-years', schoolYearsRouter)
   app.use('/classes', classesRouter)
   app.use('/media', mediaRouter)
+  app.use('/teacher-assignments', teacherAssignmentsRouter)
+  app.use('/template-assignments', templateAssignmentsRouter)
+  app.use('/subadmin-assignments', subAdminAssignmentsRouter)
+  app.use('/teacher', teacherTemplatesRouter)
+  app.use('/subadmin', subAdminTemplatesRouter)
+  app.use('/audit-logs', auditLogsRouter)
   app.use('/uploads', express.static(path.join(process.cwd(), 'public', 'uploads')))
 
   app.get('/health', (_, res) => res.json({ ok: true }))

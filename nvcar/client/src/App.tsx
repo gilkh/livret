@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate, useNavigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
 import Login from './pages/Login'
 import AdminDashboard from './pages/AdminDashboard'
 import AdminGradebooks from './pages/AdminGradebooks'
@@ -10,6 +10,15 @@ import AdminResources from './pages/AdminResources'
 import TemplateBuilder from './pages/TemplateBuilder'
 import NavBar from './components/NavBar'
 import AdminMedia from './pages/AdminMedia'
+import TeacherClassView from './pages/TeacherClassView'
+import TeacherStudentTemplates from './pages/TeacherStudentTemplates'
+import TeacherTemplateEditor from './pages/TeacherTemplateEditor'
+import SubAdminDashboard from './pages/SubAdminDashboard'
+import SubAdminTeacherView from './pages/SubAdminTeacherView'
+import SubAdminTemplateReview from './pages/SubAdminTemplateReview'
+import AdminAssignments from './pages/AdminAssignments'
+import AdminAssignmentList from './pages/AdminAssignmentList'
+import AdminAuditLogs from './pages/AdminAuditLogs'
 
 const RequireAuth = ({ children }: { children: JSX.Element }) => {
   const token = localStorage.getItem('token')
@@ -18,9 +27,14 @@ const RequireAuth = ({ children }: { children: JSX.Element }) => {
 
 export default function App() {
   const navigate = useNavigate()
+  const location = useLocation()
+
+  // Hide navbar on login page
+  const showNavBar = location.pathname !== '/login'
+
   return (
     <>
-      <NavBar />
+      {showNavBar && <NavBar />}
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route
@@ -88,10 +102,90 @@ export default function App() {
           }
         />
         <Route
+          path="/admin/assignments"
+          element={
+            <RequireAuth>
+              <AdminAssignments />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/admin/assignment-list"
+          element={
+            <RequireAuth>
+              <AdminAssignmentList />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/admin/audit-logs"
+          element={
+            <RequireAuth>
+              <AdminAuditLogs />
+            </RequireAuth>
+          }
+        />
+        <Route
           path="/student/:id"
           element={
             <RequireAuth>
               <StudentPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/teacher/classes"
+          element={
+            <RequireAuth>
+              <TeacherDashboard />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/teacher/classes/:classId"
+          element={
+            <RequireAuth>
+              <TeacherClassView />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/teacher/students/:studentId/templates"
+          element={
+            <RequireAuth>
+              <TeacherStudentTemplates />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/teacher/templates/:assignmentId/edit"
+          element={
+            <RequireAuth>
+              <TeacherTemplateEditor />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/subadmin/dashboard"
+          element={
+            <RequireAuth>
+              <SubAdminDashboard />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/subadmin/teachers/:teacherId"
+          element={
+            <RequireAuth>
+              <SubAdminTeacherView />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/subadmin/templates/:assignmentId/review"
+          element={
+            <RequireAuth>
+              <SubAdminTemplateReview />
             </RequireAuth>
           }
         />

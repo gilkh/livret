@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import api from '../api'
 
 type Block = { type: string; props: any }
@@ -12,6 +13,7 @@ const pageWidth = 800
 const pageHeight = 1120
 
 export default function TemplateBuilder() {
+  const navigate = useNavigate()
   const [tpl, setTpl] = useState<Template>({ name: 'Nouveau Template', pages: [{ title: 'Page 1', blocks: [] }] })
   const [studentId, setStudentId] = useState('')
   const [classId, setClassId] = useState('')
@@ -45,7 +47,7 @@ export default function TemplateBuilder() {
         radius: 40, spacing: 12, items: [
           { code: 'en', label: 'English', logo: 'https://upload.wikimedia.org/wikipedia/commons/a/a4/Flag_of_the_United_States.svg', active: false },
           { code: 'fr', label: 'Français', logo: 'https://upload.wikimedia.org/wikipedia/en/c/c3/Flag_of_France.svg', active: false },
-          { code: 'ar', label: 'العربية', logo: 'https://upload.wikimedia.org/wikipedia/commons/2/2c/Flag_of_Morocco.svg', active: false },
+          { code: 'ar', label: 'العربية', logo: 'https://upload.wikimedia.org/wikipedia/commons/5/59/Flag_of_Lebanon.svg', active: false },
         ]
       }
     },
@@ -118,7 +120,22 @@ export default function TemplateBuilder() {
   const bulkUrl = tpl._id && classId ? `http://localhost:4000/pdf/class/${classId}/batch?templateId=${tpl._id}` : ''
 
   const refreshGallery = async () => { try { const r = await api.get('/media/list'); setGallery(r.data) } catch { } }
-  const loadTemplates = async () => { try { setError(''); const r = await api.get('/templates'); setList(r.data) } catch (e: any) { setError('Impossible de charger les templates') } }
+  const loadTemplates = async () => {
+    try {
+      setError('');
+      const r = await api.get('/templates');
+      setList(r.data)
+    } catch (e: any) {
+      // Check if it's an authentication error
+      if (e.response?.status === 401 || e.response?.status === 403) {
+        setError('Session expirée. Veuillez vous reconnecter.')
+        // Redirect to login after a short delay
+        setTimeout(() => navigate('/login'), 2000)
+      } else {
+        setError('Impossible de charger les templates')
+      }
+    }
+  }
   const loadYears = async () => { try { const r = await api.get('/school-years'); setYears(r.data) } catch { } }
   const loadClasses = async (yr: string) => { try { const r = await api.get('/classes', { params: { schoolYearId: yr } }); setClasses(r.data) } catch { } }
   const loadStudents = async (cls: string) => { try { const r = await api.get(`/students/by-class/${cls}`); setStudents(r.data) } catch { } }
@@ -233,7 +250,7 @@ export default function TemplateBuilder() {
                 {b.type === 'rect' && <div style={{ width: b.props.width, height: b.props.height, background: b.props.color, borderRadius: b.props.radius || 8 }} />}
                 {b.type === 'circle' && <div style={{ width: (b.props.radius || 60) * 2, height: (b.props.radius || 60) * 2, background: b.props.color, borderRadius: '50%' }} />}
                 {b.type === 'language_toggle' && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: b.props.spacing || 12 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: b.props.spacing || 12 }}>
                     {(b.props.items || []).map((it: any, i: number) => {
                       const r = b.props.radius || 40
                       const size = r * 2

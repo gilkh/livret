@@ -42,3 +42,347 @@ body { margin: 0; font-family: 'Poppins', system-ui, sans-serif; background: var
 
 .page-canvas { position: relative; border: 2px solid #dfe6e9; border-radius: 8px; box-shadow: 0 10px 24px rgba(0,0,0,0.08); background: #fff; }
 .page-margins { position: absolute; left: 24px; top: 24px; right: 24px; bottom: 24px; border: 1px dashed #b2bec3; pointer-events: none; }
+
+/* ============================================
+   LOGIN PAGE STYLES - Champville Dick el Mehdi
+   ============================================ */
+
+/* School Color Variables */
+:root {
+  --school-navy: #1e3a8a;
+  --school-gold: #f59e0b;
+  --school-light-blue: #dbeafe;
+  --school-dark: #0f172a;
+}
+
+/* Login Page Container */
+.login-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 50%, #3b82f6 100%);
+  background-size: 400% 400%;
+  animation: gradientShift 15s ease infinite;
+  position: relative;
+  overflow: hidden;
+}
+
+@keyframes gradientShift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+.login-container {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  max-width: 1200px;
+  width: 90%;
+  min-height: 600px;
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(20px);
+  border-radius: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+}
+
+/* Welcome Section */
+.login-welcome {
+  background: linear-gradient(135deg, rgba(30, 58, 138, 0.9) 0%, rgba(15, 23, 42, 0.95) 100%);
+  padding: 60px 50px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.login-brand {
+  text-align: center;
+  z-index: 2;
+  position: relative;
+}
+
+.login-logo {
+  width: 140px;
+  height: 140px;
+  object-fit: contain;
+  margin-bottom: 32px;
+  filter: drop-shadow(0 10px 20px rgba(245, 158, 11, 0.3));
+  animation: float 6s ease-in-out infinite;
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-15px); }
+}
+
+.login-school-name {
+  font-size: 32px;
+  font-weight: 700;
+  color: #fff;
+  margin: 0 0 12px 0;
+  line-height: 1.2;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+}
+
+.login-tagline {
+  font-size: 16px;
+  color: var(--school-gold);
+  font-weight: 500;
+  margin: 0;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+/* Floating Decorative Shapes */
+.login-decoration {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  top: 0;
+  left: 0;
+  z-index: 1;
+}
+
+.floating-shape {
+  position: absolute;
+  border-radius: 50%;
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.2), rgba(59, 130, 246, 0.1));
+  animation: float-random 20s ease-in-out infinite;
+}
+
+.shape-1 {
+  width: 300px;
+  height: 300px;
+  top: -100px;
+  left: -100px;
+  animation-delay: 0s;
+}
+
+.shape-2 {
+  width: 200px;
+  height: 200px;
+  bottom: -50px;
+  right: -50px;
+  animation-delay: 5s;
+}
+
+.shape-3 {
+  width: 150px;
+  height: 150px;
+  top: 50%;
+  right: -75px;
+  animation-delay: 10s;
+}
+
+@keyframes float-random {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  25% { transform: translate(20px, -20px) scale(1.1); }
+  50% { transform: translate(-15px, 15px) scale(0.9); }
+  75% { transform: translate(10px, -10px) scale(1.05); }
+}
+
+/* Form Section */
+.login-form-section {
+  background: white;
+  padding: 60px 50px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 420px;
+}
+
+.login-header {
+  margin-bottom: 40px;
+}
+
+.login-title {
+  font-size: 36px;
+  font-weight: 700;
+  color: var(--school-navy);
+  margin: 0 0 8px 0;
+}
+
+.login-subtitle {
+  font-size: 15px;
+  color: #64748b;
+  margin: 0;
+}
+
+/* Form Styling */
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.form-group {
+  position: relative;
+}
+
+.form-input {
+  width: 100%;
+  padding: 16px 16px 16px 16px;
+  font-size: 16px;
+  border: 2px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
+  transition: all 0.3s ease;
+  font-family: 'Poppins', system-ui, sans-serif;
+  box-sizing: border-box;
+}
+
+.form-input:focus {
+  outline: none;
+  border-color: var(--school-navy);
+  background: white;
+  box-shadow: 0 0 0 4px rgba(30, 58, 138, 0.1);
+}
+
+.form-label {
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #94a3b8;
+  font-size: 16px;
+  pointer-events: none;
+  transition: all 0.3s ease;
+  background: transparent;
+  padding: 0 4px;
+}
+
+.form-input:focus + .form-label,
+.form-input.has-value + .form-label {
+  top: 0;
+  font-size: 12px;
+  color: var(--school-navy);
+  background: white;
+  font-weight: 600;
+}
+
+/* Error Message */
+.login-error {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  color: #dc2626;
+  font-size: 14px;
+  animation: shake 0.5s ease;
+}
+
+.login-error svg {
+  flex-shrink: 0;
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-10px); }
+  75% { transform: translateX(10px); }
+}
+
+/* Submit Button */
+.login-submit-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  width: 100%;
+  padding: 16px 24px;
+  font-size: 16px;
+  font-weight: 600;
+  color: white;
+  background: linear-gradient(135deg, var(--school-navy) 0%, #3b82f6 100%);
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 14px rgba(30, 58, 138, 0.4);
+  font-family: 'Poppins', system-ui, sans-serif;
+  position: relative;
+  overflow: hidden;
+}
+
+.login-submit-btn::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+  transition: left 0.5s ease;
+}
+
+.login-submit-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(30, 58, 138, 0.5);
+}
+
+.login-submit-btn:hover::before {
+  left: 100%;
+}
+
+.login-submit-btn:active {
+  transform: translateY(0);
+}
+
+.login-submit-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Footer */
+.login-footer {
+  margin-top: 32px;
+  text-align: center;
+  padding-top: 24px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.login-footer p {
+  color: #94a3b8;
+  font-size: 13px;
+  margin: 0;
+}
+
+/* Responsive Design */
+@media (max-width: 968px) {
+  .login-container {
+    grid-template-columns: 1fr;
+    width: 95%;
+  }
+  
+  .login-welcome {
+    padding: 40px 30px;
+    min-height: 350px;
+  }
+  
+  .login-logo {
+    width: 100px;
+    height: 100px;
+  }
+  
+  .login-school-name {
+    font-size: 26px;
+  }
+  
+  .login-form-section {
+    padding: 40px 30px;
+  }
+  
+  .login-title {
+    font-size: 28px;
+  }
+}
