@@ -2,6 +2,7 @@ import { Schema, model } from 'mongoose'
 
 const templateAssignmentSchema = new Schema({
     templateId: { type: String, required: true },
+    templateVersion: { type: Number, required: true, default: 1 },
     studentId: { type: String, required: true },
     assignedTeachers: { type: [String], default: [] },
     status: { type: String, enum: ['draft', 'in_progress', 'completed', 'signed'], default: 'draft' },

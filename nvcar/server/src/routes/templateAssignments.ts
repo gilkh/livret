@@ -36,6 +36,7 @@ templateAssignmentsRouter.post('/', requireAuth(['ADMIN']), async (req, res) => 
             { templateId, studentId },
             {
                 templateId,
+                templateVersion: template.currentVersion || 1,
                 studentId,
                 assignedTeachers: assignedTeachers || [],
                 assignedBy: (req as any).user.userId,

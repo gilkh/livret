@@ -1,7 +1,7 @@
 import { AuditLog } from '../models/AuditLog'
 import { User } from '../models/User'
 
-type AuditAction = 'LOGIN' | 'LOGOUT' | 'EDIT_TEMPLATE' | 'SIGN_TEMPLATE' | 'EXPORT_PDF' | 'CREATE_ASSIGNMENT' | 'DELETE_ASSIGNMENT' | 'MARK_ASSIGNMENT_DONE' | 'UNMARK_ASSIGNMENT_DONE'
+type AuditAction = 'LOGIN' | 'LOGOUT' | 'EDIT_TEMPLATE' | 'SIGN_TEMPLATE' | 'EXPORT_PDF' | 'CREATE_ASSIGNMENT' | 'DELETE_ASSIGNMENT' | 'MARK_ASSIGNMENT_DONE' | 'UNMARK_ASSIGNMENT_DONE' | 'START_IMPERSONATION' | 'STOP_IMPERSONATION'
 
 interface LogParams {
     userId: string

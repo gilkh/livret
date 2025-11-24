@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 export default function NavBar() {
   const role = typeof window !== 'undefined' ? localStorage.getItem('role') : null
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
+  const displayName = typeof window !== 'undefined' ? localStorage.getItem('displayName') : null
   const navigate = useNavigate()
   const logout = () => {
     localStorage.removeItem('token')
@@ -47,7 +48,24 @@ export default function NavBar() {
         {!token ? (
           <Link to="/login" className="btn">Connexion</Link>
         ) : (
-          <button className="btn secondary" onClick={logout}>Déconnexion</button>
+          <>
+            {displayName && (
+              <span style={{ 
+                marginRight: '16px', 
+                fontWeight: '500',
+                color: '#333',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px'
+              }}>
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor" style={{ opacity: 0.6 }}>
+                  <path d="M10 10c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+                </svg>
+                {displayName}
+              </span>
+            )}
+            <button className="btn secondary" onClick={logout}>Déconnexion</button>
+          </>
         )}
       </div>
     </div>

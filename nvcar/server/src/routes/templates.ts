@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import { requireAuth } from '../auth'
 import { GradebookTemplate } from '../models/GradebookTemplate'
+import { TemplateAssignment } from '../models/TemplateAssignment'
 import multer from 'multer'
 import path from 'path'
 import { PptxImporter } from '../utils/pptxImporter'
@@ -41,7 +42,31 @@ templatesRouter.post('/', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), async (
   try {
     const { name, pages, variables, watermark, permissions, status, exportPassword } = req.body || {}
     if (!name) return res.status(400).json({ error: 'missing_name' })
-    const tpl = await GradebookTemplate.create({ name, pages: Array.isArray(pages) ? pages : [], variables: variables || {}, watermark, permissions, status: status || 'draft', exportPassword, createdBy: (req as any).user.userId, updatedAt: new Date() })
+    const userId = (req as any).user.actualUserId || (req as any).user.userId
+    
+    const templateData = { 
+      name, 
+      pages: Array.isArray(pages) ? pages : [], 
+      variables: variables || {}, 
+      watermark, 
+      permissions, 
+      status: status || 'draft', 
+      exportPassword, 
+      createdBy: userId, 
+      updatedAt: new Date(),
+      currentVersion: 1,
+      versionHistory: [{
+        version: 1,
+        pages: Array.isArray(pages) ? pages : [],
+        variables: variables || {},
+        watermark,
+        createdAt: new Date(),
+        createdBy: userId,
+        changeDescription: 'Initial version'
+      }]
+    }
+    
+    const tpl = await GradebookTemplate.create(templateData)
     res.json(tpl)
   } catch (e: any) {
     res.status(500).json({ error: 'create_failed', message: e.message })
@@ -51,9 +76,47 @@ templatesRouter.post('/', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), async (
 templatesRouter.patch('/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), async (req, res) => {
   try {
     const { id } = req.params
-    const { _id, __v, createdBy, updatedAt, shareId, versions, comments, ...rest } = req.body || {}
+    const { _id, __v, createdBy, updatedAt, shareId, versions, comments, versionHistory, currentVersion, changeDescription, ...rest } = req.body || {}
+    const userId = (req as any).user.actualUserId || (req as any).user.userId
+    
+    // Get the current template
+    const currentTemplate = await GradebookTemplate.findById(id)
+    if (!currentTemplate) return res.status(404).json({ error: 'template_not_found' })
+    
+    // Check if this is a significant change (pages, variables, or watermark changed)
+    const hasSignificantChange = rest.pages || rest.variables !== undefined || rest.watermark !== undefined
+    
+    // Check if there are existing assignments using this template
+    const existingAssignments = await TemplateAssignment.find({ templateId: id }).lean()
+    const hasActiveAssignments = existingAssignments.length > 0
+    
+    // If there are active assignments and significant changes, create a new version
+    if (hasActiveAssignments && hasSignificantChange) {
+      const newVersion = (currentTemplate.currentVersion || 1) + 1
+      
+      // Add current state to version history
+      const newHistoryEntry = {
+        version: newVersion,
+        pages: rest.pages || currentTemplate.pages,
+        variables: rest.variables !== undefined ? rest.variables : currentTemplate.variables,
+        watermark: rest.watermark !== undefined ? rest.watermark : currentTemplate.watermark,
+        createdAt: new Date(),
+        createdBy: userId,
+        changeDescription: changeDescription || `Version ${newVersion}`
+      }
+      
+      currentTemplate.versionHistory.push(newHistoryEntry)
+      currentTemplate.currentVersion = newVersion
+    }
+    
+    // Update the template
     const data: any = { ...rest, updatedAt: new Date() }
     if (rest.pages && !Array.isArray(rest.pages)) data.pages = []
+    if (hasActiveAssignments && hasSignificantChange) {
+      data.versionHistory = currentTemplate.versionHistory
+      data.currentVersion = currentTemplate.currentVersion
+    }
+    
     const tpl = await GradebookTemplate.findByIdAndUpdate(id, data, { new: true })
     res.json(tpl)
   } catch (e: any) {

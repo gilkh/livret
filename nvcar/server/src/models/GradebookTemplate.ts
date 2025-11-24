@@ -24,6 +24,19 @@ const templateSchema = new Schema({
   shareId: { type: String },
   versions: { type: [Schema.Types.Mixed], default: [] },
   comments: { type: [Schema.Types.Mixed], default: [] },
+  currentVersion: { type: Number, default: 1 },
+  versionHistory: { 
+    type: [{
+      version: { type: Number, required: true },
+      pages: { type: [pageSchema], required: true },
+      variables: { type: Schema.Types.Mixed, default: {} },
+      watermark: { type: Schema.Types.Mixed },
+      createdAt: { type: Date, required: true },
+      createdBy: { type: String, required: true },
+      changeDescription: { type: String }
+    }],
+    default: []
+  }
 })
 
 export const GradebookTemplate = model('GradebookTemplate', templateSchema)

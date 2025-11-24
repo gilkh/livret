@@ -22,6 +22,7 @@ import { subAdminAssignmentsRouter } from './routes/subAdminAssignments'
 import { teacherTemplatesRouter } from './routes/teacherTemplates'
 import { subAdminTemplatesRouter } from './routes/subAdminTemplates'
 import { auditLogsRouter } from './routes/auditLogs'
+import { impersonationRouter } from './routes/impersonation'
 
 export const createApp = () => {
   const app = express()
@@ -52,6 +53,7 @@ export const createApp = () => {
   app.use('/teacher', teacherTemplatesRouter)
   app.use('/subadmin', subAdminTemplatesRouter)
   app.use('/audit-logs', auditLogsRouter)
+  app.use('/impersonation', impersonationRouter)
   app.use('/uploads', express.static(path.join(process.cwd(), 'public', 'uploads')))
 
   app.get('/health', (_, res) => res.json({ ok: true }))

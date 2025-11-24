@@ -95,12 +95,29 @@ teacherTemplatesRouter.get('/template-assignments/:assignmentId', requireAuth(['
         const template = await GradebookTemplate.findById(assignment.templateId).lean()
         if (!template) return res.status(404).json({ error: 'template_not_found' })
 
+        // Get the specific version if available in history, otherwise use current
+        let versionedTemplate = template
+        if (assignment.templateVersion && assignment.templateVersion !== template.currentVersion) {
+            const versionData = template.versionHistory?.find(v => v.version === assignment.templateVersion)
+            if (versionData) {
+                // Use the versioned data but keep the template ID and metadata
+                versionedTemplate = {
+                    ...template,
+                    pages: versionData.pages,
+                    variables: versionData.variables || {},
+                    watermark: versionData.watermark,
+                    _versionUsed: assignment.templateVersion,
+                    _isOldVersion: assignment.templateVersion < (template.currentVersion || 1)
+                }
+            }
+        }
+
         // Get the student
         const student = await Student.findById(assignment.studentId).lean()
 
         res.json({
             assignment,
-            template,
+            template: versionedTemplate,
             student,
         })
     } catch (e: any) {

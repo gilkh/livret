@@ -9,6 +9,7 @@ import Templates from './pages/Templates'
 import AdminResources from './pages/AdminResources'
 import TemplateBuilder from './pages/TemplateBuilder'
 import NavBar from './components/NavBar'
+import ImpersonationBanner from './components/ImpersonationBanner'
 import AdminMedia from './pages/AdminMedia'
 import TeacherClassView from './pages/TeacherClassView'
 import TeacherStudentTemplates from './pages/TeacherStudentTemplates'
@@ -34,7 +35,12 @@ export default function App() {
 
   return (
     <>
-      {showNavBar && <NavBar />}
+      {showNavBar && (
+        <>
+          <ImpersonationBanner />
+          <NavBar />
+        </>
+      )}
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route
