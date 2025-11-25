@@ -124,18 +124,32 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
             else if (b.type === 'rect') {
                 const x = b.props?.x || 50, y = b.props?.y || 50;
                 const w = b.props?.width || 100, h = b.props?.height || 50;
-                if (b.props?.color)
+                if (b.props?.color && b.props.color !== 'transparent') {
                     doc.fillColor(b.props.color);
-                doc.rect(x, y, w, h).fill();
+                    doc.rect(x, y, w, h).fill();
+                }
+                if (b.props?.stroke) {
+                    doc.strokeColor(b.props.stroke);
+                    doc.lineWidth(b.props?.strokeWidth || 1);
+                    doc.rect(x, y, w, h).stroke();
+                    doc.strokeColor('#000');
+                }
                 doc.fillColor('#2d3436');
             }
             else if (b.type === 'circle') {
                 const r = b.props?.radius || 40;
                 const x = (b.props?.x || 50) + r;
                 const y = (b.props?.y || 50) + r;
-                if (b.props?.color)
+                if (b.props?.color && b.props.color !== 'transparent') {
                     doc.fillColor(b.props.color);
-                doc.circle(x, y, r).fill();
+                    doc.circle(x, y, r).fill();
+                }
+                if (b.props?.stroke) {
+                    doc.strokeColor(b.props.stroke);
+                    doc.lineWidth(b.props?.strokeWidth || 1);
+                    doc.circle(x, y, r).stroke();
+                    doc.strokeColor('#000');
+                }
                 doc.fillColor('#2d3436');
             }
             else if (b.type === 'line') {
@@ -170,6 +184,53 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
                     doc.image(buf, options);
                 }
                 catch { }
+            }
+            else if (b.type === 'table') {
+                const x0 = b.props?.x || 50, y0 = b.props?.y || 50;
+                const cols = b.props?.columnWidths || [];
+                const rows = b.props?.rowHeights || [];
+                const cells = b.props?.cells || [];
+                const colOffsets = [0];
+                for (let i = 0; i < cols.length; i++)
+                    colOffsets[i + 1] = colOffsets[i] + (cols[i] || 0);
+                const rowOffsets = [0];
+                for (let i = 0; i < rows.length; i++)
+                    rowOffsets[i + 1] = rowOffsets[i] + (rows[i] || 0);
+                for (let ri = 0; ri < rows.length; ri++) {
+                    for (let ci = 0; ci < cols.length; ci++) {
+                        const cell = cells?.[ri]?.[ci] || {};
+                        const cx = x0 + colOffsets[ci];
+                        const cy = y0 + rowOffsets[ri];
+                        const w = cols[ci] || 0;
+                        const h = rows[ri] || 0;
+                        if (cell.fill && cell.fill !== 'transparent') {
+                            doc.save();
+                            doc.fillColor(cell.fill);
+                            doc.rect(cx, cy, w, h).fill();
+                            doc.restore();
+                        }
+                        const drawSide = (sx, sy, ex, ey, side) => {
+                            if (!side?.width || !side?.color)
+                                return;
+                            doc.save();
+                            doc.strokeColor(side.color).lineWidth(side.width);
+                            doc.moveTo(sx, sy).lineTo(ex, ey).stroke();
+                            doc.restore();
+                        };
+                        drawSide(cx, cy, cx + w, cy, cell?.borders?.t);
+                        drawSide(cx, cy + h, cx + w, cy + h, cell?.borders?.b);
+                        drawSide(cx, cy, cx, cy + h, cell?.borders?.l);
+                        drawSide(cx + w, cy, cx + w, cy + h, cell?.borders?.r);
+                        if (cell.text) {
+                            doc.save();
+                            if (cell.color)
+                                doc.fillColor(cell.color);
+                            doc.fontSize(cell.fontSize || 12);
+                            doc.text(cell.text, cx + 4, cy + 4, { width: Math.max(0, w - 8) });
+                            doc.restore();
+                        }
+                    }
+                }
             }
             else if (b.type === 'student_info') {
                 const fields = b.props?.fields || ['name', 'class'];
@@ -470,18 +531,32 @@ exports.pdfRouter.get('/class/:classId/batch', (0, auth_1.requireAuth)(['ADMIN',
                         else if (b.type === 'rect') {
                             const x = b.props?.x || 50, y = b.props?.y || 50;
                             const w = b.props?.width || 100, h = b.props?.height || 50;
-                            if (b.props?.color)
+                            if (b.props?.color && b.props.color !== 'transparent') {
                                 doc.fillColor(b.props.color);
-                            doc.rect(x, y, w, h).fill();
+                                doc.rect(x, y, w, h).fill();
+                            }
+                            if (b.props?.stroke) {
+                                doc.strokeColor(b.props.stroke);
+                                doc.lineWidth(b.props?.strokeWidth || 1);
+                                doc.rect(x, y, w, h).stroke();
+                                doc.strokeColor('#000');
+                            }
                             doc.fillColor('#2d3436');
                         }
                         else if (b.type === 'circle') {
                             const r = b.props?.radius || 40;
                             const x = (b.props?.x || 50) + r;
                             const y = (b.props?.y || 50) + r;
-                            if (b.props?.color)
+                            if (b.props?.color && b.props.color !== 'transparent') {
                                 doc.fillColor(b.props.color);
-                            doc.circle(x, y, r).fill();
+                                doc.circle(x, y, r).fill();
+                            }
+                            if (b.props?.stroke) {
+                                doc.strokeColor(b.props.stroke);
+                                doc.lineWidth(b.props?.strokeWidth || 1);
+                                doc.circle(x, y, r).stroke();
+                                doc.strokeColor('#000');
+                            }
                             doc.fillColor('#2d3436');
                         }
                         else if (b.type === 'line') {
@@ -668,6 +743,53 @@ exports.pdfRouter.get('/class/:classId/batch', (0, auth_1.requireAuth)(['ADMIN',
                                 }
                                 doc.restore();
                                 x += size2 + spacing2;
+                            }
+                        }
+                        else if (b.type === 'table') {
+                            const x0 = b.props?.x || 50, y0 = b.props?.y || 50;
+                            const cols = b.props?.columnWidths || [];
+                            const rows = b.props?.rowHeights || [];
+                            const cells = b.props?.cells || [];
+                            const colOffsets = [0];
+                            for (let i = 0; i < cols.length; i++)
+                                colOffsets[i + 1] = colOffsets[i] + (cols[i] || 0);
+                            const rowOffsets = [0];
+                            for (let i = 0; i < rows.length; i++)
+                                rowOffsets[i + 1] = rowOffsets[i] + (rows[i] || 0);
+                            for (let ri = 0; ri < rows.length; ri++) {
+                                for (let ci = 0; ci < cols.length; ci++) {
+                                    const cell = cells?.[ri]?.[ci] || {};
+                                    const cx = x0 + colOffsets[ci];
+                                    const cy = y0 + rowOffsets[ri];
+                                    const w = cols[ci] || 0;
+                                    const h = rows[ri] || 0;
+                                    if (cell.fill && cell.fill !== 'transparent') {
+                                        doc.save();
+                                        doc.fillColor(cell.fill);
+                                        doc.rect(cx, cy, w, h).fill();
+                                        doc.restore();
+                                    }
+                                    const drawSide = (sx, sy, ex, ey, side) => {
+                                        if (!side?.width || !side?.color)
+                                            return;
+                                        doc.save();
+                                        doc.strokeColor(side.color).lineWidth(side.width);
+                                        doc.moveTo(sx, sy).lineTo(ex, ey).stroke();
+                                        doc.restore();
+                                    };
+                                    drawSide(cx, cy, cx + w, cy, cell?.borders?.t);
+                                    drawSide(cx, cy + h, cx + w, cy + h, cell?.borders?.b);
+                                    drawSide(cx, cy, cx, cy + h, cell?.borders?.l);
+                                    drawSide(cx + w, cy, cx + w, cy + h, cell?.borders?.r);
+                                    if (cell.text) {
+                                        doc.save();
+                                        if (cell.color)
+                                            doc.fillColor(cell.color);
+                                        doc.fontSize(cell.fontSize || 12);
+                                        doc.text(cell.text, cx + 4, cy + 4, { width: Math.max(0, w - 8) });
+                                        doc.restore();
+                                    }
+                                }
                             }
                         }
                     };

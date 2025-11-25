@@ -1,0 +1,19 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.TemplateAssignment = void 0;
+const mongoose_1 = require("mongoose");
+const templateAssignmentSchema = new mongoose_1.Schema({
+    templateId: { type: String, required: true },
+    templateVersion: { type: Number, required: true, default: 1 },
+    studentId: { type: String, required: true },
+    assignedTeachers: { type: [String], default: [] },
+    status: { type: String, enum: ['draft', 'in_progress', 'completed', 'signed'], default: 'draft' },
+    assignedAt: { type: Date, default: () => new Date() },
+    assignedBy: { type: String, required: true },
+    isCompleted: { type: Boolean, default: false },
+    completedAt: { type: Date },
+    completedBy: { type: String },
+});
+// Create compound index to prevent duplicate assignments
+templateAssignmentSchema.index({ templateId: 1, studentId: 1 }, { unique: true });
+exports.TemplateAssignment = (0, mongoose_1.model)('TemplateAssignment', templateAssignmentSchema);

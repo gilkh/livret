@@ -96,7 +96,7 @@ teacherTemplatesRouter.get('/template-assignments/:assignmentId', requireAuth(['
         if (!template) return res.status(404).json({ error: 'template_not_found' })
 
         // Get the specific version if available in history, otherwise use current
-        let versionedTemplate = template
+        let versionedTemplate: any = template
         if (assignment.templateVersion && assignment.templateVersion !== template.currentVersion) {
             const versionData = template.versionHistory?.find(v => v.version === assignment.templateVersion)
             if (versionData) {
@@ -108,7 +108,7 @@ teacherTemplatesRouter.get('/template-assignments/:assignmentId', requireAuth(['
                     watermark: versionData.watermark,
                     _versionUsed: assignment.templateVersion,
                     _isOldVersion: assignment.templateVersion < (template.currentVersion || 1)
-                }
+                } as any
             }
         }
 

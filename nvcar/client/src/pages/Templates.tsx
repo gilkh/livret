@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import api from '../api'
 
 type Block = { type: string; props: any }
@@ -69,7 +70,10 @@ export default function Templates() {
   return (
     <div className="container">
       <div className="card">
-        <h2 className="title">Templates de carnets (JSON Avancé)</h2>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <h2 className="title" style={{ margin: 0 }}>Templates de carnets (JSON Avancé)</h2>
+          <Link to="/admin/template-builder" className="btn">Aller à l'éditeur visuel</Link>
+        </div>
         <div className="grid2">
           <div className="card">
             <h3>Éditeur JSON</h3>

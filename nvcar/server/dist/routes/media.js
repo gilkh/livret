@@ -9,6 +9,7 @@ const multer_1 = __importDefault(require("multer"));
 const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
 const auth_1 = require("../auth");
+const pptxImporter_1 = require("../utils/pptxImporter");
 const ensureDir = (p) => { if (!fs_1.default.existsSync(p))
     fs_1.default.mkdirSync(p, { recursive: true }); };
 const uploadDir = path_1.default.join(process.cwd(), 'public', 'uploads');
@@ -67,4 +68,22 @@ exports.mediaRouter.post('/delete', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN'
     if (fs_1.default.existsSync(p))
         fs_1.default.rmSync(p, { recursive: true, force: true });
     res.json({ ok: true });
+});
+const uploadMem = (0, multer_1.default)({ storage: multer_1.default.memoryStorage() });
+exports.mediaRouter.post('/convert-emf', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN']), uploadMem.single('file'), async (req, res) => {
+    if (!req.file)
+        return res.status(400).json({ error: 'no_file' });
+    const ext = path_1.default.extname(req.file.originalname).toLowerCase();
+    if (ext !== '.emf' && ext !== '.wmf')
+        return res.status(400).json({ error: 'unsupported_format' });
+    const baseUrl = process.env.API_URL || 'http://localhost:4000';
+    const importer = new pptxImporter_1.PptxImporter(path_1.default.join(uploadDir, 'media'), baseUrl);
+    const out = await importer.convertEmfWmf(req.file.buffer, ext);
+    if (!out)
+        return res.status(500).json({ error: 'conversion_failed' });
+    const nameBase = path_1.default.basename(req.file.originalname, ext).replace(/[^a-z0-9_-]+/gi, '_');
+    const filename = `${nameBase}-${Date.now()}.png`;
+    const savePath = path_1.default.join(uploadDir, 'media', filename);
+    fs_1.default.writeFileSync(savePath, out, { encoding: null });
+    res.json({ url: `/uploads/media/${filename}` });
 });

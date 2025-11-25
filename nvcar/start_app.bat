@@ -34,11 +34,19 @@ start "NVCAR Server" cmd /k "cd server && npm run dev"
 timeout /t 5 /nobreak
 
 :: Start Client
-start "NVCAR Client" cmd /k "cd client && npm run dev"
+start "NVCAR Client" cmd /k "cd client && npm run dev -- --host"
 
 :: Open Browser
 timeout /t 3 /nobreak
 start http://localhost:5173
+
+echo.
+echo Detecting network addresses...
+for /f %%i in ('powershell -NoProfile -Command "(Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' }).IPAddress"') do (
+  echo Server shared: http://%%i:4000
+  echo Client shared: http://%%i:5173
+)
+echo If devices on your LAN cannot connect, allow Node/Vite through Windows Firewall.
 
 echo.
 echo Application started!

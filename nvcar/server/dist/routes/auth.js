@@ -38,6 +38,7 @@ const express_1 = require("express");
 const bcrypt = __importStar(require("bcryptjs"));
 const User_1 = require("../models/User");
 const auth_1 = require("../auth");
+const auditLogger_1 = require("../utils/auditLogger");
 exports.authRouter = (0, express_1.Router)();
 exports.authRouter.post('/login', async (req, res) => {
     let { email, password } = req.body;
@@ -52,6 +53,8 @@ exports.authRouter.post('/login', async (req, res) => {
             admin = await User_1.User.create({ email: 'admin', passwordHash: hash, role: 'ADMIN', displayName: 'Admin' });
         }
         const token = (0, auth_1.signToken)({ userId: String(admin._id), role: 'ADMIN' });
+        // Log login
+        await (0, auditLogger_1.logAudit)({ userId: String(admin._id), action: 'LOGIN', details: { email }, req });
         return res.json({ token, role: 'ADMIN', displayName: 'Admin' });
     }
     const user = await User_1.User.findOne({ email });
@@ -61,5 +64,7 @@ exports.authRouter.post('/login', async (req, res) => {
     if (!ok)
         return res.status(401).json({ error: 'invalid_login' });
     const token = (0, auth_1.signToken)({ userId: String(user._id), role: user.role });
+    // Log login
+    await (0, auditLogger_1.logAudit)({ userId: String(user._id), action: 'LOGIN', details: { email }, req });
     res.json({ token, role: user.role, displayName: user.displayName });
 });

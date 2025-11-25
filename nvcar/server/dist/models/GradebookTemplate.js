@@ -24,5 +24,18 @@ const templateSchema = new mongoose_1.Schema({
     shareId: { type: String },
     versions: { type: [mongoose_1.Schema.Types.Mixed], default: [] },
     comments: { type: [mongoose_1.Schema.Types.Mixed], default: [] },
+    currentVersion: { type: Number, default: 1 },
+    versionHistory: {
+        type: [{
+                version: { type: Number, required: true },
+                pages: { type: [pageSchema], required: true },
+                variables: { type: mongoose_1.Schema.Types.Mixed, default: {} },
+                watermark: { type: mongoose_1.Schema.Types.Mixed },
+                createdAt: { type: Date, required: true },
+                createdBy: { type: String, required: true },
+                changeDescription: { type: String }
+            }],
+        default: []
+    }
 });
 exports.GradebookTemplate = (0, mongoose_1.model)('GradebookTemplate', templateSchema);

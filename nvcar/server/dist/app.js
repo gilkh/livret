@@ -55,6 +55,13 @@ const path_1 = __importDefault(require("path"));
 const User_1 = require("./models/User");
 const bcrypt = __importStar(require("bcryptjs"));
 const classes_1 = require("./routes/classes");
+const teacherAssignments_1 = require("./routes/teacherAssignments");
+const templateAssignments_1 = require("./routes/templateAssignments");
+const subAdminAssignments_1 = require("./routes/subAdminAssignments");
+const teacherTemplates_1 = require("./routes/teacherTemplates");
+const subAdminTemplates_1 = require("./routes/subAdminTemplates");
+const auditLogs_1 = require("./routes/auditLogs");
+const impersonation_1 = require("./routes/impersonation");
 const createApp = () => {
     const app = (0, express_1.default)();
     app.use((0, cors_1.default)({
@@ -79,6 +86,13 @@ const createApp = () => {
     app.use('/school-years', schoolYears_1.schoolYearsRouter);
     app.use('/classes', classes_1.classesRouter);
     app.use('/media', media_1.mediaRouter);
+    app.use('/teacher-assignments', teacherAssignments_1.teacherAssignmentsRouter);
+    app.use('/template-assignments', templateAssignments_1.templateAssignmentsRouter);
+    app.use('/subadmin-assignments', subAdminAssignments_1.subAdminAssignmentsRouter);
+    app.use('/teacher', teacherTemplates_1.teacherTemplatesRouter);
+    app.use('/subadmin', subAdminTemplates_1.subAdminTemplatesRouter);
+    app.use('/audit-logs', auditLogs_1.auditLogsRouter);
+    app.use('/impersonation', impersonation_1.impersonationRouter);
     app.use('/uploads', express_1.default.static(path_1.default.join(process.cwd(), 'public', 'uploads')));
     app.get('/health', (_, res) => res.json({ ok: true }));
     (0, db_1.connectDb)()

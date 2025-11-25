@@ -18,8 +18,18 @@ const requireAuth = (roles) => {
         try {
             const token = header.slice('Bearer '.length);
             const decoded = jsonwebtoken_1.default.verify(token, jwtSecret);
-            req.user = decoded;
-            if (roles && !roles.includes(decoded.role))
+            // If impersonating, use the impersonated user's ID and role for authorization
+            // but keep the original admin info for audit trails
+            const effectiveUserId = decoded.impersonateUserId || decoded.userId;
+            const effectiveRole = decoded.impersonateRole || decoded.role;
+            req.user = {
+                userId: effectiveUserId,
+                role: effectiveRole,
+                actualUserId: decoded.userId, // Original admin user ID
+                actualRole: decoded.role, // Original admin role
+                isImpersonating: !!decoded.impersonateUserId
+            };
+            if (roles && !roles.includes(effectiveRole))
                 return res.status(403).json({ error: 'forbidden' });
             next();
         }
