@@ -40,8 +40,8 @@ export default function Login() {
         <div className="login-welcome">
           <div className="login-brand">
             <img src="/champville_logo.png" alt="Champville Logo" className="login-logo" />
-            <h1 className="login-school-name">Champville Dick el Mehdi</h1>
-            <p className="login-tagline">Excellence in Education</p>
+            <h1 className="login-school-name">Collège des Frères Maristes Champville</h1>
+            <p className="login-tagline">Livret</p>
           </div>
           <div className="login-decoration">
             <div className="floating-shape shape-1"></div>

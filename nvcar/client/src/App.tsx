@@ -17,6 +17,7 @@ import TeacherTemplateEditor from './pages/TeacherTemplateEditor'
 import SubAdminDashboard from './pages/SubAdminDashboard'
 import SubAdminTeacherView from './pages/SubAdminTeacherView'
 import SubAdminTemplateReview from './pages/SubAdminTemplateReview'
+import SubAdminSignature from './pages/SubAdminSignature'
 import AdminAssignments from './pages/AdminAssignments'
 import AdminAssignmentList from './pages/AdminAssignmentList'
 import AdminAuditLogs from './pages/AdminAuditLogs'
@@ -192,6 +193,14 @@ export default function App() {
           element={
             <RequireAuth>
               <SubAdminTemplateReview />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/subadmin/signature"
+          element={
+            <RequireAuth>
+              <SubAdminSignature />
             </RequireAuth>
           }
         />

@@ -4,6 +4,8 @@ import { TemplateAssignment } from '../models/TemplateAssignment'
 import { GradebookTemplate } from '../models/GradebookTemplate'
 import { Student } from '../models/Student'
 import { User } from '../models/User'
+import { Enrollment } from '../models/Enrollment'
+import { TeacherClassAssignment } from '../models/TeacherClassAssignment'
 
 export const templateAssignmentsRouter = Router()
 
@@ -22,8 +24,22 @@ templateAssignmentsRouter.post('/', requireAuth(['ADMIN']), async (req, res) => 
         if (!student) return res.status(404).json({ error: 'student_not_found' })
 
         // Verify all assigned teachers exist and have TEACHER role
-        if (assignedTeachers && Array.isArray(assignedTeachers)) {
-            for (const teacherId of assignedTeachers) {
+        let teachersToAssign = assignedTeachers || []
+        
+        // If no teachers are explicitly assigned, try to auto-assign teachers from the student's class
+        if (!teachersToAssign || teachersToAssign.length === 0) {
+            // Find student's enrollment to get their class
+            const enrollment = await Enrollment.findOne({ studentId }).lean()
+            if (enrollment && enrollment.classId) {
+                // Find teachers assigned to this class
+                const teacherAssignments = await TeacherClassAssignment.find({ classId: enrollment.classId }).lean()
+                teachersToAssign = teacherAssignments.map(ta => ta.teacherId)
+            }
+        }
+        
+        // Verify all assigned teachers exist and have TEACHER role
+        if (teachersToAssign && Array.isArray(teachersToAssign) && teachersToAssign.length > 0) {
+            for (const teacherId of teachersToAssign) {
                 const teacher = await User.findById(teacherId).lean()
                 if (!teacher || teacher.role !== 'TEACHER') {
                     return res.status(400).json({ error: 'invalid_teacher', teacherId })
@@ -38,7 +54,7 @@ templateAssignmentsRouter.post('/', requireAuth(['ADMIN']), async (req, res) => 
                 templateId,
                 templateVersion: template.currentVersion || 1,
                 studentId,
-                assignedTeachers: assignedTeachers || [],
+                assignedTeachers: teachersToAssign,
                 assignedBy: (req as any).user.userId,
                 assignedAt: new Date(),
                 status: 'draft',
@@ -144,7 +160,21 @@ templateAssignmentsRouter.delete('/:id', requireAuth(['ADMIN']), async (req, res
 templateAssignmentsRouter.get('/', requireAuth(['ADMIN']), async (req, res) => {
     try {
         const assignments = await TemplateAssignment.find({}).lean()
-        res.json(assignments)
+        const templateIds = assignments.map(a => a.templateId)
+        const studentIds = assignments.map(a => a.studentId)
+        const templates = await GradebookTemplate.find({ _id: { $in: templateIds } }).lean()
+        const students = await Student.find({ _id: { $in: studentIds } }).lean()
+        
+        const result = assignments.map(a => {
+            const template = templates.find(t => String(t._id) === a.templateId)
+            const student = students.find(s => String(s._id) === a.studentId)
+            return {
+                ...a,
+                templateName: template ? template.name : 'Unknown',
+                studentName: student ? `${student.firstName} ${student.lastName}` : 'Unknown'
+            }
+        })
+        res.json(result)
     } catch (e: any) {
         res.status(500).json({ error: 'fetch_failed', message: e.message })
     }

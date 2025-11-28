@@ -70,7 +70,21 @@ subAdminAssignmentsRouter.delete('/:id', requireAuth(['ADMIN']), async (req, res
 subAdminAssignmentsRouter.get('/', requireAuth(['ADMIN']), async (req, res) => {
     try {
         const assignments = await SubAdminAssignment.find({}).lean()
-        res.json(assignments)
+        const subAdminIds = assignments.map(a => a.subAdminId)
+        const teacherIds = assignments.map(a => a.teacherId)
+        const allUserIds = [...new Set([...subAdminIds, ...teacherIds])]
+        const users = await User.find({ _id: { $in: allUserIds } }).lean()
+        
+        const result = assignments.map(a => {
+            const subAdmin = users.find(u => String(u._id) === a.subAdminId)
+            const teacher = users.find(u => String(u._id) === a.teacherId)
+            return {
+                ...a,
+                subAdminName: subAdmin ? subAdmin.displayName : 'Unknown',
+                teacherName: teacher ? teacher.displayName : 'Unknown'
+            }
+        })
+        res.json(result)
     } catch (e: any) {
         res.status(500).json({ error: 'fetch_failed', message: e.message })
     }

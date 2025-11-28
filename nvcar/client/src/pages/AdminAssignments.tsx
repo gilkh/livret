@@ -20,6 +20,11 @@ export default function AdminAssignments() {
     const [selectedTemplate, setSelectedTemplate] = useState('')
     const [selectedSubAdmin, setSelectedSubAdmin] = useState('')
     const [selectedTeacherForTemplate, setSelectedTeacherForTemplate] = useState<string[]>([])
+    
+    // Bulk assignment states
+    const [selectedClassForBulk, setSelectedClassForBulk] = useState('')
+    const [selectedTemplateForBulk, setSelectedTemplateForBulk] = useState('')
+    const [selectedTeachersForBulk, setSelectedTeachersForBulk] = useState<string[]>([])
 
     const [message, setMessage] = useState('')
 
@@ -83,11 +88,46 @@ export default function AdminAssignments() {
         }
     }
 
+    const assignTemplateToClass = async () => {
+        try {
+            if (!selectedTemplateForBulk || !selectedClassForBulk) return
+            
+            // Get all students in the class
+            const studentsRes = await api.get(`/students/by-class/${selectedClassForBulk}`)
+            const classStudents = studentsRes.data
+            
+            if (classStudents.length === 0) {
+                setMessage('✗ Aucun élève dans cette classe')
+                return
+            }
+            
+            // Create assignments for all students
+            const promises = classStudents.map((student: Student) =>
+                api.post('/template-assignments', {
+                    templateId: selectedTemplateForBulk,
+                    studentId: student._id,
+                    assignedTeachers: selectedTeachersForBulk,
+                })
+            )
+            
+            await Promise.all(promises)
+            setMessage(`✓ Carnet assigné à ${classStudents.length} élève(s) de la classe`)
+            setTimeout(() => setMessage(''), 3000)
+        } catch (e) {
+            setMessage('✗ Échec de l\'assignation')
+            console.error(e)
+        }
+    }
+
     return (
         <div style={{ padding: 24 }}>
             <div className="card">
                 <h2 className="title">Gestion des assignations</h2>
                 <div className="note">Gérez les assignations des enseignants, carnets et sous-administrateurs</div>
+                
+                <div style={{ marginTop: 16, marginBottom: 16 }}>
+                    <Link to="/admin/assignment-list" className="btn secondary">Voir toutes les assignations</Link>
+                </div>
 
                 {message && <div className="note" style={{ marginTop: 12, padding: 12, background: message.includes('✓') ? '#e8f5e9' : '#ffebee', borderRadius: 8 }}>{message}</div>}
 
@@ -133,6 +173,34 @@ export default function AdminAssignments() {
                             </select>
                         </div>
                         <button className="btn" onClick={assignTemplateToStudent} disabled={!selectedTemplate || !selectedStudent} style={{ marginTop: 12 }}>Assigner</button>
+                    </div>
+
+                    {/* Template to Class Assignment (Bulk) */}
+                    <div className="card" style={{ background: '#f0f9ff' }}>
+                        <h3>Assigner un carnet à toute une classe</h3>
+                        <div className="note" style={{ marginBottom: 12 }}>Cette action assignera le carnet à tous les élèves de la classe sélectionnée</div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
+                            <select value={selectedTemplateForBulk} onChange={e => setSelectedTemplateForBulk(e.target.value)} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }}>
+                                <option value="">Sélectionner carnet</option>
+                                {templates.map(t => <option key={t._id} value={t._id}>{t.name}</option>)}
+                            </select>
+                            <select value={selectedClassForBulk} onChange={e => setSelectedClassForBulk(e.target.value)} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }}>
+                                <option value="">Sélectionner classe</option>
+                                {classes.map(c => <option key={c._id} value={c._id}>{c.name}</option>)}
+                            </select>
+                        </div>
+                        <div style={{ marginTop: 12 }}>
+                            <div className="note" style={{ marginBottom: 8 }}>Enseignants assignés (maintenir Ctrl pour sélection multiple):</div>
+                            <select
+                                multiple
+                                value={selectedTeachersForBulk}
+                                onChange={e => setSelectedTeachersForBulk(Array.from(e.target.selectedOptions, opt => opt.value))}
+                                style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', width: '100%', minHeight: 100 }}
+                            >
+                                {teachers.map(t => <option key={t._id} value={t._id}>{t.displayName}</option>)}
+                            </select>
+                        </div>
+                        <button className="btn" onClick={assignTemplateToClass} disabled={!selectedTemplateForBulk || !selectedClassForBulk} style={{ marginTop: 12 }}>Assigner à toute la classe</button>
                     </div>
 
                     {/* Teacher to SubAdmin Assignment */}

@@ -31,6 +31,8 @@ export default function TemplateBuilder() {
   const [list, setList] = useState<Template[]>([])
   const [saveStatus, setSaveStatus] = useState('')
   const [continuousScroll, setContinuousScroll] = useState(false)
+  const [previewData, setPreviewData] = useState<Record<string, string>>({})
+  const [rightPanelView, setRightPanelView] = useState<'properties' | 'slides'>('properties')
 
   const [error, setError] = useState('')
   const pptxInputRef = useRef<HTMLInputElement>(null)
@@ -46,6 +48,7 @@ export default function TemplateBuilder() {
     { type: 'category_title', props: { categoryId: '', fontSize: 16, color: '#6c5ce7' } },
     { type: 'competency_list', props: { fontSize: 12, color: '#2d3436' } },
     { type: 'signature', props: { labels: ['Directeur', 'Enseignant', 'Parent'], fontSize: 12 } },
+    { type: 'signature_box', props: { width: 200, height: 80, label: 'Signature Sous-Admin' } },
     { type: 'rect', props: { width: 160, height: 80, color: '#eef1f7' } },
     { type: 'circle', props: { radius: 60, color: '#ffeaa7' } },
     {
@@ -57,6 +60,7 @@ export default function TemplateBuilder() {
         ]
       }
     },
+    { type: 'dropdown', props: { label: 'Menu déroulant', options: ['Option 1', 'Option 2'], variableName: 'var1', width: 200, height: 40, fontSize: 12, color: '#333' } },
     { type: 'line', props: { x2: 300, y2: 0, stroke: '#b2bec3', strokeWidth: 2 } },
     { type: 'arrow', props: { x2: 120, y2: 0, stroke: '#6c5ce7', strokeWidth: 2 } },
     { type: 'dynamic_text', props: { text: '{student.firstName} {student.lastName}', fontSize: 14, color: '#2d3436' } },
@@ -284,10 +288,12 @@ export default function TemplateBuilder() {
             <h2 className="title" style={{ margin: 0 }}>Éditeur: {tpl.name}</h2>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
-             <button className="btn" onClick={async () => { try { setError(''); setSaveStatus(''); await save(); setSaveStatus('Enregistré'); await loadTemplates() } catch (e: any) { setError('Échec de l\'enregistrement') } }}>Enregistrer</button>
+             <button className="btn" onClick={async () => { try { setError(''); setSaveStatus(''); await save(); setSaveStatus('Enregistré avec succès'); setTimeout(() => setSaveStatus(''), 3000); await loadTemplates() } catch (e: any) { setError('Échec de l\'enregistrement'); setTimeout(() => setError(''), 3000) } }}>Enregistrer</button>
           </div>
         </div>
 
+        {saveStatus && <div style={{ padding: '12px 16px', background: '#10b981', color: 'white', borderRadius: 8, marginBottom: 12, fontWeight: 600, fontSize: 14, textAlign: 'center' }}>✓ {saveStatus}</div>}
+        {error && <div style={{ padding: '12px 16px', background: '#ef4444', color: 'white', borderRadius: 8, marginBottom: 12, fontWeight: 600, fontSize: 14, textAlign: 'center' }}>✗ {error}</div>}
         <div className="toolbar" style={{ marginBottom: 12, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
           <input placeholder="Nom du template" value={tpl.name} onChange={e => setTpl({ ...tpl, name: e.target.value })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
           <button className="btn" onClick={() => { const pages = [...tpl.pages, { title: `Page ${tpl.pages.length + 1}`, blocks: [] }]; setTpl({ ...tpl, pages }); setSelectedPage(pages.length - 1); setSelectedIndex(null) }}>Ajouter une page</button>
@@ -318,7 +324,8 @@ export default function TemplateBuilder() {
             const fd = new FormData()
             fd.append('file', new File([blob], `${tpl.name || 'template'}.json`, { type: 'application/json' }))
             await fetch('http://localhost:4000/media/upload?folder=gradebook-templates', { method: 'POST', headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` }, body: fd })
-            setSaveStatus('Modèle enregistré dans médias')
+            setSaveStatus('Modèle enregistré dans médias avec succès')
+            setTimeout(() => setSaveStatus(''), 3000)
           }}>Enregistrer modèle dans médias</button>
           <button className="btn secondary" onClick={() => {
             const blob = new Blob([JSON.stringify(tpl)], { type: 'application/json' })
@@ -339,7 +346,6 @@ export default function TemplateBuilder() {
         <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr 380px', gap: 24, alignItems: 'start' }}>
           <div className="card" style={{ position: 'sticky', top: 24, maxHeight: 'calc(100vh - 48px)', overflowY: 'auto' }}>
             <h3>Blocs</h3>
-            {error && <div className="note" style={{ color: 'crimson' }}>{error}</div>}
             {blocksPalette.map((b, i) => (
               <div key={i} className="competency" style={{ cursor: 'pointer' }} onClick={() => addBlock(b)}>
                 <div>{b.type}</div>
@@ -379,11 +385,65 @@ export default function TemplateBuilder() {
                 )}
                 {b.type === 'line' && <div style={{ width: b.props.x2 || 100, height: b.props.strokeWidth || 2, background: b.props.stroke || '#b2bec3' }} />}
                 {b.type === 'arrow' && <div style={{ width: b.props.x2 || 100, height: b.props.strokeWidth || 2, background: b.props.stroke || '#6c5ce7', position: 'relative' }}><div style={{ position: 'absolute', right: 0, top: -6, width: 0, height: 0, borderTop: '8px solid transparent', borderBottom: '8px solid transparent', borderLeft: `12px solid ${b.props.stroke || '#6c5ce7'}` }} /></div>}
-                {b.type === 'dynamic_text' && <div style={{ color: b.props.color, fontSize: b.props.fontSize }}>{b.props.text}</div>}
-                {b.type === 'student_info' && <div style={{ color: b.props.color, fontSize: b.props.fontSize }}>Nom, Classe, Naissance</div>}
+                {b.type === 'dynamic_text' && <div style={{ color: b.props.color, fontSize: b.props.fontSize }}>{(() => {
+                  let text = b.props.text || ''
+                  if (studentId) {
+                    const s = students.find(st => st._id === studentId)
+                    if (s) {
+                      text = text.replace(/{student.firstName}/g, s.firstName).replace(/{student.lastName}/g, s.lastName)
+                    }
+                  }
+                  Object.entries(previewData).forEach(([k, v]) => {
+                    text = text.replace(new RegExp(`{${k}}`, 'g'), v)
+                  })
+                  return text
+                })()}</div>}
+                {b.type === 'student_info' && <div style={{ color: b.props.color, fontSize: b.props.fontSize }}>{(() => {
+                  if (studentId) {
+                    const s = students.find(st => st._id === studentId) as any
+                    if (s) return `${s.firstName} ${s.lastName}, ${s.className || 'Classe'}, ${s.dateOfBirth ? new Date(s.dateOfBirth).toLocaleDateString() : 'Date'}`
+                  }
+                  return 'Nom, Classe, Naissance'
+                })()}</div>}
                 {b.type === 'category_title' && <div style={{ color: b.props.color, fontSize: b.props.fontSize }}>Titre catégorie</div>}
                 {b.type === 'competency_list' && <div style={{ color: b.props.color, fontSize: b.props.fontSize }}>Liste des compétences</div>}
                 {b.type === 'signature' && <div style={{ fontSize: b.props.fontSize }}>{(b.props.labels || []).join(' / ')}</div>}
+                {b.type === 'signature_box' && (
+                  <div style={{ 
+                    width: b.props.width || 200, 
+                    height: b.props.height || 80, 
+                    border: '1px solid #000', 
+                    background: '#fff',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: 10,
+                    color: '#999'
+                  }}>
+                    {b.props.label || 'Signature'}
+                  </div>
+                )}
+                {b.type === 'dropdown' && (
+                  <div style={{ width: b.props.width || 200 }}>
+                    {b.props.label && <div style={{ fontSize: 10, color: '#666', marginBottom: 2 }}>{b.props.label}</div>}
+                    <select 
+                      style={{ width: '100%', height: b.props.height || 32, fontSize: b.props.fontSize || 12, color: b.props.color || '#333', padding: 4, borderRadius: 4, border: '1px solid #ccc' }}
+                      value={b.props.variableName ? (previewData[b.props.variableName] || '') : ''}
+                      onChange={(e) => {
+                        if (b.props.variableName) {
+                          setPreviewData({ ...previewData, [b.props.variableName]: e.target.value })
+                        }
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                      onMouseDown={(e) => e.stopPropagation()}
+                    >
+                      <option value="">Sélectionner...</option>
+                      {(b.props.options || []).map((opt: string, i: number) => (
+                        <option key={i} value={opt}>{opt}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 {b.type === 'table' && (
                   (() => {
                     const cols: number[] = b.props.columnWidths || []
@@ -519,6 +579,70 @@ export default function TemplateBuilder() {
             })}
           </div>
           <div className="card" style={{ position: 'sticky', top: 24, maxHeight: 'calc(100vh - 48px)', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+              <button className={rightPanelView === 'properties' ? 'btn' : 'btn secondary'} onClick={() => setRightPanelView('properties')}>Propriétés</button>
+              <button className={rightPanelView === 'slides' ? 'btn' : 'btn secondary'} onClick={() => setRightPanelView('slides')}>Slides</button>
+            </div>
+            
+            {rightPanelView === 'slides' ? (
+              <div style={{ display: 'grid', gap: 12 }}>
+                <h3>Pages ({tpl.pages.length})</h3>
+                {tpl.pages.map((page, idx) => (
+                  <div key={idx} className="card" style={{ padding: 8, background: selectedPage === idx ? '#f0f4ff' : '#fff', border: selectedPage === idx ? '2px solid var(--accent)' : '1px solid #ddd' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                      <div style={{ fontWeight: 600, fontSize: 14 }} onClick={() => setSelectedPage(idx)}>{page.title || `Page ${idx + 1}`}</div>
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        <button className="btn secondary" style={{ padding: '4px 8px', fontSize: 11 }} onClick={() => {
+                          if (idx === 0) return
+                          const pages = [...tpl.pages]
+                          const temp = pages[idx]
+                          pages[idx] = pages[idx - 1]
+                          pages[idx - 1] = temp
+                          setTpl({ ...tpl, pages })
+                          setSelectedPage(idx - 1)
+                        }} disabled={idx === 0}>↑</button>
+                        <button className="btn secondary" style={{ padding: '4px 8px', fontSize: 11 }} onClick={() => {
+                          if (idx === tpl.pages.length - 1) return
+                          const pages = [...tpl.pages]
+                          const temp = pages[idx]
+                          pages[idx] = pages[idx + 1]
+                          pages[idx + 1] = temp
+                          setTpl({ ...tpl, pages })
+                          setSelectedPage(idx + 1)
+                        }} disabled={idx === tpl.pages.length - 1}>↓</button>
+                        <button className="btn secondary" style={{ padding: '4px 8px', fontSize: 11, background: '#ef4444', color: '#fff' }} onClick={() => {
+                          if (tpl.pages.length <= 1) return
+                          if (!confirm(`Supprimer "${page.title || `Page ${idx + 1}`}" ?`)) return
+                          const pages = tpl.pages.filter((_, i) => i !== idx)
+                          setTpl({ ...tpl, pages })
+                          if (selectedPage >= pages.length) setSelectedPage(pages.length - 1)
+                        }}>✕</button>
+                      </div>
+                    </div>
+                    <div style={{ width: '100%', aspectRatio: `${pageWidth}/${pageHeight}`, background: page.bgColor || '#fff', border: '1px solid #ccc', borderRadius: 4, overflow: 'hidden', position: 'relative', cursor: 'pointer', transform: 'scale(0.95)' }} onClick={() => setSelectedPage(idx)}>
+                      {page.blocks.map((b, bidx) => (
+                        <div key={bidx} style={{ position: 'absolute', left: `${((b.props.x || 0) / pageWidth) * 100}%`, top: `${((b.props.y || 0) / pageHeight) * 100}%`, fontSize: 6, opacity: 0.7 }}>
+                          {b.type === 'text' && <div style={{ color: b.props.color, fontSize: (b.props.fontSize || 12) * 0.3 }}>{(b.props.text || '').slice(0, 20)}</div>}
+                          {b.type === 'image' && <img src={b.props.url} style={{ width: (b.props.width || 120) * 0.3, height: (b.props.height || 120) * 0.3, borderRadius: 2 }} />}
+                          {b.type === 'rect' && <div style={{ width: (b.props.width || 80) * 0.3, height: (b.props.height || 80) * 0.3, background: b.props.color, borderRadius: 2 }} />}
+                          {b.type === 'signature_box' && <div style={{ width: (b.props.width || 200) * 0.3, height: (b.props.height || 80) * 0.3, border: '0.5px solid #000', background: '#fff' }} />}
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ marginTop: 8, display: 'flex', justifyContent: 'center' }}>
+                      <button className="btn secondary" style={{ padding: '4px 12px', fontSize: 11 }} onClick={() => {
+                        const pages = [...tpl.pages]
+                        const newPage = { title: `Page ${pages.length + 1}`, blocks: [] }
+                        pages.splice(idx + 1, 0, newPage)
+                        setTpl({ ...tpl, pages })
+                        setSelectedPage(idx + 1)
+                      }}>+ Ajouter après</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <>
             <h3>Propriétés</h3>
             {saveStatus && <div className="note">{saveStatus}</div>}
             {selectedIndex != null ? (
@@ -729,21 +853,66 @@ export default function TemplateBuilder() {
                   <div style={{ display: 'grid', gap: 8 }}>
                     <input placeholder="Rayon" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.radius || 40} onChange={e => updateSelected({ radius: Number(e.target.value) })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
                     <input placeholder="Espacement" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.spacing || 12} onChange={e => updateSelected({ spacing: Number(e.target.value) })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+                    <div className="note">Langues ({(tpl.pages[selectedPage].blocks[selectedIndex].props.items || []).length})</div>
                     {((tpl.pages[selectedPage].blocks[selectedIndex].props.items || []) as any[]).map((it: any, i: number) => (
-                      <div key={i} className="competency" style={{ alignItems: 'center', gap: 8 }}>
-                        <div>{it.label || it.code}</div>
-                        <button className="btn secondary" onClick={() => {
+                      <div key={i} className="card" style={{ padding: 8, background: '#f9f9f9' }}>
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                          <select value={it.code || 'en'} onChange={e => {
+                            const items = [...(tpl.pages[selectedPage].blocks[selectedIndex].props.items || [])]
+                            const langData: Record<string, any> = {
+                              'en': { code: 'en', label: 'English', logo: 'https://upload.wikimedia.org/wikipedia/commons/a/a4/Flag_of_the_United_States.svg' },
+                              'fr': { code: 'fr', label: 'Français', logo: 'https://upload.wikimedia.org/wikipedia/en/c/c3/Flag_of_France.svg' },
+                              'ar': { code: 'ar', label: 'العربية', logo: 'https://upload.wikimedia.org/wikipedia/commons/5/59/Flag_of_Lebanon.svg' }
+                            }
+                            items[i] = { ...items[i], ...langData[e.target.value] }
+                            updateSelected({ items })
+                          }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', flex: 1 }}>
+                            <option value="en">English</option>
+                            <option value="fr">Français</option>
+                            <option value="ar">العربية</option>
+                          </select>
+                          <button className="btn secondary" onClick={() => {
+                            const items = [...(tpl.pages[selectedPage].blocks[selectedIndex].props.items || [])]
+                            items[i] = { ...items[i], active: !items[i].active }
+                            updateSelected({ items })
+                          }} style={{ padding: '4px 12px' }}>{it.active ? 'Actif' : 'Inactif'}</button>
+                          <button className="btn secondary" onClick={() => {
+                            const items = (tpl.pages[selectedPage].blocks[selectedIndex].props.items || []).filter((_: any, idx: number) => idx !== i)
+                            updateSelected({ items })
+                          }} style={{ padding: '4px 8px', background: '#ef4444', color: '#fff' }}>✕</button>
+                        </div>
+                        <input placeholder="Label (optionnel)" value={it.label || ''} onChange={e => {
                           const items = [...(tpl.pages[selectedPage].blocks[selectedIndex].props.items || [])]
-                          items[i] = { ...items[i], active: !items[i].active }
+                          items[i] = { ...items[i], label: e.target.value }
                           updateSelected({ items })
-                        }}>{it.active ? 'Actif' : 'Inactif'}</button>
-                        <input placeholder="Logo URL" value={it.logo || ''} onChange={e => {
+                        }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', width: '100%', marginBottom: 8 }} />
+                        <input placeholder="Logo URL (optionnel)" value={it.logo || ''} onChange={e => {
                           const items = [...(tpl.pages[selectedPage].blocks[selectedIndex].props.items || [])]
                           items[i] = { ...items[i], logo: e.target.value }
                           updateSelected({ items })
-                        }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', flex: 1 }} />
+                        }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', width: '100%' }} />
                       </div>
                     ))}
+                    <button className="btn secondary" onClick={() => {
+                      const items = [...(tpl.pages[selectedPage].blocks[selectedIndex].props.items || [])]
+                      items.push({ code: 'en', label: 'English', logo: 'https://upload.wikimedia.org/wikipedia/commons/a/a4/Flag_of_the_United_States.svg', active: false })
+                      updateSelected({ items })
+                    }}>+ Ajouter une langue</button>
+                  </div>
+                )}
+                {tpl.pages[selectedPage].blocks[selectedIndex].type === 'dropdown' && (
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    <input placeholder="Label" value={tpl.pages[selectedPage].blocks[selectedIndex].props.label || ''} onChange={e => updateSelected({ label: e.target.value })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+                    <input placeholder="Nom variable (ex: obs1)" value={tpl.pages[selectedPage].blocks[selectedIndex].props.variableName || ''} onChange={e => updateSelected({ variableName: e.target.value })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+                    <div className="note">Options (une par ligne)</div>
+                    <textarea 
+                      rows={5} 
+                      value={(tpl.pages[selectedPage].blocks[selectedIndex].props.options || []).join('\n')} 
+                      onChange={e => updateSelected({ options: e.target.value.split('\n') })} 
+                      style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #ddd' }} 
+                    />
+                    <input placeholder="Largeur" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.width || 200} onChange={e => updateSelected({ width: Number(e.target.value) })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+                    <input placeholder="Hauteur" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.height || 32} onChange={e => updateSelected({ height: Number(e.target.value) })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
                   </div>
                 )}
                 <button className="btn secondary" onClick={() => {
@@ -757,6 +926,8 @@ export default function TemplateBuilder() {
               </div>
             ) : (
               <div className="note">Sélectionnez un bloc pour éditer ses propriétés.</div>
+            )}
+              </>
             )}
           </div>
         </div>

@@ -70,7 +70,21 @@ teacherAssignmentsRouter.delete('/:id', requireAuth(['ADMIN']), async (req, res)
 teacherAssignmentsRouter.get('/', requireAuth(['ADMIN']), async (req, res) => {
     try {
         const assignments = await TeacherClassAssignment.find({}).lean()
-        res.json(assignments)
+        const teacherIds = assignments.map(a => a.teacherId)
+        const classIds = assignments.map(a => a.classId)
+        const teachers = await User.find({ _id: { $in: teacherIds } }).lean()
+        const classes = await ClassModel.find({ _id: { $in: classIds } }).lean()
+        
+        const result = assignments.map(a => {
+            const teacher = teachers.find(t => String(t._id) === a.teacherId)
+            const classDoc = classes.find(c => String(c._id) === a.classId)
+            return {
+                ...a,
+                teacherName: teacher ? teacher.displayName : 'Unknown',
+                className: classDoc ? classDoc.name : 'Unknown'
+            }
+        })
+        res.json(result)
     } catch (e: any) {
         res.status(500).json({ error: 'fetch_failed', message: e.message })
     }

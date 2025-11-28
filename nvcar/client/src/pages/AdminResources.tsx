@@ -23,9 +23,6 @@ export default function AdminResources() {
   const [students, setStudents] = useState<StudentDoc[]>([])
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
-  const [dateOfBirth, setDateOfBirth] = useState('')
-  const [parentName, setParentName] = useState('')
-  const [parentPhone, setParentPhone] = useState('')
   const [editingStudentId, setEditingStudentId] = useState<string | null>(null)
 
   const loadYears = async () => { const r = await api.get('/school-years'); setYears(r.data) }
@@ -86,20 +83,20 @@ export default function AdminResources() {
   const resetClassForm = () => { setEditingClassId(null); setClsName(''); setClsLevel('') }
   const selectClass = async (classId: string) => { setSelectedClassId(classId); setEditingClassId(null); await loadStudents(classId); resetStudentForm() }
 
-  const startEditStudent = (s: StudentDoc) => { setEditingStudentId(s._id); setFirstName(s.firstName); setLastName(s.lastName); setDateOfBirth(s.dateOfBirth?.slice(0,10) || ''); setParentName(s.parentName || ''); setParentPhone(s.parentPhone || '') }
+  const startEditStudent = (s: StudentDoc) => { setEditingStudentId(s._id); setFirstName(s.firstName); setLastName(s.lastName) }
 
   const saveStudent = async () => {
     if (!selectedClassId) return
     if (editingStudentId) {
-      await api.patch(`/students/${editingStudentId}`, { firstName, lastName, dateOfBirth, parentName, parentPhone, classId: selectedClassId })
+      await api.patch(`/students/${editingStudentId}`, { firstName, lastName, classId: selectedClassId })
     } else {
-      await api.post('/students', { firstName, lastName, dateOfBirth, parentName, parentPhone, classId: selectedClassId })
+      await api.post('/students', { firstName, lastName, classId: selectedClassId })
     }
     resetStudentForm()
     await loadStudents(selectedClassId)
   }
 
-  const resetStudentForm = () => { setEditingStudentId(null); setFirstName(''); setLastName(''); setDateOfBirth(''); setParentName(''); setParentPhone('') }
+  const resetStudentForm = () => { setEditingStudentId(null); setFirstName(''); setLastName('') }
 
   return (
     <div className="container">
@@ -164,9 +161,6 @@ export default function AdminResources() {
               <>
                 <input placeholder="Prénom" value={firstName} onChange={e => setFirstName(e.target.value)} style={{ padding: 10, borderRadius: 8, border: '1px solid #ddd' }} />
                 <input placeholder="Nom" value={lastName} onChange={e => setLastName(e.target.value)} style={{ padding: 10, borderRadius: 8, border: '1px solid #ddd' }} />
-                <input placeholder="Date de naissance (YYYY-MM-DD)" value={dateOfBirth} onChange={e => setDateOfBirth(e.target.value)} style={{ padding: 10, borderRadius: 8, border: '1px solid #ddd' }} />
-                <input placeholder="Nom du parent" value={parentName} onChange={e => setParentName(e.target.value)} style={{ padding: 10, borderRadius: 8, border: '1px solid #ddd' }} />
-                <input placeholder="Téléphone du parent" value={parentPhone} onChange={e => setParentPhone(e.target.value)} style={{ padding: 10, borderRadius: 8, border: '1px solid #ddd' }} />
                 <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                   <button className="btn" onClick={saveStudent}>{editingStudentId ? 'Mettre à jour' : 'Ajouter l\'élève'}</button>
                   {editingStudentId && <button className="btn secondary" onClick={resetStudentForm}>Annuler</button>}

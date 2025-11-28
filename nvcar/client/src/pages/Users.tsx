@@ -31,6 +31,12 @@ export default function Users() {
     const next = { ...resetMap }; delete next[id]; setResetMap(next)
   }
 
+  const deleteUser = async (id: string) => {
+    if (!window.confirm('Êtes-vous sûr de vouloir supprimer cet utilisateur ?')) return
+    await api.delete(`/users/${id}`)
+    await load()
+  }
+
   const viewAsUser = async (user: User) => {
     if (user.role === 'ADMIN') {
       alert('Cannot impersonate another admin')
@@ -97,6 +103,7 @@ export default function Users() {
                 <div className="toolbar" style={{ marginTop: 6, gap: 8 }}>
                   <input placeholder="Nouveau mot de passe" type="password" value={resetMap[u._id] || ''} onChange={e => setResetMap({ ...resetMap, [u._id]: e.target.value })} style={{ padding: 6, borderRadius: 6, border: '1px solid #ddd' }} />
                   <button className="btn secondary" onClick={() => resetPassword(u._id)}>Réinitialiser le mot de passe</button>
+                  <button className="btn secondary" onClick={() => deleteUser(u._id)} style={{ background: '#ff7675', color: 'white' }}>Supprimer</button>
                   {u.role !== 'ADMIN' && (
                     <button 
                       className="btn" 

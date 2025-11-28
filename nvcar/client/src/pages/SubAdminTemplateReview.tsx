@@ -6,7 +6,6 @@ type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; blocks: Block[] }
 type Template = { _id?: string; name: string; pages: Page[] }
 type Student = { _id: string; firstName: string; lastName: string }
-type Change = { timestamp: Date; before: any; after: any }
 type Assignment = { _id: string; status: string }
 
 const pageWidth = 800
@@ -18,12 +17,13 @@ export default function SubAdminTemplateReview() {
     const [template, setTemplate] = useState<Template | null>(null)
     const [student, setStudent] = useState<Student | null>(null)
     const [assignment, setAssignment] = useState<Assignment | null>(null)
-    const [changes, setChanges] = useState<Change[]>([])
     const [signature, setSignature] = useState<any>(null)
     const [selectedPage, setSelectedPage] = useState(0)
+    const [continuousScroll, setContinuousScroll] = useState(true)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState('')
     const [signing, setSigning] = useState(false)
+    const [unsigning, setUnsigning] = useState(false)
 
     useEffect(() => {
         const loadData = async () => {
@@ -33,7 +33,6 @@ export default function SubAdminTemplateReview() {
                 setTemplate(r.data.template)
                 setStudent(r.data.student)
                 setAssignment(r.data.assignment)
-                setChanges(r.data.changes || [])
                 setSignature(r.data.signature)
             } catch (e: any) {
                 setError('Impossible de charger le carnet')
@@ -62,10 +61,51 @@ export default function SubAdminTemplateReview() {
         }
     }
 
-    const handleExportPDF = () => {
+    const handleUnsign = async () => {
+        try {
+            setUnsigning(true)
+            setError('')
+            await api.delete(`/subadmin/templates/${assignmentId}/sign`)
+            // Reload data to get updated state
+            const r = await api.get(`/subadmin/templates/${assignmentId}/review`)
+            setSignature(r.data.signature)
+            setAssignment(r.data.assignment)
+        } catch (e: any) {
+            setError('Échec de la suppression de signature')
+            console.error(e)
+        } finally {
+            setUnsigning(false)
+        }
+    }
+
+    const handleExportPDF = async () => {
         if (template && student) {
-            const url = `http://localhost:4000/pdf/student/${student._id}?templateId=${template._id}`
-            window.open(url, '_blank')
+            try {
+                const token = localStorage.getItem('token')
+                const url = `http://localhost:4000/pdf/student/${student._id}?templateId=${template._id}`
+                const response = await fetch(url, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                })
+                
+                if (!response.ok) {
+                    throw new Error('Export failed')
+                }
+                
+                const blob = await response.blob()
+                const downloadUrl = window.URL.createObjectURL(blob)
+                const a = document.createElement('a')
+                a.href = downloadUrl
+                a.download = `carnet-${student.lastName}-${student.firstName}.pdf`
+                document.body.appendChild(a)
+                a.click()
+                document.body.removeChild(a)
+                window.URL.revokeObjectURL(downloadUrl)
+            } catch (e: any) {
+                setError('Échec de l\'export PDF')
+                console.error(e)
+            }
         }
     }
 
@@ -84,30 +124,80 @@ export default function SubAdminTemplateReview() {
                 </div>
                 {error && <div className="note" style={{ marginTop: 8, color: 'crimson' }}>{error}</div>}
 
-                <div style={{ marginTop: 16, display: 'flex', gap: 12 }}>
-                    {!signature && (
+                <div style={{ marginTop: 16, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                    {!signature ? (
                         <button className="btn" onClick={handleSign} disabled={signing}>
                             {signing ? 'Signature...' : 'Signer ce carnet'}
                         </button>
-                    )}
-                    {signature && (
-                        <div className="note" style={{ padding: 8, background: '#e8f5e9', borderRadius: 6 }}>
-                            Signé le {new Date(signature.signedAt).toLocaleString()}
-                        </div>
+                    ) : (
+                        <>
+                            <div className="note" style={{ padding: 8, background: '#e8f5e9', borderRadius: 6 }}>
+                                Signé le {new Date(signature.signedAt).toLocaleString()}
+                            </div>
+                            <button className="btn" style={{ background: '#f59e0b' }} onClick={handleUnsign} disabled={unsigning}>
+                                {unsigning ? 'Annulation...' : 'Annuler la signature'}
+                            </button>
+                        </>
                     )}
                     <button className="btn secondary" onClick={handleExportPDF}>Exporter en PDF</button>
                 </div>
 
-                <div style={{ marginTop: 16, marginBottom: 12 }}>
-                    <select value={selectedPage} onChange={e => setSelectedPage(Number(e.target.value))} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }}>
-                        {template.pages.map((p, i) => <option key={i} value={i}>{p.title || `Page ${i + 1}`}</option>)}
-                    </select>
+                <div style={{ marginTop: 16, marginBottom: 12, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <button className="btn secondary" onClick={() => setContinuousScroll(!continuousScroll)}>
+                        {continuousScroll ? 'Vue page par page' : 'Vue continue'}
+                    </button>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <button 
+                            className="btn secondary" 
+                            onClick={() => setSelectedPage(Math.max(0, selectedPage - 1))}
+                            disabled={selectedPage === 0 || continuousScroll}
+                            style={{ padding: '8px 16px' }}
+                        >
+                            ← Précédent
+                        </button>
+                        <select 
+                            value={selectedPage} 
+                            onChange={e => {
+                                const pageNum = Number(e.target.value)
+                                setSelectedPage(pageNum)
+                                if (continuousScroll) {
+                                    // Scroll to the selected page
+                                    setTimeout(() => {
+                                        const pageElement = document.getElementById(`page-${pageNum}`)
+                                        if (pageElement) {
+                                            pageElement.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                                        }
+                                    }, 100)
+                                }
+                            }} 
+                            style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }}
+                        >
+                            {template.pages.map((p, i) => <option key={i} value={i}>{p.title || `Page ${i + 1}`}</option>)}
+                        </select>
+                        <button 
+                            className="btn secondary" 
+                            onClick={() => setSelectedPage(Math.min(template.pages.length - 1, selectedPage + 1))}
+                            disabled={selectedPage === template.pages.length - 1 || continuousScroll}
+                            style={{ padding: '8px 16px' }}
+                        >
+                            Suivant →
+                        </button>
+                    </div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 350px', gap: 16 }}>
-                    <div className="card page-canvas" style={{ height: pageHeight, width: pageWidth, background: template.pages[selectedPage].bgColor || '#fff', overflow: 'hidden', position: 'relative' }}>
-                        <div className="page-margins" />
-                        {template.pages[selectedPage].blocks.map((b, idx) => (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 24, alignItems: 'center' }}>
+                    {(continuousScroll ? template.pages : [template.pages[selectedPage]]).map((page, pageIdx) => {
+                        const actualPageIndex = continuousScroll ? pageIdx : selectedPage
+                        return (
+                            <div 
+                                key={actualPageIndex} 
+                                id={`page-${actualPageIndex}`}
+                                className="card page-canvas" 
+                                style={{ height: pageHeight, width: pageWidth, background: page.bgColor || '#fff', overflow: 'hidden', position: 'relative' }}
+                            >
+                                {continuousScroll && <div style={{ position: 'absolute', top: -30, left: 0, color: '#888', fontSize: 14, fontWeight: 600 }}>Page {actualPageIndex + 1}</div>}
+                                <div className="page-margins" />
+                                {page.blocks.map((b, idx) => (
                             <div key={idx} style={{ position: 'absolute', left: b.props.x || 0, top: b.props.y || 0, zIndex: b.props.z ?? idx, padding: 6 }}>
                                 {b.type === 'text' && <div style={{ color: b.props.color, fontSize: b.props.fontSize }}>{b.props.text}</div>}
                                 {b.type === 'image' && <img src={b.props.url} style={{ width: b.props.width || 120, height: b.props.height || 120, borderRadius: 8 }} alt="" />}
@@ -134,31 +224,26 @@ export default function SubAdminTemplateReview() {
                                 {b.type === 'category_title' && <div style={{ color: b.props.color, fontSize: b.props.fontSize }}>Titre catégorie</div>}
                                 {b.type === 'competency_list' && <div style={{ color: b.props.color, fontSize: b.props.fontSize }}>Liste des compétences</div>}
                                 {b.type === 'signature' && <div style={{ fontSize: b.props.fontSize }}>{(b.props.labels || []).join(' / ')}</div>}
+                                {b.type === 'signature_box' && (
+                                    <div style={{ 
+                                        width: b.props.width || 200, 
+                                        height: b.props.height || 80, 
+                                        border: '1px solid #000', 
+                                        background: '#fff',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        fontSize: 10,
+                                        color: '#999'
+                                    }}>
+                                        {signature ? '✓ Signé' : b.props.label || 'Signature'}
+                                    </div>
+                                )}
                             </div>
-                        ))}
-                    </div>
-
-                    <div className="card">
-                        <h3>Historique des modifications</h3>
-                        <div style={{ marginTop: 12, maxHeight: 600, overflowY: 'auto' }}>
-                            {changes.map((c, i) => (
-                                <div key={i} className="card" style={{ marginBottom: 8, fontSize: 12 }}>
-                                    <div className="note" style={{ fontSize: 10 }}>
-                                        {new Date(c.timestamp).toLocaleString()}
-                                    </div>
-                                    <div style={{ marginTop: 4 }}>
-                                        <strong>Avant:</strong> {JSON.stringify(c.before?.items?.map((it: any) => ({ code: it.code, active: it.active })))}
-                                    </div>
-                                    <div style={{ marginTop: 4 }}>
-                                        <strong>Après:</strong> {JSON.stringify(c.after?.items?.map((it: any) => ({ code: it.code, active: it.active })))}
-                                    </div>
-                                </div>
-                            ))}
-                            {changes.length === 0 && (
-                                <div className="note">Aucune modification enregistrée.</div>
-                            )}
-                        </div>
-                    </div>
+                                ))}
+                            </div>
+                        )
+                    })}
                 </div>
             </div>
         </div>

@@ -5,6 +5,7 @@ const userSchema = new Schema({
   passwordHash: { type: String, required: true },
   role: { type: String, enum: ['ADMIN','SUBADMIN','TEACHER'], required: true },
   displayName: { type: String, required: true },
+  signatureUrl: { type: String },
 })
 
 export const User = model('User', userSchema)

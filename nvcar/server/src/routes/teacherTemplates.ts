@@ -112,6 +112,21 @@ teacherTemplatesRouter.get('/template-assignments/:assignmentId', requireAuth(['
             }
         }
 
+        // Merge assignment data into template (language toggles, dropdowns, etc.)
+        if (assignment.data) {
+            versionedTemplate = JSON.parse(JSON.stringify(versionedTemplate))
+            for (const [key, value] of Object.entries(assignment.data)) {
+                if (key.startsWith('language_toggle_')) {
+                    const parts = key.split('_')
+                    const pageIdx = parseInt(parts[2])
+                    const blockIdx = parseInt(parts[3])
+                    if (versionedTemplate.pages[pageIdx]?.blocks[blockIdx]?.type === 'language_toggle') {
+                        versionedTemplate.pages[pageIdx].blocks[blockIdx].props.items = value
+                    }
+                }
+            }
+        }
+
         // Get the student
         const student = await Student.findById(assignment.studentId).lean()
 
@@ -144,8 +159,8 @@ teacherTemplatesRouter.patch('/template-assignments/:assignmentId/language-toggl
             return res.status(403).json({ error: 'not_assigned_to_template' })
         }
 
-        // Get the template
-        const template = await GradebookTemplate.findById(assignment.templateId)
+        // Get the template to verify the block
+        const template = await GradebookTemplate.findById(assignment.templateId).lean()
         if (!template) return res.status(404).json({ error: 'template_not_found' })
 
         // Verify the block is a language_toggle
@@ -159,13 +174,22 @@ teacherTemplatesRouter.patch('/template-assignments/:assignmentId/language-toggl
             return res.status(403).json({ error: 'can_only_edit_language_toggle' })
         }
 
-        // Store before state for change log
-        const before = { ...block.props }
+        // Store language toggle state in assignment data with unique key
+        const key = `language_toggle_${pageIndex}_${blockIndex}`
+        const currentData = assignment.data || {}
+        const before = currentData[key]
 
-        // Update the block
-        template.pages[pageIndex].blocks[blockIndex].props.items = items
-        template.updatedAt = new Date()
-        await template.save()
+        // Update assignment data (NOT the global template)
+        const updated = await TemplateAssignment.findByIdAndUpdate(
+            assignmentId,
+            { 
+                $set: { 
+                    [`data.${key}`]: items,
+                    status: assignment.status === 'draft' ? 'in_progress' : assignment.status
+                }
+            },
+            { new: true }
+        )
 
         // Log the change
         await TemplateChangeLog.create({
@@ -174,33 +198,12 @@ teacherTemplatesRouter.patch('/template-assignments/:assignmentId/language-toggl
             changeType: 'language_toggle',
             pageIndex,
             blockIndex,
-            before,
-            after: { items },
+            before: before || block.props.items,
+            after: items,
             timestamp: new Date(),
         })
 
-        // Update assignment status if still draft
-        if (assignment.status === 'draft') {
-            await TemplateAssignment.findByIdAndUpdate(assignmentId, { status: 'in_progress' })
-        }
-
-        // Log audit
-        const student = await Student.findById(assignment.studentId).lean()
-        await logAudit({
-            userId: teacherId,
-            action: 'EDIT_TEMPLATE',
-            details: {
-                templateId: assignment.templateId,
-                templateName: template.name,
-                studentId: assignment.studentId,
-                studentName: student ? `${student.firstName} ${student.lastName}` : 'Unknown',
-                pageIndex,
-                blockIndex,
-            },
-            req,
-        })
-
-        res.json({ ok: true, template })
+        res.json({ success: true, assignment: updated })
     } catch (e: any) {
         res.status(500).json({ error: 'update_failed', message: e.message })
     }
@@ -393,5 +396,38 @@ teacherTemplatesRouter.get('/classes/:classId/completion-stats', requireAuth(['T
         })
     } catch (e: any) {
         res.status(500).json({ error: 'fetch_failed', message: e.message })
+    }
+})
+
+// Teacher: Update assignment data (e.g. dropdowns)
+teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data', requireAuth(['TEACHER']), async (req, res) => {
+    try {
+        const teacherId = (req as any).user.userId
+        const { assignmentId } = req.params
+        const { data } = req.body
+
+        if (!data) return res.status(400).json({ error: 'missing_payload' })
+
+        // Get assignment and verify teacher is assigned
+        const assignment = await TemplateAssignment.findById(assignmentId).lean()
+        if (!assignment) return res.status(404).json({ error: 'not_found' })
+
+        if (!assignment.assignedTeachers.includes(teacherId)) {
+            return res.status(403).json({ error: 'not_assigned_to_template' })
+        }
+
+        // Update assignment
+        const updated = await TemplateAssignment.findByIdAndUpdate(
+            assignmentId,
+            { 
+                $set: { data: { ...assignment.data, ...data } },
+                status: assignment.status === 'draft' ? 'in_progress' : assignment.status
+            },
+            { new: true }
+        )
+
+        res.json(updated)
+    } catch (e: any) {
+        res.status(500).json({ error: 'update_failed', message: e.message })
     }
 })

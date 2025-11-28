@@ -9,6 +9,9 @@ import { GradebookTemplate } from '../models/GradebookTemplate'
 import axios from 'axios'
 import { StudentSignature } from '../models/StudentSignature'
 import { ClassModel } from '../models/Class'
+import { User } from '../models/User'
+import path from 'path'
+import fs from 'fs'
 // eslint-disable-next-line
 const archiver = require('archiver')
 import { requireAuth } from '../auth'
@@ -256,6 +259,61 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN','SUBADMIN','TEACHER']), async
             }
             doc.moveDown(0.4)
           }
+        }
+      } else if (b.type === 'signature_box') {
+        // Get the signature from the sub-admin who signed this template
+        const templateAssignment = await (await import('../models/TemplateAssignment')).TemplateAssignment.findOne({ 
+          studentId: id, 
+          templateId: tplId 
+        }).lean()
+        
+        if (templateAssignment) {
+          const TemplateSignature = (await import('../models/TemplateSignature')).TemplateSignature
+          const signature = await TemplateSignature.findOne({ 
+            templateAssignmentId: String(templateAssignment._id) 
+          }).lean()
+          
+          if (signature?.subAdminId) {
+            const subAdmin = await User.findById(signature.subAdminId).lean()
+            
+            const x = b.props?.x || 50
+            const y = b.props?.y || 50
+            const width = b.props?.width || 200
+            const height = b.props?.height || 80
+            
+            // Draw white rectangle with black border
+            doc.save()
+            doc.rect(x, y, width, height).stroke('#000')
+            
+            // If sub-admin has a signature image, place it in the box
+            if (subAdmin?.signatureUrl) {
+              try {
+                const sigPath = path.join(__dirname, '../../public', subAdmin.signatureUrl)
+                if (fs.existsSync(sigPath)) {
+                  const imgWidth = Math.min(width - 10, width * 0.9)
+                  const imgHeight = height - 10
+                  doc.image(sigPath, x + 5, y + 5, { fit: [imgWidth, imgHeight], align: 'center', valign: 'center' })
+                }
+              } catch (e) {
+                console.error('Failed to load signature image:', e)
+              }
+            }
+            doc.restore()
+          } else {
+            // No signature yet, just draw empty box
+            const x = b.props?.x || 50
+            const y = b.props?.y || 50
+            const width = b.props?.width || 200
+            const height = b.props?.height || 80
+            doc.rect(x, y, width, height).stroke('#000')
+          }
+        } else {
+          // No assignment, just draw empty box
+          const x = b.props?.x || 50
+          const y = b.props?.y || 50
+          const width = b.props?.width || 200
+          const height = b.props?.height || 80
+          doc.rect(x, y, width, height).stroke('#000')
         }
       } else if (b.type === 'language_toggle') {
         const items: any[] = b.props?.items || []

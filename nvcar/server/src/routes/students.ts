@@ -80,8 +80,8 @@ studentsRouter.get('/by-class/:classId', requireAuth(['ADMIN','SUBADMIN','TEACHE
 
 studentsRouter.post('/', requireAuth(['ADMIN','SUBADMIN']), async (req, res) => {
   const { firstName, lastName, dateOfBirth, parentName, parentPhone, classId } = req.body
-  if (!firstName || !lastName || !dateOfBirth || !classId) return res.status(400).json({ error: 'missing_payload' })
-  const dob = new Date(dateOfBirth)
+  if (!firstName || !lastName || !classId) return res.status(400).json({ error: 'missing_payload' })
+  const dob = dateOfBirth ? new Date(dateOfBirth) : new Date('2000-01-01')
   const key = `${String(firstName).toLowerCase()}_${String(lastName).toLowerCase()}_${dob.toISOString().slice(0,10)}`
   const existing = await Student.findOne({ logicalKey: key })
   let student

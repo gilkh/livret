@@ -123,8 +123,8 @@ export default function AdminAssignmentList() {
                     <tbody>
                         {teacherClassAssignments.map(a => (
                             <tr key={a._id} style={{ borderBottom: '1px solid #eee' }}>
-                                <td style={{ padding: 8 }}>{a.teacherId}</td>
-                                <td style={{ padding: 8 }}>{a.classId}</td>
+                                <td style={{ padding: 8 }}>{a.teacherName || a.teacherId}</td>
+                                <td style={{ padding: 8 }}>{a.className || a.classId}</td>
                                 <td style={{ padding: 8 }}>{new Date(a.assignedAt).toLocaleDateString()}</td>
                                 <td style={{ padding: 8, textAlign: 'right' }}>
                                     <button className="btn secondary" style={{ fontSize: 12 }} onClick={() => deleteTeacherClass(a._id)}>Supprimer</button>
@@ -152,8 +152,8 @@ export default function AdminAssignmentList() {
                     <tbody>
                         {templateAssignments.map(a => (
                             <tr key={a._id} style={{ borderBottom: '1px solid #eee' }}>
-                                <td style={{ padding: 8 }}>{a.templateId}</td>
-                                <td style={{ padding: 8 }}>{a.studentId}</td>
+                                <td style={{ padding: 8 }}>{a.templateName || a.templateId}</td>
+                                <td style={{ padding: 8 }}>{a.studentName || a.studentId}</td>
                                 <td style={{ padding: 8 }}>
                                     <span className="pill" style={{
                                         background: a.status === 'signed' ? '#e1bee7' : a.status === 'completed' ? '#c8e6c9' : a.status === 'in_progress' ? '#bbdefb' : '#e0e0e0'
@@ -187,8 +187,8 @@ export default function AdminAssignmentList() {
                     <tbody>
                         {subAdminAssignments.map(a => (
                             <tr key={a._id} style={{ borderBottom: '1px solid #eee' }}>
-                                <td style={{ padding: 8 }}>{a.subAdminId}</td>
-                                <td style={{ padding: 8 }}>{a.teacherId}</td>
+                                <td style={{ padding: 8 }}>{a.subAdminName || a.subAdminId}</td>
+                                <td style={{ padding: 8 }}>{a.teacherName || a.teacherId}</td>
                                 <td style={{ padding: 8 }}>{new Date(a.assignedAt).toLocaleDateString()}</td>
                                 <td style={{ padding: 8, textAlign: 'right' }}>
                                     <button className="btn secondary" style={{ fontSize: 12 }} onClick={() => deleteSubAdminAssignment(a._id)}>Supprimer</button>

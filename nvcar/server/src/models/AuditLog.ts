@@ -6,7 +6,7 @@ const auditLogSchema = new Schema({
     userRole: { type: String, enum: ['ADMIN', 'SUBADMIN', 'TEACHER'], required: true },
     action: {
         type: String,
-        enum: ['LOGIN', 'LOGOUT', 'EDIT_TEMPLATE', 'SIGN_TEMPLATE', 'EXPORT_PDF', 'CREATE_ASSIGNMENT', 'DELETE_ASSIGNMENT'],
+        enum: ['LOGIN', 'LOGOUT', 'EDIT_TEMPLATE', 'SIGN_TEMPLATE', 'UNSIGN_TEMPLATE', 'EXPORT_PDF', 'CREATE_ASSIGNMENT', 'DELETE_ASSIGNMENT', 'START_IMPERSONATION', 'STOP_IMPERSONATION'],
         required: true
     },
     details: { type: Schema.Types.Mixed },

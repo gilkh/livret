@@ -11,6 +11,7 @@ const templateAssignmentSchema = new Schema({
     isCompleted: { type: Boolean, default: false },
     completedAt: { type: Date },
     completedBy: { type: String },
+    data: { type: Schema.Types.Mixed, default: {} },
 })
 
 // Create compound index to prevent duplicate assignments
