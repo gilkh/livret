@@ -116,42 +116,86 @@ export default function SubAdminTemplateReview() {
     return (
         <div style={{ padding: 24 }}>
             <div className="card">
-                <button className="btn secondary" onClick={() => navigate('/subadmin/dashboard')} style={{ marginBottom: 16 }}>← Retour au tableau de bord</button>
-                <h2 className="title">Examen du carnet - {student ? `${student.firstName} ${student.lastName}` : 'Élève'}</h2>
-                <div className="note">{template.name}</div>
-                <div className="note" style={{ marginTop: 8 }}>
-                    Statut: {assignment?.status === 'signed' ? 'Signé ✓' : assignment?.status === 'completed' ? 'Terminé' : assignment?.status}
+                <button className="btn secondary" onClick={() => navigate('/subadmin/dashboard')} style={{ 
+                    marginBottom: 20,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    background: '#f1f5f9',
+                    color: '#475569',
+                    fontWeight: 500,
+                    border: '1px solid #e2e8f0'
+                }}>← Retour au tableau de bord</button>
+                <h2 className="title" style={{ fontSize: 28, marginBottom: 8, color: '#1e293b' }}>📝 Examen du carnet - {student ? `${student.firstName} ${student.lastName}` : 'Élève'}</h2>
+                <div className="note" style={{ fontSize: 14, color: '#64748b' }}>{template.name}</div>
+                <div className="note" style={{ marginTop: 8, fontSize: 13 }}>
+                    <span style={{ fontWeight: 500 }}>Statut:</span> {assignment?.status === 'signed' ? '✔️ Signé ✓' : assignment?.status === 'completed' ? '✅ Terminé' : assignment?.status}
                 </div>
-                {error && <div className="note" style={{ marginTop: 8, color: 'crimson' }}>{error}</div>}
+                {error && <div className="note" style={{ marginTop: 12, color: '#dc2626', background: '#fef2f2', padding: 12, borderRadius: 8, border: '1px solid #fecaca' }}>{error}</div>}
 
-                <div style={{ marginTop: 16, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                <div style={{ marginTop: 20, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
                     {!signature ? (
-                        <button className="btn" onClick={handleSign} disabled={signing}>
-                            {signing ? 'Signature...' : 'Signer ce carnet'}
+                        <button className="btn" onClick={handleSign} disabled={signing} style={{
+                            background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                            fontWeight: 500,
+                            padding: '12px 20px',
+                            boxShadow: '0 2px 8px rgba(16, 185, 129, 0.3)'
+                        }}>
+                            {signing ? '✍️ Signature...' : '✍️ Signer ce carnet'}
                         </button>
                     ) : (
                         <>
-                            <div className="note" style={{ padding: 8, background: '#e8f5e9', borderRadius: 6 }}>
-                                Signé le {new Date(signature.signedAt).toLocaleString()}
+                            <div className="note" style={{ 
+                                padding: 12, 
+                                background: 'linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%)', 
+                                borderRadius: 8,
+                                border: '1px solid #6ee7b7',
+                                color: '#065f46',
+                                fontWeight: 500
+                            }}>
+                                ✅ Signé le {new Date(signature.signedAt).toLocaleString('fr-FR')}
                             </div>
-                            <button className="btn" style={{ background: '#f59e0b' }} onClick={handleUnsign} disabled={unsigning}>
-                                {unsigning ? 'Annulation...' : 'Annuler la signature'}
+                            <button className="btn" style={{ 
+                                background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                                fontWeight: 500,
+                                padding: '12px 20px',
+                                boxShadow: '0 2px 8px rgba(245, 158, 11, 0.3)'
+                            }} onClick={handleUnsign} disabled={unsigning}>
+                                {unsigning ? '⏳ Annulation...' : '🔄 Annuler la signature'}
                             </button>
                         </>
                     )}
-                    <button className="btn secondary" onClick={handleExportPDF}>Exporter en PDF</button>
+                    <button className="btn secondary" onClick={handleExportPDF} style={{
+                        background: '#f1f5f9',
+                        color: '#475569',
+                        fontWeight: 500,
+                        border: '1px solid #e2e8f0',
+                        padding: '12px 20px'
+                    }}>📄 Exporter en PDF</button>
                 </div>
 
-                <div style={{ marginTop: 16, marginBottom: 12, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <button className="btn secondary" onClick={() => setContinuousScroll(!continuousScroll)}>
-                        {continuousScroll ? 'Vue page par page' : 'Vue continue'}
+                <div style={{ marginTop: 20, marginBottom: 16, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', padding: 16, background: '#f8fafc', borderRadius: 12, border: '1px solid #e2e8f0' }}>
+                    <button className="btn secondary" onClick={() => setContinuousScroll(!continuousScroll)} style={{
+                        background: continuousScroll ? 'linear-gradient(135deg, #6c5ce7 0%, #5b4bc4 100%)' : '#f1f5f9',
+                        color: continuousScroll ? 'white' : '#475569',
+                        fontWeight: 500,
+                        border: '1px solid #cbd5e1',
+                        padding: '10px 16px'
+                    }}>
+                        {continuousScroll ? '📄 Vue page par page' : '📚 Vue continue'}
                     </button>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                         <button 
                             className="btn secondary" 
                             onClick={() => setSelectedPage(Math.max(0, selectedPage - 1))}
                             disabled={selectedPage === 0 || continuousScroll}
-                            style={{ padding: '8px 16px' }}
+                            style={{ 
+                                padding: '10px 16px',
+                                background: '#f1f5f9',
+                                color: '#475569',
+                                border: '1px solid #cbd5e1',
+                                opacity: (selectedPage === 0 || continuousScroll) ? 0.5 : 1
+                            }}
                         >
                             ← Précédent
                         </button>
@@ -170,7 +214,15 @@ export default function SubAdminTemplateReview() {
                                     }, 100)
                                 }
                             }} 
-                            style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }}
+                            style={{ 
+                                padding: '10px 16px', 
+                                borderRadius: 8, 
+                                border: '1px solid #cbd5e1',
+                                fontSize: 14,
+                                fontWeight: 500,
+                                color: '#475569',
+                                background: 'white'
+                            }}
                         >
                             {template.pages.map((p, i) => <option key={i} value={i}>{p.title || `Page ${i + 1}`}</option>)}
                         </select>
@@ -178,7 +230,13 @@ export default function SubAdminTemplateReview() {
                             className="btn secondary" 
                             onClick={() => setSelectedPage(Math.min(template.pages.length - 1, selectedPage + 1))}
                             disabled={selectedPage === template.pages.length - 1 || continuousScroll}
-                            style={{ padding: '8px 16px' }}
+                            style={{ 
+                                padding: '10px 16px',
+                                background: '#f1f5f9',
+                                color: '#475569',
+                                border: '1px solid #cbd5e1',
+                                opacity: (selectedPage === template.pages.length - 1 || continuousScroll) ? 0.5 : 1
+                            }}
                         >
                             Suivant →
                         </button>

@@ -6,6 +6,7 @@ import { Student } from '../models/Student'
 import { User } from '../models/User'
 import { Enrollment } from '../models/Enrollment'
 import { TeacherClassAssignment } from '../models/TeacherClassAssignment'
+import { ClassModel } from '../models/Class'
 
 export const templateAssignmentsRouter = Router()
 
@@ -165,13 +166,24 @@ templateAssignmentsRouter.get('/', requireAuth(['ADMIN']), async (req, res) => {
         const templates = await GradebookTemplate.find({ _id: { $in: templateIds } }).lean()
         const students = await Student.find({ _id: { $in: studentIds } }).lean()
         
+        // Fetch enrollments and classes
+        const enrollments = await Enrollment.find({ studentId: { $in: studentIds } }).lean()
+        const classIds = enrollments.map(e => e.classId)
+        const classes = await ClassModel.find({ _id: { $in: classIds } }).lean()
+        
         const result = assignments.map(a => {
             const template = templates.find(t => String(t._id) === a.templateId)
             const student = students.find(s => String(s._id) === a.studentId)
+            
+            const enrollment = enrollments.find(e => e.studentId === a.studentId)
+            const cls = enrollment ? classes.find(c => String(c._id) === enrollment.classId) : null
+
             return {
                 ...a,
                 templateName: template ? template.name : 'Unknown',
-                studentName: student ? `${student.firstName} ${student.lastName}` : 'Unknown'
+                studentName: student ? `${student.firstName} ${student.lastName}` : 'Unknown',
+                className: cls ? cls.name : '',
+                classId: cls ? cls._id : ''
             }
         })
         res.json(result)

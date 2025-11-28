@@ -36,9 +36,13 @@ mediaRouter.get('/list', requireAuth(['ADMIN','SUBADMIN','TEACHER']), async (req
   const folder = req.query?.folder ? String(req.query.folder).replace(/[^a-z0-9_\/-]+/gi, '') : ''
   const dir = path.join(uploadDir, folder)
   ensureDir(dir)
-  const files = fs.readdirSync(dir).filter(f => !f.startsWith('.'))
-  const urls = files.map(f => `${folder ? '/' + folder : ''}/${f}`)
-  res.json(urls)
+  const items = fs.readdirSync(dir, { withFileTypes: true }).filter(f => !f.name.startsWith('.'))
+  const result = items.map(d => ({
+    name: d.name,
+    type: d.isDirectory() ? 'folder' : 'file',
+    path: `${folder ? '/' + folder : ''}/${d.name}`
+  }))
+  res.json(result)
 })
 
 mediaRouter.post('/mkdir', requireAuth(['ADMIN','SUBADMIN']), async (req, res) => {

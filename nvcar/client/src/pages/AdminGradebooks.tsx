@@ -11,7 +11,7 @@ export default function AdminGradebooks() {
   const [templates, setTemplates] = useState<any[]>([])
   const [templateId, setTemplateId] = useState('')
   const [pwd, setPwd] = useState('')
-  const [files, setFiles] = useState<string[]>([])
+  const [files, setFiles] = useState<{ name: string, path: string, type: string }[]>([])
   const loadYears = async () => { const r = await api.get('/school-years'); setYears(r.data) }
   const loadClasses = async (yr: string) => { const r = await api.get('/classes', { params: { schoolYearId: yr } }); setClasses(r.data) }
   const loadStudents = async (cls: string) => { const r = await api.get(`/students/by-class/${cls}`); setStudents(r.data) }
@@ -95,10 +95,10 @@ export default function AdminGradebooks() {
           <h4>Fichiers enregistrés</h4>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 8 }}>
             {files.map(u => (
-              <div key={u} className="card" style={{ padding: 8 }}>
-                <div>{u.split('/').pop()}</div>
+              <div key={u.path} className="card" style={{ padding: 8 }}>
+                <div>{u.name}</div>
                 <div className="toolbar" style={{ marginTop: 6 }}>
-                  <a className="btn secondary" href={`http://localhost:4000/uploads${u}`} target="_blank">Télécharger</a>
+                  <a className="btn secondary" href={`http://localhost:4000/uploads${u.path}`} target="_blank">Télécharger</a>
                 </div>
               </div>
             ))}

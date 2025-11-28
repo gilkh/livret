@@ -58,6 +58,15 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN','SUBADMIN','TEACHER']), async
     const tpl = await GradebookTemplate.findById(tplId).lean()
     if (!tpl) return renderDefault()
     if (tpl.exportPassword && tpl.exportPassword !== pwd) return renderDefault()
+    
+    // Try to get assignment data for dropdowns
+    const TemplateAssignment = (await import('../models/TemplateAssignment')).TemplateAssignment
+    const assignment = await TemplateAssignment.findOne({ 
+      studentId: id, 
+      templateId: tplId 
+    }).lean()
+    const assignmentData = assignment?.data || {}
+    
     const categories = await Category.find({}).lean()
     const comps = await Competency.find({}).lean()
     const compByCat: Record<string, any[]> = {}
@@ -315,6 +324,58 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN','SUBADMIN','TEACHER']), async
           const height = b.props?.height || 80
           doc.rect(x, y, width, height).stroke('#000')
         }
+      } else if (b.type === 'dropdown') {
+        // Render dropdown with selected value or as empty box
+        const dropdownNum = b.props?.dropdownNumber
+        const selectedValue = dropdownNum ? assignmentData[`dropdown_${dropdownNum}`] : (b.props?.variableName ? assignmentData[b.props.variableName] : '')
+        
+        const x = b.props?.x || 50
+        const y = b.props?.y || 50
+        const width = b.props?.width || 200
+        const height = b.props?.height || 40
+        
+        // Draw dropdown box
+        doc.save()
+        doc.rect(x, y, width, height).stroke('#ccc')
+        
+        // Draw label if present
+        if (b.props?.label) {
+          doc.fontSize(10).fillColor('#666')
+          doc.text(b.props.label, x, y - 14, { width })
+        }
+        
+        // Draw dropdown number indicator
+        if (dropdownNum) {
+          doc.fontSize(8).fillColor('#6c5ce7').font('Helvetica-Bold')
+          doc.text(`#${dropdownNum}`, x + width - 25, y - 14)
+          doc.font('Helvetica')
+        }
+        
+        // Draw selected value or placeholder with text wrapping
+        doc.fontSize(b.props?.fontSize || 12).fillColor(b.props?.color || '#333')
+        const displayText = selectedValue || 'Sélectionner...'
+        doc.text(displayText, x + 8, y + 8, { width: width - 16, height: height - 16, align: 'left' })
+        
+        doc.restore()
+      } else if (b.type === 'dropdown_reference') {
+        // Render the value selected in the referenced dropdown
+        const dropdownNum = b.props?.dropdownNumber || 1
+        const selectedValue = assignmentData[`dropdown_${dropdownNum}`] || `[Dropdown #${dropdownNum}]`
+        
+        if (b.props?.color) doc.fillColor(b.props.color)
+        doc.fontSize(b.props?.size || b.props?.fontSize || 12)
+        const x = b.props?.x, y = b.props?.y
+        const width = b.props?.width || 200
+        const height = b.props?.height
+        
+        if (typeof x === 'number' && typeof y === 'number') {
+          const options: any = { width }
+          if (height) options.height = height
+          doc.text(selectedValue, x, y, options)
+        } else {
+          doc.text(selectedValue)
+        }
+        doc.fillColor('#2d3436')
       } else if (b.type === 'language_toggle') {
         const items: any[] = b.props?.items || []
         const r = b.props?.radius || 40
@@ -423,6 +484,14 @@ pdfRouter.get('/class/:classId/batch', requireAuth(['ADMIN','SUBADMIN']), async 
             doc.moveDown()
           }
         } else {
+          // Try to get assignment data for dropdowns
+          const TemplateAssignment = (await import('../models/TemplateAssignment')).TemplateAssignment
+          const assignment = await TemplateAssignment.findOne({ 
+            studentId: String(s._id), 
+            templateId: String(templateId)
+          }).lean()
+          const assignmentData = assignment?.data || {}
+          
           const categories = await Category.find({}).lean()
           const comps = await Competency.find({}).lean()
           const compByCat: Record<string, any[]> = {}
@@ -587,6 +656,58 @@ pdfRouter.get('/class/:classId/batch', requireAuth(['ADMIN','SUBADMIN']), async 
                   doc.moveDown(0.4)
                 }
               }
+            } else if (b.type === 'dropdown') {
+              // Render dropdown with selected value or as empty box
+              const dropdownNum = b.props?.dropdownNumber
+              const selectedValue = dropdownNum ? assignmentData[`dropdown_${dropdownNum}`] : (b.props?.variableName ? assignmentData[b.props.variableName] : '')
+              
+              const x = b.props?.x || 50
+              const y = b.props?.y || 50
+              const width = b.props?.width || 200
+              const height = b.props?.height || 40
+              
+              // Draw dropdown box
+              doc.save()
+              doc.rect(x, y, width, height).stroke('#ccc')
+              
+              // Draw label if present
+              if (b.props?.label) {
+                doc.fontSize(10).fillColor('#666')
+                doc.text(b.props.label, x, y - 14, { width })
+              }
+              
+              // Draw dropdown number indicator
+              if (dropdownNum) {
+                doc.fontSize(8).fillColor('#6c5ce7').font('Helvetica-Bold')
+                doc.text(`#${dropdownNum}`, x + width - 25, y - 14)
+                doc.font('Helvetica')
+              }
+              
+              // Draw selected value or placeholder with text wrapping
+              doc.fontSize(b.props?.fontSize || 12).fillColor(b.props?.color || '#333')
+              const displayText = selectedValue || 'Sélectionner...'
+              doc.text(displayText, x + 8, y + 8, { width: width - 16, height: height - 16, align: 'left' })
+              
+              doc.restore()
+            } else if (b.type === 'dropdown_reference') {
+              // Render the value selected in the referenced dropdown
+              const dropdownNum = b.props?.dropdownNumber || 1
+              const selectedValue = assignmentData[`dropdown_${dropdownNum}`] || `[Dropdown #${dropdownNum}]`
+              
+              if (b.props?.color) doc.fillColor(b.props.color)
+              doc.fontSize(b.props?.size || b.props?.fontSize || 12)
+              const x = b.props?.x, y = b.props?.y
+              const width = b.props?.width || 200
+              const height = b.props?.height
+              
+              if (typeof x === 'number' && typeof y === 'number') {
+                const options: any = { width }
+                if (height) options.height = height
+                doc.text(selectedValue, x, y, options)
+              } else {
+                doc.text(selectedValue)
+              }
+              doc.fillColor('#2d3436')
             } else if (b.type === 'language_toggle') {
               const items: any[] = b.props?.items || []
               const r2 = b.props?.radius || 40

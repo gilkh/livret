@@ -113,9 +113,9 @@ function SignatureEditor({ studentId }: { studentId: string }) {
           <input type="file" accept="image/*" onChange={async e => { const f = e.target.files?.[0]; if (!f) return; const fd = new FormData(); fd.append('file', f); const r = await fetch('http://localhost:4000/media/upload', { method: 'POST', headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` }, body: fd }); const data = await r.json(); if (data?.url) { const c = [...items]; c[idx] = { ...it, dataUrl: data.url.startsWith('http') ? data.url : `http://localhost:4000${data.url}` }; setItems(c) } }} />
           <button className="btn" onClick={async () => { const r = await api.get('/media/list'); if (Array.isArray(r.data)) { /* no-op, gallery automatically updates via query */ } }}>Rafraîchir la galerie</button>
           {Array.isArray(gallery) && (
-            <select value={(it as any).dataUrl || ''} onChange={e => { const c = [...items]; c[idx] = { ...it, dataUrl: `http://localhost:4000${e.target.value}` }; setItems(c) }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }}>
+            <select value={(it as any).dataUrl || ''} onChange={e => { const c = [...items]; c[idx] = { ...it, dataUrl: `http://localhost:4000/uploads${e.target.value}` }; setItems(c) }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }}>
               <option value="">Choisir depuis la galerie</option>
-              {gallery.map((u: string) => <option key={u} value={u}>{u}</option>)}
+              {gallery.filter((u: any) => u.type === 'file').map((u: any) => <option key={u.path} value={u.path}>{u.name}</option>)}
             </select>
           )}
         </div>

@@ -24,7 +24,7 @@ export default function TemplateBuilder() {
   const [yearId, setYearId] = useState('')
   const [selectedPage, setSelectedPage] = useState(0)
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
-  const [gallery, setGallery] = useState<string[]>([])
+  const [gallery, setGallery] = useState<{ name: string, path: string, type: string }[]>([])
   const [scale, setScale] = useState(1)
   const [snap, setSnap] = useState(true)
   const [selectedCell, setSelectedCell] = useState<{ ri: number; ci: number } | null>(null)
@@ -40,6 +40,9 @@ export default function TemplateBuilder() {
   // Modal state
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [newTemplateName, setNewTemplateName] = useState('')
+  
+  // Custom dropdown state
+  const [openDropdown, setOpenDropdown] = useState<string | null>(null)
 
   const blocksPalette: Block[] = useMemo(() => ([
     { type: 'text', props: { text: 'Titre', fontSize: 20, color: '#333' } },
@@ -61,6 +64,7 @@ export default function TemplateBuilder() {
       }
     },
     { type: 'dropdown', props: { label: 'Menu déroulant', options: ['Option 1', 'Option 2'], variableName: 'var1', width: 200, height: 40, fontSize: 12, color: '#333' } },
+    { type: 'dropdown_reference', props: { dropdownNumber: 1, text: 'Référence dropdown #{number}', fontSize: 12, color: '#2d3436' } },
     { type: 'line', props: { x2: 300, y2: 0, stroke: '#b2bec3', strokeWidth: 2 } },
     { type: 'arrow', props: { x2: 120, y2: 0, stroke: '#6c5ce7', strokeWidth: 2 } },
     { type: 'dynamic_text', props: { text: '{student.firstName} {student.lastName}', fontSize: 14, color: '#2d3436' } },
@@ -68,12 +72,34 @@ export default function TemplateBuilder() {
     { type: 'table', props: { x: 100, y: 100, columnWidths: [120, 160], rowHeights: [40, 40], cells: [[{ text: 'A1', fontSize: 12, color: '#000', fill: '#fff', borders: { l: { color: '#000', width: 1 }, r: { color: '#000', width: 1 }, t: { color: '#000', width: 1 }, b: { color: '#000', width: 1 } } }, { text: 'B1', fontSize: 12, color: '#000', fill: '#fff', borders: { l: { color: '#000', width: 1 }, r: { color: '#000', width: 1 }, t: { color: '#000', width: 1 }, b: { color: '#000', width: 1 } } }], [{ text: 'A2', fontSize: 12, color: '#000', fill: '#fff', borders: { l: { color: '#000', width: 1 }, r: { color: '#000', width: 1 }, t: { color: '#000', width: 1 }, b: { color: '#000', width: 1 } } }, { text: 'B2', fontSize: 12, color: '#000', fill: '#fff', borders: { l: { color: '#000', width: 1 }, r: { color: '#000', width: 1 }, t: { color: '#000', width: 1 }, b: { color: '#000', width: 1 } } }]] } },
   ]), [])
 
+  // Get all dropdowns across all pages to determine next dropdown number
+  const getAllDropdowns = () => {
+    const dropdowns: { pageIdx: number; blockIdx: number; block: Block }[] = []
+    tpl.pages.forEach((page, pageIdx) => {
+      page.blocks.forEach((block, blockIdx) => {
+        if (block.type === 'dropdown') {
+          dropdowns.push({ pageIdx, blockIdx, block })
+        }
+      })
+    })
+    return dropdowns
+  }
+
   const addBlock = (b: Block) => {
     const pages = [...tpl.pages]
     const page = { ...pages[selectedPage] }
     const zList = (page.blocks || []).map(bb => (bb.props?.z ?? 0))
     const nextZ = (zList.length ? Math.max(...zList) : 0) + 1
-    const blocks = [...page.blocks, { type: b.type, props: { ...b.props, x: 100, y: 100, z: nextZ } }]
+    
+    // If adding a dropdown, assign it the next available number
+    let newProps = { ...b.props, x: 100, y: 100, z: nextZ }
+    if (b.type === 'dropdown') {
+      const allDropdowns = getAllDropdowns()
+      const maxNum = allDropdowns.reduce((max, d) => Math.max(max, d.block.props.dropdownNumber || 0), 0)
+      newProps.dropdownNumber = maxNum + 1
+    }
+    
+    const blocks = [...page.blocks, { type: b.type, props: newProps }]
     pages[selectedPage] = { ...page, blocks }
     setTpl({ ...tpl, pages })
     setSelectedIndex(blocks.length - 1)
@@ -223,54 +249,264 @@ export default function TemplateBuilder() {
   useEffect(() => { refreshGallery(); loadTemplates(); loadYears() }, [])
   useEffect(() => { if (yearId) { loadClasses(yearId); setClassId(''); setStudents([]); setStudentId('') } }, [yearId])
   useEffect(() => { if (classId) { loadStudents(classId); setStudentId('') } }, [classId])
+  
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = () => setOpenDropdown(null)
+    if (openDropdown) {
+      document.addEventListener('click', handleClickOutside)
+      return () => document.removeEventListener('click', handleClickOutside)
+    }
+  }, [openDropdown])
 
   if (viewMode === 'list') {
     return (
-      <div className="container">
-        <div className="header" style={{ justifyContent: 'space-between', marginBottom: 24 }}>
-          <h2 className="title">Mes Templates</h2>
-          <button className="btn" onClick={() => setShowCreateModal(true)}>+ Nouveau Template</button>
-        </div>
-        
-        {error && <div className="note" style={{ color: 'crimson', marginBottom: 16 }}>{error}</div>}
-        
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 24 }}>
-          {list.map(item => (
-            <div key={item._id} className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: 180 }}>
-              <div>
-                <h3 style={{ margin: '0 0 8px 0', fontSize: 18 }}>{item.name}</h3>
-                <div className="note">{item.pages.length} page(s)</div>
-              </div>
-              <div className="toolbar" style={{ marginTop: 16, justifyContent: 'flex-end' }}>
-                <button className="btn secondary" onClick={() => duplicateTemplate(item)} title="Dupliquer">
-                   📋
-                </button>
-                <button className="btn secondary" onClick={() => item._id && deleteTemplate(item._id)} title="Supprimer" style={{ background: '#ff7675' }}>
-                   🗑️
-                </button>
-                <button className="btn" onClick={() => { setTpl(item); setViewMode('edit'); setSelectedPage(0); setSelectedIndex(null) }}>
-                   Éditer
-                </button>
-              </div>
+      <div className="container" style={{ maxWidth: 1400, margin: '0 auto' }}>
+        <div style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', padding: '32px 40px', borderRadius: 16, marginBottom: 32, boxShadow: '0 8px 24px rgba(102, 126, 234, 0.25)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <h1 style={{ margin: 0, fontSize: 32, fontWeight: 700, color: '#fff', marginBottom: 8 }}>Bibliothèque Templates</h1>
+              <p style={{ margin: 0, fontSize: 16, color: 'rgba(255,255,255,0.9)' }}>Créez et gérez vos modèles de livrets</p>
             </div>
-          ))}
+            <button 
+              className="btn" 
+              onClick={() => setShowCreateModal(true)}
+              style={{ 
+                background: '#fff', 
+                color: '#667eea', 
+                padding: '14px 28px',
+                fontSize: 16,
+                fontWeight: 600,
+                boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                border: 'none'
+              }}
+            >
+              ✨ Nouveau Template
+            </button>
+          </div>
         </div>
+        
+        {error && (
+          <div style={{ 
+            padding: '16px 20px', 
+            background: '#fee', 
+            color: '#c33', 
+            borderRadius: 12, 
+            marginBottom: 24,
+            border: '1px solid #fcc',
+            fontWeight: 500
+          }}>
+            ⚠️ {error}
+          </div>
+        )}
+        
+        {list.length === 0 ? (
+          <div style={{ 
+            textAlign: 'center', 
+            padding: '80px 40px',
+            background: '#f8f9fa',
+            borderRadius: 16,
+            border: '2px dashed #dee2e6'
+          }}>
+            <div style={{ fontSize: 64, marginBottom: 16, opacity: 0.3 }}>📄</div>
+            <h3 style={{ fontSize: 20, color: '#6c757d', marginBottom: 8 }}>Aucun template trouvé</h3>
+            <p style={{ color: '#adb5bd', marginBottom: 24 }}>Créez votre premier template pour commencer</p>
+            <button className="btn" onClick={() => setShowCreateModal(true)}>Créer un template</button>
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 24 }}>
+            {list.map(item => (
+              <div 
+                key={item._id} 
+                className="card" 
+                style={{ 
+                  display: 'flex', 
+                  flexDirection: 'column', 
+                  minHeight: 220,
+                  transition: 'all 0.3s ease',
+                  cursor: 'pointer',
+                  border: '2px solid #e9ecef',
+                  position: 'relative',
+                  overflow: 'hidden'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = 'translateY(-4px)'
+                  e.currentTarget.style.boxShadow = '0 12px 32px rgba(0,0,0,0.12)'
+                  e.currentTarget.style.borderColor = '#667eea'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = 'translateY(0)'
+                  e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)'
+                  e.currentTarget.style.borderColor = '#e9ecef'
+                }}
+              >
+                <div style={{ 
+                  position: 'absolute', 
+                  top: 0, 
+                  left: 0, 
+                  right: 0, 
+                  height: 4, 
+                  background: 'linear-gradient(90deg, #667eea, #764ba2)'
+                }} />
+                
+                <div style={{ flex: 1, padding: '20px 24px' }}>
+                  <h3 style={{ 
+                    margin: '0 0 12px 0', 
+                    fontSize: 20, 
+                    fontWeight: 600,
+                    color: '#2d3436',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap'
+                  }}>
+                    {item.name}
+                  </h3>
+                  <div style={{ 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: 16,
+                    fontSize: 14,
+                    color: '#6c757d'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontSize: 18 }}>📄</span>
+                      <span>{item.pages.length} page{item.pages.length > 1 ? 's' : ''}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ 
+                  padding: '16px 24px', 
+                  background: '#f8f9fa',
+                  borderTop: '1px solid #e9ecef',
+                  display: 'flex',
+                  gap: 8,
+                  justifyContent: 'flex-end'
+                }}>
+                  <button 
+                    className="btn secondary" 
+                    onClick={(e) => { e.stopPropagation(); duplicateTemplate(item) }} 
+                    title="Dupliquer"
+                    style={{ 
+                      padding: '8px 16px',
+                      fontSize: 14,
+                      background: '#fff',
+                      border: '1px solid #dee2e6'
+                    }}
+                  >
+                    📋 Dupliquer
+                  </button>
+                  <button 
+                    className="btn secondary" 
+                    onClick={(e) => { e.stopPropagation(); item._id && deleteTemplate(item._id) }} 
+                    title="Supprimer" 
+                    style={{ 
+                      padding: '8px 16px',
+                      fontSize: 14,
+                      background: '#fff',
+                      border: '1px solid #ffcdd2',
+                      color: '#dc3545'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = '#dc3545'
+                      e.currentTarget.style.color = '#fff'
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = '#fff'
+                      e.currentTarget.style.color = '#dc3545'
+                    }}
+                  >
+                    🗑️
+                  </button>
+                  <button 
+                    className="btn" 
+                    onClick={(e) => { 
+                      e.stopPropagation(); 
+                      setTpl(item); 
+                      setViewMode('edit'); 
+                      setSelectedPage(0); 
+                      setSelectedIndex(null) 
+                    }}
+                    style={{ 
+                      padding: '8px 20px',
+                      fontSize: 14,
+                      fontWeight: 600
+                    }}
+                  >
+                    ✏️ Éditer
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
 
         {showCreateModal && (
-          <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-            <div className="card" style={{ width: 400 }}>
-              <h3>Créer un nouveau template</h3>
+          <div style={{ 
+            position: 'fixed', 
+            top: 0, 
+            left: 0, 
+            right: 0, 
+            bottom: 0, 
+            background: 'rgba(0,0,0,0.6)', 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center', 
+            zIndex: 1000,
+            backdropFilter: 'blur(4px)'
+          }}>
+            <div 
+              className="card" 
+              style={{ 
+                width: 480,
+                maxWidth: '90vw',
+                boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+                border: 'none',
+                animation: 'slideUp 0.3s ease-out'
+              }}
+            >
+              <h3 style={{ 
+                margin: '0 0 20px 0', 
+                fontSize: 24, 
+                fontWeight: 600,
+                color: '#2d3436'
+              }}>
+                ✨ Créer un nouveau template
+              </h3>
               <input 
                 autoFocus
-                placeholder="Nom du template" 
+                placeholder="Nom du template (ex: Livret Scolaire 2024-2025)" 
                 value={newTemplateName} 
                 onChange={e => setNewTemplateName(e.target.value)} 
                 onKeyDown={e => e.key === 'Enter' && createTemplate()}
-                style={{ width: '100%', padding: 12, borderRadius: 8, border: '1px solid #ddd', marginBottom: 16, boxSizing: 'border-box' }} 
+                style={{ 
+                  width: '100%', 
+                  padding: '14px 16px', 
+                  borderRadius: 10, 
+                  border: '2px solid #e9ecef', 
+                  marginBottom: 24, 
+                  boxSizing: 'border-box',
+                  fontSize: 15,
+                  transition: 'all 0.2s'
+                }} 
+                onFocus={(e) => e.target.style.borderColor = '#667eea'}
+                onBlur={(e) => e.target.style.borderColor = '#e9ecef'}
               />
-              <div className="toolbar" style={{ justifyContent: 'flex-end' }}>
-                <button className="btn secondary" onClick={() => setShowCreateModal(false)}>Annuler</button>
-                <button className="btn" onClick={createTemplate}>Créer</button>
+              <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+                <button 
+                  className="btn secondary" 
+                  onClick={() => setShowCreateModal(false)}
+                  style={{ padding: '12px 24px', fontSize: 15 }}
+                >
+                  Annuler
+                </button>
+                <button 
+                  className="btn" 
+                  onClick={createTemplate}
+                  style={{ padding: '12px 28px', fontSize: 15, fontWeight: 600 }}
+                >
+                  Créer
+                </button>
               </div>
             </div>
           </div>
@@ -280,90 +516,841 @@ export default function TemplateBuilder() {
   }
 
   return (
-    <div style={{ padding: 24 }}>
-      <div className="card">
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <button className="btn secondary" onClick={() => { setViewMode('list'); loadTemplates() }}>← Retour</button>
-            <h2 className="title" style={{ margin: 0 }}>Éditeur: {tpl.name}</h2>
+    <div style={{ background: '#f5f7fa', minHeight: '100vh', padding: 24 }}>
+      {/* Top Navigation Bar */}
+      <div style={{ 
+        background: '#fff', 
+        borderRadius: 16, 
+        padding: '20px 28px',
+        marginBottom: 24,
+        boxShadow: '0 2px 12px rgba(0,0,0,0.08)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <button 
+            className="btn secondary" 
+            onClick={() => { setViewMode('list'); loadTemplates() }}
+            style={{ 
+              padding: '10px 20px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8
+            }}
+          >
+            <span>←</span> Retour
+          </button>
+          <div style={{ height: 32, width: 1, background: '#e0e0e0' }} />
+          <div>
+            <h2 style={{ margin: 0, fontSize: 22, fontWeight: 600, color: '#2d3436' }}>
+              {tpl.name || 'Sans titre'}
+            </h2>
           </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-             <button className="btn" onClick={async () => { try { setError(''); setSaveStatus(''); await save(); setSaveStatus('Enregistré avec succès'); setTimeout(() => setSaveStatus(''), 3000); await loadTemplates() } catch (e: any) { setError('Échec de l\'enregistrement'); setTimeout(() => setError(''), 3000) } }}>Enregistrer</button>
+        </div>
+        <button 
+          className="btn" 
+          onClick={async () => { 
+            try { 
+              setError(''); 
+              setSaveStatus(''); 
+              await save(); 
+              setSaveStatus('Enregistré avec succès'); 
+              setTimeout(() => setSaveStatus(''), 3000); 
+              await loadTemplates() 
+            } catch (e: any) { 
+              setError('Échec de l\'enregistrement'); 
+              setTimeout(() => setError(''), 3000) 
+            } 
+          }}
+          style={{ 
+            padding: '12px 32px',
+            fontSize: 15,
+            fontWeight: 600,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8
+          }}
+        >
+          💾 Enregistrer
+        </button>
+      </div>
+
+      {/* Status Messages */}
+      {saveStatus && (
+        <div style={{ 
+          padding: '14px 20px', 
+          background: 'linear-gradient(135deg, #10b981, #059669)', 
+          color: 'white', 
+          borderRadius: 12, 
+          marginBottom: 20, 
+          fontWeight: 600, 
+          fontSize: 15,
+          boxShadow: '0 4px 12px rgba(16, 185, 129, 0.3)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10
+        }}>
+          <span style={{ fontSize: 20 }}>✓</span> {saveStatus}
+        </div>
+      )}
+      {error && (
+        <div style={{ 
+          padding: '14px 20px', 
+          background: 'linear-gradient(135deg, #ef4444, #dc2626)', 
+          color: 'white', 
+          borderRadius: 12, 
+          marginBottom: 20, 
+          fontWeight: 600, 
+          fontSize: 15,
+          boxShadow: '0 4px 12px rgba(239, 68, 68, 0.3)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10
+        }}>
+          <span style={{ fontSize: 20 }}>✗</span> {error}
+        </div>
+      )}
+
+      {/* Main Controls */}
+      <div style={{ 
+        background: '#fff', 
+        borderRadius: 16, 
+        padding: '24px 28px',
+        marginBottom: 24,
+        boxShadow: '0 2px 12px rgba(0,0,0,0.08)'
+      }}>
+        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+          {/* Template Name */}
+          <div style={{ flex: '1 1 300px', minWidth: 200 }}>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#6c757d', marginBottom: 6 }}>
+              NOM DU TEMPLATE
+            </label>
+            <input 
+              placeholder="Nom du template" 
+              value={tpl.name} 
+              onChange={e => setTpl({ ...tpl, name: e.target.value })} 
+              style={{ 
+                width: '100%',
+                padding: '10px 14px', 
+                borderRadius: 8, 
+                border: '2px solid #e9ecef',
+                fontSize: 15,
+                transition: 'all 0.2s'
+              }}
+              onFocus={(e) => e.target.style.borderColor = '#667eea'}
+              onBlur={(e) => e.target.style.borderColor = '#e9ecef'}
+            />
+          </div>
+
+          {/* Page Selector */}
+          <div style={{ flex: '0 0 auto' }}>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#6c757d', marginBottom: 6 }}>
+              PAGE ACTIVE
+            </label>
+            <select 
+              value={selectedPage} 
+              onChange={e => setSelectedPage(Number(e.target.value))} 
+              style={{ 
+                padding: '10px 14px', 
+                borderRadius: 8, 
+                border: '2px solid #e9ecef',
+                fontSize: 15,
+                minWidth: 180,
+                cursor: 'pointer'
+              }}
+            >
+              {tpl.pages.map((p, i) => (
+                <option key={i} value={i}>
+                  {p.title || `Page ${i + 1}`}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Add Page Button */}
+          <div style={{ flex: '0 0 auto', paddingTop: 22 }}>
+            <button 
+              className="btn secondary" 
+              onClick={() => { 
+                const pages = [...tpl.pages, { title: `Page ${tpl.pages.length + 1}`, blocks: [] }]; 
+                setTpl({ ...tpl, pages }); 
+                setSelectedPage(pages.length - 1); 
+                setSelectedIndex(null) 
+              }}
+              style={{ 
+                padding: '10px 20px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                fontSize: 14
+              }}
+            >
+              <span style={{ fontSize: 18 }}>+</span> Nouvelle page
+            </button>
+          </div>
+
+          {/* Background Color */}
+          <div style={{ flex: '0 0 auto' }}>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#6c757d', marginBottom: 6 }}>
+              FOND PAGE
+            </label>
+            <input 
+              type="color"
+              value={tpl.pages[selectedPage].bgColor || '#ffffff'} 
+              onChange={e => { 
+                const pages = [...tpl.pages]; 
+                pages[selectedPage] = { ...pages[selectedPage], bgColor: e.target.value }; 
+                setTpl({ ...tpl, pages }) 
+              }} 
+              style={{ 
+                width: 60,
+                height: 40,
+                padding: 4, 
+                borderRadius: 8, 
+                border: '2px solid #e9ecef',
+                cursor: 'pointer'
+              }}
+            />
           </div>
         </div>
 
-        {saveStatus && <div style={{ padding: '12px 16px', background: '#10b981', color: 'white', borderRadius: 8, marginBottom: 12, fontWeight: 600, fontSize: 14, textAlign: 'center' }}>✓ {saveStatus}</div>}
-        {error && <div style={{ padding: '12px 16px', background: '#ef4444', color: 'white', borderRadius: 8, marginBottom: 12, fontWeight: 600, fontSize: 14, textAlign: 'center' }}>✗ {error}</div>}
-        <div className="toolbar" style={{ marginBottom: 12, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-          <input placeholder="Nom du template" value={tpl.name} onChange={e => setTpl({ ...tpl, name: e.target.value })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
-          <button className="btn" onClick={() => { const pages = [...tpl.pages, { title: `Page ${tpl.pages.length + 1}`, blocks: [] }]; setTpl({ ...tpl, pages }); setSelectedPage(pages.length - 1); setSelectedIndex(null) }}>Ajouter une page</button>
-          <select value={selectedPage} onChange={e => setSelectedPage(Number(e.target.value))} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }}>
-            {tpl.pages.map((p, i) => <option key={i} value={i}>{p.title || `Page ${i + 1}`}</option>)}
-          </select>
-          <input placeholder="Couleur de fond (ex: #f9f1ff)" value={tpl.pages[selectedPage].bgColor || ''} onChange={e => { const pages = [...tpl.pages]; pages[selectedPage] = { ...pages[selectedPage], bgColor: e.target.value }; setTpl({ ...tpl, pages }) }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}><input type="checkbox" checked={snap} onChange={e => setSnap(e.target.checked)} /> Snap</label>
-          <button className="btn secondary" onClick={() => setContinuousScroll(!continuousScroll)}>{continuousScroll ? 'Vue page par page' : 'Vue continue'}</button>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>Zoom <input type="range" min={0.5} max={2} step={0.1} value={scale} onChange={e => setScale(parseFloat(e.target.value))} /></label>
-          <select value={yearId} onChange={e => setYearId(e.target.value)} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }}>
-            <option value="">Année</option>
+        {/* Secondary Controls */}
+        <div style={{ 
+          marginTop: 20, 
+          paddingTop: 20, 
+          borderTop: '1px solid #e9ecef',
+          display: 'flex',
+          gap: 12,
+          flexWrap: 'wrap',
+          alignItems: 'center'
+        }}>
+          <label style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: 8,
+            padding: '8px 14px',
+            background: '#f8f9fa',
+            borderRadius: 8,
+            cursor: 'pointer',
+            fontSize: 14
+          }}>
+            <input 
+              type="checkbox" 
+              checked={snap} 
+              onChange={e => setSnap(e.target.checked)}
+              style={{ width: 18, height: 18, cursor: 'pointer' }}
+            />
+            <span>Magnétisme</span>
+          </label>
+
+          <button 
+            className="btn secondary" 
+            onClick={() => setContinuousScroll(!continuousScroll)}
+            style={{ 
+              padding: '8px 16px',
+              fontSize: 14
+            }}
+          >
+            {continuousScroll ? '📄 Vue page par page' : '📜 Vue continue'}
+          </button>
+
+          <label style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: 10,
+            padding: '8px 14px',
+            background: '#f8f9fa',
+            borderRadius: 8,
+            fontSize: 14,
+            minWidth: 200
+          }}>
+            <span>🔍 Zoom</span>
+            <input 
+              type="range" 
+              min={0.5} 
+              max={2} 
+              step={0.1} 
+              value={scale} 
+              onChange={e => setScale(parseFloat(e.target.value))}
+              style={{ flex: 1 }}
+            />
+            <span style={{ fontWeight: 600, minWidth: 45, textAlign: 'right' }}>{Math.round(scale * 100)}%</span>
+          </label>
+
+          <div style={{ flex: 1 }} />
+
+          {/* Preview Controls */}
+          <select 
+            value={yearId} 
+            onChange={e => setYearId(e.target.value)} 
+            style={{ 
+              padding: '8px 12px', 
+              borderRadius: 8, 
+              border: '2px solid #e9ecef',
+              fontSize: 13
+            }}
+          >
+            <option value="">Année scolaire</option>
             {years.map(y => <option key={y._id} value={y._id}>{y.name}</option>)}
           </select>
-          <select value={classId} onChange={e => setClassId(e.target.value)} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }}>
+
+          <select 
+            value={classId} 
+            onChange={e => setClassId(e.target.value)} 
+            style={{ 
+              padding: '8px 12px', 
+              borderRadius: 8, 
+              border: '2px solid #e9ecef',
+              fontSize: 13
+            }}
+          >
             <option value="">Classe</option>
             {classes.map(c => <option key={c._id} value={c._id}>{c.name}</option>)}
           </select>
-          <select value={studentId} onChange={e => setStudentId(e.target.value)} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }}>
+
+          <select 
+            value={studentId} 
+            onChange={e => setStudentId(e.target.value)} 
+            style={{ 
+              padding: '8px 12px', 
+              borderRadius: 8, 
+              border: '2px solid #e9ecef',
+              fontSize: 13
+            }}
+          >
             <option value="">Élève</option>
             {students.map(s => <option key={s._id} value={s._id}>{s.firstName} {s.lastName}</option>)}
           </select>
-          {previewUrl && <a className="btn secondary" href={previewUrl} target="_blank">Aperçu PDF</a>}
-          {bulkUrl && <a className="btn secondary" href={bulkUrl} target="_blank">Export classe (ZIP)</a>}
-          
-          <button className="btn secondary" onClick={async () => {
-            const blob = new Blob([JSON.stringify(tpl)], { type: 'application/json' })
-            const fd = new FormData()
-            fd.append('file', new File([blob], `${tpl.name || 'template'}.json`, { type: 'application/json' }))
-            await fetch('http://localhost:4000/media/upload?folder=gradebook-templates', { method: 'POST', headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` }, body: fd })
-            setSaveStatus('Modèle enregistré dans médias avec succès')
-            setTimeout(() => setSaveStatus(''), 3000)
-          }}>Enregistrer modèle dans médias</button>
-          <button className="btn secondary" onClick={() => {
-            const blob = new Blob([JSON.stringify(tpl)], { type: 'application/json' })
-            const url = URL.createObjectURL(blob)
-            const a = document.createElement('a')
-            a.href = url
-            a.download = `${tpl.name || 'template'}.json`
-            document.body.appendChild(a)
-            a.click()
-            a.remove()
-            URL.revokeObjectURL(url)
-            a.remove()
-            URL.revokeObjectURL(url)
-          }}>Télécharger JSON</button>
-          <button className="btn secondary" onClick={() => pptxInputRef.current?.click()}>Importer PPTX</button>
-          <input type="file" ref={pptxInputRef} style={{ display: 'none' }} accept=".pptx" onChange={handlePptxImport} />
+
+          {previewUrl && (
+            <a 
+              className="btn secondary" 
+              href={previewUrl} 
+              target="_blank"
+              style={{ 
+                padding: '8px 16px',
+                fontSize: 14,
+                textDecoration: 'none'
+              }}
+            >
+              👁️ Aperçu PDF
+            </a>
+          )}
+
+          {bulkUrl && (
+            <a 
+              className="btn secondary" 
+              href={bulkUrl} 
+              target="_blank"
+              style={{ 
+                padding: '8px 16px',
+                fontSize: 14,
+                textDecoration: 'none'
+              }}
+            >
+              📦 Export classe
+            </a>
+          )}
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr 380px', gap: 24, alignItems: 'start' }}>
-          <div className="card" style={{ position: 'sticky', top: 24, maxHeight: 'calc(100vh - 48px)', overflowY: 'auto' }}>
-            <h3>Blocs</h3>
-            {blocksPalette.map((b, i) => (
-              <div key={i} className="competency" style={{ cursor: 'pointer' }} onClick={() => addBlock(b)}>
-                <div>{b.type}</div>
-                <div className="pill">Ajouter</div>
+
+        {/* Advanced Actions */}
+        <details style={{ marginTop: 20 }}>
+          <summary style={{ 
+            cursor: 'pointer', 
+            padding: '12px 16px',
+            background: '#f8f9fa',
+            borderRadius: 8,
+            fontSize: 14,
+            fontWeight: 600,
+            color: '#6c757d',
+            userSelect: 'none'
+          }}>
+            ⚙️ Actions avancées
+          </summary>
+          <div style={{ 
+            marginTop: 12,
+            display: 'flex',
+            gap: 10,
+            flexWrap: 'wrap',
+            padding: '16px',
+            background: '#f8f9fa',
+            borderRadius: 8
+          }}>
+            <button 
+              className="btn secondary" 
+              onClick={async () => {
+                const blob = new Blob([JSON.stringify(tpl)], { type: 'application/json' })
+                const fd = new FormData()
+                fd.append('file', new File([blob], `${tpl.name || 'template'}.json`, { type: 'application/json' }))
+                await fetch('http://localhost:4000/media/upload?folder=gradebook-templates', { 
+                  method: 'POST', 
+                  headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` }, 
+                  body: fd 
+                })
+                setSaveStatus('Modèle enregistré dans médias avec succès')
+                setTimeout(() => setSaveStatus(''), 3000)
+              }}
+              style={{ fontSize: 13, padding: '8px 14px' }}
+            >
+              📂 Enregistrer dans médias
+            </button>
+            
+            <button 
+              className="btn secondary" 
+              onClick={() => {
+                const blob = new Blob([JSON.stringify(tpl)], { type: 'application/json' })
+                const url = URL.createObjectURL(blob)
+                const a = document.createElement('a')
+                a.href = url
+                a.download = `${tpl.name || 'template'}.json`
+                document.body.appendChild(a)
+                a.click()
+                a.remove()
+                URL.revokeObjectURL(url)
+              }}
+              style={{ fontSize: 13, padding: '8px 14px' }}
+            >
+              💾 Télécharger JSON
+            </button>
+            
+            <button 
+              className="btn secondary" 
+              onClick={() => pptxInputRef.current?.click()}
+              style={{ fontSize: 13, padding: '8px 14px' }}
+            >
+              📊 Importer PPTX
+            </button>
+            <input 
+              type="file" 
+              ref={pptxInputRef} 
+              style={{ display: 'none' }} 
+              accept=".pptx" 
+              onChange={handlePptxImport} 
+            />
+          </div>
+        </details>
+      </div>
+
+      {/* Main Editor Grid */}
+      <div style={{ display: 'grid', gridTemplateColumns: '240px minmax(0, 1fr) 300px', gap: 16, alignItems: 'start' }}>
+        {/* Left Panel - Blocks Palette */}
+        <div 
+          style={{ 
+            position: 'sticky', 
+            top: 24, 
+            maxHeight: 'calc(100vh - 48px)', 
+            overflowY: 'auto',
+            background: '#fff',
+            borderRadius: 16,
+            padding: '24px 20px',
+            boxShadow: '0 2px 12px rgba(0,0,0,0.08)'
+          }}
+        >
+          <h3 style={{ 
+            margin: '0 0 20px 0', 
+            fontSize: 18, 
+            fontWeight: 600,
+            color: '#2d3436',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8
+          }}>
+            🧩 Composants
+          </h3>
+
+          {/* Text & Content */}
+          <div style={{ marginBottom: 24 }}>
+            <div style={{ 
+              fontSize: 11, 
+              fontWeight: 700, 
+              color: '#6c757d', 
+              marginBottom: 10,
+              textTransform: 'uppercase',
+              letterSpacing: '0.5px'
+            }}>
+              Texte & Contenu
+            </div>
+            {[
+              blocksPalette.find(b => b.type === 'text'),
+              blocksPalette.find(b => b.type === 'dynamic_text'),
+              blocksPalette.find(b => b.type === 'student_info'),
+            ].filter(Boolean).map((b, i) => (
+              <div 
+                key={i}
+                onClick={() => addBlock(b!)}
+                style={{ 
+                  padding: '12px 14px',
+                  marginBottom: 8,
+                  background: '#f8f9fa',
+                  border: '2px solid #e9ecef',
+                  borderRadius: 10,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = '#e7f5ff'
+                  e.currentTarget.style.borderColor = '#667eea'
+                  e.currentTarget.style.transform = 'translateX(4px)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = '#f8f9fa'
+                  e.currentTarget.style.borderColor = '#e9ecef'
+                  e.currentTarget.style.transform = 'translateX(0)'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: 20 }}>
+                    {b!.type === 'text' && '📝'}
+                    {b!.type === 'dynamic_text' && '🔤'}
+                    {b!.type === 'student_info' && '👤'}
+                  </span>
+                  <span style={{ fontSize: 13, fontWeight: 500 }}>
+                    {b!.type === 'text' && 'Texte'}
+                    {b!.type === 'dynamic_text' && 'Texte dynamique'}
+                    {b!.type === 'student_info' && 'Info élève'}
+                  </span>
+                </div>
+                <span style={{ fontSize: 18, color: '#667eea' }}>+</span>
               </div>
             ))}
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 24, alignItems: 'center', minWidth: 0 }}>
-            {(continuousScroll ? tpl.pages : [tpl.pages[selectedPage]]).map((page, i) => {
-              const pageIndex = continuousScroll ? i : selectedPage
-              return (
-                <div key={pageIndex} className="card page-canvas" style={{ transform: `scale(${scale})`, transformOrigin: 'top center', height: pageHeight, width: pageWidth, background: page.bgColor || '#fff', overflow: 'hidden', position: 'relative', marginBottom: continuousScroll ? 24 : 0 }} onClick={() => setSelectedPage(pageIndex)}>
-                  {continuousScroll && <div style={{ position: 'absolute', top: -20, left: 0, color: '#888', fontSize: 12 }}>Page {pageIndex + 1}</div>}
-                  <div className="page-margins" />
-                  {page.blocks.map((b, idx) => (
-                    <div key={idx} style={{ position: 'absolute', left: b.props.x || 0, top: b.props.y || 0, zIndex: (b.props.z ?? idx), border: (selectedIndex === idx && selectedPage === pageIndex) ? '2px solid var(--accent)' : '1px dashed #ccc', padding: 6, borderRadius: 6 }} 
+
+          {/* Shapes */}
+          <div style={{ marginBottom: 24 }}>
+            <div style={{ 
+              fontSize: 11, 
+              fontWeight: 700, 
+              color: '#6c757d', 
+              marginBottom: 10,
+              textTransform: 'uppercase',
+              letterSpacing: '0.5px'
+            }}>
+              Formes
+            </div>
+            {[
+              blocksPalette.find(b => b.type === 'rect'),
+              blocksPalette.find(b => b.type === 'circle'),
+              blocksPalette.find(b => b.type === 'line'),
+              blocksPalette.find(b => b.type === 'arrow'),
+            ].filter(Boolean).map((b, i) => (
+              <div 
+                key={i}
+                onClick={() => addBlock(b!)}
+                style={{ 
+                  padding: '12px 14px',
+                  marginBottom: 8,
+                  background: '#f8f9fa',
+                  border: '2px solid #e9ecef',
+                  borderRadius: 10,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = '#e7f5ff'
+                  e.currentTarget.style.borderColor = '#667eea'
+                  e.currentTarget.style.transform = 'translateX(4px)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = '#f8f9fa'
+                  e.currentTarget.style.borderColor = '#e9ecef'
+                  e.currentTarget.style.transform = 'translateX(0)'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: 20 }}>
+                    {b!.type === 'rect' && '▭'}
+                    {b!.type === 'circle' && '⬤'}
+                    {b!.type === 'line' && '━'}
+                    {b!.type === 'arrow' && '➜'}
+                  </span>
+                  <span style={{ fontSize: 13, fontWeight: 500 }}>
+                    {b!.type === 'rect' && 'Rectangle'}
+                    {b!.type === 'circle' && 'Cercle'}
+                    {b!.type === 'line' && 'Ligne'}
+                    {b!.type === 'arrow' && 'Flèche'}
+                  </span>
+                </div>
+                <span style={{ fontSize: 18, color: '#667eea' }}>+</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Media & Advanced */}
+          <div style={{ marginBottom: 24 }}>
+            <div style={{ 
+              fontSize: 11, 
+              fontWeight: 700, 
+              color: '#6c757d', 
+              marginBottom: 10,
+              textTransform: 'uppercase',
+              letterSpacing: '0.5px'
+            }}>
+              Média & Avancé
+            </div>
+            {[
+              blocksPalette.find(b => b.type === 'image'),
+              blocksPalette.find(b => b.type === 'qr'),
+              blocksPalette.find(b => b.type === 'table'),
+            ].filter(Boolean).map((b, i) => (
+              <div 
+                key={i}
+                onClick={() => addBlock(b!)}
+                style={{ 
+                  padding: '12px 14px',
+                  marginBottom: 8,
+                  background: '#f8f9fa',
+                  border: '2px solid #e9ecef',
+                  borderRadius: 10,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = '#e7f5ff'
+                  e.currentTarget.style.borderColor = '#667eea'
+                  e.currentTarget.style.transform = 'translateX(4px)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = '#f8f9fa'
+                  e.currentTarget.style.borderColor = '#e9ecef'
+                  e.currentTarget.style.transform = 'translateX(0)'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: 20 }}>
+                    {b!.type === 'image' && '🖼️'}
+                    {b!.type === 'qr' && '📱'}
+                    {b!.type === 'table' && '📊'}
+                  </span>
+                  <span style={{ fontSize: 13, fontWeight: 500 }}>
+                    {b!.type === 'image' && 'Image'}
+                    {b!.type === 'qr' && 'QR Code'}
+                    {b!.type === 'table' && 'Tableau'}
+                  </span>
+                </div>
+                <span style={{ fontSize: 18, color: '#667eea' }}>+</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Competencies & Signatures */}
+          <div style={{ marginBottom: 24 }}>
+            <div style={{ 
+              fontSize: 11, 
+              fontWeight: 700, 
+              color: '#6c757d', 
+              marginBottom: 10,
+              textTransform: 'uppercase',
+              letterSpacing: '0.5px'
+            }}>
+              Compétences & Signatures
+            </div>
+            {[
+              blocksPalette.find(b => b.type === 'category_title'),
+              blocksPalette.find(b => b.type === 'competency_list'),
+              blocksPalette.find(b => b.type === 'signature'),
+              blocksPalette.find(b => b.type === 'signature_box'),
+            ].filter(Boolean).map((b, i) => (
+              <div 
+                key={i}
+                onClick={() => addBlock(b!)}
+                style={{ 
+                  padding: '12px 14px',
+                  marginBottom: 8,
+                  background: '#f8f9fa',
+                  border: '2px solid #e9ecef',
+                  borderRadius: 10,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = '#e7f5ff'
+                  e.currentTarget.style.borderColor = '#667eea'
+                  e.currentTarget.style.transform = 'translateX(4px)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = '#f8f9fa'
+                  e.currentTarget.style.borderColor = '#e9ecef'
+                  e.currentTarget.style.transform = 'translateX(0)'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: 20 }}>
+                    {b!.type === 'category_title' && '📑'}
+                    {b!.type === 'competency_list' && '✅'}
+                    {b!.type === 'signature' && '✍️'}
+                    {b!.type === 'signature_box' && '📝'}
+                  </span>
+                  <span style={{ fontSize: 13, fontWeight: 500 }}>
+                    {b!.type === 'category_title' && 'Catégorie'}
+                    {b!.type === 'competency_list' && 'Compétences'}
+                    {b!.type === 'signature' && 'Signatures'}
+                    {b!.type === 'signature_box' && 'Zone signature'}
+                  </span>
+                </div>
+                <span style={{ fontSize: 18, color: '#667eea' }}>+</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Interactive */}
+          <div>
+            <div style={{ 
+              fontSize: 11, 
+              fontWeight: 700, 
+              color: '#6c757d', 
+              marginBottom: 10,
+              textTransform: 'uppercase',
+              letterSpacing: '0.5px'
+            }}>
+              Interactif
+            </div>
+            {[
+              blocksPalette.find(b => b.type === 'dropdown'),
+              blocksPalette.find(b => b.type === 'dropdown_reference'),
+              blocksPalette.find(b => b.type === 'language_toggle'),
+            ].filter(Boolean).map((b, i) => (
+              <div 
+                key={i}
+                onClick={() => addBlock(b!)}
+                style={{ 
+                  padding: '12px 14px',
+                  marginBottom: 8,
+                  background: '#f8f9fa',
+                  border: '2px solid #e9ecef',
+                  borderRadius: 10,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = '#e7f5ff'
+                  e.currentTarget.style.borderColor = '#667eea'
+                  e.currentTarget.style.transform = 'translateX(4px)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = '#f8f9fa'
+                  e.currentTarget.style.borderColor = '#e9ecef'
+                  e.currentTarget.style.transform = 'translateX(0)'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: 20 }}>
+                    {b!.type === 'dropdown' && '📋'}
+                    {b!.type === 'dropdown_reference' && '🔗'}
+                    {b!.type === 'language_toggle' && '🌐'}
+                  </span>
+                  <span style={{ fontSize: 13, fontWeight: 500 }}>
+                    {b!.type === 'dropdown' && 'Menu déroulant'}
+                    {b!.type === 'dropdown_reference' && 'Réf. dropdown'}
+                    {b!.type === 'language_toggle' && 'Langues'}
+                  </span>
+                </div>
+                <span style={{ fontSize: 18, color: '#667eea' }}>+</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Center Panel - Canvas */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 24, alignItems: 'flex-start', minWidth: 0, overflowX: 'auto', paddingBottom: 24 }}>
+          {(continuousScroll ? tpl.pages : [tpl.pages[selectedPage]]).map((page, i) => {
+            const pageIndex = continuousScroll ? i : selectedPage
+            return (
+              <div 
+                key={pageIndex}
+                style={{ 
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  width: '100%',
+                  minWidth: 'fit-content'
+                }}
+              >
+                {continuousScroll && (
+                  <div style={{ 
+                    marginBottom: 12,
+                    padding: '8px 16px',
+                    background: '#667eea',
+                    color: '#fff',
+                    borderRadius: 20,
+                    fontSize: 13,
+                    fontWeight: 600
+                  }}>
+                    Page {pageIndex + 1} / {tpl.pages.length}
+                  </div>
+                )}
+                
+                <div 
+                  style={{ 
+                    transform: `scale(${scale})`, 
+                    transformOrigin: 'top center',
+                    boxShadow: '0 10px 40px rgba(0,0,0,0.15)',
+                    borderRadius: 8,
+                    overflow: 'hidden',
+                    border: selectedPage === pageIndex ? '3px solid #667eea' : '1px solid #ddd',
+                    transition: 'all 0.3s ease'
+                  }}
+                >
+                  <div 
+                    className="card page-canvas" 
+                    style={{ 
+                      height: pageHeight, 
+                      width: pageWidth, 
+                      background: page.bgColor || '#fff', 
+                      position: 'relative',
+                      margin: 0
+                    }} 
+                    onClick={() => setSelectedPage(pageIndex)}
+                  >
+                    <div className="page-margins" />
+                  {page.blocks.map((b, idx) => {
+                    const isSelected = selectedIndex === idx && selectedPage === pageIndex
+                    return (
+                      <div 
+                        key={idx} 
+                        style={{ 
+                          position: 'absolute', 
+                          left: b.props.x || 0, 
+                          top: b.props.y || 0, 
+                          zIndex: (b.props.z ?? idx), 
+                          border: isSelected ? '3px solid #667eea' : '1px dashed rgba(0,0,0,0.2)', 
+                          padding: 6, 
+                          borderRadius: 8,
+                          background: isSelected ? 'rgba(102, 126, 234, 0.05)' : 'transparent',
+                          boxShadow: isSelected ? '0 0 0 1px rgba(102, 126, 234, 0.2)' : 'none',
+                          cursor: 'move',
+                          transition: 'all 0.15s ease'
+                        }} 
                         onMouseDown={(e) => onDrag(e, pageIndex, idx)} 
-                        onClick={(e) => { e.stopPropagation(); setSelectedPage(pageIndex); setSelectedIndex(idx) }}>
+                        onClick={(e) => { e.stopPropagation(); setSelectedPage(pageIndex); setSelectedIndex(idx) }}
+                        onMouseEnter={(e) => {
+                          if (!isSelected) {
+                            e.currentTarget.style.borderColor = 'rgba(102, 126, 234, 0.5)'
+                            e.currentTarget.style.background = 'rgba(102, 126, 234, 0.02)'
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (!isSelected) {
+                            e.currentTarget.style.borderColor = 'rgba(0,0,0,0.2)'
+                            e.currentTarget.style.background = 'transparent'
+                          }
+                        }}
+                      >
                 {b.type === 'text' && <div style={{ color: b.props.color, fontSize: b.props.fontSize }}>{b.props.text}</div>}
                 {b.type === 'image' && <img src={b.props.url} style={{ width: b.props.width || 120, height: b.props.height || 120, borderRadius: 8 }} />}
                 {b.type === 'rect' && <div style={{ width: b.props.width, height: b.props.height, background: b.props.color, borderRadius: b.props.radius || 8, border: b.props.stroke ? `${b.props.strokeWidth || 1}px solid ${b.props.stroke}` : 'none' }} />}
@@ -424,24 +1411,127 @@ export default function TemplateBuilder() {
                   </div>
                 )}
                 {b.type === 'dropdown' && (
-                  <div style={{ width: b.props.width || 200 }}>
+                  <div style={{ width: b.props.width || 200, position: 'relative' }}>
+                    <div style={{ fontSize: 10, fontWeight: 'bold', color: '#6c5ce7', marginBottom: 2 }}>Dropdown #{b.props.dropdownNumber || '?'}</div>
                     {b.props.label && <div style={{ fontSize: 10, color: '#666', marginBottom: 2 }}>{b.props.label}</div>}
-                    <select 
-                      style={{ width: '100%', height: b.props.height || 32, fontSize: b.props.fontSize || 12, color: b.props.color || '#333', padding: 4, borderRadius: 4, border: '1px solid #ccc' }}
-                      value={b.props.variableName ? (previewData[b.props.variableName] || '') : ''}
-                      onChange={(e) => {
-                        if (b.props.variableName) {
-                          setPreviewData({ ...previewData, [b.props.variableName]: e.target.value })
-                        }
+                    <div
+                      style={{ 
+                        width: '100%', 
+                        minHeight: b.props.height || 32, 
+                        fontSize: b.props.fontSize || 12, 
+                        color: b.props.color || '#333', 
+                        padding: '4px 24px 4px 8px', 
+                        borderRadius: 4, 
+                        border: '1px solid #ccc',
+                        background: '#fff',
+                        cursor: 'pointer',
+                        position: 'relative',
+                        display: 'flex',
+                        alignItems: 'center',
+                        wordWrap: 'break-word',
+                        whiteSpace: 'pre-wrap'
                       }}
-                      onClick={(e) => e.stopPropagation()}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        const key = `dropdown_${selectedPage}_${idx}`
+                        setOpenDropdown(openDropdown === key ? null : key)
+                      }}
                       onMouseDown={(e) => e.stopPropagation()}
                     >
-                      <option value="">Sélectionner...</option>
-                      {(b.props.options || []).map((opt: string, i: number) => (
-                        <option key={i} value={opt}>{opt}</option>
-                      ))}
-                    </select>
+                      {(() => {
+                        const currentValue = b.props.dropdownNumber 
+                          ? previewData[`dropdown_${b.props.dropdownNumber}`]
+                          : b.props.variableName ? previewData[b.props.variableName] : ''
+                        return currentValue || 'Sélectionner...'
+                      })()}
+                      <div style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>▼</div>
+                    </div>
+                    {openDropdown === `dropdown_${selectedPage}_${idx}` && (
+                      <div 
+                        style={{ 
+                          position: 'absolute', 
+                          top: '100%', 
+                          left: 0, 
+                          right: 0, 
+                          maxHeight: 300, 
+                          overflowY: 'auto', 
+                          background: '#fff', 
+                          border: '1px solid #ccc', 
+                          borderRadius: 4, 
+                          marginTop: 2, 
+                          zIndex: 1000,
+                          boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div 
+                          style={{ padding: '8px 12px', cursor: 'pointer', fontSize: b.props.fontSize || 12, color: '#999', borderBottom: '1px solid #eee' }}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            if (b.props.variableName) {
+                              setPreviewData({ ...previewData, [b.props.variableName]: '' })
+                            }
+                            if (b.props.dropdownNumber) {
+                              setPreviewData({ ...previewData, [`dropdown_${b.props.dropdownNumber}`]: '' })
+                            }
+                            setOpenDropdown(null)
+                          }}
+                          onMouseEnter={(e) => e.currentTarget.style.background = '#f5f5f5'}
+                          onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}
+                        >
+                          Sélectionner...
+                        </div>
+                        {(b.props.options || []).map((opt: string, i: number) => (
+                          <div 
+                            key={i}
+                            style={{ 
+                              padding: '8px 12px', 
+                              cursor: 'pointer', 
+                              fontSize: b.props.fontSize || 12,
+                              wordWrap: 'break-word',
+                              whiteSpace: 'pre-wrap',
+                              borderBottom: i < (b.props.options || []).length - 1 ? '1px solid #eee' : 'none'
+                            }}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              if (b.props.variableName) {
+                                setPreviewData({ ...previewData, [b.props.variableName]: opt })
+                              }
+                              if (b.props.dropdownNumber) {
+                                setPreviewData({ ...previewData, [`dropdown_${b.props.dropdownNumber}`]: opt })
+                              }
+                              setOpenDropdown(null)
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.background = '#f0f4ff'}
+                            onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}
+                          >
+                            {opt}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {b.type === 'dropdown_reference' && (
+                  <div style={{ 
+                    width: b.props.width || 200,
+                    minHeight: b.props.height || 'auto',
+                    color: b.props.color || '#2d3436', 
+                    fontSize: b.props.fontSize || 12, 
+                    padding: '8px', 
+                    background: '#f0f4ff', 
+                    border: '1px dashed #6c5ce7', 
+                    borderRadius: 4,
+                    wordWrap: 'break-word',
+                    whiteSpace: 'pre-wrap',
+                    overflow: 'hidden'
+                  }}>
+                    {(() => {
+                      const dropdownNum = b.props.dropdownNumber || 1
+                      const value = previewData[`dropdown_${dropdownNum}`] || ''
+                      const displayText = value || `[Dropdown #${dropdownNum}]`
+                      return displayText
+                    })()}
                   </div>
                 )}
                 {b.type === 'table' && (
@@ -573,16 +1663,54 @@ export default function TemplateBuilder() {
                   </>
                 )}
                     </div>
-                  ))}
+                  )
+                })}
                 </div>
-              )
-            })}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+
+        {/* Right Panel - Properties & Pages */}
+        <div 
+          style={{ 
+            position: 'sticky', 
+            top: 24, 
+            maxHeight: 'calc(100vh - 48px)', 
+            overflowY: 'auto',
+            background: '#fff',
+            borderRadius: 16,
+            padding: '24px 20px',
+            boxShadow: '0 2px 12px rgba(0,0,0,0.08)'
+          }}
+        >
+          <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+            <button 
+              className={rightPanelView === 'properties' ? 'btn' : 'btn secondary'} 
+              onClick={() => setRightPanelView('properties')}
+              style={{ 
+                flex: 1,
+                padding: '10px 16px',
+                fontSize: 14,
+                fontWeight: 600
+              }}
+            >
+              ⚙️ Propriétés
+            </button>
+            <button 
+              className={rightPanelView === 'slides' ? 'btn' : 'btn secondary'} 
+              onClick={() => setRightPanelView('slides')}
+              style={{ 
+                flex: 1,
+                padding: '10px 16px',
+                fontSize: 14,
+                fontWeight: 600
+              }}
+            >
+              📄 Pages
+            </button>
           </div>
-          <div className="card" style={{ position: 'sticky', top: 24, maxHeight: 'calc(100vh - 48px)', overflowY: 'auto' }}>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-              <button className={rightPanelView === 'properties' ? 'btn' : 'btn secondary'} onClick={() => setRightPanelView('properties')}>Propriétés</button>
-              <button className={rightPanelView === 'slides' ? 'btn' : 'btn secondary'} onClick={() => setRightPanelView('slides')}>Slides</button>
-            </div>
             
             {rightPanelView === 'slides' ? (
               <div style={{ display: 'grid', gap: 12 }}>
@@ -642,51 +1770,304 @@ export default function TemplateBuilder() {
                 ))}
               </div>
             ) : (
-              <>
-            <h3>Propriétés</h3>
-            {saveStatus && <div className="note">{saveStatus}</div>}
+              <div style={{ display: 'contents' }}>
+            <h3 style={{ 
+              margin: '0 0 20px 0', 
+              fontSize: 18, 
+              fontWeight: 600,
+              color: '#2d3436'
+            }}>
+              Propriétés du bloc
+            </h3>
             {selectedIndex != null ? (
-              <div style={{ display: 'grid', gap: 8 }}>
-                <div className="note">Type: {tpl.pages[selectedPage].blocks[selectedIndex].type}</div>
-                <input placeholder="X" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.x || 0} onChange={e => updateSelected({ x: Number(e.target.value) })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
-                <input placeholder="Y" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.y || 0} onChange={e => updateSelected({ y: Number(e.target.value) })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
-                <div className="toolbar" style={{ display: 'flex', gap: 8 }}>
-                  <input placeholder="Z-index" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.z ?? selectedIndex} onChange={e => updateSelected({ z: Number(e.target.value) })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
-                  <button className="btn secondary" onClick={() => {
-                    const zs = tpl.pages[selectedPage].blocks.map(b => (b.props?.z ?? 0))
-                    const maxZ = zs.length ? Math.max(...zs) : 0
-                    updateSelected({ z: maxZ + 1 })
-                  }}>Mettre devant</button>
-                  <button className="btn secondary" onClick={() => {
-                    const zs = tpl.pages[selectedPage].blocks.map(b => (b.props?.z ?? 0))
-                    const minZ = zs.length ? Math.min(...zs) : 0
-                    updateSelected({ z: minZ - 1 })
-                  }}>Mettre derrière</button>
+              <div style={{ display: 'grid', gap: 12 }}>
+                <div style={{ 
+                  padding: '10px 14px', 
+                  background: '#f0f4ff', 
+                  borderRadius: 8,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: '#667eea',
+                  textAlign: 'center'
+                }}>
+                  {tpl.pages[selectedPage].blocks[selectedIndex].type.toUpperCase()}
                 </div>
-                <input placeholder="Couleur" value={tpl.pages[selectedPage].blocks[selectedIndex].props.color || ''} onChange={e => updateSelected({ color: e.target.value })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
-                <input placeholder="Taille police" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.fontSize || tpl.pages[selectedPage].blocks[selectedIndex].props.size || 12} onChange={e => updateSelected({ fontSize: Number(e.target.value), size: Number(e.target.value) })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+
+                {/* Position Section */}
+                <div style={{ 
+                  padding: '14px', 
+                  background: '#f8f9fa', 
+                  borderRadius: 10,
+                  marginBottom: 8
+                }}>
+                  <div style={{ 
+                    fontSize: 11, 
+                    fontWeight: 700, 
+                    color: '#6c757d', 
+                    marginBottom: 10,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px'
+                  }}>
+                    Position
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>X</label>
+                      <input 
+                        type="number" 
+                        value={tpl.pages[selectedPage].blocks[selectedIndex].props.x || 0} 
+                        onChange={e => updateSelected({ x: Number(e.target.value) })} 
+                        style={{ 
+                          width: '100%',
+                          padding: '8px 10px', 
+                          borderRadius: 6, 
+                          border: '2px solid #e9ecef',
+                          fontSize: 13
+                        }} 
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Y</label>
+                      <input 
+                        type="number" 
+                        value={tpl.pages[selectedPage].blocks[selectedIndex].props.y || 0} 
+                        onChange={e => updateSelected({ y: Number(e.target.value) })} 
+                        style={{ 
+                          width: '100%',
+                          padding: '8px 10px', 
+                          borderRadius: 6, 
+                          border: '2px solid #e9ecef',
+                          fontSize: 13
+                        }} 
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Z-Index Section */}
+                <div style={{ 
+                  padding: '14px', 
+                  background: '#f8f9fa', 
+                  borderRadius: 10,
+                  marginBottom: 8
+                }}>
+                  <div style={{ 
+                    fontSize: 11, 
+                    fontWeight: 700, 
+                    color: '#6c757d', 
+                    marginBottom: 10,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px'
+                  }}>
+                    Ordre d'affichage
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                    <input 
+                      placeholder="Z-index" 
+                      type="number" 
+                      value={tpl.pages[selectedPage].blocks[selectedIndex].props.z ?? selectedIndex} 
+                      onChange={e => updateSelected({ z: Number(e.target.value) })} 
+                      style={{ 
+                        flex: 1,
+                        padding: '8px 10px', 
+                        borderRadius: 6, 
+                        border: '2px solid #e9ecef',
+                        fontSize: 13
+                      }} 
+                    />
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button 
+                      className="btn secondary" 
+                      onClick={() => {
+                        const zs = tpl.pages[selectedPage].blocks.map(b => (b.props?.z ?? 0))
+                        const maxZ = zs.length ? Math.max(...zs) : 0
+                        updateSelected({ z: maxZ + 1 })
+                      }}
+                      style={{ flex: 1, padding: '8px 12px', fontSize: 12 }}
+                    >
+                      ⬆️ Devant
+                    </button>
+                    <button 
+                      className="btn secondary" 
+                      onClick={() => {
+                        const zs = tpl.pages[selectedPage].blocks.map(b => (b.props?.z ?? 0))
+                        const minZ = zs.length ? Math.min(...zs) : 0
+                        updateSelected({ z: minZ - 1 })
+                      }}
+                      style={{ flex: 1, padding: '8px 12px', fontSize: 12 }}
+                    >
+                      ⬇️ Derrière
+                    </button>
+                  </div>
+                </div>
+
+                {/* Style Section */}
+                <div style={{ 
+                  padding: '14px', 
+                  background: '#f8f9fa', 
+                  borderRadius: 10,
+                  marginBottom: 8
+                }}>
+                  <div style={{ 
+                    fontSize: 11, 
+                    fontWeight: 700, 
+                    color: '#6c757d', 
+                    marginBottom: 10,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px'
+                  }}>
+                    Style
+                  </div>
+                  <div style={{ marginBottom: 8 }}>
+                    <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Couleur</label>
+                    <input 
+                      type="color"
+                      value={tpl.pages[selectedPage].blocks[selectedIndex].props.color || '#000000'} 
+                      onChange={e => updateSelected({ color: e.target.value })} 
+                      style={{ 
+                        width: '100%',
+                        height: 40,
+                        padding: 4, 
+                        borderRadius: 6, 
+                        border: '2px solid #e9ecef',
+                        cursor: 'pointer'
+                      }} 
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Taille police</label>
+                    <input 
+                      placeholder="Taille" 
+                      type="number" 
+                      value={tpl.pages[selectedPage].blocks[selectedIndex].props.fontSize || tpl.pages[selectedPage].blocks[selectedIndex].props.size || 12} 
+                      onChange={e => updateSelected({ fontSize: Number(e.target.value), size: Number(e.target.value) })} 
+                      style={{ 
+                        width: '100%',
+                        padding: '8px 10px', 
+                        borderRadius: 6, 
+                        border: '2px solid #e9ecef',
+                        fontSize: 13
+                      }} 
+                    />
+                  </div>
+                </div>
+
+                {/* Type-specific properties */}
                 {tpl.pages[selectedPage].blocks[selectedIndex].type === 'text' && (
-                  <textarea placeholder="Texte" rows={4} value={tpl.pages[selectedPage].blocks[selectedIndex].props.text || ''} onChange={e => updateSelected({ text: e.target.value })} style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+                  <div style={{ 
+                    padding: '14px', 
+                    background: '#f8f9fa', 
+                    borderRadius: 10,
+                    marginBottom: 8
+                  }}>
+                    <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 8, fontWeight: 600 }}>CONTENU</label>
+                    <textarea 
+                      placeholder="Texte" 
+                      rows={4} 
+                      value={tpl.pages[selectedPage].blocks[selectedIndex].props.text || ''} 
+                      onChange={e => updateSelected({ text: e.target.value })} 
+                      style={{ 
+                        width: '100%', 
+                        padding: '10px 12px', 
+                        borderRadius: 6, 
+                        border: '2px solid #e9ecef',
+                        fontSize: 13,
+                        fontFamily: 'inherit',
+                        resize: 'vertical'
+                      }} 
+                    />
+                  </div>
                 )}
                 {tpl.pages[selectedPage].blocks[selectedIndex].type === 'image' && (
                   <>
-                    <input placeholder="URL image" value={tpl.pages[selectedPage].blocks[selectedIndex].props.url || ''} onChange={e => updateSelected({ url: e.target.value })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
-                    <input placeholder="Largeur" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.width || 120} onChange={e => updateSelected({ width: Number(e.target.value) })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
-                    <input placeholder="Hauteur" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.height || 120} onChange={e => updateSelected({ height: Number(e.target.value) })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
-                    <input type="file" accept="image/*" onChange={async e => {
-                      const f = e.target.files?.[0]
-                      if (!f) return
-                      const fd = new FormData()
-                      fd.append('file', f)
-                      const r = await fetch('http://localhost:4000/media/upload', { method: 'POST', headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` }, body: fd })
-                      const data = await r.json()
-                      if (data?.url) { updateSelected({ url: `http://localhost:4000${data.url}` }); await refreshGallery() }
-                    }} />
+                    <div style={{ 
+                      padding: '14px', 
+                      background: '#f8f9fa', 
+                      borderRadius: 10,
+                      marginBottom: 8
+                    }}>
+                      <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 8, fontWeight: 600 }}>URL IMAGE</label>
+                      <input 
+                        placeholder="URL image" 
+                        value={tpl.pages[selectedPage].blocks[selectedIndex].props.url || ''} 
+                        onChange={e => updateSelected({ url: e.target.value })} 
+                        style={{ 
+                          width: '100%',
+                          padding: '8px 10px', 
+                          borderRadius: 6, 
+                          border: '2px solid #e9ecef',
+                          fontSize: 13,
+                          marginBottom: 8
+                        }} 
+                      />
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+                        <div>
+                          <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Largeur</label>
+                          <input 
+                            type="number" 
+                            value={tpl.pages[selectedPage].blocks[selectedIndex].props.width || 120} 
+                            onChange={e => updateSelected({ width: Number(e.target.value) })} 
+                            style={{ 
+                              width: '100%',
+                              padding: '8px 10px', 
+                              borderRadius: 6, 
+                              border: '2px solid #e9ecef',
+                              fontSize: 13
+                            }} 
+                          />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Hauteur</label>
+                          <input 
+                            type="number" 
+                            value={tpl.pages[selectedPage].blocks[selectedIndex].props.height || 120} 
+                            onChange={e => updateSelected({ height: Number(e.target.value) })} 
+                            style={{ 
+                              width: '100%',
+                              padding: '8px 10px', 
+                              borderRadius: 6, 
+                              border: '2px solid #e9ecef',
+                              fontSize: 13
+                            }} 
+                          />
+                        </div>
+                      </div>
+                      <label 
+                        style={{ 
+                          display: 'block',
+                          padding: '10px 14px',
+                          background: '#667eea',
+                          color: '#fff',
+                          borderRadius: 6,
+                          textAlign: 'center',
+                          cursor: 'pointer',
+                          fontSize: 13,
+                          fontWeight: 600
+                        }}
+                      >
+                        📁 Télécharger une image
+                        <input 
+                          type="file" 
+                          accept="image/*" 
+                          style={{ display: 'none' }}
+                          onChange={async e => {
+                            const f = e.target.files?.[0]
+                            if (!f) return
+                            const fd = new FormData()
+                            fd.append('file', f)
+                            const r = await fetch('http://localhost:4000/media/upload', { method: 'POST', headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` }, body: fd })
+                            const data = await r.json()
+                            if (data?.url) { updateSelected({ url: `http://localhost:4000${data.url}` }); await refreshGallery() }
+                          }} 
+                        />
+                      </label>
+                    </div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
-                      {gallery.map(u => (
-                        <div key={u} className="card" style={{ padding: 4, cursor: 'pointer' }} onClick={() => updateSelected({ url: `http://localhost:4000${u}` })}>
-                          <img src={`http://localhost:4000${u}`} style={{ width: '100%', height: 80, objectFit: 'cover', borderRadius: 6 }} />
-                          <div className="note" style={{ fontSize: 10, marginTop: 4 }}>{u.split('/').pop()}</div>
+                      {gallery.filter(u => u.type === 'file').map(u => (
+                        <div key={u.path} className="card" style={{ padding: 4, cursor: 'pointer' }} onClick={() => updateSelected({ url: `http://localhost:4000/uploads${u.path}` })}>
+                          <img src={`http://localhost:4000/uploads${u.path}`} style={{ width: '100%', height: 80, objectFit: 'cover', borderRadius: 6 }} />
+                          <div className="note" style={{ fontSize: 10, marginTop: 4 }}>{u.name}</div>
                         </div>
                       ))}
                     </div>
@@ -902,17 +2283,52 @@ export default function TemplateBuilder() {
                 )}
                 {tpl.pages[selectedPage].blocks[selectedIndex].type === 'dropdown' && (
                   <div style={{ display: 'grid', gap: 8 }}>
+                    <div style={{ padding: 8, background: '#f0f4ff', borderRadius: 8, fontWeight: 'bold', color: '#6c5ce7' }}>Dropdown #{tpl.pages[selectedPage].blocks[selectedIndex].props.dropdownNumber || '?'}</div>
                     <input placeholder="Label" value={tpl.pages[selectedPage].blocks[selectedIndex].props.label || ''} onChange={e => updateSelected({ label: e.target.value })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
                     <input placeholder="Nom variable (ex: obs1)" value={tpl.pages[selectedPage].blocks[selectedIndex].props.variableName || ''} onChange={e => updateSelected({ variableName: e.target.value })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
-                    <div className="note">Options (une par ligne)</div>
-                    <textarea 
-                      rows={5} 
-                      value={(tpl.pages[selectedPage].blocks[selectedIndex].props.options || []).join('\n')} 
-                      onChange={e => updateSelected({ options: e.target.value.split('\n') })} 
-                      style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #ddd' }} 
-                    />
+                    <div className="note">Options ({(tpl.pages[selectedPage].blocks[selectedIndex].props.options || []).length})</div>
+                    {(tpl.pages[selectedPage].blocks[selectedIndex].props.options || []).map((opt: string, i: number) => (
+                      <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <input 
+                          placeholder={`Option ${i + 1}`}
+                          value={opt} 
+                          onChange={e => {
+                            const options = [...(tpl.pages[selectedPage].blocks[selectedIndex].props.options || [])]
+                            options[i] = e.target.value
+                            updateSelected({ options })
+                          }} 
+                          style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', flex: 1 }} 
+                        />
+                        <button className="btn secondary" onClick={() => {
+                          const options = (tpl.pages[selectedPage].blocks[selectedIndex].props.options || []).filter((_: string, idx: number) => idx !== i)
+                          updateSelected({ options })
+                        }} style={{ padding: '4px 8px', background: '#ef4444', color: '#fff' }}>✕</button>
+                      </div>
+                    ))}
+                    <button className="btn secondary" onClick={() => {
+                      const options = [...(tpl.pages[selectedPage].blocks[selectedIndex].props.options || []), '']
+                      updateSelected({ options })
+                    }}>+ Ajouter une option</button>
                     <input placeholder="Largeur" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.width || 200} onChange={e => updateSelected({ width: Number(e.target.value) })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
                     <input placeholder="Hauteur" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.height || 32} onChange={e => updateSelected({ height: Number(e.target.value) })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+                  </div>
+                )}
+                {tpl.pages[selectedPage].blocks[selectedIndex].type === 'dropdown_reference' && (
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    <div className="note">Référence à un dropdown</div>
+                    <input 
+                      placeholder="Numéro du dropdown" 
+                      type="number" 
+                      min="1"
+                      value={tpl.pages[selectedPage].blocks[selectedIndex].props.dropdownNumber || 1} 
+                      onChange={e => updateSelected({ dropdownNumber: Number(e.target.value) })} 
+                      style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} 
+                    />
+                    <input placeholder="Largeur" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.width || 200} onChange={e => updateSelected({ width: Number(e.target.value) })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+                    <input placeholder="Hauteur minimale" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.height || 40} onChange={e => updateSelected({ height: Number(e.target.value) })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+                    <div style={{ padding: 8, background: '#fff9e6', borderRadius: 8, fontSize: 12 }}>
+                      💡 Ce bloc affichera la valeur sélectionnée dans le Dropdown #{tpl.pages[selectedPage].blocks[selectedIndex].props.dropdownNumber || 1}
+                    </div>
                   </div>
                 )}
                 <button className="btn secondary" onClick={() => {
@@ -925,11 +2341,17 @@ export default function TemplateBuilder() {
                 }}>Supprimer le bloc</button>
               </div>
             ) : (
-              <div className="note">Sélectionnez un bloc pour éditer ses propriétés.</div>
+              <div style={{ 
+                textAlign: 'center', 
+                padding: '40px 20px',
+                color: '#6c757d'
+              }}>
+                <div style={{ fontSize: 48, marginBottom: 16, opacity: 0.3 }}>🎯</div>
+                <p style={{ margin: 0, fontSize: 14 }}>Sélectionnez un bloc sur le canevas pour modifier ses propriétés</p>
+              </div>
             )}
-              </>
+              </div>
             )}
-          </div>
         </div>
       </div>
     </div>

@@ -67,40 +67,78 @@ export default function TeacherClassView() {
     return (
         <div className="container">
             <div className="card">
-                <Link to="/teacher/classes" className="btn secondary" style={{ marginBottom: 16 }}>← Retour aux classes</Link>
-                <h2 className="title">Élèves de la classe</h2>
+                <Link to="/teacher/classes" className="btn secondary" style={{ 
+                    marginBottom: 20,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    background: '#f1f5f9',
+                    color: '#475569',
+                    fontWeight: 500,
+                    border: '1px solid #e2e8f0'
+                }}>← Retour aux classes</Link>
+                <h2 className="title" style={{ fontSize: 28, marginBottom: 8, color: '#1e293b' }}>🏛️ Élèves de la classe</h2>
 
-                {loading && <div className="note">Chargement...</div>}
-                {error && <div className="note" style={{ color: 'crimson' }}>{error}</div>}
+                {loading && <div className="note" style={{ textAlign: 'center', padding: 24 }}>Chargement...</div>}
+                {error && <div className="note" style={{ color: '#dc2626', background: '#fef2f2', padding: 12, borderRadius: 8, border: '1px solid #fecaca' }}>{error}</div>}
 
                 {stats && (
-                    <div style={{ marginTop: 16, marginBottom: 16 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                            <div className="note" style={{ fontSize: 14 }}>
-                                Progression: {stats.completedAssignments} / {stats.totalAssignments} carnets terminés
+                    <div style={{ 
+                        marginTop: 20, 
+                        marginBottom: 20,
+                        padding: 20,
+                        background: 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)',
+                        borderRadius: 12,
+                        border: '1px solid #e2e8f0'
+                    }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                            <div className="note" style={{ fontSize: 15, fontWeight: 600, color: '#475569' }}>
+                                📈 Progression de la classe
                             </div>
-                            <div className="note" style={{ fontSize: 14, fontWeight: 'bold', color: stats.completionPercentage === 100 ? '#10b981' : '#6c5ce7' }}>
+                            <div style={{ 
+                                fontSize: 24, 
+                                fontWeight: 'bold', 
+                                color: stats.completionPercentage === 100 ? '#10b981' : '#6c5ce7',
+                                textShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                            }}>
                                 {stats.completionPercentage}%
                             </div>
                         </div>
-                        <div style={{ width: '100%', height: 12, background: '#e5e7eb', borderRadius: 6, overflow: 'hidden' }}>
+                        <div className="note" style={{ fontSize: 13, marginBottom: 10, color: '#64748b' }}>
+                            {stats.completedAssignments} / {stats.totalAssignments} carnets terminés
+                        </div>
+                        <div style={{ width: '100%', height: 14, background: '#e2e8f0', borderRadius: 999, overflow: 'hidden', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.06)' }}>
                             <div style={{
                                 width: `${stats.completionPercentage}%`,
                                 height: '100%',
-                                background: stats.completionPercentage === 100 ? '#10b981' : '#6c5ce7',
-                                transition: 'width 0.3s ease'
+                                background: stats.completionPercentage === 100 
+                                    ? 'linear-gradient(90deg, #10b981 0%, #059669 100%)' 
+                                    : 'linear-gradient(90deg, #6c5ce7 0%, #5b4bc4 100%)',
+                                transition: 'width 0.5s ease',
+                                boxShadow: stats.completionPercentage > 0 ? '0 2px 8px rgba(108, 92, 231, 0.4)' : 'none'
                             }} />
                         </div>
                     </div>
                 )}
 
-                <div style={{ marginTop: 16, marginBottom: 16 }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span className="note">Filtrer:</span>
+                <div style={{ marginTop: 20, marginBottom: 20 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <span className="note" style={{ fontSize: 14, fontWeight: 500, color: '#475569' }}>🔍 Filtrer:</span>
                         <select
                             value={filter}
                             onChange={e => setFilter(e.target.value as any)}
-                            style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }}
+                            style={{ 
+                                padding: '10px 16px', 
+                                borderRadius: 8, 
+                                border: '1px solid #cbd5e1',
+                                fontSize: 14,
+                                fontWeight: 500,
+                                color: '#475569',
+                                background: 'white',
+                                cursor: 'pointer',
+                                outline: 'none',
+                                transition: 'all 0.2s ease'
+                            }}
                         >
                             <option value="all">Tous les élèves</option>
                             <option value="completed">Terminés</option>
@@ -109,41 +147,57 @@ export default function TeacherClassView() {
                     </label>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 16, marginTop: 16 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 18, marginTop: 20 }}>
                     {filteredStudents.map(s => {
                         const completion = getStudentCompletion(s._id)
                         return (
                             <Link key={s._id} to={`/teacher/students/${s._id}/templates`} style={{ textDecoration: 'none' }}>
-                                <div className="card" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12, position: 'relative' }}>
+                                <div className="card" style={{ 
+                                    cursor: 'pointer', 
+                                    display: 'flex', 
+                                    alignItems: 'center', 
+                                    gap: 14, 
+                                    position: 'relative',
+                                    transition: 'all 0.3s ease',
+                                    border: '1px solid #e2e8f0',
+                                    background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)'
+                                }} onMouseEnter={(e) => {
+                                    e.currentTarget.style.transform = 'translateY(-3px)';
+                                    e.currentTarget.style.boxShadow = '0 10px 30px rgba(0,0,0,0.12)';
+                                }} onMouseLeave={(e) => {
+                                    e.currentTarget.style.transform = 'translateY(0)';
+                                    e.currentTarget.style.boxShadow = '0 6px 24px rgba(0,0,0,0.06)';
+                                }}>
                                     {completion.isFullyComplete && (
                                         <div style={{
                                             position: 'absolute',
-                                            top: 8,
-                                            right: 8,
-                                            background: '#10b981',
+                                            top: 10,
+                                            right: 10,
+                                            background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
                                             color: 'white',
                                             borderRadius: '50%',
-                                            width: 24,
-                                            height: 24,
+                                            width: 28,
+                                            height: 28,
                                             display: 'flex',
                                             alignItems: 'center',
                                             justifyContent: 'center',
-                                            fontSize: 14,
-                                            fontWeight: 'bold'
+                                            fontSize: 16,
+                                            fontWeight: 'bold',
+                                            boxShadow: '0 3px 10px rgba(16, 185, 129, 0.4)'
                                         }}>
                                             ✓
                                         </div>
                                     )}
-                                    <img className="avatar" src={`https://api.dicebear.com/9.x/thumbs/svg?seed=${s.firstName}-${s.lastName}`} alt="" />
+                                    <img className="avatar" src={`https://api.dicebear.com/9.x/thumbs/svg?seed=${s.firstName}-${s.lastName}`} alt="" style={{ width: 64, height: 64, borderRadius: '50%', border: '3px solid #e2e8f0' }} />
                                     <div style={{ flex: 1 }}>
-                                        <div className="title" style={{ fontSize: 16 }}>{s.firstName} {s.lastName}</div>
-                                        <div className="note" style={{ fontSize: 12 }}>
+                                        <div className="title" style={{ fontSize: 17, marginBottom: 4, color: '#1e293b', fontWeight: 600 }}>{s.firstName} {s.lastName}</div>
+                                        <div className="note" style={{ fontSize: 13, fontWeight: 500 }}>
                                             {completion.total > 0 ? (
                                                 <span style={{ color: completion.isFullyComplete ? '#10b981' : '#6c5ce7' }}>
-                                                    {completion.completed}/{completion.total} carnets
+                                                    📖 {completion.completed}/{completion.total} carnets
                                                 </span>
                                             ) : (
-                                                'Aucun carnet'
+                                                <span style={{ color: '#94a3b8' }}>Aucun carnet</span>
                                             )}
                                         </div>
                                     </div>

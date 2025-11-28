@@ -48,57 +48,88 @@ export default function TeacherDashboard() {
   return (
     <div className="container">
       <div className="card">
-        <h2 className="title">Mes Classes</h2>
-        <div className="note">Sélectionnez une classe pour voir les élèves.</div>
+        <div style={{ marginBottom: 24 }}>
+          <h2 className="title" style={{ fontSize: 32, marginBottom: 8, color: '#1e293b' }}>📚 Mes Classes</h2>
+          <div className="note" style={{ fontSize: 14 }}>Sélectionnez une classe pour voir les élèves et gérer leurs carnets.</div>
+        </div>
 
-        {loading && <div className="note">Chargement...</div>}
-        {error && <div className="note" style={{ color: 'crimson' }}>{error}</div>}
+        {loading && <div className="note" style={{ textAlign: 'center', padding: 24 }}>Chargement...</div>}
+        {error && <div className="note" style={{ color: '#dc2626', background: '#fef2f2', padding: 12, borderRadius: 8, border: '1px solid #fecaca' }}>{error}</div>}
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16, marginTop: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 20, marginTop: 20 }}>
           {classes.map(c => {
             const stats = statsMap.get(c._id)
             return (
               <Link key={c._id} to={`/teacher/classes/${c._id}`} style={{ textDecoration: 'none' }}>
-                <div className="card" style={{ cursor: 'pointer', transition: 'transform 0.2s', position: 'relative' }}>
+                <div className="card" style={{ 
+                  cursor: 'pointer', 
+                  transition: 'all 0.3s ease', 
+                  position: 'relative',
+                  border: '1px solid #e2e8f0',
+                  background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)'
+                }} onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = 'translateY(-4px)';
+                  e.currentTarget.style.boxShadow = '0 12px 40px rgba(0,0,0,0.12)';
+                }} onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = 'translateY(0)';
+                  e.currentTarget.style.boxShadow = '0 6px 24px rgba(0,0,0,0.06)';
+                }}>
                   {stats && stats.completionPercentage === 100 && (
                     <div style={{
                       position: 'absolute',
-                      top: 12,
-                      right: 12,
-                      background: '#10b981',
+                      top: 16,
+                      right: 16,
+                      background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
                       color: 'white',
                       borderRadius: '50%',
-                      width: 28,
-                      height: 28,
+                      width: 36,
+                      height: 36,
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      fontSize: 16,
-                      fontWeight: 'bold'
+                      fontSize: 18,
+                      fontWeight: 'bold',
+                      boxShadow: '0 4px 12px rgba(16, 185, 129, 0.4)'
                     }}>
                       ✓
                     </div>
                   )}
-                  <div className="title" style={{ fontSize: 18, paddingRight: stats?.completionPercentage === 100 ? 40 : 0 }}>
+                  <div className="title" style={{ 
+                    fontSize: 20, 
+                    paddingRight: stats?.completionPercentage === 100 ? 44 : 0,
+                    marginBottom: 8,
+                    color: '#1e293b',
+                    fontWeight: 600
+                  }}>
                     {c.name}
                   </div>
-                  {c.level && <div className="note">Niveau: {c.level}</div>}
+                  {c.level && <div className="note" style={{ fontSize: 13, color: '#64748b' }}>📖 Niveau: {c.level}</div>}
                   {stats && (
-                    <div style={{ marginTop: 8 }}>
-                      <div className="note" style={{ fontSize: 12, marginBottom: 4 }}>
+                    <div style={{ marginTop: 12 }}>
+                      <div className="note" style={{ fontSize: 13, marginBottom: 6, fontWeight: 500, color: '#475569' }}>
                         {stats.completedAssignments} / {stats.totalAssignments} carnets terminés ({stats.completionPercentage}%)
                       </div>
-                      <div style={{ width: '100%', height: 6, background: '#e5e7eb', borderRadius: 3, overflow: 'hidden' }}>
+                      <div style={{ width: '100%', height: 8, background: '#e2e8f0', borderRadius: 999, overflow: 'hidden' }}>
                         <div style={{
                           width: `${stats.completionPercentage}%`,
                           height: '100%',
-                          background: stats.completionPercentage === 100 ? '#10b981' : '#6c5ce7',
-                          transition: 'width 0.3s ease'
+                          background: stats.completionPercentage === 100 
+                            ? 'linear-gradient(90deg, #10b981 0%, #059669 100%)' 
+                            : 'linear-gradient(90deg, #6c5ce7 0%, #5b4bc4 100%)',
+                          transition: 'width 0.5s ease',
+                          boxShadow: stats.completionPercentage > 0 ? 'inset 0 1px 2px rgba(255,255,255,0.3)' : 'none'
                         }} />
                       </div>
                     </div>
                   )}
-                  <div className="btn" style={{ marginTop: 12 }}>Voir les élèves →</div>
+                  <div className="btn" style={{ 
+                    marginTop: 16, 
+                    fontSize: 14,
+                    fontWeight: 500,
+                    padding: '10px 16px',
+                    background: 'linear-gradient(135deg, #6c5ce7 0%, #5b4bc4 100%)',
+                    boxShadow: '0 2px 8px rgba(108, 92, 231, 0.3)'
+                  }}>Voir les élèves →</div>
                 </div>
               </Link>
             )

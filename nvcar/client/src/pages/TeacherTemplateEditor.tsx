@@ -21,6 +21,7 @@ export default function TeacherTemplateEditor() {
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState('')
     const [saveStatus, setSaveStatus] = useState('')
+    const [openDropdown, setOpenDropdown] = useState<string | null>(null)
 
     useEffect(() => {
         const loadData = async () => {
@@ -39,6 +40,15 @@ export default function TeacherTemplateEditor() {
         }
         if (assignmentId) loadData()
     }, [assignmentId])
+    
+    // Close dropdown when clicking outside
+    useEffect(() => {
+        const handleClickOutside = () => setOpenDropdown(null)
+        if (openDropdown) {
+            document.addEventListener('click', handleClickOutside)
+            return () => document.removeEventListener('click', handleClickOutside)
+        }
+    }, [openDropdown])
 
     const updateLanguageToggle = async (pageIndex: number, blockIndex: number, items: any[]) => {
         try {
@@ -72,25 +82,61 @@ export default function TeacherTemplateEditor() {
     return (
         <div style={{ padding: 24 }}>
             <div className="card">
-                <button className="btn secondary" onClick={() => window.history.back()} style={{ marginBottom: 16 }}>← Retour</button>
-                <h2 className="title">Édition du carnet - {student ? `${student.firstName} ${student.lastName}` : 'Élève'}</h2>
-                <div className="note">{template.name}</div>
-                <div className="note" style={{ marginTop: 8 }}>
-                    Statut: {assignment?.status === 'draft' ? 'Brouillon' : assignment?.status === 'in_progress' ? 'En cours' : assignment?.status}
+                <button className="btn secondary" onClick={() => window.history.back()} style={{ 
+                    marginBottom: 20,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    background: '#f1f5f9',
+                    color: '#475569',
+                    fontWeight: 500,
+                    border: '1px solid #e2e8f0'
+                }}>← Retour</button>
+                
+                <div style={{ marginBottom: 20 }}>
+                    <h2 className="title" style={{ fontSize: 28, marginBottom: 8, color: '#1e293b' }}>
+                        ✏️ Édition du carnet - {student ? `${student.firstName} ${student.lastName}` : 'Élève'}
+                    </h2>
+                    <div className="note" style={{ fontSize: 15, color: '#64748b', marginBottom: 8 }}>
+                        📚 {template.name}
+                    </div>
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 6, fontSize: 13, fontWeight: 500, background: assignment?.status === 'signed' ? '#d1fae5' : assignment?.status === 'completed' ? '#dbeafe' : '#fef3c7', color: assignment?.status === 'signed' ? '#065f46' : assignment?.status === 'completed' ? '#1e40af' : '#92400e', border: `1px solid ${assignment?.status === 'signed' ? '#6ee7b7' : assignment?.status === 'completed' ? '#93c5fd' : '#fcd34d'}` }}>
+                        {assignment?.status === 'draft' && '📝 Brouillon'}
+                        {assignment?.status === 'in_progress' && '🔄 En cours'}
+                        {assignment?.status === 'completed' && '✅ Terminé'}
+                        {assignment?.status === 'signed' && '✔️ Signé'}
+                        {!['draft', 'in_progress', 'completed', 'signed'].includes(assignment?.status || '') && assignment?.status}
+                    </div>
                 </div>
-                {saveStatus && <div style={{ padding: '12px 16px', background: '#10b981', color: 'white', borderRadius: 8, marginTop: 12, fontWeight: 600, fontSize: 14, textAlign: 'center' }}>✓ {saveStatus}</div>}
-                {error && <div style={{ padding: '12px 16px', background: '#ef4444', color: 'white', borderRadius: 8, marginTop: 12, fontWeight: 600, fontSize: 14, textAlign: 'center' }}>✗ {error}</div>}
 
-                <div style={{ marginTop: 16, marginBottom: 12, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <button className="btn secondary" onClick={() => setContinuousScroll(!continuousScroll)}>
-                        {continuousScroll ? 'Vue page par page' : 'Vue continue'}
+                {saveStatus && <div style={{ padding: '14px 20px', background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', color: 'white', borderRadius: 8, marginBottom: 16, fontWeight: 600, fontSize: 14, textAlign: 'center', boxShadow: '0 2px 8px rgba(16, 185, 129, 0.3)' }}>✓ {saveStatus}</div>}
+                {error && <div style={{ padding: '14px 20px', background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)', color: 'white', borderRadius: 8, marginBottom: 16, fontWeight: 600, fontSize: 14, textAlign: 'center', boxShadow: '0 2px 8px rgba(239, 68, 68, 0.3)' }}>✗ {error}</div>}
+
+                <div style={{ marginTop: 20, marginBottom: 20, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', padding: 16, background: '#f8fafc', borderRadius: 12, border: '1px solid #e2e8f0' }}>
+                    <button className="btn secondary" onClick={() => setContinuousScroll(!continuousScroll)} style={{
+                        background: continuousScroll ? 'linear-gradient(135deg, #6c5ce7 0%, #5b4bc4 100%)' : '#f1f5f9',
+                        color: continuousScroll ? 'white' : '#475569',
+                        fontWeight: 500,
+                        border: '1px solid #cbd5e1',
+                        padding: '10px 16px',
+                        boxShadow: continuousScroll ? '0 2px 8px rgba(108, 92, 231, 0.3)' : 'none'
+                    }}>
+                        {continuousScroll ? '📄 Vue page par page' : '📚 Vue continue'}
                     </button>
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flex: 1, justifyContent: 'flex-end' }}>
                         <button 
                             className="btn secondary" 
                             onClick={() => setSelectedPage(Math.max(0, selectedPage - 1))}
                             disabled={selectedPage === 0 || continuousScroll}
-                            style={{ padding: '8px 16px' }}
+                            style={{ 
+                                padding: '10px 16px',
+                                background: '#f1f5f9',
+                                color: '#475569',
+                                border: '1px solid #cbd5e1',
+                                opacity: (selectedPage === 0 || continuousScroll) ? 0.5 : 1,
+                                cursor: (selectedPage === 0 || continuousScroll) ? 'not-allowed' : 'pointer',
+                                fontWeight: 500
+                            }}
                         >
                             ← Précédent
                         </button>
@@ -109,7 +155,16 @@ export default function TeacherTemplateEditor() {
                                     }, 100)
                                 }
                             }} 
-                            style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }}
+                            style={{ 
+                                padding: '10px 16px', 
+                                borderRadius: 8, 
+                                border: '1px solid #cbd5e1',
+                                fontSize: 14,
+                                fontWeight: 500,
+                                color: '#475569',
+                                background: 'white',
+                                minWidth: 150
+                            }}
                         >
                             {template.pages.map((p, i) => <option key={i} value={i}>{p.title || `Page ${i + 1}`}</option>)}
                         </select>
@@ -117,7 +172,15 @@ export default function TeacherTemplateEditor() {
                             className="btn secondary" 
                             onClick={() => setSelectedPage(Math.min(template.pages.length - 1, selectedPage + 1))}
                             disabled={selectedPage === template.pages.length - 1 || continuousScroll}
-                            style={{ padding: '8px 16px' }}
+                            style={{ 
+                                padding: '10px 16px',
+                                background: '#f1f5f9',
+                                color: '#475569',
+                                border: '1px solid #cbd5e1',
+                                opacity: (selectedPage === template.pages.length - 1 || continuousScroll) ? 0.5 : 1,
+                                cursor: (selectedPage === template.pages.length - 1 || continuousScroll) ? 'not-allowed' : 'pointer',
+                                fontWeight: 500
+                            }}
                         >
                             Suivant →
                         </button>
@@ -132,9 +195,32 @@ export default function TeacherTemplateEditor() {
                                 key={actualPageIndex} 
                                 id={`page-${actualPageIndex}`}
                                 className="card page-canvas" 
-                                style={{ height: pageHeight, width: pageWidth, background: page.bgColor || '#fff', overflow: 'hidden', position: 'relative' }}
+                                style={{ 
+                                    height: pageHeight, 
+                                    width: pageWidth, 
+                                    background: page.bgColor || '#fff', 
+                                    overflow: 'hidden', 
+                                    position: 'relative',
+                                    boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+                                    border: '1px solid #e2e8f0'
+                                }}
                             >
-                                {continuousScroll && <div style={{ position: 'absolute', top: -30, left: 0, color: '#888', fontSize: 14, fontWeight: 600 }}>Page {actualPageIndex + 1}</div>}
+                                {continuousScroll && (
+                                    <div style={{ 
+                                        position: 'absolute', 
+                                        top: -36, 
+                                        left: 0, 
+                                        color: '#64748b', 
+                                        fontSize: 15, 
+                                        fontWeight: 600,
+                                        background: '#f8fafc',
+                                        padding: '4px 12px',
+                                        borderRadius: 6,
+                                        border: '1px solid #e2e8f0'
+                                    }}>
+                                        📄 Page {actualPageIndex + 1}
+                                    </div>
+                                )}
                                 <div className="page-margins" />
                                 {page.blocks.map((b, idx) => (
                         <div key={idx} style={{ position: 'absolute', left: b.props.x || 0, top: b.props.y || 0, zIndex: b.props.z ?? idx, padding: 6 }}>
@@ -193,32 +279,144 @@ export default function TeacherTemplateEditor() {
                                 {b.type === 'competency_list' && <div style={{ color: b.props.color, fontSize: b.props.fontSize }}>Liste des compétences</div>}
                                 {b.type === 'signature' && <div style={{ fontSize: b.props.fontSize }}>{(b.props.labels || []).join(' / ')}</div>}
                                 {b.type === 'dropdown' && (
-                                    <div style={{ width: b.props.width || 200 }}>
+                                    <div style={{ width: b.props.width || 200, position: 'relative' }}>
+                                        <div style={{ fontSize: 10, fontWeight: 'bold', color: '#6c5ce7', marginBottom: 2 }}>Dropdown #{b.props.dropdownNumber || '?'}</div>
                                         {b.props.label && <div style={{ fontSize: 10, color: '#666', marginBottom: 2 }}>{b.props.label}</div>}
-                                        <select 
-                                            style={{ width: '100%', height: b.props.height || 32, fontSize: b.props.fontSize || 12, color: b.props.color || '#333', padding: 4, borderRadius: 4, border: '1px solid #ccc' }}
-                                            value={b.props.variableName ? (assignment?.data?.[b.props.variableName] || '') : ''}
-                                            onChange={async (e) => {
-                                                if (b.props.variableName && assignment) {
-                                            const newData = { ...assignment.data, [b.props.variableName]: e.target.value }
-                                            setAssignment({ ...assignment, data: newData })
-                                            try {
-                                                await api.patch(`/teacher/template-assignments/${assignment._id}/data`, { data: { [b.props.variableName]: e.target.value } })
-                                                setSaveStatus('Enregistré avec succès ✓')
-                                                setTimeout(() => setSaveStatus(''), 3000)
-                                            } catch (err) {
-                                                setError('Erreur sauvegarde')
-                                            }
-                                        }
-                                    }}
-                                >
-                                    <option value="">Sélectionner...</option>
-                                    {(b.props.options || []).map((opt: string, i: number) => (
-                                        <option key={i} value={opt}>{opt}</option>
-                                    ))}
-                                </select>
-                            </div>
-                        )}
+                                        <div
+                                            style={{ 
+                                                width: '100%', 
+                                                minHeight: b.props.height || 32, 
+                                                fontSize: b.props.fontSize || 12, 
+                                                color: b.props.color || '#333', 
+                                                padding: '4px 24px 4px 8px', 
+                                                borderRadius: 4, 
+                                                border: '1px solid #ccc',
+                                                background: '#fff',
+                                                cursor: 'pointer',
+                                                position: 'relative',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                wordWrap: 'break-word',
+                                                whiteSpace: 'pre-wrap'
+                                            }}
+                                            onClick={(e) => {
+                                                e.stopPropagation()
+                                                const key = `dropdown_${actualPageIndex}_${idx}`
+                                                setOpenDropdown(openDropdown === key ? null : key)
+                                            }}
+                                        >
+                                            {(() => {
+                                                const currentValue = b.props.dropdownNumber 
+                                                    ? assignment?.data?.[`dropdown_${b.props.dropdownNumber}`]
+                                                    : b.props.variableName ? assignment?.data?.[b.props.variableName] : ''
+                                                return currentValue || 'Sélectionner...'
+                                            })()}
+                                            <div style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>▼</div>
+                                        </div>
+                                        {openDropdown === `dropdown_${actualPageIndex}_${idx}` && (
+                                            <div 
+                                                style={{ 
+                                                    position: 'absolute', 
+                                                    top: '100%', 
+                                                    left: 0, 
+                                                    right: 0, 
+                                                    maxHeight: 300, 
+                                                    overflowY: 'auto', 
+                                                    background: '#fff', 
+                                                    border: '1px solid #ccc', 
+                                                    borderRadius: 4, 
+                                                    marginTop: 2, 
+                                                    zIndex: 1000,
+                                                    boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
+                                                }}
+                                                onClick={(e) => e.stopPropagation()}
+                                            >
+                                                <div 
+                                                    style={{ padding: '8px 12px', cursor: 'pointer', fontSize: b.props.fontSize || 12, color: '#999', borderBottom: '1px solid #eee' }}
+                                                    onClick={async (e) => {
+                                                        e.stopPropagation()
+                                                        if (assignment) {
+                                                            const key = b.props.dropdownNumber ? `dropdown_${b.props.dropdownNumber}` : b.props.variableName
+                                                            if (key) {
+                                                                const newData = { ...assignment.data, [key]: '' }
+                                                                setAssignment({ ...assignment, data: newData })
+                                                                try {
+                                                                    await api.patch(`/teacher/template-assignments/${assignment._id}/data`, { data: { [key]: '' } })
+                                                                    setSaveStatus('Enregistré avec succès ✓')
+                                                                    setTimeout(() => setSaveStatus(''), 3000)
+                                                                } catch (err) {
+                                                                    setError('Erreur sauvegarde')
+                                                                }
+                                                            }
+                                                        }
+                                                        setOpenDropdown(null)
+                                                    }}
+                                                    onMouseEnter={(e) => e.currentTarget.style.background = '#f5f5f5'}
+                                                    onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}
+                                                >
+                                                    Sélectionner...
+                                                </div>
+                                                {(b.props.options || []).map((opt: string, i: number) => (
+                                                    <div 
+                                                        key={i}
+                                                        style={{ 
+                                                            padding: '8px 12px', 
+                                                            cursor: 'pointer', 
+                                                            fontSize: b.props.fontSize || 12,
+                                                            wordWrap: 'break-word',
+                                                            whiteSpace: 'pre-wrap',
+                                                            borderBottom: i < (b.props.options || []).length - 1 ? '1px solid #eee' : 'none'
+                                                        }}
+                                                        onClick={async (e) => {
+                                                            e.stopPropagation()
+                                                            if (assignment) {
+                                                                const key = b.props.dropdownNumber ? `dropdown_${b.props.dropdownNumber}` : b.props.variableName
+                                                                if (key) {
+                                                                    const newData = { ...assignment.data, [key]: opt }
+                                                                    setAssignment({ ...assignment, data: newData })
+                                                                    try {
+                                                                        await api.patch(`/teacher/template-assignments/${assignment._id}/data`, { data: { [key]: opt } })
+                                                                        setSaveStatus('Enregistré avec succès ✓')
+                                                                        setTimeout(() => setSaveStatus(''), 3000)
+                                                                    } catch (err) {
+                                                                        setError('Erreur sauvegarde')
+                                                                    }
+                                                                }
+                                                            }
+                                                            setOpenDropdown(null)
+                                                        }}
+                                                        onMouseEnter={(e) => e.currentTarget.style.background = '#f0f4ff'}
+                                                        onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}
+                                                    >
+                                                        {opt}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                                {b.type === 'dropdown_reference' && (
+                                    <div style={{ 
+                                        width: b.props.width || 200,
+                                        minHeight: b.props.height || 'auto',
+                                        color: b.props.color || '#2d3436', 
+                                        fontSize: b.props.fontSize || 12, 
+                                        padding: '8px', 
+                                        background: '#f0f4ff', 
+                                        border: '1px dashed #6c5ce7', 
+                                        borderRadius: 4,
+                                        wordWrap: 'break-word',
+                                        whiteSpace: 'pre-wrap',
+                                        overflow: 'hidden'
+                                    }}>
+                                        {(() => {
+                                            const dropdownNum = b.props.dropdownNumber || 1
+                                            const value = assignment?.data?.[`dropdown_${dropdownNum}`] || ''
+                                            const displayText = value || `[Dropdown #${dropdownNum}]`
+                                            return displayText
+                                        })()}
+                                    </div>
+                                )}
                     </div>
                     ))}
                 </div>
