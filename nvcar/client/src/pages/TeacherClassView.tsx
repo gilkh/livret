@@ -150,24 +150,18 @@ export default function TeacherClassView() {
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 18, marginTop: 20 }}>
                     {filteredStudents.map(s => {
                         const completion = getStudentCompletion(s._id)
+                        const studentAssignments = assignments.filter(a => a.studentId === s._id)
                         return (
-                            <Link key={s._id} to={`/teacher/students/${s._id}/templates`} style={{ textDecoration: 'none' }}>
-                                <div className="card" style={{ 
-                                    cursor: 'pointer', 
-                                    display: 'flex', 
-                                    alignItems: 'center', 
-                                    gap: 14, 
-                                    position: 'relative',
-                                    transition: 'all 0.3s ease',
-                                    border: '1px solid #e2e8f0',
-                                    background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)'
-                                }} onMouseEnter={(e) => {
-                                    e.currentTarget.style.transform = 'translateY(-3px)';
-                                    e.currentTarget.style.boxShadow = '0 10px 30px rgba(0,0,0,0.12)';
-                                }} onMouseLeave={(e) => {
-                                    e.currentTarget.style.transform = 'translateY(0)';
-                                    e.currentTarget.style.boxShadow = '0 6px 24px rgba(0,0,0,0.06)';
-                                }}>
+                            <div key={s._id} className="card" style={{ 
+                                display: 'flex', 
+                                flexDirection: 'column',
+                                gap: 14, 
+                                position: 'relative',
+                                transition: 'all 0.3s ease',
+                                border: '1px solid #e2e8f0',
+                                background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)'
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
                                     {completion.isFullyComplete && (
                                         <div style={{
                                             position: 'absolute',
@@ -202,7 +196,44 @@ export default function TeacherClassView() {
                                         </div>
                                     </div>
                                 </div>
-                            </Link>
+
+                                {studentAssignments.length > 0 && (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+                                        {studentAssignments.map(a => (
+                                            <Link 
+                                                key={a._id} 
+                                                to={`/teacher/templates/${a._id}/edit`}
+                                                style={{ textDecoration: 'none' }}
+                                            >
+                                                <div style={{
+                                                    padding: '8px 12px',
+                                                    background: a.isCompleted ? '#ecfdf5' : 'white',
+                                                    border: `1px solid ${a.isCompleted ? '#10b981' : '#e2e8f0'}`,
+                                                    borderRadius: 6,
+                                                    fontSize: 13,
+                                                    color: '#334155',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'space-between',
+                                                    transition: 'all 0.2s ease'
+                                                }}
+                                                onMouseEnter={(e) => {
+                                                    e.currentTarget.style.borderColor = '#6c5ce7';
+                                                    e.currentTarget.style.transform = 'translateX(2px)';
+                                                }}
+                                                onMouseLeave={(e) => {
+                                                    e.currentTarget.style.borderColor = a.isCompleted ? '#10b981' : '#e2e8f0';
+                                                    e.currentTarget.style.transform = 'translateX(0)';
+                                                }}
+                                                >
+                                                    <span style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.template?.name || 'Carnet'}</span>
+                                                    {a.isCompleted ? <span style={{ color: '#10b981' }}>✓</span> : <span style={{ color: '#6c5ce7' }}>→</span>}
+                                                </div>
+                                            </Link>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
                         )
                     })}
                     {!loading && filteredStudents.length === 0 && (

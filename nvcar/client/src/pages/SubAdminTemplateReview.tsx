@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import api from '../api'
 
 type Block = { type: string; props: any }
-type Page = { title?: string; bgColor?: string; blocks: Block[] }
+type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
 type Template = { _id?: string; name: string; pages: Page[] }
 type Student = { _id: string; firstName: string; lastName: string; level?: string }
 type Assignment = { _id: string; status: string; data?: any }
@@ -24,6 +24,7 @@ export default function SubAdminTemplateReview() {
     const [error, setError] = useState('')
     const [signing, setSigning] = useState(false)
     const [unsigning, setUnsigning] = useState(false)
+    const [isPromoted, setIsPromoted] = useState(false)
 
     const [promoting, setPromoting] = useState(false)
     const [canEdit, setCanEdit] = useState(false)
@@ -47,6 +48,7 @@ export default function SubAdminTemplateReview() {
                 setAssignment(r.data.assignment)
                 setSignature(r.data.signature)
                 setCanEdit(r.data.canEdit)
+                setIsPromoted(r.data.isPromoted)
             } catch (e: any) {
                 setError('Impossible de charger le carnet')
                 console.error(e)
@@ -142,8 +144,13 @@ export default function SubAdminTemplateReview() {
             if (r.data.assignment) setAssignment(r.data.assignment)
             // We don't necessarily need to update template unless language toggles changed, but good practice
             // if (r.data.template) setTemplate(r.data.template) 
+            setIsPromoted(true)
         } catch (e: any) {
-            setError('Échec de la promotion')
+            if (e.response?.data?.error === 'already_promoted') {
+                alert('Cet élève a déjà été promu cette année.')
+            } else {
+                setError('Échec de la promotion')
+            }
             console.error(e)
         } finally {
             setPromoting(false)
@@ -296,17 +303,19 @@ export default function SubAdminTemplateReview() {
                         <button 
                             className="btn" 
                             onClick={handlePromote} 
-                            disabled={promoting}
+                            disabled={promoting || isPromoted}
                             style={{
-                                background: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)',
+                                background: isPromoted ? '#cbd5e1' : 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)',
                                 fontWeight: 500,
                                 padding: '12px 20px',
-                                boxShadow: '0 2px 8px rgba(139, 92, 246, 0.3)',
-                                color: 'white',
-                                border: 'none'
+                                boxShadow: isPromoted ? 'none' : '0 2px 8px rgba(139, 92, 246, 0.3)',
+                                color: isPromoted ? '#64748b' : 'white',
+                                border: 'none',
+                                cursor: isPromoted ? 'not-allowed' : 'pointer'
                             }}
+                            title={isPromoted ? "Élève déjà promu cette année" : ""}
                         >
-                            {promoting ? '⏳ Promotion...' : `Passer en classe supérieure ${getNextLevel(student.level)}`}
+                            {promoting ? '⏳ Promotion...' : isPromoted ? 'Déjà promu' : `Passer en classe supérieure ${getNextLevel(student.level)}`}
                         </button>
                     )}
 

@@ -8,6 +8,7 @@ const blockSchema = new Schema({
 const pageSchema = new Schema({
   title: { type: String },
   layout: { type: String, default: 'single' },
+  excludeFromPdf: { type: Boolean, default: false },
   blocks: { type: [blockSchema], default: [] },
 })
 

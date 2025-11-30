@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom'
 import api from '../api'
 
 type Block = { type: string; props: any }
-type Page = { title?: string; bgColor?: string; blocks: Block[] }
+type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
 type Template = { _id?: string; name: string; pages: Page[] }
 type Student = { _id: string; firstName: string; lastName: string; level?: string; className?: string }
 type Assignment = { _id: string; status: string; data?: Record<string, any> }
@@ -77,6 +77,21 @@ export default function TeacherTemplateEditor() {
         }
     }
 
+    const toggleCompletion = async () => {
+        if (!assignment) return
+        try {
+            setSaveStatus('Enregistrement...')
+            const action = assignment.status === 'completed' ? 'unmark-done' : 'mark-done'
+            const r = await api.post(`/teacher/templates/${assignmentId}/${action}`)
+            setAssignment(r.data)
+            setSaveStatus(assignment.status === 'completed' ? 'Rouvert avec succès' : 'Terminé avec succès ✓')
+            setTimeout(() => setSaveStatus(''), 3000)
+        } catch (e: any) {
+            setError('Erreur lors de la mise à jour du statut')
+            console.error(e)
+        }
+    }
+
     if (loading) return <div className="container"><div className="card"><div className="note">Chargement...</div></div></div>
     if (error && !template) return <div className="container"><div className="card"><div className="note" style={{ color: 'crimson' }}>{error}</div></div></div>
     if (!template) return <div className="container"><div className="card"><div className="note">Carnet introuvable</div></div></div>
@@ -133,6 +148,25 @@ export default function TeacherTemplateEditor() {
                         {assignment?.status === 'signed' && '✔️ Signé'}
                         {!['draft', 'in_progress', 'completed', 'signed'].includes(assignment?.status || '') && assignment?.status}
                     </div>
+                    {canEdit && assignment?.status !== 'signed' && (
+                        <button 
+                            className="btn"
+                            onClick={toggleCompletion}
+                            style={{
+                                marginLeft: 12,
+                                padding: '6px 12px',
+                                fontSize: 13,
+                                background: assignment?.status === 'completed' ? '#fff' : '#10b981',
+                                color: assignment?.status === 'completed' ? '#ef4444' : '#fff',
+                                border: assignment?.status === 'completed' ? '1px solid #ef4444' : 'none',
+                                cursor: 'pointer',
+                                borderRadius: 6,
+                                fontWeight: 500
+                            }}
+                        >
+                            {assignment?.status === 'completed' ? 'Rouvrir' : 'Marquer comme terminé'}
+                        </button>
+                    )}
                 </div>
 
                 {saveStatus && <div style={{ padding: '14px 20px', background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', color: 'white', borderRadius: 8, marginBottom: 16, fontWeight: 600, fontSize: 14, textAlign: 'center', boxShadow: '0 2px 8px rgba(16, 185, 129, 0.3)' }}>✓ {saveStatus}</div>}

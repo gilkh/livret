@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import api from '../api'
 
 type Block = { type: string; props: any }
-type Page = { title?: string; layout?: string; blocks: Block[] }
+type Page = { title?: string; layout?: string; excludeFromPdf?: boolean; blocks: Block[] }
 type Template = { _id?: string; name: string; pages: Page[] }
 type Year = { _id: string; name: string }
 type ClassDoc = { _id: string; name: string; schoolYearId: string }

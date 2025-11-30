@@ -93,6 +93,19 @@ export default function Users() {
     }
   }
 
+  const updateOutlookUserDisplayName = async (id: string, displayName: string) => {
+    try {
+      await api.patch(`/outlook-users/${id}`, { displayName })
+      // Don't reload to avoid losing focus if we were typing, 
+      // but here we use onBlur so it's fine.
+      // Actually, reloading might reset the input if we use defaultValue.
+      // Let's just reload to be safe and consistent.
+      await loadOutlookUsers()
+    } catch (e) {
+      alert('Erreur lors de la mise à jour du nom')
+    }
+  }
+
   const viewAsUser = async (user: User) => {
     if (user.role === 'ADMIN') {
       alert('Cannot impersonate another admin')
@@ -297,8 +310,29 @@ export default function Users() {
                   }}
                 >
                   <div>
-                    <div style={{ fontWeight: 600 }}>{user.email}</div>
-                    {user.displayName && <div style={{ fontSize: '0.85rem', color: '#666' }}>{user.displayName}</div>}
+                    <div style={{ fontWeight: 600, marginBottom: 4 }}>{user.email}</div>
+                    <input
+                        placeholder="Nom d'affichage"
+                        defaultValue={user.displayName || ''}
+                        onBlur={(e) => {
+                            if (e.target.value !== (user.displayName || '')) {
+                                updateOutlookUserDisplayName(user._id, e.target.value)
+                            }
+                        }}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                                e.currentTarget.blur()
+                            }
+                        }}
+                        style={{ 
+                            fontSize: '0.85rem', 
+                            padding: '4px 8px', 
+                            border: '1px solid #ddd', 
+                            borderRadius: 4,
+                            width: '100%',
+                            color: '#666'
+                        }}
+                    />
                     {user.lastLogin && (
                       <div style={{ fontSize: '0.75rem', color: '#999', marginTop: 4 }}>
                         Dernière connexion: {new Date(user.lastLogin).toLocaleDateString('fr-FR')}

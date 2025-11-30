@@ -152,6 +152,51 @@ subAdminTemplatesRouter.delete('/signature', requireAuth(['SUBADMIN']), async (r
     }
 })
 
+// Sub-admin: Get promoted students not yet assigned to a class
+subAdminTemplatesRouter.get('/promoted-students', requireAuth(['SUBADMIN']), async (req, res) => {
+    try {
+        const subAdminId = (req as any).user.userId
+        
+        // Find students promoted by this sub-admin
+        const students = await Student.find({
+            'promotions.promotedBy': subAdminId
+        }).lean()
+
+        const promotedStudents = []
+
+        for (const student of students) {
+            // Check if currently enrolled
+            const enrollment = await Enrollment.findOne({ studentId: student._id }).lean()
+            if (enrollment) continue // Already assigned to a class
+
+            // Get the relevant promotion (the one by this sub-admin, likely the last one)
+            const promotions = student.promotions || []
+            const lastPromotion = promotions.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]
+            
+            if (lastPromotion && lastPromotion.promotedBy === subAdminId) {
+                // Find the latest assignment for this student
+                const assignment = await TemplateAssignment.findOne({ studentId: student._id })
+                    .sort({ assignedAt: -1 })
+                    .lean()
+
+                promotedStudents.push({
+                    _id: student._id,
+                    firstName: student.firstName,
+                    lastName: student.lastName,
+                    fromLevel: lastPromotion.fromLevel,
+                    toLevel: lastPromotion.toLevel,
+                    date: lastPromotion.date,
+                    assignmentId: assignment ? assignment._id : null
+                })
+            }
+        }
+
+        res.json(promotedStudents)
+    } catch (e: any) {
+        res.status(500).json({ error: 'fetch_failed', message: e.message })
+    }
+})
+
 // Sub-admin: Get classes with pending signatures
 subAdminTemplatesRouter.get('/classes', requireAuth(['SUBADMIN']), async (req, res) => {
     try {
@@ -298,6 +343,11 @@ subAdminTemplatesRouter.get('/pending-signatures', requireAuth(['SUBADMIN']), as
         const enrollments = await Enrollment.find({ classId: { $in: classIds } }).lean()
         const studentIds = enrollments.map(e => e.studentId)
 
+        // Get class details for mapping
+        const classes = await ClassModel.find({ _id: { $in: classIds } }).lean()
+        const classMap = new Map(classes.map(c => [String(c._id), c]))
+        const studentClassMap = new Map(enrollments.map(e => [String(e.studentId), String(e.classId)]))
+
         // Get ALL template assignments for these students (including signed ones)
         const templateAssignments = await TemplateAssignment.find({
             studentId: { $in: studentIds },
@@ -309,17 +359,28 @@ subAdminTemplatesRouter.get('/pending-signatures', requireAuth(['SUBADMIN']), as
         const signatures = await TemplateSignature.find({ templateAssignmentId: { $in: assignmentIds } }).lean()
         const signatureMap = new Map(signatures.map(s => [s.templateAssignmentId, s]))
 
+        // Get active school year
+        const activeSchoolYear = await SchoolYear.findOne({ active: true }).lean()
+
         // Enrich with template and student data, including signature info
         const enrichedAssignments = await Promise.all(templateAssignments.map(async (assignment) => {
             const template = await GradebookTemplate.findById(assignment.templateId).lean()
             const student = await Student.findById(assignment.studentId).lean()
             const signature = signatureMap.get(String(assignment._id))
+            
+            const classId = studentClassMap.get(String(assignment.studentId))
+            const classInfo = classId ? classMap.get(classId) : null
+
+            const isPromoted = student?.promotions?.some((p: any) => p.schoolYearId === String(activeSchoolYear?._id))
 
             return {
                 ...assignment,
                 template,
                 student,
                 signature,
+                className: classInfo?.name,
+                level: classInfo?.level,
+                isPromoted
             }
         }))
 
@@ -388,6 +449,17 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote', require
                 const sy = await SchoolYear.findById(cls.schoolYearId).lean()
                 if (sy) yearName = sy.name
             }
+        }
+
+        // Check if already promoted in current school year
+        if (currentSchoolYearId) {
+            const alreadyPromoted = student.promotions?.some(p => p.schoolYearId === currentSchoolYearId)
+            if (alreadyPromoted) {
+                return res.status(400).json({ error: 'already_promoted', message: 'Student already promoted this year' })
+            }
+        }
+
+        if (enrollment) {
             // Remove from class
             await Enrollment.findByIdAndDelete(enrollment._id)
         }
@@ -433,6 +505,17 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote', require
         if (nextSchoolYearId) {
             student.schoolYearId = nextSchoolYearId
         }
+
+        // Add promotion record
+        if (!student.promotions) student.promotions = [] as any
+        student.promotions.push({
+            schoolYearId: currentSchoolYearId,
+            date: new Date(),
+            fromLevel: currentLevel,
+            toLevel: nextLevel,
+            promotedBy: subAdminId
+        })
+
         await student.save()
 
         // Record promotion in assignment data
@@ -688,6 +771,8 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
         const assignment = await TemplateAssignment.findById(templateAssignmentId).lean()
         if (!assignment) return res.status(404).json({ error: 'not_found' })
 
+        const student = await Student.findById(assignment.studentId).lean()
+
         // Verify authorization via class enrollment
         const enrollmentCheck = await Enrollment.findOne({ studentId: assignment.studentId }).lean()
         
@@ -726,15 +811,22 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
                     authorized = true
                 }
             }
+
+            // Also check if the student was promoted by this sub-admin
+            if (!authorized && student && student.promotions) {
+                 const lastPromotion = student.promotions.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]
+                 if (lastPromotion && lastPromotion.promotedBy === subAdminId) {
+                     authorized = true
+                 }
+            }
         }
 
         if (!authorized) {
             return res.status(403).json({ error: 'not_authorized' })
         }
 
-        // Get template, student, and signature (no change history for sub-admin)
+        // Get template and signature (no change history for sub-admin)
         const template = await GradebookTemplate.findById(assignment.templateId).lean()
-        const student = await Student.findById(assignment.studentId).lean()
         const signature = await TemplateSignature.findOne({ templateAssignmentId }).lean()
 
         // Get student level
@@ -771,12 +863,17 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
         // So yes, if authorized, they can edit (subject to level constraints in frontend).
         const canEdit = authorized
 
+        // Get active school year
+        const activeSchoolYear = await SchoolYear.findOne({ active: true }).lean()
+        const isPromoted = student?.promotions?.some((p: any) => p.schoolYearId === String(activeSchoolYear?._id))
+
         res.json({
             assignment,
             template: versionedTemplate,
             student: { ...student, level },
             signature,
             canEdit,
+            isPromoted
         })
     } catch (e: any) {
         res.status(500).json({ error: 'fetch_failed', message: e.message })

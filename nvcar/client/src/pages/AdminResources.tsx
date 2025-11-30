@@ -87,8 +87,14 @@ export default function AdminResources() {
     const last = sorted[sorted.length - 1]
     let startYear = new Date().getFullYear()
     if (last) {
-        const match = last.name.match(/(\d{4})/)
-        if (match) startYear = parseInt(match[1]) + 1
+        const parts = last.name.split('/')
+        if (parts.length === 2) {
+            const y1 = parseInt(parts[0])
+            if (!isNaN(y1)) startYear = y1 + 1
+        } else {
+            const match = last.name.match(/(\d{4})/)
+            if (match) startYear = parseInt(match[1]) + 1
+        }
     }
     
     const name = `${startYear}/${startYear + 1}`
@@ -202,8 +208,8 @@ export default function AdminResources() {
                 style={{ 
                     padding: 12, 
                     borderRadius: 8, 
-                    border: selectedYear?._id === y._id ? '2px solid #1890ff' : '1px solid #f0f0f0',
-                    background: selectedYear?._id === y._id ? '#e6f7ff' : '#fff',
+                    border: selectedYear?._id === y._id ? '2px solid #1890ff' : (y.active ? '2px solid #52c41a' : '1px solid #f0f0f0'),
+                    background: selectedYear?._id === y._id ? '#e6f7ff' : (y.active ? '#f6ffed' : '#fff'),
                     cursor: 'pointer',
                     transition: 'all 0.2s',
                     position: 'relative'
@@ -211,7 +217,7 @@ export default function AdminResources() {
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ fontWeight: 600 }}>{y.name}</span>
-                    {y.active && <span className="pill" style={{ background: '#f6ffed', color: '#52c41a', fontSize: '0.7rem', padding: '2px 8px' }}>Active</span>}
+                    {y.active && <span className="pill" style={{ background: '#52c41a', color: '#fff', fontSize: '0.8rem', padding: '4px 10px', borderRadius: 12 }}>Active</span>}
                 </div>
                 <button 
                     onClick={(e) => deleteYear(e, y._id)}

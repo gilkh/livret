@@ -3,7 +3,7 @@ import { useParams, useSearchParams } from 'react-router-dom'
 import api from '../api'
 
 type Block = { type: string; props: any }
-type Page = { title?: string; bgColor?: string; blocks: Block[] }
+type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
 type Template = { _id?: string; name: string; pages: Page[] }
 type Student = { _id: string; firstName: string; lastName: string; level?: string; dateOfBirth: Date }
 type Assignment = { _id: string; status: string; data?: any }
@@ -90,7 +90,7 @@ export default function CarnetPrint() {
                     }
                 }
             `}</style>
-            {template.pages.map((page, pageIdx) => (
+            {template.pages.filter(p => !p.excludeFromPdf).map((page, pageIdx) => (
                 <div 
                     key={pageIdx}
                     className="page-canvas" 

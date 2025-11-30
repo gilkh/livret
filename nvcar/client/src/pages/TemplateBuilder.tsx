@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import api from '../api'
 
 type Block = { type: string; props: any }
-type Page = { title?: string; bgColor?: string; blocks: Block[] }
+type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
 type Template = { _id?: string; name: string; pages: Page[] }
 type Year = { _id: string; name: string }
 type ClassDoc = { _id: string; name: string; schoolYearId: string }
@@ -1840,6 +1840,20 @@ export default function TemplateBuilder() {
                         setTpl({ ...tpl, pages })
                         setSelectedPage(idx + 1)
                       }}>+ Ajouter après</button>
+                    </div>
+                    <div style={{ marginTop: 8, borderTop: '1px solid #eee', paddingTop: 8 }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, cursor: 'pointer' }}>
+                        <input 
+                          type="checkbox" 
+                          checked={page.excludeFromPdf || false} 
+                          onChange={(e) => {
+                            const pages = [...tpl.pages]
+                            pages[idx] = { ...pages[idx], excludeFromPdf: e.target.checked }
+                            setTpl({ ...tpl, pages })
+                          }}
+                        />
+                        Exclure du PDF
+                      </label>
                     </div>
                   </div>
                 ))}

@@ -7,6 +7,7 @@ import { GradebookTemplate } from '../models/GradebookTemplate'
 import { Student } from '../models/Student'
 import { Enrollment } from '../models/Enrollment'
 import { ClassModel } from '../models/Class'
+import { SchoolYear } from '../models/SchoolYear'
 import { logAudit } from '../utils/auditLogger'
 
 export const teacherTemplatesRouter = Router()
@@ -17,7 +18,14 @@ teacherTemplatesRouter.get('/classes', requireAuth(['TEACHER']), async (req, res
         const teacherId = (req as any).user.userId
         const assignments = await TeacherClassAssignment.find({ teacherId }).lean()
         const classIds = assignments.map(a => a.classId)
-        const classes = await ClassModel.find({ _id: { $in: classIds } }).lean()
+        
+        const activeYear = await SchoolYear.findOne({ active: true }).lean()
+        const query: any = { _id: { $in: classIds } }
+        if (activeYear) {
+            query.schoolYearId = String(activeYear._id)
+        }
+
+        const classes = await ClassModel.find(query).lean()
 
         res.json(classes)
     } catch (e: any) {
@@ -259,6 +267,7 @@ teacherTemplatesRouter.post('/templates/:assignmentId/mark-done', requireAuth(['
         const updated = await TemplateAssignment.findByIdAndUpdate(
             assignmentId,
             {
+                status: 'completed',
                 isCompleted: true,
                 completedAt: new Date(),
                 completedBy: teacherId,
@@ -306,6 +315,7 @@ teacherTemplatesRouter.post('/templates/:assignmentId/unmark-done', requireAuth(
         const updated = await TemplateAssignment.findByIdAndUpdate(
             assignmentId,
             {
+                status: 'in_progress',
                 isCompleted: false,
                 completedAt: null,
                 completedBy: null,

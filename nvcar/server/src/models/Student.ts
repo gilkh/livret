@@ -10,6 +10,13 @@ const studentSchema = new Schema({
   parentPhone: { type: String },
   level: { type: String }, // Current level if not in a class, or cached level
   schoolYearId: { type: String }, // Current school year association
+  promotions: [{
+    schoolYearId: { type: String },
+    date: { type: Date },
+    fromLevel: { type: String },
+    toLevel: { type: String },
+    promotedBy: { type: String }
+  }]
 })
 
 export const Student = model('Student', studentSchema)
