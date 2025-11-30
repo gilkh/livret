@@ -27,6 +27,7 @@ import AdminSchoolYears from './pages/AdminSchoolYears'
 import AdminStudents from './pages/AdminStudents'
 import AdminAnalytics from './pages/AdminAnalytics'
 import AdminSettings from './pages/AdminSettings'
+import CarnetPrint from './pages/CarnetPrint'
 
 const RequireAuth = ({ children }: { children: JSX.Element }) => {
   const token = localStorage.getItem('token')
@@ -45,8 +46,8 @@ export default function App() {
   const navigate = useNavigate()
   const location = useLocation()
 
-  // Hide navbar on login page
-  const showNavBar = location.pathname !== '/login'
+  // Hide navbar on login and print pages
+  const showNavBar = location.pathname !== '/login' && !location.pathname.startsWith('/print/')
 
   return (
     <>
@@ -58,6 +59,8 @@ export default function App() {
       )}
       <Routes>
         <Route path="/login" element={<Login />} />
+        {/* Print route without auth/navbar for PDF generation */}
+        <Route path="/print/carnet/:assignmentId" element={<CarnetPrint />} />
         <Route
           path="/"
           element={

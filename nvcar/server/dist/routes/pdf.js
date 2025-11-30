@@ -66,7 +66,7 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
     const statusMap = new Map(statuses.map((s) => [s.competencyId, s]));
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="carnet-${student.lastName}.pdf"`);
-    const doc = new pdfkit_1.default({ size: 'A4', margin: 50 });
+    const doc = new pdfkit_1.default({ size: 'A4', margin: 0 });
     doc.pipe(res);
     const renderDefault = async () => {
         const categories = await Category_1.Category.find({}).lean();
@@ -97,8 +97,12 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
         const tpl = await GradebookTemplate_1.GradebookTemplate.findById(tplId).lean();
         if (!tpl)
             return renderDefault();
-        if (tpl.exportPassword && tpl.exportPassword !== pwd)
-            return renderDefault();
+        if (tpl.exportPassword && tpl.exportPassword !== pwd) {
+            const user = req.user;
+            if (!user || !['ADMIN', 'SUBADMIN'].includes(user.role)) {
+                return renderDefault();
+            }
+        }
         // Try to get assignment data for dropdowns
         const TemplateAssignment = (await Promise.resolve().then(() => __importStar(require('../models/TemplateAssignment')))).TemplateAssignment;
         const assignment = await TemplateAssignment.findOne({
@@ -118,6 +122,18 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
         const sigMap = new Map((signatures?.items || []).map((s) => [s.label, s]));
         const classDoc = enrollment ? await Class_1.ClassModel.findById(enrollment.classId).lean() : null;
         const level = classDoc ? classDoc.level : '';
+        const pageW = doc.page.width;
+        const pageH = doc.page.height;
+        const DESIGN_W = 800;
+        const DESIGN_H = 1120;
+        const sx = (v) => (typeof v === 'number' ? v : 0) * (pageW / DESIGN_W);
+        const sy = (v) => (typeof v === 'number' ? v : 0) * (pageH / DESIGN_H);
+        const px = (v) => sx(v);
+        const py = (v) => sy(v);
+        const sr = (v) => {
+            const scale = (pageW / DESIGN_W + pageH / DESIGN_H) / 2;
+            return (typeof v === 'number' ? v : 0) * scale;
+        };
         const resolveText = (t) => t
             .replace(/\{student\.firstName\}/g, String(student.firstName))
             .replace(/\{student\.lastName\}/g, String(student.lastName))
@@ -129,9 +145,16 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
                     doc.fillColor(b.props.color);
                 doc.fontSize(b.props?.size || b.props?.fontSize || 12);
                 const x = b.props?.x, y = b.props?.y;
+                const w = b.props?.width, h = b.props?.height;
                 const txt = b.props?.text || '';
-                if (typeof x === 'number' && typeof y === 'number')
-                    doc.text(txt, x, y);
+                if (typeof x === 'number' && typeof y === 'number') {
+                    const opts = {};
+                    if (typeof w === 'number')
+                        opts.width = Math.max(0, sx(w));
+                    if (typeof h === 'number')
+                        opts.height = Math.max(0, sy(h));
+                    doc.text(txt, px(x), py(y), opts);
+                }
                 else
                     doc.text(txt);
                 doc.fillColor('#2d3436');
@@ -141,33 +164,58 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
                     doc.fillColor(b.props.color);
                 doc.fontSize(b.props?.size || b.props?.fontSize || 12);
                 const x = b.props?.x, y = b.props?.y;
+                const w = b.props?.width, h = b.props?.height;
                 const txt = resolveText(b.props?.text || '');
-                if (typeof x === 'number' && typeof y === 'number')
-                    doc.text(txt, x, y);
+                if (typeof x === 'number' && typeof y === 'number') {
+                    const opts = {};
+                    if (typeof w === 'number')
+                        opts.width = Math.max(0, sx(w));
+                    if (typeof h === 'number')
+                        opts.height = Math.max(0, sy(h));
+                    doc.text(txt, px(x), py(y), opts);
+                }
                 else
                     doc.text(txt);
                 doc.fillColor('#2d3436');
             }
             else if (b.type === 'image' && b.props?.url) {
                 try {
-                    const r = await axios_1.default.get(b.props.url, { responseType: 'arraybuffer' });
-                    const buf = Buffer.from(r.data);
-                    const options = {};
-                    if (typeof b.props?.x === 'number' && typeof b.props?.y === 'number') {
-                        options.x = b.props.x;
-                        options.y = b.props.y;
+                    const url = String(b.props.url);
+                    if (url.startsWith('data:')) {
+                        const base64 = url.split(',').pop() || '';
+                        const buf = Buffer.from(base64, 'base64');
+                        const options = {};
+                        if (typeof b.props?.x === 'number' && typeof b.props?.y === 'number') {
+                            options.x = px(b.props.x);
+                            options.y = py(b.props.y);
+                        }
+                        if (typeof b.props?.width === 'number' && typeof b.props?.height === 'number') {
+                            options.width = sx(b.props.width);
+                            options.height = sy(b.props.height);
+                        }
+                        doc.image(buf, options.width ? options : undefined);
                     }
-                    if (typeof b.props?.width === 'number' && typeof b.props?.height === 'number') {
-                        options.width = b.props.width;
-                        options.height = b.props.height;
+                    else {
+                        const fetchUrl = url.startsWith('http') ? url : `http://localhost:4000${url}`;
+                        const r = await axios_1.default.get(fetchUrl, { responseType: 'arraybuffer' });
+                        const buf = Buffer.from(r.data);
+                        const options = {};
+                        if (typeof b.props?.x === 'number' && typeof b.props?.y === 'number') {
+                            options.x = px(b.props.x);
+                            options.y = py(b.props.y);
+                        }
+                        if (typeof b.props?.width === 'number' && typeof b.props?.height === 'number') {
+                            options.width = sx(b.props.width);
+                            options.height = sy(b.props.height);
+                        }
+                        doc.image(buf, options.width ? options : undefined);
                     }
-                    doc.image(buf, options.width ? options : undefined);
                 }
                 catch { }
             }
             else if (b.type === 'rect') {
-                const x = b.props?.x || 50, y = b.props?.y || 50;
-                const w = b.props?.width || 100, h = b.props?.height || 50;
+                const x = px(b.props?.x || 50), y = py(b.props?.y || 50);
+                const w = sx(b.props?.width || 100), h = sy(b.props?.height || 50);
                 if (b.props?.color && b.props.color !== 'transparent') {
                     doc.fillColor(b.props.color);
                     doc.rect(x, y, w, h).fill();
@@ -181,9 +229,9 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
                 doc.fillColor('#2d3436');
             }
             else if (b.type === 'circle') {
-                const r = b.props?.radius || 40;
-                const x = (b.props?.x || 50) + r;
-                const y = (b.props?.y || 50) + r;
+                const r = sr(b.props?.radius || 40);
+                const x = px((b.props?.x || 50)) + r;
+                const y = py((b.props?.y || 50)) + r;
                 if (b.props?.color && b.props.color !== 'transparent') {
                     doc.fillColor(b.props.color);
                     doc.circle(x, y, r).fill();
@@ -197,8 +245,8 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
                 doc.fillColor('#2d3436');
             }
             else if (b.type === 'line') {
-                const x = b.props?.x || 50, y = b.props?.y || 50;
-                const x2 = b.props?.x2 || 100, y2 = b.props?.y2 || 0;
+                const x = px(b.props?.x || 50), y = py(b.props?.y || 50);
+                const x2 = sx(b.props?.x2 || 100), y2 = sy(b.props?.y2 || 0);
                 doc.moveTo(x, y).lineTo(x + x2, y + y2);
                 if (b.props?.stroke)
                     doc.strokeColor(b.props.stroke);
@@ -206,8 +254,8 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
                 doc.strokeColor('#000');
             }
             else if (b.type === 'arrow') {
-                const x = b.props?.x || 50, y = b.props?.y || 50;
-                const x2 = b.props?.x2 || 100, y2 = b.props?.y2 || 0;
+                const x = px(b.props?.x || 50), y = py(b.props?.y || 50);
+                const x2 = sx(b.props?.x2 || 100), y2 = sy(b.props?.y2 || 0);
                 const color = b.props?.stroke || '#6c5ce7';
                 doc.strokeColor(color).moveTo(x, y).lineTo(x + x2, y + y2).lineWidth(b.props?.strokeWidth || 2).stroke();
                 doc.fillColor(color);
@@ -217,22 +265,24 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
             }
             else if (b.type === 'qr') {
                 try {
-                    const url = `https://api.qrserver.com/v1/create-qr-code/?size=${b.props?.width || 120}x${b.props?.height || 120}&data=${encodeURIComponent(b.props?.url || '')}`;
+                    const wq = Math.round(sx(b.props?.width || 120)) || 120;
+                    const hq = Math.round(sy(b.props?.height || 120)) || 120;
+                    const url = `https://api.qrserver.com/v1/create-qr-code/?size=${wq}x${hq}&data=${encodeURIComponent(b.props?.url || '')}`;
                     const r = await axios_1.default.get(url, { responseType: 'arraybuffer' });
                     const buf = Buffer.from(r.data);
                     const options = {};
                     if (typeof b.props?.x === 'number' && typeof b.props?.y === 'number') {
-                        options.x = b.props.x;
-                        options.y = b.props.y;
+                        options.x = px(b.props.x);
+                        options.y = py(b.props.y);
                     }
                     doc.image(buf, options);
                 }
                 catch { }
             }
             else if (b.type === 'table') {
-                const x0 = b.props?.x || 50, y0 = b.props?.y || 50;
-                const cols = b.props?.columnWidths || [];
-                const rows = b.props?.rowHeights || [];
+                const x0 = px(b.props?.x || 50), y0 = py(b.props?.y || 50);
+                const cols = (b.props?.columnWidths || []).map((cw) => sx(cw));
+                const rows = (b.props?.rowHeights || []).map((rh) => sy(rh));
                 const cells = b.props?.cells || [];
                 const colOffsets = [0];
                 for (let i = 0; i < cols.length; i++)
@@ -291,7 +341,7 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
                 doc.fontSize(b.props?.size || b.props?.fontSize || 12);
                 const text = lines.join('\n');
                 if (typeof x === 'number' && typeof y === 'number')
-                    doc.text(text, x, y);
+                    doc.text(text, px(x), py(y));
                 else
                     doc.text(text);
                 doc.fillColor('#2d3436');
@@ -304,7 +354,7 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
                         doc.fillColor(b.props.color);
                     const x = b.props?.x, y = b.props?.y;
                     if (typeof x === 'number' && typeof y === 'number')
-                        doc.text(cat.name, x, y);
+                        doc.text(cat.name, px(x), py(y));
                     else
                         doc.text(cat.name);
                     doc.fillColor('#6c5ce7');
@@ -327,7 +377,7 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
                 const x = b.props?.x, y = b.props?.y;
                 const text = lines.join('\n');
                 if (typeof x === 'number' && typeof y === 'number')
-                    doc.text(text, x, y);
+                    doc.text(text, px(x), py(y));
                 else
                     doc.text(text);
                 doc.fillColor('#2d3436');
@@ -339,17 +389,17 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
                     const sig = sigMap.get(lab);
                     doc.fontSize(b.props?.size || b.props?.fontSize || 12).fillColor('#2d3436');
                     if (typeof x === 'number' && typeof y === 'number') {
-                        doc.text(`${lab}:`, x, y);
+                        doc.text(`${lab}:`, px(x), py(y));
                         y += 16;
                         if (sig?.url) {
                             try {
                                 const r = await axios_1.default.get(String(sig.url).startsWith('http') ? sig.url : `http://localhost:4000${sig.url}`, { responseType: 'arraybuffer' });
                                 const buf = Buffer.from(r.data);
-                                doc.image(buf, x, y, { width: 160 });
+                                doc.image(buf, px(x), py(y), { width: 160 });
                                 y += 100;
                             }
                             catch {
-                                doc.text(`______________________________`, x, y);
+                                doc.text(`______________________________`, px(x), py(y));
                                 y += 18;
                             }
                         }
@@ -357,16 +407,16 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
                             try {
                                 const base64 = String(sig.dataUrl).split(',').pop() || '';
                                 const buf = Buffer.from(base64, 'base64');
-                                doc.image(buf, x, y, { width: 160 });
+                                doc.image(buf, px(x), py(y), { width: 160 });
                                 y += 100;
                             }
                             catch {
-                                doc.text(`______________________________`, x, y);
+                                doc.text(`______________________________`, px(x), py(y));
                                 y += 18;
                             }
                         }
                         else {
-                            doc.text(`______________________________`, x, y);
+                            doc.text(`______________________________`, px(x), py(y));
                             y += 18;
                         }
                     }
@@ -414,10 +464,10 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
                     }).lean();
                     if (signature?.subAdminId) {
                         const subAdmin = await User_1.User.findById(signature.subAdminId).lean();
-                        const x = b.props?.x || 50;
-                        const y = b.props?.y || 50;
-                        const width = b.props?.width || 200;
-                        const height = b.props?.height || 80;
+                        const x = px(b.props?.x || 50);
+                        const y = py(b.props?.y || 50);
+                        const width = sx(b.props?.width || 200);
+                        const height = sy(b.props?.height || 80);
                         // Draw white rectangle with black border
                         doc.save();
                         doc.rect(x, y, width, height).stroke('#000');
@@ -438,21 +488,19 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
                         doc.restore();
                     }
                     else {
-                        // No signature yet, just draw empty box
-                        const x = b.props?.x || 50;
-                        const y = b.props?.y || 50;
-                        const width = b.props?.width || 200;
-                        const height = b.props?.height || 80;
-                        doc.rect(x, y, width, height).stroke('#000');
+                        const x2 = px(b.props?.x || 50);
+                        const y2 = py(b.props?.y || 50);
+                        const width2 = sx(b.props?.width || 200);
+                        const height2 = sy(b.props?.height || 80);
+                        doc.rect(x2, y2, width2, height2).stroke('#000');
                     }
                 }
                 else {
-                    // No assignment, just draw empty box
-                    const x = b.props?.x || 50;
-                    const y = b.props?.y || 50;
-                    const width = b.props?.width || 200;
-                    const height = b.props?.height || 80;
-                    doc.rect(x, y, width, height).stroke('#000');
+                    const x2 = px(b.props?.x || 50);
+                    const y2 = py(b.props?.y || 50);
+                    const width2 = sx(b.props?.width || 200);
+                    const height2 = sy(b.props?.height || 80);
+                    doc.rect(x2, y2, width2, height2).stroke('#000');
                 }
             }
             else if (b.type === 'dropdown') {
@@ -463,10 +511,10 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
                 // Render dropdown with selected value or as empty box
                 const dropdownNum = b.props?.dropdownNumber;
                 const selectedValue = dropdownNum ? assignmentData[`dropdown_${dropdownNum}`] : (b.props?.variableName ? assignmentData[b.props.variableName] : '');
-                const x = b.props?.x || 50;
-                const y = b.props?.y || 50;
-                const width = b.props?.width || 200;
-                const height = b.props?.height || 40;
+                const x = px(b.props?.x || 50);
+                const y = py(b.props?.y || 50);
+                const width = sx(b.props?.width || 200);
+                const height = sy(b.props?.height || 40);
                 // Draw dropdown box
                 doc.save();
                 doc.rect(x, y, width, height).stroke('#ccc');
@@ -484,7 +532,7 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
                 // Draw selected value or placeholder with text wrapping
                 doc.fontSize(b.props?.fontSize || 12).fillColor(b.props?.color || '#333');
                 const displayText = selectedValue || 'Sélectionner...';
-                doc.text(displayText, x + 8, y + 8, { width: width - 16, height: height - 16, align: 'left' });
+                doc.text(displayText, x + 8, y + 8, { width: Math.max(0, width - 16), height: Math.max(0, height - 16), align: 'left' });
                 doc.restore();
             }
             else if (b.type === 'dropdown_reference') {
@@ -495,13 +543,13 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
                     doc.fillColor(b.props.color);
                 doc.fontSize(b.props?.size || b.props?.fontSize || 12);
                 const x = b.props?.x, y = b.props?.y;
-                const width = b.props?.width || 200;
-                const height = b.props?.height;
+                const width = sx(b.props?.width || 200);
+                const height = b.props?.height != null ? sy(b.props?.height) : undefined;
                 if (typeof x === 'number' && typeof y === 'number') {
                     const options = { width };
                     if (height)
                         options.height = height;
-                    doc.text(selectedValue, x, y, options);
+                    doc.text(selectedValue, px(x), py(y), options);
                 }
                 else {
                     doc.text(selectedValue);
@@ -512,11 +560,11 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
                 const items = b.props?.items || [];
                 // Filter items by level
                 const filteredItems = items.filter(it => !it.levels || it.levels.length === 0 || !level || it.levels.includes(level));
-                const r = b.props?.radius || 40;
+                const r = sr(b.props?.radius || 40);
                 const size = r * 2;
-                const spacing = b.props?.spacing || 12;
-                let x = b.props?.x || 50;
-                const y = b.props?.y || 50;
+                const spacing = sx(b.props?.spacing || 12);
+                let x = px(b.props?.x || 50);
+                const y = py(b.props?.y || 50);
                 for (const it of filteredItems) {
                     doc.save();
                     doc.circle(x + r, y + r, r).fill('#ddd');
@@ -545,10 +593,10 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
                 const promotions = assignmentData.promotions || [];
                 const promo = promotions.find((p) => p.to === targetLevel);
                 if (promo) {
-                    const x = b.props?.x || 50;
-                    const y = b.props?.y || 50;
-                    const width = b.props?.width || (b.props?.field ? 150 : 300);
-                    const height = b.props?.height || (b.props?.field ? 30 : 100);
+                    const x = px(b.props?.x || 50);
+                    const y = py(b.props?.y || 50);
+                    const width = sx(b.props?.width || (b.props?.field ? 150 : 300));
+                    const height = sy(b.props?.height || (b.props?.field ? 30 : 100));
                     doc.save();
                     doc.fontSize(b.props?.fontSize || 12).fillColor(b.props?.color || '#2d3436');
                     if (!b.props?.field) {
@@ -584,12 +632,9 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
             if (i > 0)
                 doc.addPage();
             if (page?.bgColor) {
-                const m = doc.page.margins;
-                const w = doc.page.width;
-                const h = doc.page.height;
                 doc.save();
                 doc.fillColor(page.bgColor);
-                doc.rect(m.left, m.top, w - m.left - m.right, h - m.top - m.bottom).fill();
+                doc.rect(0, 0, pageW, pageH).fill();
                 doc.restore();
             }
             if (page?.title)
@@ -679,20 +724,42 @@ exports.pdfRouter.get('/class/:classId/batch', (0, auth_1.requireAuth)(['ADMIN',
                     const signatures = await StudentSignature_1.StudentSignature.findOne({ studentId: String(s._id) }).lean();
                     const sigMap = new Map((signatures?.items || []).map((si) => [si.label, si]));
                     const classDoc = enrollments[0] ? await Class_1.ClassModel.findById(enrollments[0].classId).lean() : null;
+                    const level = classDoc ? classDoc.level : '';
+                    const pageW = doc.page.width;
+                    const pageH = doc.page.height;
+                    const DESIGN_W = 800;
+                    const DESIGN_H = 1120;
+                    const sx = (v) => (typeof v === 'number' ? v : 0) * (pageW / DESIGN_W);
+                    const sy = (v) => (typeof v === 'number' ? v : 0) * (pageH / DESIGN_H);
+                    const px = (v) => sx(v);
+                    const py = (v) => sy(v);
+                    const sr = (v) => {
+                        const scale = (pageW / DESIGN_W + pageH / DESIGN_H) / 2;
+                        return (typeof v === 'number' ? v : 0) * scale;
+                    };
                     const resolveText = (t) => t
                         .replace(/\{student\.firstName\}/g, String(s.firstName))
                         .replace(/\{student\.lastName\}/g, String(s.lastName))
                         .replace(/\{student\.dob\}/g, new Date(s.dateOfBirth).toLocaleDateString())
                         .replace(/\{class\.name\}/g, classDoc ? String(classDoc.name) : '');
                     const drawBlock = async (b) => {
+                        if (Array.isArray(b?.props?.levels) && b.props.levels.length > 0 && level && !b.props.levels.includes(level))
+                            return;
                         if (b.type === 'text') {
                             if (b.props?.color)
                                 doc.fillColor(b.props.color);
                             doc.fontSize(b.props?.size || b.props?.fontSize || 12);
                             const x = b.props?.x, y = b.props?.y;
+                            const w = b.props?.width, h = b.props?.height;
                             const txt = b.props?.text || '';
-                            if (typeof x === 'number' && typeof y === 'number')
-                                doc.text(txt, x, y);
+                            if (typeof x === 'number' && typeof y === 'number') {
+                                const opts = {};
+                                if (typeof w === 'number')
+                                    opts.width = Math.max(0, sx(w));
+                                if (typeof h === 'number')
+                                    opts.height = Math.max(0, sy(h));
+                                doc.text(txt, px(x), py(y), opts);
+                            }
                             else
                                 doc.text(txt);
                             doc.fillColor('#2d3436');
@@ -702,33 +769,58 @@ exports.pdfRouter.get('/class/:classId/batch', (0, auth_1.requireAuth)(['ADMIN',
                                 doc.fillColor(b.props.color);
                             doc.fontSize(b.props?.size || b.props?.fontSize || 12);
                             const x = b.props?.x, y = b.props?.y;
+                            const w = b.props?.width, h = b.props?.height;
                             const txt = resolveText(b.props?.text || '');
-                            if (typeof x === 'number' && typeof y === 'number')
-                                doc.text(txt, x, y);
+                            if (typeof x === 'number' && typeof y === 'number') {
+                                const opts = {};
+                                if (typeof w === 'number')
+                                    opts.width = Math.max(0, sx(w));
+                                if (typeof h === 'number')
+                                    opts.height = Math.max(0, sy(h));
+                                doc.text(txt, px(x), py(y), opts);
+                            }
                             else
                                 doc.text(txt);
                             doc.fillColor('#2d3436');
                         }
                         else if (b.type === 'image' && b.props?.url) {
                             try {
-                                const r = await axios_1.default.get(b.props.url, { responseType: 'arraybuffer' });
-                                const buf = Buffer.from(r.data);
-                                const options = {};
-                                if (typeof b.props?.x === 'number' && typeof b.props?.y === 'number') {
-                                    options.x = b.props.x;
-                                    options.y = b.props.y;
+                                const url = String(b.props.url);
+                                if (url.startsWith('data:')) {
+                                    const base64 = url.split(',').pop() || '';
+                                    const buf = Buffer.from(base64, 'base64');
+                                    const options = {};
+                                    if (typeof b.props?.x === 'number' && typeof b.props?.y === 'number') {
+                                        options.x = px(b.props.x);
+                                        options.y = py(b.props.y);
+                                    }
+                                    if (typeof b.props?.width === 'number' && typeof b.props?.height === 'number') {
+                                        options.width = sx(b.props.width);
+                                        options.height = sy(b.props.height);
+                                    }
+                                    doc.image(buf, options.width ? options : undefined);
                                 }
-                                if (typeof b.props?.width === 'number' && typeof b.props?.height === 'number') {
-                                    options.width = b.props.width;
-                                    options.height = b.props.height;
+                                else {
+                                    const fetchUrl = url.startsWith('http') ? url : `http://localhost:4000${url}`;
+                                    const r = await axios_1.default.get(fetchUrl, { responseType: 'arraybuffer' });
+                                    const buf = Buffer.from(r.data);
+                                    const options = {};
+                                    if (typeof b.props?.x === 'number' && typeof b.props?.y === 'number') {
+                                        options.x = px(b.props.x);
+                                        options.y = py(b.props.y);
+                                    }
+                                    if (typeof b.props?.width === 'number' && typeof b.props?.height === 'number') {
+                                        options.width = sx(b.props.width);
+                                        options.height = sy(b.props.height);
+                                    }
+                                    doc.image(buf, options.width ? options : undefined);
                                 }
-                                doc.image(buf, options.width ? options : undefined);
                             }
                             catch { }
                         }
                         else if (b.type === 'rect') {
-                            const x = b.props?.x || 50, y = b.props?.y || 50;
-                            const w = b.props?.width || 100, h = b.props?.height || 50;
+                            const x = px(b.props?.x || 50), y = py(b.props?.y || 50);
+                            const w = sx(b.props?.width || 100), h = sy(b.props?.height || 50);
                             if (b.props?.color && b.props.color !== 'transparent') {
                                 doc.fillColor(b.props.color);
                                 doc.rect(x, y, w, h).fill();
@@ -742,9 +834,9 @@ exports.pdfRouter.get('/class/:classId/batch', (0, auth_1.requireAuth)(['ADMIN',
                             doc.fillColor('#2d3436');
                         }
                         else if (b.type === 'circle') {
-                            const r = b.props?.radius || 40;
-                            const x = (b.props?.x || 50) + r;
-                            const y = (b.props?.y || 50) + r;
+                            const r = sr(b.props?.radius || 40);
+                            const x = px((b.props?.x || 50)) + r;
+                            const y = py((b.props?.y || 50)) + r;
                             if (b.props?.color && b.props.color !== 'transparent') {
                                 doc.fillColor(b.props.color);
                                 doc.circle(x, y, r).fill();
@@ -758,8 +850,8 @@ exports.pdfRouter.get('/class/:classId/batch', (0, auth_1.requireAuth)(['ADMIN',
                             doc.fillColor('#2d3436');
                         }
                         else if (b.type === 'line') {
-                            const x = b.props?.x || 50, y = b.props?.y || 50;
-                            const x2 = b.props?.x2 || 100, y2 = b.props?.y2 || 0;
+                            const x = px(b.props?.x || 50), y = py(b.props?.y || 50);
+                            const x2 = sx(b.props?.x2 || 100), y2 = sy(b.props?.y2 || 0);
                             doc.moveTo(x, y).lineTo(x + x2, y + y2);
                             if (b.props?.stroke)
                                 doc.strokeColor(b.props.stroke);
@@ -767,8 +859,8 @@ exports.pdfRouter.get('/class/:classId/batch', (0, auth_1.requireAuth)(['ADMIN',
                             doc.strokeColor('#000');
                         }
                         else if (b.type === 'arrow') {
-                            const x = b.props?.x || 50, y = b.props?.y || 50;
-                            const x2 = b.props?.x2 || 100, y2 = b.props?.y2 || 0;
+                            const x = px(b.props?.x || 50), y = py(b.props?.y || 50);
+                            const x2 = sx(b.props?.x2 || 100), y2 = sy(b.props?.y2 || 0);
                             const color = b.props?.stroke || '#6c5ce7';
                             doc.strokeColor(color).moveTo(x, y).lineTo(x + x2, y + y2).lineWidth(b.props?.strokeWidth || 2).stroke();
                             doc.fillColor(color);
@@ -778,13 +870,15 @@ exports.pdfRouter.get('/class/:classId/batch', (0, auth_1.requireAuth)(['ADMIN',
                         }
                         else if (b.type === 'qr') {
                             try {
-                                const url = `https://api.qrserver.com/v1/create-qr-code/?size=${b.props?.width || 120}x${b.props?.height || 120}&data=${encodeURIComponent(b.props?.url || '')}`;
+                                const wq = Math.round(sx(b.props?.width || 120)) || 120;
+                                const hq = Math.round(sy(b.props?.height || 120)) || 120;
+                                const url = `https://api.qrserver.com/v1/create-qr-code/?size=${wq}x${hq}&data=${encodeURIComponent(b.props?.url || '')}`;
                                 const r = await axios_1.default.get(url, { responseType: 'arraybuffer' });
                                 const buf = Buffer.from(r.data);
                                 const options = {};
                                 if (typeof b.props?.x === 'number' && typeof b.props?.y === 'number') {
-                                    options.x = b.props.x;
-                                    options.y = b.props.y;
+                                    options.x = px(b.props.x);
+                                    options.y = py(b.props.y);
                                 }
                                 doc.image(buf, options);
                             }
@@ -805,7 +899,7 @@ exports.pdfRouter.get('/class/:classId/batch', (0, auth_1.requireAuth)(['ADMIN',
                             doc.fontSize(b.props?.size || b.props?.fontSize || 12);
                             const text = lines.join('\n');
                             if (typeof x === 'number' && typeof y === 'number')
-                                doc.text(text, x, y);
+                                doc.text(text, px(x), py(y));
                             else
                                 doc.text(text);
                             doc.fillColor('#2d3436');
@@ -818,7 +912,7 @@ exports.pdfRouter.get('/class/:classId/batch', (0, auth_1.requireAuth)(['ADMIN',
                                     doc.fillColor(b.props.color);
                                 const x = b.props?.x, y = b.props?.y;
                                 if (typeof x === 'number' && typeof y === 'number')
-                                    doc.text(cat.name, x, y);
+                                    doc.text(cat.name, px(x), py(y));
                                 else
                                     doc.text(cat.name);
                                 doc.fillColor('#6c5ce7');
@@ -841,7 +935,7 @@ exports.pdfRouter.get('/class/:classId/batch', (0, auth_1.requireAuth)(['ADMIN',
                             const x = b.props?.x, y = b.props?.y;
                             const text = lines.join('\n');
                             if (typeof x === 'number' && typeof y === 'number')
-                                doc.text(text, x, y);
+                                doc.text(text, px(x), py(y));
                             else
                                 doc.text(text);
                             doc.fillColor('#2d3436');
@@ -853,17 +947,17 @@ exports.pdfRouter.get('/class/:classId/batch', (0, auth_1.requireAuth)(['ADMIN',
                                 const sig = sigMap.get(lab);
                                 doc.fontSize(b.props?.size || b.props?.fontSize || 12).fillColor('#2d3436');
                                 if (typeof x === 'number' && typeof y === 'number') {
-                                    doc.text(`${lab}:`, x, y);
+                                    doc.text(`${lab}:`, px(x), py(y));
                                     y += 16;
                                     if (sig?.url) {
                                         try {
                                             const r = await axios_1.default.get(String(sig.url).startsWith('http') ? sig.url : `http://localhost:4000${sig.url}`, { responseType: 'arraybuffer' });
                                             const buf = Buffer.from(r.data);
-                                            doc.image(buf, x, y, { width: 160 });
+                                            doc.image(buf, px(x), py(y), { width: 160 });
                                             y += 100;
                                         }
                                         catch {
-                                            doc.text(`______________________________`, x, y);
+                                            doc.text(`______________________________`, px(x), py(y));
                                             y += 18;
                                         }
                                     }
@@ -871,16 +965,16 @@ exports.pdfRouter.get('/class/:classId/batch', (0, auth_1.requireAuth)(['ADMIN',
                                         try {
                                             const base64 = String(sig.dataUrl).split(',').pop() || '';
                                             const buf = Buffer.from(base64, 'base64');
-                                            doc.image(buf, x, y, { width: 160 });
+                                            doc.image(buf, px(x), py(y), { width: 160 });
                                             y += 100;
                                         }
                                         catch {
-                                            doc.text(`______________________________`, x, y);
+                                            doc.text(`______________________________`, px(x), py(y));
                                             y += 18;
                                         }
                                     }
                                     else {
-                                        doc.text(`______________________________`, x, y);
+                                        doc.text(`______________________________`, px(x), py(y));
                                         y += 18;
                                     }
                                 }
@@ -919,10 +1013,10 @@ exports.pdfRouter.get('/class/:classId/batch', (0, auth_1.requireAuth)(['ADMIN',
                             // Render dropdown with selected value or as empty box
                             const dropdownNum = b.props?.dropdownNumber;
                             const selectedValue = dropdownNum ? assignmentData[`dropdown_${dropdownNum}`] : (b.props?.variableName ? assignmentData[b.props.variableName] : '');
-                            const x = b.props?.x || 50;
-                            const y = b.props?.y || 50;
-                            const width = b.props?.width || 200;
-                            const height = b.props?.height || 40;
+                            const x = px(b.props?.x || 50);
+                            const y = py(b.props?.y || 50);
+                            const width = sx(b.props?.width || 200);
+                            const height = sy(b.props?.height || 40);
                             // Draw dropdown box
                             doc.save();
                             doc.rect(x, y, width, height).stroke('#ccc');
@@ -940,7 +1034,7 @@ exports.pdfRouter.get('/class/:classId/batch', (0, auth_1.requireAuth)(['ADMIN',
                             // Draw selected value or placeholder with text wrapping
                             doc.fontSize(b.props?.fontSize || 12).fillColor(b.props?.color || '#333');
                             const displayText = selectedValue || 'Sélectionner...';
-                            doc.text(displayText, x + 8, y + 8, { width: width - 16, height: height - 16, align: 'left' });
+                            doc.text(displayText, x + 8, y + 8, { width: Math.max(0, width - 16), height: Math.max(0, height - 16), align: 'left' });
                             doc.restore();
                         }
                         else if (b.type === 'dropdown_reference') {
@@ -951,13 +1045,13 @@ exports.pdfRouter.get('/class/:classId/batch', (0, auth_1.requireAuth)(['ADMIN',
                                 doc.fillColor(b.props.color);
                             doc.fontSize(b.props?.size || b.props?.fontSize || 12);
                             const x = b.props?.x, y = b.props?.y;
-                            const width = b.props?.width || 200;
-                            const height = b.props?.height;
+                            const width = sx(b.props?.width || 200);
+                            const height = b.props?.height != null ? sy(b.props?.height) : undefined;
                             if (typeof x === 'number' && typeof y === 'number') {
                                 const options = { width };
                                 if (height)
                                     options.height = height;
-                                doc.text(selectedValue, x, y, options);
+                                doc.text(selectedValue, px(x), py(y), options);
                             }
                             else {
                                 doc.text(selectedValue);
@@ -966,12 +1060,13 @@ exports.pdfRouter.get('/class/:classId/batch', (0, auth_1.requireAuth)(['ADMIN',
                         }
                         else if (b.type === 'language_toggle') {
                             const items = b.props?.items || [];
-                            const r2 = b.props?.radius || 40;
+                            const filteredItems = items.filter(it => !it.levels || it.levels.length === 0 || !level || it.levels.includes(level));
+                            const r2 = sr(b.props?.radius || 40);
                             const size2 = r2 * 2;
-                            const spacing2 = b.props?.spacing || 12;
-                            let x = b.props?.x || 50;
-                            const y = b.props?.y || 50;
-                            for (const it of items) {
+                            const spacing2 = sx(b.props?.spacing || 12);
+                            let x = px(b.props?.x || 50);
+                            const y = py(b.props?.y || 50);
+                            for (const it of filteredItems) {
                                 doc.save();
                                 doc.circle(x + r2, y + r2, r2).fill('#ddd');
                                 if (it?.logo) {
@@ -993,9 +1088,9 @@ exports.pdfRouter.get('/class/:classId/batch', (0, auth_1.requireAuth)(['ADMIN',
                             }
                         }
                         else if (b.type === 'table') {
-                            const x0 = b.props?.x || 50, y0 = b.props?.y || 50;
-                            const cols = b.props?.columnWidths || [];
-                            const rows = b.props?.rowHeights || [];
+                            const x0 = px(b.props?.x || 50), y0 = py(b.props?.y || 50);
+                            const cols = (b.props?.columnWidths || []).map((cw) => sx(cw));
+                            const rows = (b.props?.rowHeights || []).map((rh) => sy(rh));
                             const cells = b.props?.cells || [];
                             const colOffsets = [0];
                             for (let i = 0; i < cols.length; i++)
@@ -1039,18 +1134,106 @@ exports.pdfRouter.get('/class/:classId/batch', (0, auth_1.requireAuth)(['ADMIN',
                                 }
                             }
                         }
+                        else if (b.type === 'signature_box') {
+                            // Get the signature from the sub-admin who signed this template
+                            const TemplateAssignment = (await Promise.resolve().then(() => __importStar(require('../models/TemplateAssignment')))).TemplateAssignment;
+                            const templateAssignment = await TemplateAssignment.findOne({
+                                studentId: String(s._id),
+                                templateId: String(templateId)
+                            }).lean();
+                            if (templateAssignment) {
+                                const TemplateSignature = (await Promise.resolve().then(() => __importStar(require('../models/TemplateSignature')))).TemplateSignature;
+                                const signature = await TemplateSignature.findOne({
+                                    templateAssignmentId: String(templateAssignment._id)
+                                }).lean();
+                                if (signature?.subAdminId) {
+                                    const subAdmin = await User_1.User.findById(signature.subAdminId).lean();
+                                    const x = px(b.props?.x || 50);
+                                    const y = py(b.props?.y || 50);
+                                    const width = sx(b.props?.width || 200);
+                                    const height = sy(b.props?.height || 80);
+                                    // Draw white rectangle with black border
+                                    doc.save();
+                                    doc.rect(x, y, width, height).stroke('#000');
+                                    // If sub-admin has a signature image, place it in the box
+                                    if (subAdmin?.signatureUrl) {
+                                        try {
+                                            const sigPath = path_1.default.join(__dirname, '../../public', subAdmin.signatureUrl);
+                                            if (fs_1.default.existsSync(sigPath)) {
+                                                const imgWidth = Math.min(width - 10, width * 0.9);
+                                                const imgHeight = height - 10;
+                                                doc.image(sigPath, x + 5, y + 5, { fit: [imgWidth, imgHeight], align: 'center', valign: 'center' });
+                                            }
+                                        }
+                                        catch (e) {
+                                            console.error('Failed to load signature image:', e);
+                                        }
+                                    }
+                                    doc.restore();
+                                }
+                                else {
+                                    const x2 = px(b.props?.x || 50);
+                                    const y2 = py(b.props?.y || 50);
+                                    const width2 = sx(b.props?.width || 200);
+                                    const height2 = sy(b.props?.height || 80);
+                                    doc.rect(x2, y2, width2, height2).stroke('#000');
+                                }
+                            }
+                            else {
+                                const x2 = px(b.props?.x || 50);
+                                const y2 = py(b.props?.y || 50);
+                                const width2 = sx(b.props?.width || 200);
+                                const height2 = sy(b.props?.height || 80);
+                                doc.rect(x2, y2, width2, height2).stroke('#000');
+                            }
+                        }
+                        else if (b.type === 'promotion_info') {
+                            const targetLevel = b.props?.targetLevel;
+                            const promotions = assignmentData.promotions || [];
+                            const promo = promotions.find((p) => p.to === targetLevel);
+                            if (promo) {
+                                const x = px(b.props?.x || 50);
+                                const y = py(b.props?.y || 50);
+                                const width = sx(b.props?.width || (b.props?.field ? 150 : 300));
+                                const height = sy(b.props?.height || (b.props?.field ? 30 : 100));
+                                doc.save();
+                                doc.fontSize(b.props?.fontSize || 12).fillColor(b.props?.color || '#2d3436');
+                                if (!b.props?.field) {
+                                    // Legacy behavior: Draw box and all info
+                                    doc.rect(x, y, width, height).stroke('#6c5ce7');
+                                    const textX = x + 10;
+                                    let textY = y + 15;
+                                    doc.font('Helvetica-Bold').text(`Passage en ${targetLevel}`, textX, textY, { width: width - 20, align: 'center' });
+                                    textY += 20;
+                                    doc.font('Helvetica').text(`${s.firstName} ${s.lastName}`, textX, textY, { width: width - 20, align: 'center' });
+                                    textY += 20;
+                                    doc.fontSize((b.props?.fontSize || 12) * 0.8).fillColor('#666');
+                                    doc.text(`Année ${promo.year}`, textX, textY, { width: width - 20, align: 'center' });
+                                }
+                                else {
+                                    // Specific field
+                                    if (b.props.field === 'level') {
+                                        doc.font('Helvetica-Bold').text(`Passage en ${targetLevel}`, x, y + (height / 2) - 6, { width, align: 'center' });
+                                    }
+                                    else if (b.props.field === 'student') {
+                                        doc.font('Helvetica').text(`${s.firstName} ${s.lastName}`, x, y + (height / 2) - 6, { width, align: 'center' });
+                                    }
+                                    else if (b.props.field === 'year') {
+                                        doc.text(`Année ${promo.year}`, x, y + (height / 2) - 6, { width, align: 'center' });
+                                    }
+                                }
+                                doc.restore();
+                            }
+                        }
                     };
                     for (let i = 0; i < (tpl.pages || []).length; i++) {
                         const page = tpl.pages[i];
                         if (i > 0)
                             doc.addPage();
                         if (page?.bgColor) {
-                            const m = doc.page.margins;
-                            const w = doc.page.width;
-                            const h = doc.page.height;
                             doc.save();
                             doc.fillColor(page.bgColor);
-                            doc.rect(m.left, m.top, w - m.left - m.right, h - m.top - m.bottom).fill();
+                            doc.rect(0, 0, pageW, pageH).fill();
                             doc.restore();
                         }
                         if (page?.title)

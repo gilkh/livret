@@ -6,7 +6,7 @@ type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; blocks: Block[] }
 type Template = { _id?: string; name: string; pages: Page[] }
 type Student = { _id: string; firstName: string; lastName: string; level?: string }
-type Assignment = { _id: string; status: string }
+type Assignment = { _id: string; status: string; data?: any }
 
 const pageWidth = 800
 const pageHeight = 1120
@@ -187,27 +187,12 @@ export default function SubAdminTemplateReview() {
     const handleExportPDF = async () => {
         if (template && student) {
             try {
+                setError('')
                 const token = localStorage.getItem('token')
-                const url = `http://localhost:4000/pdf/student/${student._id}?templateId=${template._id}`
-                const response = await fetch(url, {
-                    headers: {
-                        'Authorization': `Bearer ${token}`
-                    }
-                })
-                
-                if (!response.ok) {
-                    throw new Error('Export failed')
-                }
-                
-                const blob = await response.blob()
-                const downloadUrl = window.URL.createObjectURL(blob)
-                const a = document.createElement('a')
-                a.href = downloadUrl
-                a.download = `carnet-${student.lastName}-${student.firstName}.pdf`
-                document.body.appendChild(a)
-                a.click()
-                document.body.removeChild(a)
-                window.URL.revokeObjectURL(downloadUrl)
+                const base = (api.defaults.baseURL || '').replace(/\/$/, '')
+                // Use new Puppeteer-based PDF generation for better rendering
+                const url = `${base}/pdf-v2/student/${student._id}?templateId=${template._id}&token=${token}`
+                window.open(url, '_blank')
             } catch (e: any) {
                 setError('Échec de l\'export PDF')
                 console.error(e)
@@ -618,6 +603,104 @@ export default function SubAdminTemplateReview() {
                                             </div>
                                         )}
                                     </div>
+                                )}
+                                {b.type === 'dropdown_reference' && (
+                                    <div style={{ 
+                                        color: b.props.color || '#333', 
+                                        fontSize: b.props.fontSize || 12,
+                                        width: b.props.width || 200,
+                                        minHeight: b.props.height || 'auto',
+                                        wordWrap: 'break-word',
+                                        whiteSpace: 'pre-wrap'
+                                    }}>
+                                        {(() => {
+                                            const dropdownNum = b.props.dropdownNumber || 1
+                                            const value = assignment?.data?.[`dropdown_${dropdownNum}`]
+                                            return value || `[Dropdown #${dropdownNum}]`
+                                        })()}
+                                    </div>
+                                )}
+                                {b.type === 'promotion_info' && (
+                                    <div style={{ 
+                                        width: b.props.width || (b.props.field ? 150 : 300),
+                                        height: b.props.height || (b.props.field ? 30 : 100),
+                                        border: b.props.field ? 'none' : '1px solid #6c5ce7',
+                                        padding: b.props.field ? 0 : 10,
+                                        borderRadius: 8,
+                                        fontSize: b.props.fontSize || 12,
+                                        color: b.props.color || '#2d3436',
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        textAlign: 'center'
+                                    }}>
+                                        {(() => {
+                                            const targetLevel = b.props.targetLevel
+                                            const promotions = assignment?.data?.promotions || []
+                                            const promo = promotions.find((p: any) => p.to === targetLevel)
+                                            
+                                            if (promo) {
+                                                if (!b.props.field) {
+                                                    return (
+                                                        <>
+                                                            <div style={{ fontWeight: 'bold', marginBottom: 8 }}>Passage en {targetLevel}</div>
+                                                            <div>{student?.firstName} {student?.lastName}</div>
+                                                            <div style={{ fontSize: (b.props.fontSize || 12) * 0.8, color: '#666', marginTop: 8 }}>Année {promo.year}</div>
+                                                        </>
+                                                    )
+                                                } else if (b.props.field === 'level') {
+                                                    return <div style={{ fontWeight: 'bold' }}>Passage en {targetLevel}</div>
+                                                } else if (b.props.field === 'student') {
+                                                    return <div>{student?.firstName} {student?.lastName}</div>
+                                                } else if (b.props.field === 'year') {
+                                                    return <div>Année {promo.year}</div>
+                                                }
+                                            }
+                                            return <div style={{ color: '#999' }}>Pas de promotion pour {targetLevel}</div>
+                                        })()}
+                                    </div>
+                                )}
+                                {b.type === 'table' && (
+                                    <div style={{ 
+                                        display: 'inline-block',
+                                        border: '1px solid #ddd'
+                                    }}>
+                                        {(b.props.cells || []).map((row: any[], ri: number) => (
+                                            <div key={ri} style={{ display: 'flex' }}>
+                                                {row.map((cell: any, ci: number) => (
+                                                    <div 
+                                                        key={ci}
+                                                        style={{ 
+                                                            width: b.props.columnWidths?.[ci] || 100,
+                                                            height: b.props.rowHeights?.[ri] || 40,
+                                                            borderRight: ci < row.length - 1 ? '1px solid #ddd' : 'none',
+                                                            borderBottom: ri < b.props.cells.length - 1 ? '1px solid #ddd' : 'none',
+                                                            background: cell.fill || 'transparent',
+                                                            padding: 4,
+                                                            fontSize: cell.fontSize || 12,
+                                                            color: cell.color || '#333',
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            overflow: 'hidden'
+                                                        }}
+                                                    >
+                                                        {cell.text}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                                {b.type === 'qr' && (
+                                    <img 
+                                        src={`https://api.qrserver.com/v1/create-qr-code/?size=${b.props.width || 120}x${b.props.height || 120}&data=${encodeURIComponent(b.props.url || '')}`}
+                                        style={{ 
+                                            width: b.props.width || 120, 
+                                            height: b.props.height || 120 
+                                        }}
+                                        alt="QR Code"
+                                    />
                                 )}
                                 {b.type === 'signature' && <div style={{ fontSize: b.props.fontSize }}>{(b.props.labels || []).join(' / ')}</div>}
                                 {b.type === 'signature_box' && (

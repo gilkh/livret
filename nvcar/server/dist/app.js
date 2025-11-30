@@ -45,6 +45,7 @@ const categories_1 = require("./routes/categories");
 const students_1 = require("./routes/students");
 const import_1 = require("./routes/import");
 const pdf_1 = require("./routes/pdf");
+const pdfPuppeteer_1 = require("./routes/pdfPuppeteer");
 const db_1 = require("./db");
 const templates_1 = require("./routes/templates");
 const users_1 = require("./routes/users");
@@ -84,7 +85,14 @@ const createApp = () => {
     app.use('/categories', categories_1.categoriesRouter);
     app.use('/students', students_1.studentsRouter);
     app.use('/import', import_1.importRouter);
+    // Use new Puppeteer-based PDF generation for better rendering
+    app.use('/pdf-v2', pdfPuppeteer_1.pdfPuppeteerRouter);
+    app.use('/reports-v2', pdfPuppeteer_1.pdfPuppeteerRouter);
+    app.use('/files-v2', pdfPuppeteer_1.pdfPuppeteerRouter);
+    // Keep old routes for backwards compatibility
     app.use('/pdf', pdf_1.pdfRouter);
+    app.use('/reports', pdf_1.pdfRouter);
+    app.use('/files', pdf_1.pdfRouter);
     app.use('/templates', templates_1.templatesRouter);
     app.use('/users', users_1.usersRouter);
     app.use('/signatures', signatures_1.signaturesRouter);

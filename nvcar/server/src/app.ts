@@ -6,6 +6,7 @@ import { categoriesRouter } from './routes/categories'
 import { studentsRouter } from './routes/students'
 import { importRouter } from './routes/import'
 import { pdfRouter } from './routes/pdf'
+import { pdfPuppeteerRouter } from './routes/pdfPuppeteer'
 import { connectDb } from './db'
 import { templatesRouter } from './routes/templates'
 import { usersRouter } from './routes/users'
@@ -45,7 +46,14 @@ export const createApp = () => {
   app.use('/categories', categoriesRouter)
   app.use('/students', studentsRouter)
   app.use('/import', importRouter)
+  // Use new Puppeteer-based PDF generation for better rendering
+  app.use('/pdf-v2', pdfPuppeteerRouter)
+  app.use('/reports-v2', pdfPuppeteerRouter)
+  app.use('/files-v2', pdfPuppeteerRouter)
+  // Keep old routes for backwards compatibility
   app.use('/pdf', pdfRouter)
+  app.use('/reports', pdfRouter)
+  app.use('/files', pdfRouter)
   app.use('/templates', templatesRouter)
   app.use('/users', usersRouter)
   app.use('/signatures', signaturesRouter)

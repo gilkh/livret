@@ -12,11 +12,16 @@ const signToken = (payload) => {
 exports.signToken = signToken;
 const requireAuth = (roles) => {
     return (req, res, next) => {
-        const header = req.headers.authorization;
-        if (!header || !header.startsWith('Bearer '))
+        let token = '';
+        if (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
+            token = req.headers.authorization.slice('Bearer '.length);
+        }
+        else if (req.query.token) {
+            token = String(req.query.token);
+        }
+        if (!token)
             return res.status(401).json({ error: 'unauthorized' });
         try {
-            const token = header.slice('Bearer '.length);
             const decoded = jsonwebtoken_1.default.verify(token, jwtSecret);
             // If impersonating, use the impersonated user's ID and role for authorization
             // but keep the original admin info for audit trails

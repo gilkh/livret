@@ -11,10 +11,16 @@ export const signToken = (payload: { userId: string; role: Role; impersonateUser
 
 export const requireAuth = (roles?: Role[]) => {
   return (req: Request, res: Response, next: NextFunction) => {
-    const header = req.headers.authorization
-    if (!header || !header.startsWith('Bearer ')) return res.status(401).json({ error: 'unauthorized' })
+    let token = ''
+    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
+      token = req.headers.authorization.slice('Bearer '.length)
+    } else if (req.query.token) {
+      token = String(req.query.token)
+    }
+
+    if (!token) return res.status(401).json({ error: 'unauthorized' })
+
     try {
-      const token = header.slice('Bearer '.length)
       const decoded = jwt.verify(token, jwtSecret) as { 
         userId: string; 
         role: Role;
