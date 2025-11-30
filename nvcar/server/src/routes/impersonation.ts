@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import { requireAuth, signToken } from '../auth'
 import { User } from '../models/User'
+import { OutlookUser } from '../models/OutlookUser'
 import { logAudit } from '../utils/auditLogger'
 
 export const impersonationRouter = Router()
@@ -16,7 +17,11 @@ impersonationRouter.post('/start', requireAuth(['ADMIN']), async (req, res) => {
         }
 
         // Get the target user
-        const targetUser = await User.findById(targetUserId).lean()
+        let targetUser = await User.findById(targetUserId).lean() as any
+        if (!targetUser) {
+            targetUser = await OutlookUser.findById(targetUserId).lean()
+        }
+
         if (!targetUser) {
             return res.status(404).json({ error: 'user_not_found' })
         }
@@ -53,7 +58,7 @@ impersonationRouter.post('/start', requireAuth(['ADMIN']), async (req, res) => {
                 id: String(targetUser._id),
                 email: targetUser.email,
                 role: targetUser.role,
-                displayName: targetUser.displayName
+                displayName: targetUser.displayName || targetUser.email
             }
         })
     } catch (e: any) {
@@ -102,7 +107,11 @@ impersonationRouter.get('/status', requireAuth(), async (req, res) => {
         }
 
         // Get impersonated user details
-        const impersonatedUser = await User.findById(user.userId).lean()
+        let impersonatedUser = await User.findById(user.userId).lean() as any
+        if (!impersonatedUser) {
+            impersonatedUser = await OutlookUser.findById(user.userId).lean()
+        }
+
         const actualAdmin = await User.findById(user.actualUserId).lean()
 
         res.json({
@@ -111,7 +120,7 @@ impersonationRouter.get('/status', requireAuth(), async (req, res) => {
                 id: String(impersonatedUser._id),
                 email: impersonatedUser.email,
                 role: impersonatedUser.role,
-                displayName: impersonatedUser.displayName
+                displayName: impersonatedUser.displayName || impersonatedUser.email
             } : null,
             actualAdmin: actualAdmin ? {
                 id: String(actualAdmin._id),

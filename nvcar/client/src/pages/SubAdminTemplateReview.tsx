@@ -26,6 +26,16 @@ export default function SubAdminTemplateReview() {
     const [unsigning, setUnsigning] = useState(false)
 
     const [promoting, setPromoting] = useState(false)
+    const [canEdit, setCanEdit] = useState(false)
+    const [editMode, setEditMode] = useState(false)
+    const [openDropdown, setOpenDropdown] = useState<string | null>(null)
+    const [suggestionModal, setSuggestionModal] = useState<{
+        pageIndex: number, 
+        blockIndex: number, 
+        originalText: string,
+        isOpen: boolean
+    } | null>(null)
+    const [suggestionText, setSuggestionText] = useState('')
 
     useEffect(() => {
         const loadData = async () => {
@@ -36,6 +46,7 @@ export default function SubAdminTemplateReview() {
                 setStudent(r.data.student)
                 setAssignment(r.data.assignment)
                 setSignature(r.data.signature)
+                setCanEdit(r.data.canEdit)
             } catch (e: any) {
                 setError('Impossible de charger le carnet')
                 console.error(e)
@@ -45,6 +56,61 @@ export default function SubAdminTemplateReview() {
         }
         if (assignmentId) loadData()
     }, [assignmentId])
+
+    // Close dropdown when clicking outside
+    useEffect(() => {
+        const handleClickOutside = () => setOpenDropdown(null)
+        if (openDropdown) {
+            document.addEventListener('click', handleClickOutside)
+            return () => document.removeEventListener('click', handleClickOutside)
+        }
+    }, [openDropdown])
+
+    const updateLanguageToggle = async (pageIndex: number, blockIndex: number, items: any[]) => {
+        try {
+            // Reuse teacher endpoint or create subadmin one?
+            // Ideally subadmin should have their own endpoint or use a shared one.
+            // Let's assume we can use the teacher endpoint if we have permission, OR create a subadmin specific one.
+            // Since we are in subadmin view, we should probably use a subadmin route.
+            // But for now, let's try to use the teacher one if the backend allows it (it might check role).
+            // Actually, better to add a subadmin route for editing data.
+            
+            await api.patch(`/subadmin/templates/${assignmentId}/data`, {
+                type: 'language_toggle',
+                pageIndex,
+                blockIndex,
+                items,
+            })
+
+            // Update local state
+            if (template) {
+                const newTemplate = { ...template }
+                newTemplate.pages[pageIndex].blocks[blockIndex].props.items = items
+                setTemplate(newTemplate)
+            }
+        } catch (e: any) {
+            setError('Échec de l\'enregistrement')
+            console.error(e)
+        }
+    }
+
+    const submitSuggestion = async () => {
+        if (!suggestionModal || !template) return
+        try {
+            await api.post('/suggestions', {
+                templateId: template._id,
+                pageIndex: suggestionModal.pageIndex,
+                blockIndex: suggestionModal.blockIndex,
+                originalText: suggestionModal.originalText,
+                suggestedText: suggestionText
+            })
+            alert('Suggestion envoyée !')
+            setSuggestionModal(null)
+            setSuggestionText('')
+        } catch (e) {
+            alert('Erreur lors de l\'envoi')
+        }
+    }
 
     const getNextLevel = (current: string) => {
         const c = current.toUpperCase()
@@ -166,8 +232,43 @@ export default function SubAdminTemplateReview() {
                     fontWeight: 500,
                     border: '1px solid #e2e8f0'
                 }}>← Retour au tableau de bord</button>
-                <h2 className="title" style={{ fontSize: 28, marginBottom: 8, color: '#1e293b' }}>📝 Examen du carnet - {student ? `${student.firstName} ${student.lastName}` : 'Élève'}</h2>
-                <div className="note" style={{ fontSize: 14, color: '#64748b' }}>{template.name}</div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                    <div>
+                        <h2 className="title" style={{ fontSize: 28, marginBottom: 8, color: '#1e293b' }}>📝 Examen du carnet - {student ? `${student.firstName} ${student.lastName}` : 'Élève'}</h2>
+                        <div className="note" style={{ fontSize: 14, color: '#64748b' }}>{template.name}</div>
+                    </div>
+                    {canEdit && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ fontSize: 14, fontWeight: 500, color: editMode ? '#10b981' : '#64748b' }}>
+                                {editMode ? 'Mode Édition' : 'Mode Lecture'}
+                            </span>
+                            <div 
+                                onClick={() => setEditMode(!editMode)}
+                                style={{
+                                    width: 48,
+                                    height: 24,
+                                    background: editMode ? '#10b981' : '#cbd5e1',
+                                    borderRadius: 12,
+                                    position: 'relative',
+                                    cursor: 'pointer',
+                                    transition: 'background 0.3s ease'
+                                }}
+                            >
+                                <div style={{
+                                    width: 20,
+                                    height: 20,
+                                    background: 'white',
+                                    borderRadius: '50%',
+                                    position: 'absolute',
+                                    top: 2,
+                                    left: editMode ? 26 : 2,
+                                    transition: 'left 0.3s ease',
+                                    boxShadow: '0 1px 3px rgba(0,0,0,0.2)'
+                                }} />
+                            </div>
+                        </div>
+                    )}
+                </div>
                 <div className="note" style={{ marginTop: 8, fontSize: 13 }}>
                     <span style={{ fontWeight: 500 }}>Statut:</span> {assignment?.status === 'signed' ? '✔️ Signé ✓' : assignment?.status === 'completed' ? '✅ Terminé' : assignment?.status}
                 </div>
@@ -316,17 +417,76 @@ export default function SubAdminTemplateReview() {
                                 <div className="page-margins" />
                                 {page.blocks.map((b, idx) => (
                             <div key={idx} style={{ position: 'absolute', left: b.props.x || 0, top: b.props.y || 0, zIndex: b.props.z ?? idx, padding: 6 }}>
-                                {b.type === 'text' && <div style={{ color: b.props.color, fontSize: b.props.fontSize }}>{b.props.text}</div>}
+                                {b.type === 'text' && (
+                                    <div style={{ position: 'relative' }}>
+                                        <div style={{ color: b.props.color, fontSize: b.props.fontSize }}>{b.props.text}</div>
+                                        {editMode && canEdit && (
+                                            <div 
+                                                onClick={(e) => {
+                                                    e.stopPropagation()
+                                                    setSuggestionModal({
+                                                        pageIndex: actualPageIndex,
+                                                        blockIndex: idx,
+                                                        originalText: b.props.text,
+                                                        isOpen: true
+                                                    })
+                                                }}
+                                                style={{
+                                                    position: 'absolute',
+                                                    top: -10,
+                                                    right: -10,
+                                                    background: '#f59e0b',
+                                                    color: 'white',
+                                                    borderRadius: '50%',
+                                                    width: 20,
+                                                    height: 20,
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    cursor: 'pointer',
+                                                    fontSize: 12,
+                                                    boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                                                }}
+                                                title="Suggérer une modification"
+                                            >
+                                                ✎
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
                                 {b.type === 'image' && <img src={b.props.url} style={{ width: b.props.width || 120, height: b.props.height || 120, borderRadius: 8 }} alt="" />}
                                 {b.type === 'rect' && <div style={{ width: b.props.width, height: b.props.height, background: b.props.color, borderRadius: b.props.radius || 8 }} />}
                                 {b.type === 'circle' && <div style={{ width: (b.props.radius || 60) * 2, height: (b.props.radius || 60) * 2, background: b.props.color, borderRadius: '50%' }} />}
                                 {b.type === 'language_toggle' && (
                                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: b.props.spacing || 12 }}>
                                         {(b.props.items || []).map((it: any, i: number) => {
+                                            // Check level
+                                            const isAllowed = !(it.levels && it.levels.length > 0 && student?.level && !it.levels.includes(student.level));
+                                            
                                             const r = b.props.radius || 40
                                             const size = r * 2
                                             return (
-                                                <div key={i} style={{ width: size, height: size, borderRadius: '50%', overflow: 'hidden', position: 'relative', boxShadow: it.active ? '0 0 0 2px #6c5ce7' : 'none' }}>
+                                                <div 
+                                                    key={i}  
+                                                    style={{ 
+                                                        width: size, 
+                                                        height: size, 
+                                                        borderRadius: '50%', 
+                                                        overflow: 'hidden', 
+                                                        position: 'relative', 
+                                                        cursor: (editMode && canEdit) ? (isAllowed ? 'pointer' : 'not-allowed') : 'default', 
+                                                        boxShadow: it.active ? '0 0 0 3px #6c5ce7' : '0 0 0 1px #ddd',
+                                                        transition: 'all 0.2s ease',
+                                                        opacity: isAllowed ? ((editMode && canEdit) ? 1 : 0.9) : 0.5
+                                                    }}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation()
+                                                        if (!editMode || !canEdit || !isAllowed) return
+                                                        const newItems = [...(b.props.items || [])]
+                                                        newItems[i] = { ...newItems[i], active: !newItems[i].active }
+                                                        updateLanguageToggle(actualPageIndex, idx, newItems)
+                                                    }}
+                                                >
                                                     {it.logo ? <img src={it.logo} style={{ width: '100%', height: '100%', objectFit: 'cover', filter: it.active ? 'brightness(1.1)' : 'brightness(0.6)' }} alt="" /> : <div style={{ width: '100%', height: '100%', background: '#ddd' }} />}
                                                     <div style={{ position: 'absolute', bottom: 2, left: 0, right: 0, textAlign: 'center', fontSize: 10, color: '#fff', textShadow: '0 1px 2px rgba(0,0,0,0.6)' }}>{it.label || it.code}</div>
                                                 </div>
@@ -340,6 +500,125 @@ export default function SubAdminTemplateReview() {
                                 {b.type === 'student_info' && <div style={{ color: b.props.color, fontSize: b.props.fontSize }}>Nom, Classe, Naissance</div>}
                                 {b.type === 'category_title' && <div style={{ color: b.props.color, fontSize: b.props.fontSize }}>Titre catégorie</div>}
                                 {b.type === 'competency_list' && <div style={{ color: b.props.color, fontSize: b.props.fontSize }}>Liste des compétences</div>}
+                                {b.type === 'dropdown' && (
+                                    <div style={{ 
+                                        width: b.props.width || 200, 
+                                        position: 'relative',
+                                        opacity: (b.props.levels && b.props.levels.length > 0 && student?.level && !b.props.levels.includes(student.level)) ? 0.5 : 1,
+                                        pointerEvents: (b.props.levels && b.props.levels.length > 0 && student?.level && !b.props.levels.includes(student.level)) ? 'none' : 'auto'
+                                    }}>
+                                        <div style={{ fontSize: 10, fontWeight: 'bold', color: '#6c5ce7', marginBottom: 2 }}>Dropdown #{b.props.dropdownNumber || '?'}</div>
+                                        {b.props.label && <div style={{ fontSize: 10, color: '#666', marginBottom: 2 }}>{b.props.label}</div>}
+                                        <div
+                                            style={{ 
+                                                width: '100%', 
+                                                minHeight: b.props.height || 32, 
+                                                fontSize: b.props.fontSize || 12, 
+                                                color: b.props.color || '#333', 
+                                                padding: '4px 24px 4px 8px', 
+                                                borderRadius: 4, 
+                                                border: '1px solid #ccc',
+                                                background: (editMode && canEdit) ? '#fff' : '#f9f9f9',
+                                                cursor: (editMode && canEdit) ? 'pointer' : 'default',
+                                                position: 'relative',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                wordWrap: 'break-word',
+                                                whiteSpace: 'pre-wrap'
+                                            }}
+                                            onClick={(e) => {
+                                                e.stopPropagation()
+                                                if (!editMode || !canEdit) return
+                                                const key = `dropdown_${actualPageIndex}_${idx}`
+                                                setOpenDropdown(openDropdown === key ? null : key)
+                                            }}
+                                        >
+                                            {(() => {
+                                                const currentValue = b.props.dropdownNumber 
+                                                    ? assignment?.data?.[`dropdown_${b.props.dropdownNumber}`]
+                                                    : b.props.variableName ? assignment?.data?.[b.props.variableName] : ''
+                                                return currentValue || 'Sélectionner...'
+                                            })()}
+                                            <div style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>▼</div>
+                                        </div>
+                                        {openDropdown === `dropdown_${actualPageIndex}_${idx}` && (
+                                            <div 
+                                                style={{ 
+                                                    position: 'absolute', 
+                                                    top: '100%', 
+                                                    left: 0, 
+                                                    right: 0, 
+                                                    maxHeight: 300, 
+                                                    overflowY: 'auto', 
+                                                    background: '#fff', 
+                                                    border: '1px solid #ccc', 
+                                                    borderRadius: 4, 
+                                                    marginTop: 2, 
+                                                    zIndex: 1000,
+                                                    boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
+                                                }}
+                                                onClick={(e) => e.stopPropagation()}
+                                            >
+                                                <div 
+                                                    style={{ padding: '8px 12px', cursor: 'pointer', fontSize: b.props.fontSize || 12, color: '#999', borderBottom: '1px solid #eee' }}
+                                                    onClick={async (e) => {
+                                                        e.stopPropagation()
+                                                        if (assignment) {
+                                                            const key = b.props.dropdownNumber ? `dropdown_${b.props.dropdownNumber}` : b.props.variableName
+                                                            if (key) {
+                                                                const newData = { ...assignment.data, [key]: '' }
+                                                                setAssignment({ ...assignment, data: newData })
+                                                                try {
+                                                                    await api.patch(`/subadmin/templates/${assignment._id}/data`, { data: { [key]: '' } })
+                                                                } catch (err) {
+                                                                    setError('Erreur sauvegarde')
+                                                                }
+                                                            }
+                                                        }
+                                                        setOpenDropdown(null)
+                                                    }}
+                                                    onMouseEnter={(e) => e.currentTarget.style.background = '#f5f5f5'}
+                                                    onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}
+                                                >
+                                                    Sélectionner...
+                                                </div>
+                                                {(b.props.options || []).map((opt: string, i: number) => (
+                                                    <div 
+                                                        key={i}
+                                                        style={{ 
+                                                            padding: '8px 12px', 
+                                                            cursor: 'pointer', 
+                                                            fontSize: b.props.fontSize || 12,
+                                                            wordWrap: 'break-word',
+                                                            whiteSpace: 'pre-wrap',
+                                                            borderBottom: i < (b.props.options || []).length - 1 ? '1px solid #eee' : 'none'
+                                                        }}
+                                                        onClick={async (e) => {
+                                                            e.stopPropagation()
+                                                            if (assignment) {
+                                                                const key = b.props.dropdownNumber ? `dropdown_${b.props.dropdownNumber}` : b.props.variableName
+                                                                if (key) {
+                                                                    const newData = { ...assignment.data, [key]: opt }
+                                                                    setAssignment({ ...assignment, data: newData })
+                                                                    try {
+                                                                        await api.patch(`/subadmin/templates/${assignment._id}/data`, { data: { [key]: opt } })
+                                                                    } catch (err) {
+                                                                        setError('Erreur sauvegarde')
+                                                                    }
+                                                                }
+                                                            }
+                                                            setOpenDropdown(null)
+                                                        }}
+                                                        onMouseEnter={(e) => e.currentTarget.style.background = '#f0f4ff'}
+                                                        onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}
+                                                    >
+                                                        {opt}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
                                 {b.type === 'signature' && <div style={{ fontSize: b.props.fontSize }}>{(b.props.labels || []).join(' / ')}</div>}
                                 {b.type === 'signature_box' && (
                                     <div style={{ 
@@ -363,6 +642,34 @@ export default function SubAdminTemplateReview() {
                     })}
                 </div>
             </div>
+            {suggestionModal && (
+                <div style={{
+                    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+                    background: 'rgba(0,0,0,0.5)', zIndex: 2000,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center'
+                }}>
+                    <div style={{ background: 'white', padding: 24, borderRadius: 12, width: 500, maxWidth: '90%' }}>
+                        <h3 style={{ marginBottom: 16 }}>Suggérer une modification</h3>
+                        <div style={{ marginBottom: 12 }}>
+                            <label style={{ display: 'block', marginBottom: 4, fontSize: 12, color: '#666' }}>Texte original</label>
+                            <div style={{ padding: 8, background: '#f1f5f9', borderRadius: 4, fontSize: 14 }}>{suggestionModal.originalText}</div>
+                        </div>
+                        <div style={{ marginBottom: 16 }}>
+                            <label style={{ display: 'block', marginBottom: 4, fontSize: 12, color: '#666' }}>Suggestion</label>
+                            <textarea 
+                                value={suggestionText}
+                                onChange={e => setSuggestionText(e.target.value)}
+                                style={{ width: '100%', height: 100, padding: 8, borderRadius: 4, border: '1px solid #ccc' }}
+                                placeholder="Entrez votre suggestion..."
+                            />
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                            <button className="btn secondary" onClick={() => setSuggestionModal(null)}>Annuler</button>
+                            <button className="btn primary" onClick={submitSuggestion}>Envoyer</button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     )
 }

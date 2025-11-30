@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { requireAuth } from '../auth'
 import { SubAdminAssignment } from '../models/SubAdminAssignment'
 import { User } from '../models/User'
+import { OutlookUser } from '../models/OutlookUser'
 import { ClassModel } from '../models/Class'
 import { TeacherClassAssignment } from '../models/TeacherClassAssignment'
 import { RoleScope } from '../models/RoleScope'
@@ -15,7 +16,11 @@ subAdminAssignmentsRouter.post('/bulk-level', requireAuth(['ADMIN']), async (req
         if (!subAdminId || !level) return res.status(400).json({ error: 'missing_payload' })
 
         // Verify sub-admin exists
-        const subAdmin = await User.findById(subAdminId).lean()
+        let subAdmin = await User.findById(subAdminId).lean() as any
+        if (!subAdmin) {
+            subAdmin = await OutlookUser.findById(subAdminId).lean()
+        }
+
         if (!subAdmin || subAdmin.role !== 'SUBADMIN') {
             return res.status(400).json({ error: 'invalid_subadmin' })
         }
@@ -72,13 +77,21 @@ subAdminAssignmentsRouter.post('/', requireAuth(['ADMIN']), async (req, res) => 
         if (!subAdminId || !teacherId) return res.status(400).json({ error: 'missing_payload' })
 
         // Verify sub-admin exists and has SUBADMIN role
-        const subAdmin = await User.findById(subAdminId).lean()
+        let subAdmin = await User.findById(subAdminId).lean() as any
+        if (!subAdmin) {
+            subAdmin = await OutlookUser.findById(subAdminId).lean()
+        }
+
         if (!subAdmin || subAdmin.role !== 'SUBADMIN') {
             return res.status(400).json({ error: 'invalid_subadmin' })
         }
 
         // Verify teacher exists and has TEACHER role
-        const teacher = await User.findById(teacherId).lean()
+        let teacher = await User.findById(teacherId).lean() as any
+        if (!teacher) {
+            teacher = await OutlookUser.findById(teacherId).lean()
+        }
+
         if (!teacher || teacher.role !== 'TEACHER') {
             return res.status(400).json({ error: 'invalid_teacher' })
         }
@@ -107,9 +120,15 @@ subAdminAssignmentsRouter.get('/subadmin/:subAdminId', requireAuth(['ADMIN', 'SU
         const { subAdminId } = req.params
         const assignments = await SubAdminAssignment.find({ subAdminId }).lean()
         const teacherIds = assignments.map(a => a.teacherId)
-        const teachers = await User.find({ _id: { $in: teacherIds } }).lean()
+        
+        const [teachers, outlookTeachers] = await Promise.all([
+            User.find({ _id: { $in: teacherIds } }).lean(),
+            OutlookUser.find({ _id: { $in: teacherIds } }).lean()
+        ])
+        
+        const allTeachers = [...teachers, ...outlookTeachers]
 
-        res.json(teachers)
+        res.json(allTeachers)
     } catch (e: any) {
         res.status(500).json({ error: 'fetch_failed', message: e.message })
     }
@@ -133,15 +152,21 @@ subAdminAssignmentsRouter.get('/', requireAuth(['ADMIN']), async (req, res) => {
         const subAdminIds = assignments.map(a => a.subAdminId)
         const teacherIds = assignments.map(a => a.teacherId)
         const allUserIds = [...new Set([...subAdminIds, ...teacherIds])]
-        const users = await User.find({ _id: { $in: allUserIds } }).lean()
+        
+        const [users, outlookUsers] = await Promise.all([
+            User.find({ _id: { $in: allUserIds } }).lean(),
+            OutlookUser.find({ _id: { $in: allUserIds } }).lean()
+        ])
+        
+        const allUsers = [...users, ...outlookUsers] as any[]
         
         const result = assignments.map(a => {
-            const subAdmin = users.find(u => String(u._id) === a.subAdminId)
-            const teacher = users.find(u => String(u._id) === a.teacherId)
+            const subAdmin = allUsers.find(u => String(u._id) === a.subAdminId)
+            const teacher = allUsers.find(u => String(u._id) === a.teacherId)
             return {
                 ...a,
-                subAdminName: subAdmin ? subAdmin.displayName : 'Unknown',
-                teacherName: teacher ? teacher.displayName : 'Unknown'
+                subAdminName: subAdmin ? (subAdmin.displayName || subAdmin.email) : 'Unknown',
+                teacherName: teacher ? (teacher.displayName || teacher.email) : 'Unknown'
             }
         })
         res.json(result)

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../api'
 
@@ -7,7 +7,107 @@ export default function Login() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [focusedField, setFocusedField] = useState<string | null>(null)
+  const [isLoadingMicrosoft, setIsLoadingMicrosoft] = useState(false)
   const navigate = useNavigate()
+  const processingRef = useRef(false)
+
+  // Handle Microsoft OAuth callback
+  useEffect(() => {
+    if (processingRef.current) return
+    
+    // Log everything for debugging
+    console.log('=== Microsoft OAuth Debug ===')
+    console.log('Full URL:', window.location.href)
+    console.log('Search params:', window.location.search)
+    console.log('Hash:', window.location.hash)
+    
+    const urlParams = new URLSearchParams(window.location.search)
+    const code = urlParams.get('code')
+    const error = urlParams.get('error')
+    const errorDescription = urlParams.get('error_description')
+    
+    // Also check hash params (in case response_mode is different)
+    const hashParams = new URLSearchParams(window.location.hash.substring(1))
+    const hashCode = hashParams.get('code')
+    const hashError = hashParams.get('error')
+    
+    console.log('Query code:', code)
+    console.log('Query error:', error)
+    console.log('Hash code:', hashCode)
+    console.log('Hash error:', hashError)
+    console.log('=========================')
+    
+    const finalCode = code || hashCode
+    const finalError = error || hashError
+    
+    if (finalError) {
+      setError(`Microsoft login error: ${finalError} - ${errorDescription || hashParams.get('error_description')}`)
+    } else if (finalCode) {
+      processingRef.current = true
+      handleMicrosoftCallback(finalCode)
+    }
+  }, [])
+
+  const handleMicrosoftCallback = async (code: string) => {
+    setIsLoadingMicrosoft(true)
+    setError(null)
+    try {
+      console.log('Microsoft callback - exchanging code for token...')
+      const r = await api.post('/microsoft/callback', { code })
+      console.log('Microsoft login successful:', r.data)
+      
+      localStorage.setItem('token', r.data.token)
+      localStorage.setItem('role', r.data.role)
+      localStorage.setItem('displayName', r.data.displayName || '')
+
+      // Clear the URL parameters
+      window.history.replaceState({}, document.title, window.location.pathname)
+
+      // Redirect based on role
+      if (r.data.role === 'ADMIN') {
+        navigate('/admin')
+      } else if (r.data.role === 'SUBADMIN') {
+        navigate('/subadmin/dashboard')
+      } else if (r.data.role === 'TEACHER') {
+        navigate('/teacher/classes')
+      } else {
+        navigate('/')
+      }
+    } catch (e: any) {
+      console.error('Microsoft authentication error:', e)
+      const errorMsg = e.response?.data?.error || 'Échec de l\'authentification Microsoft'
+      const errorDetails = e.response?.data?.details
+      const readableDetails = errorDetails
+        ? typeof errorDetails === 'string'
+          ? errorDetails
+          : JSON.stringify(errorDetails)
+        : null
+      
+      if (errorMsg.includes('not authorized') || errorMsg.includes('Email not authorized')) {
+        setError('Votre adresse email n\'est pas autorisée. Veuillez contacter l\'administrateur.')
+      } else if (readableDetails) {
+        setError(`${errorMsg}: ${readableDetails}`)
+      } else {
+        setError(errorMsg)
+      }
+      
+      setIsLoadingMicrosoft(false)
+      // Clear the URL parameters
+      window.history.replaceState({}, document.title, window.location.pathname)
+    }
+  }
+
+  const handleMicrosoftLogin = async () => {
+    setError(null)
+    setIsLoadingMicrosoft(true)
+    try {
+      const r = await api.get('/microsoft/auth-url')
+      window.location.href = r.data.authUrl
+    } catch (e: any) {
+      setError('Impossible de se connecter avec Microsoft')
+      setIsLoadingMicrosoft(false)
+    }
+  }
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -31,6 +131,23 @@ export default function Login() {
     } catch (e: any) {
       setError('Identifiants invalides')
     }
+  }
+
+  if (isLoadingMicrosoft) {
+    return (
+      <div className="login-page">
+        <div className="login-container">
+          <div className="login-form-section">
+            <div className="login-card">
+              <div style={{ textAlign: 'center', padding: 40 }}>
+                <div style={{ fontSize: '3rem', marginBottom: 20 }}>🔄</div>
+                <p>Connexion avec Microsoft en cours...</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -103,6 +220,56 @@ export default function Login() {
                 </svg>
               </button>
             </form>
+
+            {/* Divider */}
+            <div style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              margin: '24px 0',
+              gap: 12
+            }}>
+              <div style={{ flex: 1, height: 1, background: '#e0e0e0' }}></div>
+              <span style={{ color: '#999', fontSize: '0.85rem' }}>OU</span>
+              <div style={{ flex: 1, height: 1, background: '#e0e0e0' }}></div>
+            </div>
+
+            {/* Microsoft Login Button */}
+            <button 
+              type="button"
+              onClick={handleMicrosoftLogin}
+              style={{
+                width: '100%',
+                padding: '12px 24px',
+                border: '1px solid #e0e0e0',
+                borderRadius: 8,
+                background: 'white',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 12,
+                fontSize: '1rem',
+                fontWeight: 500,
+                transition: 'all 0.2s',
+                color: '#333'
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.background = '#f5f5f5'
+                e.currentTarget.style.borderColor = '#0078d4'
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.background = 'white'
+                e.currentTarget.style.borderColor = '#e0e0e0'
+              }}
+            >
+              <svg width="21" height="21" viewBox="0 0 21 21" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect x="1" y="1" width="9" height="9" fill="#f25022"/>
+                <rect x="11" y="1" width="9" height="9" fill="#7fba00"/>
+                <rect x="1" y="11" width="9" height="9" fill="#00a4ef"/>
+                <rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
+              </svg>
+              <span>Se connecter avec Microsoft</span>
+            </button>
 
             <div className="login-footer">
               <p>Système de gestion académique</p>

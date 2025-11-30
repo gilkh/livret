@@ -3,6 +3,7 @@ import { requireAuth } from '../auth'
 import { TeacherClassAssignment } from '../models/TeacherClassAssignment'
 import { ClassModel } from '../models/Class'
 import { User } from '../models/User'
+import { OutlookUser } from '../models/OutlookUser'
 
 export const teacherAssignmentsRouter = Router()
 
@@ -12,8 +13,12 @@ teacherAssignmentsRouter.post('/', requireAuth(['ADMIN']), async (req, res) => {
         const { teacherId, classId } = req.body
         if (!teacherId || !classId) return res.status(400).json({ error: 'missing_payload' })
 
-        // Verify teacher exists and has TEACHER role
-        const teacher = await User.findById(teacherId).lean()
+        // Verify teacher exists and has TEACHER role (check both User and OutlookUser)
+        let teacher = await User.findById(teacherId).lean() as any
+        if (!teacher) {
+            teacher = await OutlookUser.findById(teacherId).lean()
+        }
+
         if (!teacher || teacher.role !== 'TEACHER') {
             return res.status(400).json({ error: 'invalid_teacher' })
         }
@@ -72,15 +77,21 @@ teacherAssignmentsRouter.get('/', requireAuth(['ADMIN']), async (req, res) => {
         const assignments = await TeacherClassAssignment.find({}).lean()
         const teacherIds = assignments.map(a => a.teacherId)
         const classIds = assignments.map(a => a.classId)
-        const teachers = await User.find({ _id: { $in: teacherIds } }).lean()
-        const classes = await ClassModel.find({ _id: { $in: classIds } }).lean()
         
+        const [teachers, outlookTeachers, classes] = await Promise.all([
+            User.find({ _id: { $in: teacherIds } }).lean(),
+            OutlookUser.find({ _id: { $in: teacherIds } }).lean(),
+            ClassModel.find({ _id: { $in: classIds } }).lean()
+        ])
+        
+        const allTeachers = [...teachers, ...outlookTeachers] as any[]
+
         const result = assignments.map(a => {
-            const teacher = teachers.find(t => String(t._id) === a.teacherId)
+            const teacher = allTeachers.find(t => String(t._id) === a.teacherId)
             const classDoc = classes.find(c => String(c._id) === a.classId)
             return {
                 ...a,
-                teacherName: teacher ? teacher.displayName : 'Unknown',
+                teacherName: teacher ? (teacher.displayName || teacher.email) : 'Unknown',
                 className: classDoc ? classDoc.name : 'Unknown'
             }
         })

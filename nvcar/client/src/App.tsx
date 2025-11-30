@@ -21,10 +21,24 @@ import SubAdminSignature from './pages/SubAdminSignature'
 import AdminAssignments from './pages/AdminAssignments'
 import AdminAssignmentList from './pages/AdminAssignmentList'
 import AdminAuditLogs from './pages/AdminAuditLogs'
+import AdminSuggestions from './pages/AdminSuggestions'
+import AdminClasses from './pages/AdminClasses'
+import AdminSchoolYears from './pages/AdminSchoolYears'
+import AdminStudents from './pages/AdminStudents'
+import AdminAnalytics from './pages/AdminAnalytics'
+import AdminSettings from './pages/AdminSettings'
 
 const RequireAuth = ({ children }: { children: JSX.Element }) => {
   const token = localStorage.getItem('token')
-  return token ? children : <Navigate to="/login" replace />
+  const location = useLocation()
+
+  if (token) {
+    return children
+  }
+
+  const search = location.search || ''
+  // Preserve query params (e.g., Microsoft OAuth code) when redirecting to login
+  return <Navigate to={`/login${search}`} replace />
 }
 
 export default function App() {
@@ -57,6 +71,14 @@ export default function App() {
           element={
             <RequireAuth>
               <AdminDashboard />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/admin/settings"
+          element={
+            <RequireAuth>
+              <AdminSettings />
             </RequireAuth>
           }
         />
@@ -133,6 +155,38 @@ export default function App() {
           }
         />
         <Route
+          path="/admin/suggestions"
+          element={
+            <RequireAuth>
+              <AdminSuggestions />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/admin/classes"
+          element={
+            <RequireAuth>
+              <AdminClasses />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/admin/school-years"
+          element={
+            <RequireAuth>
+              <AdminSchoolYears />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/admin/students"
+          element={
+            <RequireAuth>
+              <AdminStudents />
+            </RequireAuth>
+          }
+        />
+        <Route
           path="/student/:id"
           element={
             <RequireAuth>
@@ -201,6 +255,14 @@ export default function App() {
           element={
             <RequireAuth>
               <SubAdminSignature />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/admin/analytics"
+          element={
+            <RequireAuth>
+              <AdminAnalytics />
             </RequireAuth>
           }
         />

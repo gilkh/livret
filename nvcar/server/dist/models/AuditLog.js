@@ -8,7 +8,7 @@ const auditLogSchema = new mongoose_1.Schema({
     userRole: { type: String, enum: ['ADMIN', 'SUBADMIN', 'TEACHER'], required: true },
     action: {
         type: String,
-        enum: ['LOGIN', 'LOGOUT', 'EDIT_TEMPLATE', 'SIGN_TEMPLATE', 'EXPORT_PDF', 'CREATE_ASSIGNMENT', 'DELETE_ASSIGNMENT'],
+        enum: ['LOGIN', 'LOGOUT', 'EDIT_TEMPLATE', 'SIGN_TEMPLATE', 'UNSIGN_TEMPLATE', 'EXPORT_PDF', 'CREATE_ASSIGNMENT', 'DELETE_ASSIGNMENT', 'START_IMPERSONATION', 'STOP_IMPERSONATION', 'UPLOAD_SIGNATURE', 'DELETE_SIGNATURE', 'PROMOTE_STUDENT', 'UPDATE_TEMPLATE_DATA', 'LOGIN_MICROSOFT', 'CREATE_OUTLOOK_USER', 'UPDATE_OUTLOOK_USER', 'DELETE_OUTLOOK_USER', 'MARK_ASSIGNMENT_DONE', 'UNMARK_ASSIGNMENT_DONE'],
         required: true
     },
     details: { type: mongoose_1.Schema.Types.Mixed },

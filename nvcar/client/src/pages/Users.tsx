@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import api, { impersonationApi } from '../api'
 
 type User = { _id: string; email: string; role: 'ADMIN'|'SUBADMIN'|'TEACHER'; displayName: string }
+type OutlookUser = { _id: string; email: string; role: 'ADMIN'|'SUBADMIN'|'TEACHER'; displayName?: string; lastLogin?: string }
 
 export default function Users() {
   const [users, setUsers] = useState<User[]>([])
@@ -12,11 +13,30 @@ export default function Users() {
   const [resetMap, setResetMap] = useState<Record<string, string>>({})
   const [impersonating, setImpersonating] = useState<string | null>(null)
 
+  // Outlook Users state
+  const [outlookUsers, setOutlookUsers] = useState<OutlookUser[]>([])
+  const [outlookEmail, setOutlookEmail] = useState('')
+  const [outlookRole, setOutlookRole] = useState<'ADMIN'|'SUBADMIN'|'TEACHER'>('TEACHER')
+  const [outlookDisplayName, setOutlookDisplayName] = useState('')
+
   const load = async () => {
     const r = await api.get('/users')
     setUsers(r.data)
   }
-  useEffect(() => { load() }, [])
+
+  const loadOutlookUsers = async () => {
+    try {
+      const r = await api.get('/outlook-users')
+      setOutlookUsers(r.data)
+    } catch (e) {
+      console.error('Failed to load Outlook users:', e)
+    }
+  }
+
+  useEffect(() => { 
+    load()
+    loadOutlookUsers()
+  }, [])
 
   const createUser = async () => {
     await api.post('/users', { email, password, role, displayName })
@@ -35,6 +55,42 @@ export default function Users() {
     if (!window.confirm('Êtes-vous sûr de vouloir supprimer cet utilisateur ?')) return
     await api.delete(`/users/${id}`)
     await load()
+  }
+
+  const addOutlookUser = async () => {
+    if (!outlookEmail.trim()) return
+    try {
+      await api.post('/outlook-users', {
+        email: outlookEmail.trim().toLowerCase(),
+        role: outlookRole,
+        displayName: outlookDisplayName.trim() || undefined
+      })
+      setOutlookEmail('')
+      setOutlookDisplayName('')
+      setOutlookRole('TEACHER')
+      await loadOutlookUsers()
+    } catch (e: any) {
+      alert(e.response?.data?.error || 'Erreur lors de l\'ajout')
+    }
+  }
+
+  const deleteOutlookUser = async (id: string) => {
+    if (!confirm('Supprimer cet utilisateur Outlook ?')) return
+    try {
+      await api.delete(`/outlook-users/${id}`)
+      await loadOutlookUsers()
+    } catch (e) {
+      alert('Erreur lors de la suppression')
+    }
+  }
+
+  const updateOutlookUserRole = async (id: string, role: string) => {
+    try {
+      await api.patch(`/outlook-users/${id}`, { role })
+      await loadOutlookUsers()
+    } catch (e) {
+      alert('Erreur lors de la mise à jour')
+    }
   }
 
   const viewAsUser = async (user: User) => {
@@ -172,6 +228,115 @@ export default function Users() {
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Outlook/Microsoft Users Section */}
+      <div style={{ marginTop: 48 }}>
+        <div className="card" style={{ borderLeft: '4px solid #0078d4' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20, paddingBottom: 16, borderBottom: '1px solid #f0f0f0' }}>
+            <div style={{ background: '#e6f2ff', padding: 8, borderRadius: 8, fontSize: 20 }}>🔐</div>
+            <div>
+              <h3 style={{ margin: 0 }}>Utilisateurs Microsoft Outlook</h3>
+              <p className="note" style={{ margin: '4px 0 0 0' }}>Les utilisateurs peuvent se connecter directement avec leur compte Microsoft</p>
+            </div>
+          </div>
+
+          {/* Add new Outlook user */}
+          <div style={{ background: '#f5f5f5', padding: 16, borderRadius: 8, marginBottom: 24 }}>
+            <h4 style={{ margin: '0 0 12px 0', fontSize: '0.95rem' }}>Ajouter un utilisateur Outlook</h4>
+            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 8, marginBottom: 8 }}>
+              <input 
+                placeholder="Email Outlook (ex: user@outlook.com)" 
+                value={outlookEmail} 
+                onChange={e => setOutlookEmail(e.target.value)}
+                style={{ padding: 10, borderRadius: 6, border: '1px solid #ddd' }}
+                type="email"
+              />
+              <input 
+                placeholder="Nom d'affichage (optionnel)" 
+                value={outlookDisplayName} 
+                onChange={e => setOutlookDisplayName(e.target.value)}
+                style={{ padding: 10, borderRadius: 6, border: '1px solid #ddd' }}
+              />
+              <select 
+                value={outlookRole} 
+                onChange={e => setOutlookRole(e.target.value as any)}
+                style={{ padding: 10, borderRadius: 6, border: '1px solid #ddd', backgroundColor: 'white' }}
+              >
+                <option value="TEACHER">Enseignant</option>
+                <option value="SUBADMIN">Sous-admin</option>
+                <option value="ADMIN">Admin</option>
+              </select>
+            </div>
+            <button className="btn" onClick={addOutlookUser} style={{ width: '100%' }}>
+              + Ajouter utilisateur
+            </button>
+          </div>
+
+          {/* List of Outlook users */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {outlookUsers.length === 0 ? (
+              <div className="note" style={{ textAlign: 'center', padding: 20, fontStyle: 'italic' }}>
+                Aucun utilisateur Outlook autorisé
+              </div>
+            ) : (
+              outlookUsers.map(user => (
+                <div 
+                  key={user._id} 
+                  style={{ 
+                    display: 'grid', 
+                    gridTemplateColumns: '2fr 1fr 1fr auto',
+                    alignItems: 'center',
+                    gap: 12,
+                    padding: 12,
+                    borderRadius: 8,
+                    border: '1px solid #e6f2ff',
+                    background: '#fff'
+                  }}
+                >
+                  <div>
+                    <div style={{ fontWeight: 600 }}>{user.email}</div>
+                    {user.displayName && <div style={{ fontSize: '0.85rem', color: '#666' }}>{user.displayName}</div>}
+                    {user.lastLogin && (
+                      <div style={{ fontSize: '0.75rem', color: '#999', marginTop: 4 }}>
+                        Dernière connexion: {new Date(user.lastLogin).toLocaleDateString('fr-FR')}
+                      </div>
+                    )}
+                  </div>
+                  <span className="pill" style={{ 
+                    background: user.role === 'ADMIN' ? '#fff1f0' : user.role === 'SUBADMIN' ? '#f0f5ff' : '#f6ffed',
+                    color: user.role === 'ADMIN' ? '#cf1322' : user.role === 'SUBADMIN' ? '#1890ff' : '#52c41a'
+                  }}>
+                    {user.role === 'ADMIN' ? 'Admin' : user.role === 'SUBADMIN' ? 'Sous-admin' : 'Enseignant'}
+                  </span>
+                  <select 
+                    value={user.role}
+                    onChange={e => updateOutlookUserRole(user._id, e.target.value)}
+                    style={{ padding: '6px 8px', borderRadius: 4, border: '1px solid #ccc', fontSize: '0.85rem' }}
+                  >
+                    <option value="TEACHER">Enseignant</option>
+                    <option value="SUBADMIN">Sous-admin</option>
+                    <option value="ADMIN">Admin</option>
+                  </select>
+                  <button 
+                    onClick={() => deleteOutlookUser(user._id)}
+                    style={{ 
+                      border: 'none', 
+                      background: '#ff4d4f', 
+                      color: 'white',
+                      padding: '6px 12px',
+                      borderRadius: 4,
+                      cursor: 'pointer',
+                      fontSize: '0.85rem'
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>

@@ -130,18 +130,42 @@ teacherTemplatesRouter.get('/template-assignments/:assignmentId', requireAuth(['
         // Get the student
         const student = await Student.findById(assignment.studentId).lean()
 
-        // Get student level
+        // Get student level and verify teacher class assignment
         let level = ''
+        let className = ''
         const enrollment = await Enrollment.findOne({ studentId: assignment.studentId }).lean()
+        
+        if (!enrollment) {
+             return res.status(403).json({ error: 'student_not_enrolled' })
+        }
+
         if (enrollment && enrollment.classId) {
             const classDoc = await ClassModel.findById(enrollment.classId).lean()
-            if (classDoc) level = classDoc.level || ''
+            if (classDoc) {
+                level = classDoc.level || ''
+                className = classDoc.name
+            }
+
+            // Strict check: Teacher MUST be assigned to this class
+            const teacherClassAssignment = await TeacherClassAssignment.findOne({
+                teacherId,
+                classId: enrollment.classId
+            }).lean()
+
+            if (!teacherClassAssignment) {
+                return res.status(403).json({ error: 'not_assigned_to_class' })
+            }
         }
+
+        // Determine if teacher can edit
+        // Since we enforce class assignment above, if they reach here, they can edit.
+        const canEdit = true
 
         res.json({
             assignment,
             template: versionedTemplate,
-            student: { ...student, level },
+            student: { ...student, level, className },
+            canEdit,
         })
     } catch (e: any) {
         res.status(500).json({ error: 'fetch_failed', message: e.message })

@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import * as bcrypt from 'bcryptjs'
 import { User } from '../models/User'
+import { Setting } from '../models/Setting'
 import { signToken } from '../auth'
 import { logAudit } from '../utils/auditLogger'
 
@@ -28,6 +29,21 @@ authRouter.post('/login', async (req, res) => {
   if (!user) return res.status(401).json({ error: 'invalid_login' })
   const ok = await bcrypt.compare(password, user.passwordHash)
   if (!ok) return res.status(401).json({ error: 'invalid_login' })
+
+  // Check global login settings
+  if (user.role === 'TEACHER') {
+    const s = await Setting.findOne({ key: 'login_enabled_teacher' })
+    if (s && s.value === false) {
+      return res.status(403).json({ error: 'login_disabled' })
+    }
+  }
+  if (user.role === 'SUBADMIN') {
+    const s = await Setting.findOne({ key: 'login_enabled_subadmin' })
+    if (s && s.value === false) {
+      return res.status(403).json({ error: 'login_disabled' })
+    }
+  }
+
   const token = signToken({ userId: String(user._id), role: user.role as any })
 
   // Log login

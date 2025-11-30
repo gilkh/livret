@@ -23,6 +23,11 @@ import { teacherTemplatesRouter } from './routes/teacherTemplates'
 import { subAdminTemplatesRouter } from './routes/subAdminTemplates'
 import { auditLogsRouter } from './routes/auditLogs'
 import { impersonationRouter } from './routes/impersonation'
+import { suggestionsRouter } from './routes/suggestions'
+import { settingsRouter } from './routes/settings'
+import { microsoftRouter } from './routes/microsoft'
+import { outlookUsersRouter } from './routes/outlookUsers'
+import { analyticsRouter } from './routes/analytics'
 
 export const createApp = () => {
   const app = express()
@@ -54,6 +59,11 @@ export const createApp = () => {
   app.use('/subadmin', subAdminTemplatesRouter)
   app.use('/audit-logs', auditLogsRouter)
   app.use('/impersonation', impersonationRouter)
+  app.use('/suggestions', suggestionsRouter)
+  app.use('/settings', settingsRouter)
+  app.use('/microsoft', microsoftRouter)
+  app.use('/outlook-users', outlookUsersRouter)
+  app.use('/analytics', analyticsRouter)
   app.use('/uploads', express.static(path.join(process.cwd(), 'public', 'uploads')))
 
   app.get('/health', (_, res) => res.json({ ok: true }))

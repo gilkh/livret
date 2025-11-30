@@ -13,6 +13,7 @@ const templateAssignmentSchema = new mongoose_1.Schema({
     isCompleted: { type: Boolean, default: false },
     completedAt: { type: Date },
     completedBy: { type: String },
+    data: { type: mongoose_1.Schema.Types.Mixed, default: {} },
 });
 // Create compound index to prevent duplicate assignments
 templateAssignmentSchema.index({ templateId: 1, studentId: 1 }, { unique: true });

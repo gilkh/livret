@@ -39,9 +39,13 @@ exports.mediaRouter.get('/list', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', '
     const folder = req.query?.folder ? String(req.query.folder).replace(/[^a-z0-9_\/-]+/gi, '') : '';
     const dir = path_1.default.join(uploadDir, folder);
     ensureDir(dir);
-    const files = fs_1.default.readdirSync(dir).filter(f => !f.startsWith('.'));
-    const urls = files.map(f => `${folder ? '/' + folder : ''}/${f}`);
-    res.json(urls);
+    const items = fs_1.default.readdirSync(dir, { withFileTypes: true }).filter(f => !f.name.startsWith('.'));
+    const result = items.map(d => ({
+        name: d.name,
+        type: d.isDirectory() ? 'folder' : 'file',
+        path: `${folder ? '/' + folder : ''}/${d.name}`
+    }));
+    res.json(result);
 });
 exports.mediaRouter.post('/mkdir', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN']), async (req, res) => {
     const { folder } = req.body;

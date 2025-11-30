@@ -103,12 +103,52 @@ exports.teacherTemplatesRouter.get('/template-assignments/:assignmentId', (0, au
                 };
             }
         }
+        // Merge assignment data into template (language toggles, dropdowns, etc.)
+        if (assignment.data) {
+            versionedTemplate = JSON.parse(JSON.stringify(versionedTemplate));
+            for (const [key, value] of Object.entries(assignment.data)) {
+                if (key.startsWith('language_toggle_')) {
+                    const parts = key.split('_');
+                    const pageIdx = parseInt(parts[2]);
+                    const blockIdx = parseInt(parts[3]);
+                    if (versionedTemplate.pages[pageIdx]?.blocks[blockIdx]?.type === 'language_toggle') {
+                        versionedTemplate.pages[pageIdx].blocks[blockIdx].props.items = value;
+                    }
+                }
+            }
+        }
         // Get the student
         const student = await Student_1.Student.findById(assignment.studentId).lean();
+        // Get student level and verify teacher class assignment
+        let level = '';
+        let className = '';
+        const enrollment = await Enrollment_1.Enrollment.findOne({ studentId: assignment.studentId }).lean();
+        if (!enrollment) {
+            return res.status(403).json({ error: 'student_not_enrolled' });
+        }
+        if (enrollment && enrollment.classId) {
+            const classDoc = await Class_1.ClassModel.findById(enrollment.classId).lean();
+            if (classDoc) {
+                level = classDoc.level || '';
+                className = classDoc.name;
+            }
+            // Strict check: Teacher MUST be assigned to this class
+            const teacherClassAssignment = await TeacherClassAssignment_1.TeacherClassAssignment.findOne({
+                teacherId,
+                classId: enrollment.classId
+            }).lean();
+            if (!teacherClassAssignment) {
+                return res.status(403).json({ error: 'not_assigned_to_class' });
+            }
+        }
+        // Determine if teacher can edit
+        // Since we enforce class assignment above, if they reach here, they can edit.
+        const canEdit = true;
         res.json({
             assignment,
             template: versionedTemplate,
-            student,
+            student: { ...student, level, className },
+            canEdit,
         });
     }
     catch (e) {
@@ -131,8 +171,8 @@ exports.teacherTemplatesRouter.patch('/template-assignments/:assignmentId/langua
         if (!assignment.assignedTeachers.includes(teacherId)) {
             return res.status(403).json({ error: 'not_assigned_to_template' });
         }
-        // Get the template
-        const template = await GradebookTemplate_1.GradebookTemplate.findById(assignment.templateId);
+        // Get the template to verify the block
+        const template = await GradebookTemplate_1.GradebookTemplate.findById(assignment.templateId).lean();
         if (!template)
             return res.status(404).json({ error: 'template_not_found' });
         // Verify the block is a language_toggle
@@ -145,12 +185,17 @@ exports.teacherTemplatesRouter.patch('/template-assignments/:assignmentId/langua
         if (block.type !== 'language_toggle') {
             return res.status(403).json({ error: 'can_only_edit_language_toggle' });
         }
-        // Store before state for change log
-        const before = { ...block.props };
-        // Update the block
-        template.pages[pageIndex].blocks[blockIndex].props.items = items;
-        template.updatedAt = new Date();
-        await template.save();
+        // Store language toggle state in assignment data with unique key
+        const key = `language_toggle_${pageIndex}_${blockIndex}`;
+        const currentData = assignment.data || {};
+        const before = currentData[key];
+        // Update assignment data (NOT the global template)
+        const updated = await TemplateAssignment_1.TemplateAssignment.findByIdAndUpdate(assignmentId, {
+            $set: {
+                [`data.${key}`]: items,
+                status: assignment.status === 'draft' ? 'in_progress' : assignment.status
+            }
+        }, { new: true });
         // Log the change
         await TemplateChangeLog_1.TemplateChangeLog.create({
             templateAssignmentId: assignmentId,
@@ -158,30 +203,11 @@ exports.teacherTemplatesRouter.patch('/template-assignments/:assignmentId/langua
             changeType: 'language_toggle',
             pageIndex,
             blockIndex,
-            before,
-            after: { items },
+            before: before || block.props.items,
+            after: items,
             timestamp: new Date(),
         });
-        // Update assignment status if still draft
-        if (assignment.status === 'draft') {
-            await TemplateAssignment_1.TemplateAssignment.findByIdAndUpdate(assignmentId, { status: 'in_progress' });
-        }
-        // Log audit
-        const student = await Student_1.Student.findById(assignment.studentId).lean();
-        await (0, auditLogger_1.logAudit)({
-            userId: teacherId,
-            action: 'EDIT_TEMPLATE',
-            details: {
-                templateId: assignment.templateId,
-                templateName: template.name,
-                studentId: assignment.studentId,
-                studentName: student ? `${student.firstName} ${student.lastName}` : 'Unknown',
-                pageIndex,
-                blockIndex,
-            },
-            req,
-        });
-        res.json({ ok: true, template });
+        res.json({ success: true, assignment: updated });
     }
     catch (e) {
         res.status(500).json({ error: 'update_failed', message: e.message });
@@ -347,5 +373,31 @@ exports.teacherTemplatesRouter.get('/classes/:classId/completion-stats', (0, aut
     }
     catch (e) {
         res.status(500).json({ error: 'fetch_failed', message: e.message });
+    }
+});
+// Teacher: Update assignment data (e.g. dropdowns)
+exports.teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data', (0, auth_1.requireAuth)(['TEACHER']), async (req, res) => {
+    try {
+        const teacherId = req.user.userId;
+        const { assignmentId } = req.params;
+        const { data } = req.body;
+        if (!data)
+            return res.status(400).json({ error: 'missing_payload' });
+        // Get assignment and verify teacher is assigned
+        const assignment = await TemplateAssignment_1.TemplateAssignment.findById(assignmentId).lean();
+        if (!assignment)
+            return res.status(404).json({ error: 'not_found' });
+        if (!assignment.assignedTeachers.includes(teacherId)) {
+            return res.status(403).json({ error: 'not_assigned_to_template' });
+        }
+        // Update assignment
+        const updated = await TemplateAssignment_1.TemplateAssignment.findByIdAndUpdate(assignmentId, {
+            $set: { data: { ...assignment.data, ...data } },
+            status: assignment.status === 'draft' ? 'in_progress' : assignment.status
+        }, { new: true });
+        res.json(updated);
+    }
+    catch (e) {
+        res.status(500).json({ error: 'update_failed', message: e.message });
     }
 });

@@ -7,5 +7,6 @@ const userSchema = new mongoose_1.Schema({
     passwordHash: { type: String, required: true },
     role: { type: String, enum: ['ADMIN', 'SUBADMIN', 'TEACHER'], required: true },
     displayName: { type: String, required: true },
+    signatureUrl: { type: String },
 });
 exports.User = (0, mongoose_1.model)('User', userSchema);

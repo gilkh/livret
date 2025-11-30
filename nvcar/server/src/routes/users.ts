@@ -1,13 +1,31 @@
 import { Router } from 'express'
 import { requireAuth } from '../auth'
 import { User } from '../models/User'
+import { OutlookUser } from '../models/OutlookUser'
 import * as bcrypt from 'bcryptjs'
 
 export const usersRouter = Router()
 
 usersRouter.get('/', requireAuth(['ADMIN']), async (req, res) => {
-  const users = await User.find({}).lean()
-  res.json(users)
+  const [users, outlookUsers] = await Promise.all([
+    User.find({}).lean(),
+    OutlookUser.find({}).lean()
+  ])
+  
+  // Merge and normalize
+  const allUsers = [
+    ...users,
+    ...outlookUsers.map(u => ({
+      ...u,
+      _id: u._id,
+      email: u.email,
+      displayName: u.displayName || u.email,
+      role: u.role,
+      isOutlook: true
+    }))
+  ]
+  
+  res.json(allUsers)
 })
 
 usersRouter.post('/', requireAuth(['ADMIN']), async (req, res) => {

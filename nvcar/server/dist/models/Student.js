@@ -10,5 +10,7 @@ const studentSchema = new mongoose_1.Schema({
     avatarUrl: { type: String },
     parentName: { type: String },
     parentPhone: { type: String },
+    level: { type: String }, // Current level if not in a class, or cached level
+    schoolYearId: { type: String }, // Current school year association
 });
 exports.Student = (0, mongoose_1.model)('Student', studentSchema);

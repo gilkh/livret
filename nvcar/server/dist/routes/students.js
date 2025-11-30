@@ -6,6 +6,7 @@ const Student_1 = require("../models/Student");
 const Enrollment_1 = require("../models/Enrollment");
 const Class_1 = require("../models/Class");
 const StudentCompetencyStatus_1 = require("../models/StudentCompetencyStatus");
+const TemplateAssignment_1 = require("../models/TemplateAssignment");
 const auth_1 = require("../auth");
 exports.studentsRouter = (0, express_1.Router)();
 exports.studentsRouter.get('/', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', 'TEACHER']), async (req, res) => {
@@ -26,6 +27,70 @@ exports.studentsRouter.get('/', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', 'T
         return { ...s, classId: enr ? enr.classId : undefined, className: cls ? cls.name : undefined };
     });
     res.json(out);
+});
+exports.studentsRouter.get('/unassigned/:schoolYearId', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN']), async (req, res) => {
+    const { schoolYearId } = req.params;
+    // Find students who are marked for this school year
+    const students = await Student_1.Student.find({ schoolYearId }).lean();
+    // Filter out those who already have an enrollment for this year
+    const studentIds = students.map(s => String(s._id));
+    const enrollments = await Enrollment_1.Enrollment.find({
+        studentId: { $in: studentIds },
+        schoolYearId
+    }).lean();
+    const enrolledStudentIds = new Set(enrollments.map(e => e.studentId));
+    const unassigned = students.filter(s => !enrolledStudentIds.has(String(s._id)));
+    // Find assignments with promotions for these students
+    const unassignedIds = unassigned.map(s => String(s._id));
+    const assignments = await TemplateAssignment_1.TemplateAssignment.find({
+        studentId: { $in: unassignedIds },
+        'data.promotions': { $exists: true, $not: { $size: 0 } }
+    }).lean();
+    const promotionMap = {};
+    for (const a of assignments) {
+        if (a.data && Array.isArray(a.data.promotions)) {
+            const lastPromo = a.data.promotions[a.data.promotions.length - 1];
+            const existing = promotionMap[a.studentId];
+            if (!existing || new Date(lastPromo.date) > new Date(existing.date)) {
+                promotionMap[a.studentId] = lastPromo;
+            }
+        }
+    }
+    const result = unassigned.map(s => ({
+        ...s,
+        promotion: promotionMap[String(s._id)]
+    }));
+    res.json(result);
+});
+exports.studentsRouter.post('/:id/assign-section', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN']), async (req, res) => {
+    const { id } = req.params;
+    const { schoolYearId, level, section } = req.body; // section is 'A', 'B', etc.
+    if (!schoolYearId || !level || !section)
+        return res.status(400).json({ error: 'missing_params' });
+    const className = `${level} ${section}`;
+    // Find or create class
+    let cls = await Class_1.ClassModel.findOne({ schoolYearId, name: className }).lean();
+    if (!cls) {
+        cls = await Class_1.ClassModel.create({
+            name: className,
+            level,
+            schoolYearId
+        });
+    }
+    // Create enrollment
+    const existing = await Enrollment_1.Enrollment.findOne({ studentId: id, schoolYearId });
+    if (existing) {
+        existing.classId = String(cls._id);
+        await existing.save();
+    }
+    else {
+        await Enrollment_1.Enrollment.create({
+            studentId: id,
+            classId: String(cls._id),
+            schoolYearId
+        });
+    }
+    res.json({ ok: true });
 });
 exports.studentsRouter.get('/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', 'TEACHER']), async (req, res) => {
     const { id } = req.params;
@@ -72,9 +137,9 @@ exports.studentsRouter.get('/by-class/:classId', (0, auth_1.requireAuth)(['ADMIN
 });
 exports.studentsRouter.post('/', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN']), async (req, res) => {
     const { firstName, lastName, dateOfBirth, parentName, parentPhone, classId } = req.body;
-    if (!firstName || !lastName || !dateOfBirth || !classId)
+    if (!firstName || !lastName || !classId)
         return res.status(400).json({ error: 'missing_payload' });
-    const dob = new Date(dateOfBirth);
+    const dob = dateOfBirth ? new Date(dateOfBirth) : new Date('2000-01-01');
     const key = `${String(firstName).toLowerCase()}_${String(lastName).toLowerCase()}_${dob.toISOString().slice(0, 10)}`;
     const existing = await Student_1.Student.findOne({ logicalKey: key });
     let student;

@@ -37,11 +37,27 @@ exports.usersRouter = void 0;
 const express_1 = require("express");
 const auth_1 = require("../auth");
 const User_1 = require("../models/User");
+const OutlookUser_1 = require("../models/OutlookUser");
 const bcrypt = __importStar(require("bcryptjs"));
 exports.usersRouter = (0, express_1.Router)();
 exports.usersRouter.get('/', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
-    const users = await User_1.User.find({}).lean();
-    res.json(users);
+    const [users, outlookUsers] = await Promise.all([
+        User_1.User.find({}).lean(),
+        OutlookUser_1.OutlookUser.find({}).lean()
+    ]);
+    // Merge and normalize
+    const allUsers = [
+        ...users,
+        ...outlookUsers.map(u => ({
+            ...u,
+            _id: u._id,
+            email: u.email,
+            displayName: u.displayName || u.email,
+            role: u.role,
+            isOutlook: true
+        }))
+    ];
+    res.json(allUsers);
 });
 exports.usersRouter.post('/', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
     const { email, password, role, displayName } = req.body;
@@ -64,5 +80,12 @@ exports.usersRouter.patch('/:id/password', (0, auth_1.requireAuth)(['ADMIN']), a
         return res.status(404).json({ error: 'not_found' });
     user.passwordHash = await bcrypt.hash(password, 10);
     await user.save();
+    res.json({ ok: true });
+});
+exports.usersRouter.delete('/:id', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
+    const { id } = req.params;
+    const user = await User_1.User.findByIdAndDelete(id);
+    if (!user)
+        return res.status(404).json({ error: 'not_found' });
     res.json({ ok: true });
 });

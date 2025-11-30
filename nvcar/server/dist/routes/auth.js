@@ -37,6 +37,7 @@ exports.authRouter = void 0;
 const express_1 = require("express");
 const bcrypt = __importStar(require("bcryptjs"));
 const User_1 = require("../models/User");
+const Setting_1 = require("../models/Setting");
 const auth_1 = require("../auth");
 const auditLogger_1 = require("../utils/auditLogger");
 exports.authRouter = (0, express_1.Router)();
@@ -63,6 +64,19 @@ exports.authRouter.post('/login', async (req, res) => {
     const ok = await bcrypt.compare(password, user.passwordHash);
     if (!ok)
         return res.status(401).json({ error: 'invalid_login' });
+    // Check global login settings
+    if (user.role === 'TEACHER') {
+        const s = await Setting_1.Setting.findOne({ key: 'login_enabled_teacher' });
+        if (s && s.value === false) {
+            return res.status(403).json({ error: 'login_disabled' });
+        }
+    }
+    if (user.role === 'SUBADMIN') {
+        const s = await Setting_1.Setting.findOne({ key: 'login_enabled_subadmin' });
+        if (s && s.value === false) {
+            return res.status(403).json({ error: 'login_disabled' });
+        }
+    }
     const token = (0, auth_1.signToken)({ userId: String(user._id), role: user.role });
     // Log login
     await (0, auditLogger_1.logAudit)({ userId: String(user._id), action: 'LOGIN', details: { email }, req });

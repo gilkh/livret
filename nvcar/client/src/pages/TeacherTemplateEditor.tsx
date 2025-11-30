@@ -5,7 +5,7 @@ import api from '../api'
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; blocks: Block[] }
 type Template = { _id?: string; name: string; pages: Page[] }
-type Student = { _id: string; firstName: string; lastName: string; level?: string }
+type Student = { _id: string; firstName: string; lastName: string; level?: string; className?: string }
 type Assignment = { _id: string; status: string; data?: Record<string, any> }
 
 const pageWidth = 800
@@ -22,6 +22,7 @@ export default function TeacherTemplateEditor() {
     const [error, setError] = useState('')
     const [saveStatus, setSaveStatus] = useState('')
     const [openDropdown, setOpenDropdown] = useState<string | null>(null)
+    const [canEdit, setCanEdit] = useState(false)
 
     useEffect(() => {
         const loadData = async () => {
@@ -31,6 +32,7 @@ export default function TeacherTemplateEditor() {
                 setTemplate(r.data.template)
                 setStudent(r.data.student)
                 setAssignment(r.data.assignment)
+                setCanEdit(r.data.canEdit)
             } catch (e: any) {
                 setError('Impossible de charger le carnet')
                 console.error(e)
@@ -94,8 +96,32 @@ export default function TeacherTemplateEditor() {
                 }}>← Retour</button>
                 
                 <div style={{ marginBottom: 20 }}>
-                    <h2 className="title" style={{ fontSize: 28, marginBottom: 8, color: '#1e293b' }}>
-                        ✏️ Édition du carnet - {student ? `${student.firstName} ${student.lastName}` : 'Élève'}
+                    <h2 className="title" style={{ fontSize: 28, marginBottom: 8, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <span>✏️ Édition du carnet - {student ? `${student.firstName} ${student.lastName}` : 'Élève'}</span>
+                        {student?.level && (
+                            <span style={{ 
+                                fontSize: 14, 
+                                background: '#e0e7ff', 
+                                color: '#4338ca', 
+                                padding: '4px 10px', 
+                                borderRadius: 16, 
+                                fontWeight: 600 
+                            }}>
+                                {student.level}
+                            </span>
+                        )}
+                        {student?.className && (
+                            <span style={{ 
+                                fontSize: 14, 
+                                background: '#f1f5f9', 
+                                color: '#475569', 
+                                padding: '4px 10px', 
+                                borderRadius: 16, 
+                                fontWeight: 600 
+                            }}>
+                                {student.className}
+                            </span>
+                        )}
                     </h2>
                     <div className="note" style={{ fontSize: 15, color: '#64748b', marginBottom: 8 }}>
                         📚 {template.name}
@@ -232,9 +258,8 @@ export default function TeacherTemplateEditor() {
                                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: b.props.spacing || 12 }}>
                                     {(b.props.items || []).map((it: any, i: number) => {
                                         // Check level
-                                        if (it.levels && it.levels.length > 0 && student?.level && !it.levels.includes(student.level)) {
-                                            return null
-                                        }
+                                        const isAllowed = !(it.levels && it.levels.length > 0 && student?.level && !it.levels.includes(student.level));
+                                        
                                         const r = b.props.radius || 40
                                         const size = r * 2
                                         return (
@@ -246,12 +271,15 @@ export default function TeacherTemplateEditor() {
                                                     borderRadius: '50%', 
                                                     overflow: 'hidden', 
                                                     position: 'relative', 
-                                                    cursor: 'pointer', 
+                                                    cursor: (canEdit && isAllowed) ? 'pointer' : 'not-allowed', 
                                                     boxShadow: it.active ? '0 0 0 3px #6c5ce7' : '0 0 0 1px #ddd',
-                                                    transition: 'all 0.2s ease'
+                                                    transition: 'all 0.2s ease',
+                                                    opacity: (canEdit && isAllowed) ? 1 : 0.5,
+                                                    pointerEvents: (canEdit && isAllowed) ? 'auto' : 'none'
                                                 }}
                                                 onClick={(e) => {
                                                     e.stopPropagation()
+                                                    if (!canEdit || !isAllowed) return
                                                     const newItems = [...(b.props.items || [])]
                                                     newItems[i] = { ...newItems[i], active: !newItems[i].active }
                                                     updateLanguageToggle(actualPageIndex, idx, newItems)
@@ -300,8 +328,8 @@ export default function TeacherTemplateEditor() {
                                                 padding: '4px 24px 4px 8px', 
                                                 borderRadius: 4, 
                                                 border: '1px solid #ccc',
-                                                background: '#fff',
-                                                cursor: 'pointer',
+                                                background: canEdit ? '#fff' : '#f9f9f9',
+                                                cursor: canEdit ? 'pointer' : 'not-allowed',
                                                 position: 'relative',
                                                 display: 'flex',
                                                 alignItems: 'center',
@@ -310,6 +338,7 @@ export default function TeacherTemplateEditor() {
                                             }}
                                             onClick={(e) => {
                                                 e.stopPropagation()
+                                                if (!canEdit) return
                                                 const key = `dropdown_${actualPageIndex}_${idx}`
                                                 setOpenDropdown(openDropdown === key ? null : key)
                                             }}

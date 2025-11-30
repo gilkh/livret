@@ -7,6 +7,7 @@ import { TemplateSignature } from '../models/TemplateSignature'
 import { GradebookTemplate } from '../models/GradebookTemplate'
 import { Student } from '../models/Student'
 import { User } from '../models/User'
+import { OutlookUser } from '../models/OutlookUser'
 import { Enrollment } from '../models/Enrollment'
 import { TeacherClassAssignment } from '../models/TeacherClassAssignment'
 import { ClassModel } from '../models/Class'
@@ -53,7 +54,10 @@ export const subAdminTemplatesRouter = Router()
 subAdminTemplatesRouter.get('/signature', requireAuth(['SUBADMIN']), async (req, res) => {
     try {
         const subAdminId = (req as any).user.userId
-        const user = await User.findById(subAdminId).lean()
+        let user = await User.findById(subAdminId).lean() as any
+        if (!user) {
+            user = await OutlookUser.findById(subAdminId).lean()
+        }
         
         if (!user || !user.signatureUrl) {
             return res.status(404).json({ error: 'no_signature' })
@@ -77,7 +81,13 @@ subAdminTemplatesRouter.post('/signature/upload', requireAuth(['SUBADMIN']), upl
         const signatureUrl = `/uploads/signatures/${req.file.filename}`
 
         // Delete old signature file if exists
-        const user = await User.findById(subAdminId).lean()
+        let user = await User.findById(subAdminId).lean() as any
+        let isOutlook = false
+        if (!user) {
+            user = await OutlookUser.findById(subAdminId).lean()
+            isOutlook = true
+        }
+
         if (user?.signatureUrl) {
             const oldPath = path.join(__dirname, '../../public', user.signatureUrl)
             if (fs.existsSync(oldPath)) {
@@ -86,7 +96,11 @@ subAdminTemplatesRouter.post('/signature/upload', requireAuth(['SUBADMIN']), upl
         }
 
         // Update user with new signature URL
-        await User.findByIdAndUpdate(subAdminId, { signatureUrl })
+        if (isOutlook) {
+            await OutlookUser.findByIdAndUpdate(subAdminId, { signatureUrl })
+        } else {
+            await User.findByIdAndUpdate(subAdminId, { signatureUrl })
+        }
 
         await logAudit({
             userId: subAdminId,
@@ -105,7 +119,12 @@ subAdminTemplatesRouter.post('/signature/upload', requireAuth(['SUBADMIN']), upl
 subAdminTemplatesRouter.delete('/signature', requireAuth(['SUBADMIN']), async (req, res) => {
     try {
         const subAdminId = (req as any).user.userId
-        const user = await User.findById(subAdminId).lean()
+        let user = await User.findById(subAdminId).lean() as any
+        let isOutlook = false
+        if (!user) {
+            user = await OutlookUser.findById(subAdminId).lean()
+            isOutlook = true
+        }
 
         if (user?.signatureUrl) {
             const oldPath = path.join(__dirname, '../../public', user.signatureUrl)
@@ -114,7 +133,11 @@ subAdminTemplatesRouter.delete('/signature', requireAuth(['SUBADMIN']), async (r
             }
         }
 
-        await User.findByIdAndUpdate(subAdminId, { $unset: { signatureUrl: 1 } })
+        if (isOutlook) {
+            await OutlookUser.findByIdAndUpdate(subAdminId, { $unset: { signatureUrl: 1 } })
+        } else {
+            await User.findByIdAndUpdate(subAdminId, { $unset: { signatureUrl: 1 } })
+        }
 
         await logAudit({
             userId: subAdminId,
@@ -741,11 +764,19 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
             }
         }
 
+        // Determine if sub-admin can edit (authorized via level or teacher assignment)
+        // We already checked 'authorized' variable above for access.
+        // If they are authorized to view, can they edit?
+        // The requirement says: "edit mode ... to be able to edit also all the toggle and drop down only of the level they were assigned to"
+        // So yes, if authorized, they can edit (subject to level constraints in frontend).
+        const canEdit = authorized
+
         res.json({
             assignment,
             template: versionedTemplate,
             student: { ...student, level },
             signature,
+            canEdit,
         })
     } catch (e: any) {
         res.status(500).json({ error: 'fetch_failed', message: e.message })
@@ -945,6 +976,91 @@ subAdminTemplatesRouter.post('/templates/:assignmentId/unmark-done', requireAuth
         })
 
         res.json(updated)
+    } catch (e: any) {
+        res.status(500).json({ error: 'update_failed', message: e.message })
+    }
+})
+
+// Sub-admin: Update template data (e.g. language toggles)
+subAdminTemplatesRouter.patch('/templates/:assignmentId/data', requireAuth(['SUBADMIN']), async (req, res) => {
+    try {
+        const subAdminId = (req as any).user.userId
+        const { assignmentId } = req.params
+        const { type, pageIndex, blockIndex, items } = req.body
+
+        if (!type) return res.status(400).json({ error: 'missing_type' })
+
+        // Get assignment
+        const assignment = await TemplateAssignment.findById(assignmentId).lean()
+        if (!assignment) return res.status(404).json({ error: 'not_found' })
+
+        // Verify authorization
+        // Check if sub-admin is assigned to any teacher of the student's class
+        const enrollment = await Enrollment.findOne({ studentId: assignment.studentId }).lean()
+        if (!enrollment) return res.status(403).json({ error: 'student_not_enrolled' })
+
+        const teacherClassAssignments = await TeacherClassAssignment.find({ classId: enrollment.classId }).lean()
+        const classTeacherIds = teacherClassAssignments.map(ta => ta.teacherId)
+
+        const subAdminAssignments = await SubAdminAssignment.find({
+            subAdminId,
+            teacherId: { $in: classTeacherIds },
+        }).lean()
+
+        let authorized = subAdminAssignments.length > 0
+
+        if (!authorized) {
+            // Check RoleScope
+            const roleScope = await RoleScope.findOne({ userId: subAdminId }).lean()
+            if (roleScope?.levels?.length) {
+                const cls = await ClassModel.findById(enrollment.classId).lean()
+                if (cls && cls.level && roleScope.levels.includes(cls.level)) {
+                    authorized = true
+                }
+            }
+        }
+
+        if (!authorized) {
+            return res.status(403).json({ error: 'not_authorized' })
+        }
+
+        if (type === 'language_toggle') {
+            if (pageIndex === undefined || blockIndex === undefined || !items) {
+                return res.status(400).json({ error: 'missing_payload' })
+            }
+
+            const key = `language_toggle_${pageIndex}_${blockIndex}`
+            
+            // Update assignment data
+            const updated = await TemplateAssignment.findByIdAndUpdate(
+                assignmentId,
+                { 
+                    $set: { 
+                        [`data.${key}`]: items
+                    }
+                },
+                { new: true }
+            )
+
+            // Log audit
+            await logAudit({
+                userId: subAdminId,
+                action: 'UPDATE_TEMPLATE_DATA',
+                details: {
+                    assignmentId,
+                    type,
+                    pageIndex,
+                    blockIndex,
+                    items
+                },
+                req,
+            })
+
+            res.json({ success: true, assignment: updated })
+        } else {
+            res.status(400).json({ error: 'unsupported_type' })
+        }
+
     } catch (e: any) {
         res.status(500).json({ error: 'update_failed', message: e.message })
     }

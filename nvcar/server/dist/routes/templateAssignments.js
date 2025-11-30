@@ -7,7 +7,61 @@ const TemplateAssignment_1 = require("../models/TemplateAssignment");
 const GradebookTemplate_1 = require("../models/GradebookTemplate");
 const Student_1 = require("../models/Student");
 const User_1 = require("../models/User");
+const Enrollment_1 = require("../models/Enrollment");
+const TeacherClassAssignment_1 = require("../models/TeacherClassAssignment");
+const Class_1 = require("../models/Class");
 exports.templateAssignmentsRouter = (0, express_1.Router)();
+// Admin: Assign template to all students in a level
+exports.templateAssignmentsRouter.post('/bulk-level', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
+    try {
+        const { templateId, level } = req.body;
+        if (!templateId || !level)
+            return res.status(400).json({ error: 'missing_payload' });
+        // Verify template exists
+        const template = await GradebookTemplate_1.GradebookTemplate.findById(templateId).lean();
+        if (!template)
+            return res.status(404).json({ error: 'template_not_found' });
+        // Find all classes in this level
+        const classes = await Class_1.ClassModel.find({ level }).lean();
+        const classIds = classes.map(c => String(c._id));
+        if (classIds.length === 0) {
+            return res.json({ count: 0, message: 'No classes found for this level' });
+        }
+        // Find all students in these classes
+        const enrollments = await Enrollment_1.Enrollment.find({ classId: { $in: classIds } }).lean();
+        const studentIds = [...new Set(enrollments.map(e => e.studentId))];
+        if (studentIds.length === 0) {
+            return res.json({ count: 0, message: 'No students found for this level' });
+        }
+        // Pre-fetch teacher assignments for all classes involved
+        const allTeacherAssignments = await TeacherClassAssignment_1.TeacherClassAssignment.find({ classId: { $in: classIds } }).lean();
+        const teacherMap = new Map(); // classId -> teacherIds[]
+        for (const ta of allTeacherAssignments) {
+            if (!teacherMap.has(ta.classId))
+                teacherMap.set(ta.classId, []);
+            teacherMap.get(ta.classId)?.push(ta.teacherId);
+        }
+        // Create assignments
+        let count = 0;
+        for (const enrollment of enrollments) {
+            const teachers = teacherMap.get(enrollment.classId) || [];
+            await TemplateAssignment_1.TemplateAssignment.findOneAndUpdate({ templateId, studentId: enrollment.studentId }, {
+                templateId,
+                templateVersion: template.currentVersion || 1,
+                studentId: enrollment.studentId,
+                assignedTeachers: teachers,
+                assignedBy: req.user.userId,
+                assignedAt: new Date(),
+                status: 'draft',
+            }, { upsert: true });
+            count++;
+        }
+        res.json({ count, message: `Assigned template to ${count} students` });
+    }
+    catch (e) {
+        res.status(500).json({ error: 'bulk_assign_failed', message: e.message });
+    }
+});
 // Admin: Assign template to student with teachers
 exports.templateAssignmentsRouter.post('/', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
     try {
@@ -23,8 +77,20 @@ exports.templateAssignmentsRouter.post('/', (0, auth_1.requireAuth)(['ADMIN']), 
         if (!student)
             return res.status(404).json({ error: 'student_not_found' });
         // Verify all assigned teachers exist and have TEACHER role
-        if (assignedTeachers && Array.isArray(assignedTeachers)) {
-            for (const teacherId of assignedTeachers) {
+        let teachersToAssign = assignedTeachers || [];
+        // If no teachers are explicitly assigned, try to auto-assign teachers from the student's class
+        if (!teachersToAssign || teachersToAssign.length === 0) {
+            // Find student's enrollment to get their class
+            const enrollment = await Enrollment_1.Enrollment.findOne({ studentId }).lean();
+            if (enrollment && enrollment.classId) {
+                // Find teachers assigned to this class
+                const teacherAssignments = await TeacherClassAssignment_1.TeacherClassAssignment.find({ classId: enrollment.classId }).lean();
+                teachersToAssign = teacherAssignments.map(ta => ta.teacherId);
+            }
+        }
+        // Verify all assigned teachers exist and have TEACHER role
+        if (teachersToAssign && Array.isArray(teachersToAssign) && teachersToAssign.length > 0) {
+            for (const teacherId of teachersToAssign) {
                 const teacher = await User_1.User.findById(teacherId).lean();
                 if (!teacher || teacher.role !== 'TEACHER') {
                     return res.status(400).json({ error: 'invalid_teacher', teacherId });
@@ -36,7 +102,7 @@ exports.templateAssignmentsRouter.post('/', (0, auth_1.requireAuth)(['ADMIN']), 
             templateId,
             templateVersion: template.currentVersion || 1,
             studentId,
-            assignedTeachers: assignedTeachers || [],
+            assignedTeachers: teachersToAssign,
             assignedBy: req.user.userId,
             assignedAt: new Date(),
             status: 'draft',
@@ -127,7 +193,28 @@ exports.templateAssignmentsRouter.delete('/:id', (0, auth_1.requireAuth)(['ADMIN
 exports.templateAssignmentsRouter.get('/', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
     try {
         const assignments = await TemplateAssignment_1.TemplateAssignment.find({}).lean();
-        res.json(assignments);
+        const templateIds = assignments.map(a => a.templateId);
+        const studentIds = assignments.map(a => a.studentId);
+        const templates = await GradebookTemplate_1.GradebookTemplate.find({ _id: { $in: templateIds } }).lean();
+        const students = await Student_1.Student.find({ _id: { $in: studentIds } }).lean();
+        // Fetch enrollments and classes
+        const enrollments = await Enrollment_1.Enrollment.find({ studentId: { $in: studentIds } }).lean();
+        const classIds = enrollments.map(e => e.classId);
+        const classes = await Class_1.ClassModel.find({ _id: { $in: classIds } }).lean();
+        const result = assignments.map(a => {
+            const template = templates.find(t => String(t._id) === a.templateId);
+            const student = students.find(s => String(s._id) === a.studentId);
+            const enrollment = enrollments.find(e => e.studentId === a.studentId);
+            const cls = enrollment ? classes.find(c => String(c._id) === enrollment.classId) : null;
+            return {
+                ...a,
+                templateName: template ? template.name : 'Unknown',
+                studentName: student ? `${student.firstName} ${student.lastName}` : 'Unknown',
+                className: cls ? cls.name : '',
+                classId: cls ? cls._id : ''
+            };
+        });
+        res.json(result);
     }
     catch (e) {
         res.status(500).json({ error: 'fetch_failed', message: e.message });

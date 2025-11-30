@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -15,6 +48,9 @@ const GradebookTemplate_1 = require("../models/GradebookTemplate");
 const axios_1 = __importDefault(require("axios"));
 const StudentSignature_1 = require("../models/StudentSignature");
 const Class_1 = require("../models/Class");
+const User_1 = require("../models/User");
+const path_1 = __importDefault(require("path"));
+const fs_1 = __importDefault(require("fs"));
 // eslint-disable-next-line
 const archiver = require('archiver');
 const auth_1 = require("../auth");
@@ -63,6 +99,13 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
             return renderDefault();
         if (tpl.exportPassword && tpl.exportPassword !== pwd)
             return renderDefault();
+        // Try to get assignment data for dropdowns
+        const TemplateAssignment = (await Promise.resolve().then(() => __importStar(require('../models/TemplateAssignment')))).TemplateAssignment;
+        const assignment = await TemplateAssignment.findOne({
+            studentId: id,
+            templateId: tplId
+        }).lean();
+        const assignmentData = assignment?.data || {};
         const categories = await Category_1.Category.find({}).lean();
         const comps = await Competency_1.Competency.find({}).lean();
         const compByCat = {};
@@ -74,6 +117,7 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
         const signatures = await StudentSignature_1.StudentSignature.findOne({ studentId: id }).lean();
         const sigMap = new Map((signatures?.items || []).map((s) => [s.label, s]));
         const classDoc = enrollment ? await Class_1.ClassModel.findById(enrollment.classId).lean() : null;
+        const level = classDoc ? classDoc.level : '';
         const resolveText = (t) => t
             .replace(/\{student\.firstName\}/g, String(student.firstName))
             .replace(/\{student\.lastName\}/g, String(student.lastName))
@@ -357,14 +401,123 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
                     }
                 }
             }
+            else if (b.type === 'signature_box') {
+                // Get the signature from the sub-admin who signed this template
+                const templateAssignment = await (await Promise.resolve().then(() => __importStar(require('../models/TemplateAssignment')))).TemplateAssignment.findOne({
+                    studentId: id,
+                    templateId: tplId
+                }).lean();
+                if (templateAssignment) {
+                    const TemplateSignature = (await Promise.resolve().then(() => __importStar(require('../models/TemplateSignature')))).TemplateSignature;
+                    const signature = await TemplateSignature.findOne({
+                        templateAssignmentId: String(templateAssignment._id)
+                    }).lean();
+                    if (signature?.subAdminId) {
+                        const subAdmin = await User_1.User.findById(signature.subAdminId).lean();
+                        const x = b.props?.x || 50;
+                        const y = b.props?.y || 50;
+                        const width = b.props?.width || 200;
+                        const height = b.props?.height || 80;
+                        // Draw white rectangle with black border
+                        doc.save();
+                        doc.rect(x, y, width, height).stroke('#000');
+                        // If sub-admin has a signature image, place it in the box
+                        if (subAdmin?.signatureUrl) {
+                            try {
+                                const sigPath = path_1.default.join(__dirname, '../../public', subAdmin.signatureUrl);
+                                if (fs_1.default.existsSync(sigPath)) {
+                                    const imgWidth = Math.min(width - 10, width * 0.9);
+                                    const imgHeight = height - 10;
+                                    doc.image(sigPath, x + 5, y + 5, { fit: [imgWidth, imgHeight], align: 'center', valign: 'center' });
+                                }
+                            }
+                            catch (e) {
+                                console.error('Failed to load signature image:', e);
+                            }
+                        }
+                        doc.restore();
+                    }
+                    else {
+                        // No signature yet, just draw empty box
+                        const x = b.props?.x || 50;
+                        const y = b.props?.y || 50;
+                        const width = b.props?.width || 200;
+                        const height = b.props?.height || 80;
+                        doc.rect(x, y, width, height).stroke('#000');
+                    }
+                }
+                else {
+                    // No assignment, just draw empty box
+                    const x = b.props?.x || 50;
+                    const y = b.props?.y || 50;
+                    const width = b.props?.width || 200;
+                    const height = b.props?.height || 80;
+                    doc.rect(x, y, width, height).stroke('#000');
+                }
+            }
+            else if (b.type === 'dropdown') {
+                // Check level
+                if (b.props?.levels && b.props.levels.length > 0 && level && !b.props.levels.includes(level)) {
+                    return;
+                }
+                // Render dropdown with selected value or as empty box
+                const dropdownNum = b.props?.dropdownNumber;
+                const selectedValue = dropdownNum ? assignmentData[`dropdown_${dropdownNum}`] : (b.props?.variableName ? assignmentData[b.props.variableName] : '');
+                const x = b.props?.x || 50;
+                const y = b.props?.y || 50;
+                const width = b.props?.width || 200;
+                const height = b.props?.height || 40;
+                // Draw dropdown box
+                doc.save();
+                doc.rect(x, y, width, height).stroke('#ccc');
+                // Draw label if present
+                if (b.props?.label) {
+                    doc.fontSize(10).fillColor('#666');
+                    doc.text(b.props.label, x, y - 14, { width });
+                }
+                // Draw dropdown number indicator
+                if (dropdownNum) {
+                    doc.fontSize(8).fillColor('#6c5ce7').font('Helvetica-Bold');
+                    doc.text(`#${dropdownNum}`, x + width - 25, y - 14);
+                    doc.font('Helvetica');
+                }
+                // Draw selected value or placeholder with text wrapping
+                doc.fontSize(b.props?.fontSize || 12).fillColor(b.props?.color || '#333');
+                const displayText = selectedValue || 'Sélectionner...';
+                doc.text(displayText, x + 8, y + 8, { width: width - 16, height: height - 16, align: 'left' });
+                doc.restore();
+            }
+            else if (b.type === 'dropdown_reference') {
+                // Render the value selected in the referenced dropdown
+                const dropdownNum = b.props?.dropdownNumber || 1;
+                const selectedValue = assignmentData[`dropdown_${dropdownNum}`] || `[Dropdown #${dropdownNum}]`;
+                if (b.props?.color)
+                    doc.fillColor(b.props.color);
+                doc.fontSize(b.props?.size || b.props?.fontSize || 12);
+                const x = b.props?.x, y = b.props?.y;
+                const width = b.props?.width || 200;
+                const height = b.props?.height;
+                if (typeof x === 'number' && typeof y === 'number') {
+                    const options = { width };
+                    if (height)
+                        options.height = height;
+                    doc.text(selectedValue, x, y, options);
+                }
+                else {
+                    doc.text(selectedValue);
+                }
+                doc.fillColor('#2d3436');
+            }
             else if (b.type === 'language_toggle') {
                 const items = b.props?.items || [];
+                // Filter items by level
+                const filteredItems = items.filter(it => !it.levels || it.levels.length === 0 || !level || it.levels.includes(level));
                 const r = b.props?.radius || 40;
                 const size = r * 2;
                 const spacing = b.props?.spacing || 12;
                 let x = b.props?.x || 50;
                 const y = b.props?.y || 50;
-                for (const it of items) {
+                for (const it of filteredItems) {
                     doc.save();
                     doc.circle(x + r, y + r, r).fill('#ddd');
                     if (it?.logo) {
@@ -385,6 +538,44 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
                     }
                     doc.restore();
                     x += size + spacing;
+                }
+            }
+            else if (b.type === 'promotion_info') {
+                const targetLevel = b.props?.targetLevel;
+                const promotions = assignmentData.promotions || [];
+                const promo = promotions.find((p) => p.to === targetLevel);
+                if (promo) {
+                    const x = b.props?.x || 50;
+                    const y = b.props?.y || 50;
+                    const width = b.props?.width || (b.props?.field ? 150 : 300);
+                    const height = b.props?.height || (b.props?.field ? 30 : 100);
+                    doc.save();
+                    doc.fontSize(b.props?.fontSize || 12).fillColor(b.props?.color || '#2d3436');
+                    if (!b.props?.field) {
+                        // Legacy behavior: Draw box and all info
+                        doc.rect(x, y, width, height).stroke('#6c5ce7');
+                        const textX = x + 10;
+                        let textY = y + 15;
+                        doc.font('Helvetica-Bold').text(`Passage en ${targetLevel}`, textX, textY, { width: width - 20, align: 'center' });
+                        textY += 20;
+                        doc.font('Helvetica').text(`${student.firstName} ${student.lastName}`, textX, textY, { width: width - 20, align: 'center' });
+                        textY += 20;
+                        doc.fontSize((b.props?.fontSize || 12) * 0.8).fillColor('#666');
+                        doc.text(`Année ${promo.year}`, textX, textY, { width: width - 20, align: 'center' });
+                    }
+                    else {
+                        // Specific field
+                        if (b.props.field === 'level') {
+                            doc.font('Helvetica-Bold').text(`Passage en ${targetLevel}`, x, y + (height / 2) - 6, { width, align: 'center' });
+                        }
+                        else if (b.props.field === 'student') {
+                            doc.font('Helvetica').text(`${student.firstName} ${student.lastName}`, x, y + (height / 2) - 6, { width, align: 'center' });
+                        }
+                        else if (b.props.field === 'year') {
+                            doc.text(`Année ${promo.year}`, x, y + (height / 2) - 6, { width, align: 'center' });
+                        }
+                    }
+                    doc.restore();
                 }
             }
         };
@@ -471,6 +662,13 @@ exports.pdfRouter.get('/class/:classId/batch', (0, auth_1.requireAuth)(['ADMIN',
                     }
                 }
                 else {
+                    // Try to get assignment data for dropdowns
+                    const TemplateAssignment = (await Promise.resolve().then(() => __importStar(require('../models/TemplateAssignment')))).TemplateAssignment;
+                    const assignment = await TemplateAssignment.findOne({
+                        studentId: String(s._id),
+                        templateId: String(templateId)
+                    }).lean();
+                    const assignmentData = assignment?.data || {};
                     const categories = await Category_1.Category.find({}).lean();
                     const comps = await Competency_1.Competency.find({}).lean();
                     const compByCat = {};
@@ -716,6 +914,55 @@ exports.pdfRouter.get('/class/:classId/batch', (0, auth_1.requireAuth)(['ADMIN',
                                     doc.moveDown(0.4);
                                 }
                             }
+                        }
+                        else if (b.type === 'dropdown') {
+                            // Render dropdown with selected value or as empty box
+                            const dropdownNum = b.props?.dropdownNumber;
+                            const selectedValue = dropdownNum ? assignmentData[`dropdown_${dropdownNum}`] : (b.props?.variableName ? assignmentData[b.props.variableName] : '');
+                            const x = b.props?.x || 50;
+                            const y = b.props?.y || 50;
+                            const width = b.props?.width || 200;
+                            const height = b.props?.height || 40;
+                            // Draw dropdown box
+                            doc.save();
+                            doc.rect(x, y, width, height).stroke('#ccc');
+                            // Draw label if present
+                            if (b.props?.label) {
+                                doc.fontSize(10).fillColor('#666');
+                                doc.text(b.props.label, x, y - 14, { width });
+                            }
+                            // Draw dropdown number indicator
+                            if (dropdownNum) {
+                                doc.fontSize(8).fillColor('#6c5ce7').font('Helvetica-Bold');
+                                doc.text(`#${dropdownNum}`, x + width - 25, y - 14);
+                                doc.font('Helvetica');
+                            }
+                            // Draw selected value or placeholder with text wrapping
+                            doc.fontSize(b.props?.fontSize || 12).fillColor(b.props?.color || '#333');
+                            const displayText = selectedValue || 'Sélectionner...';
+                            doc.text(displayText, x + 8, y + 8, { width: width - 16, height: height - 16, align: 'left' });
+                            doc.restore();
+                        }
+                        else if (b.type === 'dropdown_reference') {
+                            // Render the value selected in the referenced dropdown
+                            const dropdownNum = b.props?.dropdownNumber || 1;
+                            const selectedValue = assignmentData[`dropdown_${dropdownNum}`] || `[Dropdown #${dropdownNum}]`;
+                            if (b.props?.color)
+                                doc.fillColor(b.props.color);
+                            doc.fontSize(b.props?.size || b.props?.fontSize || 12);
+                            const x = b.props?.x, y = b.props?.y;
+                            const width = b.props?.width || 200;
+                            const height = b.props?.height;
+                            if (typeof x === 'number' && typeof y === 'number') {
+                                const options = { width };
+                                if (height)
+                                    options.height = height;
+                                doc.text(selectedValue, x, y, options);
+                            }
+                            else {
+                                doc.text(selectedValue);
+                            }
+                            doc.fillColor('#2d3436');
                         }
                         else if (b.type === 'language_toggle') {
                             const items = b.props?.items || [];

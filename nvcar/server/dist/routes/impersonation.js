@@ -4,6 +4,7 @@ exports.impersonationRouter = void 0;
 const express_1 = require("express");
 const auth_1 = require("../auth");
 const User_1 = require("../models/User");
+const OutlookUser_1 = require("../models/OutlookUser");
 const auditLogger_1 = require("../utils/auditLogger");
 exports.impersonationRouter = (0, express_1.Router)();
 // Admin: Start impersonating a user (View As)
@@ -15,7 +16,10 @@ exports.impersonationRouter.post('/start', (0, auth_1.requireAuth)(['ADMIN']), a
             return res.status(400).json({ error: 'missing_target_user_id' });
         }
         // Get the target user
-        const targetUser = await User_1.User.findById(targetUserId).lean();
+        let targetUser = await User_1.User.findById(targetUserId).lean();
+        if (!targetUser) {
+            targetUser = await OutlookUser_1.OutlookUser.findById(targetUserId).lean();
+        }
         if (!targetUser) {
             return res.status(404).json({ error: 'user_not_found' });
         }
@@ -48,7 +52,7 @@ exports.impersonationRouter.post('/start', (0, auth_1.requireAuth)(['ADMIN']), a
                 id: String(targetUser._id),
                 email: targetUser.email,
                 role: targetUser.role,
-                displayName: targetUser.displayName
+                displayName: targetUser.displayName || targetUser.email
             }
         });
     }
@@ -91,7 +95,10 @@ exports.impersonationRouter.get('/status', (0, auth_1.requireAuth)(), async (req
             return res.json({ isImpersonating: false });
         }
         // Get impersonated user details
-        const impersonatedUser = await User_1.User.findById(user.userId).lean();
+        let impersonatedUser = await User_1.User.findById(user.userId).lean();
+        if (!impersonatedUser) {
+            impersonatedUser = await OutlookUser_1.OutlookUser.findById(user.userId).lean();
+        }
         const actualAdmin = await User_1.User.findById(user.actualUserId).lean();
         res.json({
             isImpersonating: true,
@@ -99,7 +106,7 @@ exports.impersonationRouter.get('/status', (0, auth_1.requireAuth)(), async (req
                 id: String(impersonatedUser._id),
                 email: impersonatedUser.email,
                 role: impersonatedUser.role,
-                displayName: impersonatedUser.displayName
+                displayName: impersonatedUser.displayName || impersonatedUser.email
             } : null,
             actualAdmin: actualAdmin ? {
                 id: String(actualAdmin._id),

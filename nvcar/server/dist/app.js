@@ -62,6 +62,11 @@ const teacherTemplates_1 = require("./routes/teacherTemplates");
 const subAdminTemplates_1 = require("./routes/subAdminTemplates");
 const auditLogs_1 = require("./routes/auditLogs");
 const impersonation_1 = require("./routes/impersonation");
+const suggestions_1 = require("./routes/suggestions");
+const settings_1 = require("./routes/settings");
+const microsoft_1 = require("./routes/microsoft");
+const outlookUsers_1 = require("./routes/outlookUsers");
+const analytics_1 = require("./routes/analytics");
 const createApp = () => {
     const app = (0, express_1.default)();
     app.use((0, cors_1.default)({
@@ -93,6 +98,11 @@ const createApp = () => {
     app.use('/subadmin', subAdminTemplates_1.subAdminTemplatesRouter);
     app.use('/audit-logs', auditLogs_1.auditLogsRouter);
     app.use('/impersonation', impersonation_1.impersonationRouter);
+    app.use('/suggestions', suggestions_1.suggestionsRouter);
+    app.use('/settings', settings_1.settingsRouter);
+    app.use('/microsoft', microsoft_1.microsoftRouter);
+    app.use('/outlook-users', outlookUsers_1.outlookUsersRouter);
+    app.use('/analytics', analytics_1.analyticsRouter);
     app.use('/uploads', express_1.default.static(path_1.default.join(process.cwd(), 'public', 'uploads')));
     app.get('/health', (_, res) => res.json({ ok: true }));
     (0, db_1.connectDb)()
