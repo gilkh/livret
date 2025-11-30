@@ -18,6 +18,141 @@ export default function Users() {
   const [outlookEmail, setOutlookEmail] = useState('')
   const [outlookRole, setOutlookRole] = useState<'ADMIN'|'SUBADMIN'|'TEACHER'>('TEACHER')
   const [outlookDisplayName, setOutlookDisplayName] = useState('')
+  const [activeTab, setActiveTab] = useState<'local' | 'microsoft'>('local')
+
+  const getRoleColor = (role: string) => {
+    switch(role) {
+      case 'ADMIN': return { bg: '#fff0f6', color: '#c41d7f', border: '#ffadd2' }
+      case 'SUBADMIN': return { bg: '#e6f7ff', color: '#096dd9', border: '#91d5ff' }
+      case 'TEACHER': return { bg: '#f6ffed', color: '#389e0d', border: '#b7eb8f' }
+      default: return { bg: '#f5f5f5', color: '#595959', border: '#d9d9d9' }
+    }
+  }
+
+  const getRoleLabel = (role: string) => {
+    switch(role) {
+      case 'ADMIN': return 'Administrateur'
+      case 'SUBADMIN': return 'Sous-Administrateur'
+      case 'TEACHER': return 'Enseignant'
+      default: return role
+    }
+  }
+
+  const renderRoleSection = (role: 'ADMIN'|'SUBADMIN'|'TEACHER', userList: (User|OutlookUser)[], isOutlook: boolean) => {
+    const filteredUsers = userList.filter(u => u.role === role)
+    if (filteredUsers.length === 0) return null
+
+    const roleStyle = getRoleColor(role)
+
+    return (
+      <div style={{ marginBottom: 24 }}>
+        <h4 style={{ 
+          borderBottom: `2px solid ${roleStyle.border}`, 
+          paddingBottom: 8, 
+          marginBottom: 16,
+          color: roleStyle.color,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8
+        }}>
+          {getRoleLabel(role)}s
+          <span style={{ 
+            fontSize: '0.8rem', 
+            background: roleStyle.bg, 
+            padding: '2px 8px', 
+            borderRadius: 12 
+          }}>{filteredUsers.length}</span>
+        </h4>
+        
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 16 }}>
+          {filteredUsers.map(u => (
+            <div key={u._id} className="card" style={{ padding: 16, borderTop: `4px solid ${roleStyle.color}` }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+                <div style={{ fontWeight: 600, fontSize: '1.05rem' }}>
+                  {isOutlook ? (
+                     <input
+                        defaultValue={(u as OutlookUser).displayName || ''}
+                        onBlur={(e) => {
+                            if (e.target.value !== ((u as OutlookUser).displayName || '')) {
+                                updateOutlookUserDisplayName(u._id, e.target.value)
+                            }
+                        }}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter') e.currentTarget.blur()
+                        }}
+                        placeholder="Nom d'affichage"
+                        style={{ border: 'none', borderBottom: '1px dashed #ccc', width: '100%', padding: '2px 0' }}
+                     />
+                  ) : u.displayName}
+                </div>
+              </div>
+              
+              <div style={{ color: '#666', fontSize: '0.9rem', marginBottom: 16, wordBreak: 'break-all' }}>
+                {u.email}
+              </div>
+
+              {isOutlook && (u as OutlookUser).lastLogin && (
+                 <div style={{ fontSize: '0.75rem', color: '#999', marginBottom: 12 }}>
+                    Dernière connexion: {new Date((u as OutlookUser).lastLogin!).toLocaleDateString('fr-FR')}
+                 </div>
+              )}
+
+              <div style={{ paddingTop: 12, borderTop: '1px solid #f0f0f0', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {!isOutlook && (
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <input 
+                        placeholder="Nouveau mot de passe" 
+                        type="password" 
+                        value={resetMap[u._id] || ''} 
+                        onChange={e => setResetMap({ ...resetMap, [u._id]: e.target.value })} 
+                        style={{ padding: '6px', borderRadius: 4, border: '1px solid #ddd', fontSize: '0.85rem', flex: 1 }} 
+                    />
+                    <button className="btn secondary" onClick={() => resetPassword(u._id)} style={{ padding: '6px 10px', fontSize: '0.8rem' }}>Reset</button>
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+                   {isOutlook ? (
+                      <select 
+                        value={u.role}
+                        onChange={e => updateOutlookUserRole(u._id, e.target.value)}
+                        style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #ccc', fontSize: '0.85rem' }}
+                      >
+                        <option value="TEACHER">Enseignant</option>
+                        <option value="SUBADMIN">Sous-admin</option>
+                        <option value="ADMIN">Admin</option>
+                      </select>
+                   ) : (
+                     <div>
+                        {u.role !== 'ADMIN' && (
+                            <button 
+                            className="btn" 
+                            onClick={() => viewAsUser(u)}
+                            disabled={impersonating === u._id}
+                            style={{ backgroundColor: '#4CAF50', padding: '4px 8px', fontSize: '0.8rem', marginRight: 8 }}
+                            title="Se connecter en tant que..."
+                            >
+                            {impersonating === u._id ? '...' : 'Login As'}
+                            </button>
+                        )}
+                     </div>
+                   )}
+                   
+                   <button 
+                      className="btn secondary" 
+                      onClick={() => isOutlook ? deleteOutlookUser(u._id) : deleteUser(u._id)} 
+                      style={{ background: '#fff1f0', color: '#cf1322', border: '1px solid #ffa39e', padding: '4px 8px', fontSize: '0.8rem' }}
+                   >
+                      Supprimer
+                   </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    )
+  }
 
   const load = async () => {
     const r = await api.get('/users')
@@ -146,234 +281,114 @@ export default function Users() {
 
   return (
     <div className="container">
-      <div style={{ marginBottom: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div>
-            <h2 className="title" style={{ fontSize: '1.8rem', marginBottom: 8 }}>Gestion des utilisateurs</h2>
-            <p className="note">Manage user access and roles</p>
-        </div>
+      <div style={{ marginBottom: 32 }}>
+        <h2 className="title" style={{ fontSize: '2rem', marginBottom: 8 }}>Gestion des utilisateurs</h2>
+        <p className="note">Gérez les accès et les rôles des utilisateurs de la plateforme.</p>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '350px 1fr', gap: 24, alignItems: 'start' }}>
-        {/* Create User Panel */}
-        <div className="card" style={{ position: 'sticky', top: 24 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
-            <div style={{ background: '#e6f7ff', padding: 8, borderRadius: 8, fontSize: 20 }}>👤</div>
-            <h3 style={{ margin: 0 }}>Nouveau</h3>
-          </div>
-          
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <div>
-                <label className="note" style={{ display: 'block', marginBottom: 4 }}>Email</label>
-                <input placeholder="user@school.com" value={email} onChange={e => setEmail(e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #e2e8f0', outline: 'none', transition: 'border-color 0.2s' }} />
-            </div>
-            <div>
-                <label className="note" style={{ display: 'block', marginBottom: 4 }}>Mot de passe</label>
-                <input placeholder="••••••••" type="password" value={password} onChange={e => setPassword(e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #e2e8f0', outline: 'none' }} />
-            </div>
-            <div>
-                <label className="note" style={{ display: 'block', marginBottom: 4 }}>Nom affiché</label>
-                <input placeholder="John Doe" value={displayName} onChange={e => setDisplayName(e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #e2e8f0', outline: 'none' }} />
-            </div>
-            <div>
-                <label className="note" style={{ display: 'block', marginBottom: 4 }}>Rôle</label>
-                <select value={role} onChange={e => setRole(e.target.value as any)} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #e2e8f0', outline: 'none', backgroundColor: 'white' }}>
-                  <option value="ADMIN">Admin</option>
-                  <option value="SUBADMIN">Sous-admin</option>
-                  <option value="TEACHER">Enseignant</option>
-                </select>
-            </div>
-            <button className="btn" onClick={createUser} style={{ marginTop: 8, width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 8 }}>
-                <span>+</span> Créer l'utilisateur
-            </button>
-          </div>
-        </div>
-
-        {/* User List Panel */}
-        <div className="card">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-            <h3 style={{ margin: 0 }}>Liste des utilisateurs ({users.length})</h3>
-          </div>
-          
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {users.map(u => (
-              <div key={u._id} style={{ padding: 16, borderRadius: 12, border: '1px solid #f0f0f0', background: '#fff', transition: 'box-shadow 0.2s', display: 'flex', flexDirection: 'column', gap: 12 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                    <div>
-                        <div style={{ fontWeight: 600, fontSize: '1.1rem', color: '#2d3436' }}>{u.displayName}</div>
-                        <div style={{ color: '#636e72', fontSize: '0.9rem' }}>{u.email}</div>
-                    </div>
-                    <div className={`pill ${u.role === 'ADMIN' ? 'admin' : u.role === 'SUBADMIN' ? 'subadmin' : 'teacher'}`} 
-                         style={{ 
-                             fontSize: '0.75rem', 
-                             background: u.role === 'ADMIN' ? '#fff0f6' : u.role === 'SUBADMIN' ? '#e6f7ff' : '#f6ffed',
-                             color: u.role === 'ADMIN' ? '#c41d7f' : u.role === 'SUBADMIN' ? '#096dd9' : '#389e0d'
-                         }}>
-                        {u.role}
-                    </div>
-                </div>
-
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', paddingTop: 12, borderTop: '1px solid #f5f5f5' }}>
-                  <div style={{ flex: 1, display: 'flex', gap: 8 }}>
-                    <input 
-                        placeholder="Nouveau mot de passe" 
-                        type="password" 
-                        value={resetMap[u._id] || ''} 
-                        onChange={e => setResetMap({ ...resetMap, [u._id]: e.target.value })} 
-                        style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid #ddd', fontSize: '0.9rem', width: '100%', maxWidth: 200 }} 
-                    />
-                    <button className="btn secondary" onClick={() => resetPassword(u._id)} style={{ padding: '6px 12px', fontSize: '0.85rem' }}>Reset</button>
-                  </div>
-                  
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    {u.role !== 'ADMIN' && (
-                        <button 
-                        className="btn" 
-                        onClick={() => viewAsUser(u)}
-                        disabled={impersonating === u._id}
-                        style={{ backgroundColor: '#4CAF50', padding: '6px 12px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: 6 }}
-                        title="Open user dashboard in new tab"
-                        >
-                        {impersonating === u._id ? '🔄' : '🚪'} Login As
-                        </button>
-                    )}
-                    <button className="btn secondary" onClick={() => deleteUser(u._id)} style={{ background: '#fff1f0', color: '#cf1322', border: '1px solid #ffa39e', padding: '6px 12px', fontSize: '0.85rem' }}>Supprimer</button>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+      <div style={{ display: 'flex', gap: 16, marginBottom: 24, borderBottom: '1px solid #e0e0e0' }}>
+        <button 
+          onClick={() => setActiveTab('local')}
+          style={{
+            padding: '12px 24px',
+            background: 'none',
+            border: 'none',
+            borderBottom: activeTab === 'local' ? '3px solid #1890ff' : '3px solid transparent',
+            color: activeTab === 'local' ? '#1890ff' : '#666',
+            fontWeight: activeTab === 'local' ? 600 : 400,
+            cursor: 'pointer',
+            fontSize: '1.1rem',
+            transition: 'all 0.2s'
+          }}
+        >
+          👤 Comptes Locaux
+        </button>
+        <button 
+          onClick={() => setActiveTab('microsoft')}
+          style={{
+            padding: '12px 24px',
+            background: 'none',
+            border: 'none',
+            borderBottom: activeTab === 'microsoft' ? '3px solid #0078d4' : '3px solid transparent',
+            color: activeTab === 'microsoft' ? '#0078d4' : '#666',
+            fontWeight: activeTab === 'microsoft' ? 600 : 400,
+            cursor: 'pointer',
+            fontSize: '1.1rem',
+            transition: 'all 0.2s'
+          }}
+        >
+          🔐 Comptes Microsoft
+        </button>
       </div>
 
-      {/* Outlook/Microsoft Users Section */}
-      <div style={{ marginTop: 48 }}>
-        <div className="card" style={{ borderLeft: '4px solid #0078d4' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20, paddingBottom: 16, borderBottom: '1px solid #f0f0f0' }}>
-            <div style={{ background: '#e6f2ff', padding: 8, borderRadius: 8, fontSize: 20 }}>🔐</div>
-            <div>
-              <h3 style={{ margin: 0 }}>Utilisateurs Microsoft Outlook</h3>
-              <p className="note" style={{ margin: '4px 0 0 0' }}>Les utilisateurs peuvent se connecter directement avec leur compte Microsoft</p>
-            </div>
-          </div>
-
-          {/* Add new Outlook user */}
-          <div style={{ background: '#f5f5f5', padding: 16, borderRadius: 8, marginBottom: 24 }}>
-            <h4 style={{ margin: '0 0 12px 0', fontSize: '0.95rem' }}>Ajouter un utilisateur Outlook</h4>
-            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 8, marginBottom: 8 }}>
-              <input 
-                placeholder="Email Outlook (ex: user@outlook.com)" 
-                value={outlookEmail} 
-                onChange={e => setOutlookEmail(e.target.value)}
-                style={{ padding: 10, borderRadius: 6, border: '1px solid #ddd' }}
-                type="email"
-              />
-              <input 
-                placeholder="Nom d'affichage (optionnel)" 
-                value={outlookDisplayName} 
-                onChange={e => setOutlookDisplayName(e.target.value)}
-                style={{ padding: 10, borderRadius: 6, border: '1px solid #ddd' }}
-              />
-              <select 
-                value={outlookRole} 
-                onChange={e => setOutlookRole(e.target.value as any)}
-                style={{ padding: 10, borderRadius: 6, border: '1px solid #ddd', backgroundColor: 'white' }}
-              >
-                <option value="TEACHER">Enseignant</option>
-                <option value="SUBADMIN">Sous-admin</option>
-                <option value="ADMIN">Admin</option>
-              </select>
-            </div>
-            <button className="btn" onClick={addOutlookUser} style={{ width: '100%' }}>
-              + Ajouter utilisateur
-            </button>
-          </div>
-
-          {/* List of Outlook users */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {outlookUsers.length === 0 ? (
-              <div className="note" style={{ textAlign: 'center', padding: 20, fontStyle: 'italic' }}>
-                Aucun utilisateur Outlook autorisé
-              </div>
-            ) : (
-              outlookUsers.map(user => (
-                <div 
-                  key={user._id} 
-                  style={{ 
-                    display: 'grid', 
-                    gridTemplateColumns: '2fr 1fr 1fr auto',
-                    alignItems: 'center',
-                    gap: 12,
-                    padding: 12,
-                    borderRadius: 8,
-                    border: '1px solid #e6f2ff',
-                    background: '#fff'
-                  }}
-                >
-                  <div>
-                    <div style={{ fontWeight: 600, marginBottom: 4 }}>{user.email}</div>
-                    <input
-                        placeholder="Nom d'affichage"
-                        defaultValue={user.displayName || ''}
-                        onBlur={(e) => {
-                            if (e.target.value !== (user.displayName || '')) {
-                                updateOutlookUserDisplayName(user._id, e.target.value)
-                            }
-                        }}
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                                e.currentTarget.blur()
-                            }
-                        }}
-                        style={{ 
-                            fontSize: '0.85rem', 
-                            padding: '4px 8px', 
-                            border: '1px solid #ddd', 
-                            borderRadius: 4,
-                            width: '100%',
-                            color: '#666'
-                        }}
-                    />
-                    {user.lastLogin && (
-                      <div style={{ fontSize: '0.75rem', color: '#999', marginTop: 4 }}>
-                        Dernière connexion: {new Date(user.lastLogin).toLocaleDateString('fr-FR')}
-                      </div>
-                    )}
-                  </div>
-                  <span className="pill" style={{ 
-                    background: user.role === 'ADMIN' ? '#fff1f0' : user.role === 'SUBADMIN' ? '#f0f5ff' : '#f6ffed',
-                    color: user.role === 'ADMIN' ? '#cf1322' : user.role === 'SUBADMIN' ? '#1890ff' : '#52c41a'
-                  }}>
-                    {user.role === 'ADMIN' ? 'Admin' : user.role === 'SUBADMIN' ? 'Sous-admin' : 'Enseignant'}
-                  </span>
-                  <select 
-                    value={user.role}
-                    onChange={e => updateOutlookUserRole(user._id, e.target.value)}
-                    style={{ padding: '6px 8px', borderRadius: 4, border: '1px solid #ccc', fontSize: '0.85rem' }}
-                  >
-                    <option value="TEACHER">Enseignant</option>
-                    <option value="SUBADMIN">Sous-admin</option>
-                    <option value="ADMIN">Admin</option>
-                  </select>
-                  <button 
-                    onClick={() => deleteOutlookUser(user._id)}
-                    style={{ 
-                      border: 'none', 
-                      background: '#ff4d4f', 
-                      color: 'white',
-                      padding: '6px 12px',
-                      borderRadius: 4,
-                      cursor: 'pointer',
-                      fontSize: '0.85rem'
-                    }}
-                  >
-                    ✕
-                  </button>
+      {activeTab === 'local' && (
+        <div className="animate-fade-in">
+          <div className="card" style={{ marginBottom: 32, background: '#f9f9f9', border: '1px dashed #d9d9d9' }}>
+            <h3 style={{ marginTop: 0, marginBottom: 16 }}>Ajouter un utilisateur local</h3>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, alignItems: 'end' }}>
+                <div>
+                    <label className="note" style={{ display: 'block', marginBottom: 4 }}>Email</label>
+                    <input placeholder="user@school.com" value={email} onChange={e => setEmail(e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: 6, border: '1px solid #d9d9d9' }} />
                 </div>
-              ))
-            )}
+                <div>
+                    <label className="note" style={{ display: 'block', marginBottom: 4 }}>Mot de passe</label>
+                    <input placeholder="••••••••" type="password" value={password} onChange={e => setPassword(e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: 6, border: '1px solid #d9d9d9' }} />
+                </div>
+                <div>
+                    <label className="note" style={{ display: 'block', marginBottom: 4 }}>Nom affiché</label>
+                    <input placeholder="John Doe" value={displayName} onChange={e => setDisplayName(e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: 6, border: '1px solid #d9d9d9' }} />
+                </div>
+                <div>
+                    <label className="note" style={{ display: 'block', marginBottom: 4 }}>Rôle</label>
+                    <select value={role} onChange={e => setRole(e.target.value as any)} style={{ width: '100%', padding: '10px', borderRadius: 6, border: '1px solid #d9d9d9', backgroundColor: 'white' }}>
+                      <option value="ADMIN">Admin</option>
+                      <option value="SUBADMIN">Sous-admin</option>
+                      <option value="TEACHER">Enseignant</option>
+                    </select>
+                </div>
+                <button className="btn" onClick={createUser} style={{ height: 42 }}>+ Créer</button>
+            </div>
           </div>
+
+          {renderRoleSection('ADMIN', users, false)}
+          {renderRoleSection('SUBADMIN', users, false)}
+          {renderRoleSection('TEACHER', users, false)}
         </div>
-      </div>
+      )}
+
+      {activeTab === 'microsoft' && (
+        <div className="animate-fade-in">
+           <div className="card" style={{ marginBottom: 32, background: '#f0f7ff', border: '1px dashed #bae7ff' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+                <h3 style={{ margin: 0 }}>Ajouter un utilisateur Outlook</h3>
+                <span className="note">Les utilisateurs se connectent avec leur compte Microsoft</span>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, alignItems: 'end' }}>
+                <div>
+                    <label className="note" style={{ display: 'block', marginBottom: 4 }}>Email Outlook</label>
+                    <input placeholder="user@outlook.com" value={outlookEmail} onChange={e => setOutlookEmail(e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: 6, border: '1px solid #d9d9d9' }} />
+                </div>
+                <div>
+                    <label className="note" style={{ display: 'block', marginBottom: 4 }}>Nom (Optionnel)</label>
+                    <input placeholder="John Doe" value={outlookDisplayName} onChange={e => setOutlookDisplayName(e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: 6, border: '1px solid #d9d9d9' }} />
+                </div>
+                <div>
+                    <label className="note" style={{ display: 'block', marginBottom: 4 }}>Rôle</label>
+                    <select value={outlookRole} onChange={e => setOutlookRole(e.target.value as any)} style={{ width: '100%', padding: '10px', borderRadius: 6, border: '1px solid #d9d9d9', backgroundColor: 'white' }}>
+                      <option value="ADMIN">Admin</option>
+                      <option value="SUBADMIN">Sous-admin</option>
+                      <option value="TEACHER">Enseignant</option>
+                    </select>
+                </div>
+                <button className="btn" onClick={addOutlookUser} style={{ height: 42, backgroundColor: '#0078d4' }}>+ Autoriser</button>
+            </div>
+          </div>
+
+          {renderRoleSection('ADMIN', outlookUsers as User[], true)}
+          {renderRoleSection('SUBADMIN', outlookUsers as User[], true)}
+          {renderRoleSection('TEACHER', outlookUsers as User[], true)}
+        </div>
+      )}
     </div>
   )
 }
