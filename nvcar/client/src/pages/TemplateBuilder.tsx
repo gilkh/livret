@@ -52,6 +52,9 @@ export default function TemplateBuilder() {
     { type: 'competency_list', props: { fontSize: 12, color: '#2d3436' } },
     { type: 'signature', props: { labels: ['Directeur', 'Enseignant', 'Parent'], fontSize: 12 } },
     { type: 'signature_box', props: { width: 200, height: 80, label: 'Signature Sous-Admin' } },
+    { type: 'promotion_info', props: { field: 'level', targetLevel: 'MS', fontSize: 12, color: '#2d3436', width: 150, height: 30 } },
+    { type: 'promotion_info', props: { field: 'student', targetLevel: 'MS', fontSize: 12, color: '#2d3436', width: 150, height: 30 } },
+    { type: 'promotion_info', props: { field: 'year', targetLevel: 'MS', fontSize: 12, color: '#2d3436', width: 150, height: 30 } },
     { type: 'rect', props: { width: 160, height: 80, color: '#eef1f7' } },
     { type: 'circle', props: { radius: 60, color: '#ffeaa7' } },
     {
@@ -100,6 +103,40 @@ export default function TemplateBuilder() {
     }
     
     const blocks = [...page.blocks, { type: b.type, props: newProps }]
+    pages[selectedPage] = { ...page, blocks }
+    setTpl({ ...tpl, pages })
+    setSelectedIndex(blocks.length - 1)
+    setSelectedCell(null)
+  }
+
+  const duplicateBlock = () => {
+    if (selectedIndex == null) return
+    const pages = [...tpl.pages]
+    const page = { ...pages[selectedPage] }
+    const blockToDuplicate = page.blocks[selectedIndex]
+    
+    // Create a deep copy of the block props
+    const newProps = JSON.parse(JSON.stringify(blockToDuplicate.props))
+    
+    // Offset the position slightly so it doesn't overlap exactly
+    newProps.x = (newProps.x || 0) + 20
+    newProps.y = (newProps.y || 0) + 20
+    
+    // Handle z-index
+    const zList = (page.blocks || []).map(bb => (bb.props?.z ?? 0))
+    const nextZ = (zList.length ? Math.max(...zList) : 0) + 1
+    newProps.z = nextZ
+
+    // Handle dropdown numbering if it's a dropdown
+    if (blockToDuplicate.type === 'dropdown') {
+      const allDropdowns = getAllDropdowns()
+      const maxNum = allDropdowns.reduce((max, d) => Math.max(max, d.block.props.dropdownNumber || 0), 0)
+      newProps.dropdownNumber = maxNum + 1
+    }
+
+    const newBlock = { type: blockToDuplicate.type, props: newProps }
+    const blocks = [...page.blocks, newBlock]
+    
     pages[selectedPage] = { ...page, blocks }
     setTpl({ ...tpl, pages })
     setSelectedIndex(blocks.length - 1)
@@ -1221,6 +1258,7 @@ export default function TemplateBuilder() {
               blocksPalette.find(b => b.type === 'dropdown'),
               blocksPalette.find(b => b.type === 'dropdown_reference'),
               blocksPalette.find(b => b.type === 'language_toggle'),
+              ...blocksPalette.filter(b => b.type === 'promotion_info'),
             ].filter(Boolean).map((b, i) => (
               <div 
                 key={i}
@@ -1253,11 +1291,15 @@ export default function TemplateBuilder() {
                     {b!.type === 'dropdown' && '📋'}
                     {b!.type === 'dropdown_reference' && '🔗'}
                     {b!.type === 'language_toggle' && '🌐'}
+                    {b!.type === 'promotion_info' && '🎓'}
                   </span>
                   <span style={{ fontSize: 13, fontWeight: 500 }}>
                     {b!.type === 'dropdown' && 'Menu déroulant'}
                     {b!.type === 'dropdown_reference' && 'Réf. dropdown'}
                     {b!.type === 'language_toggle' && 'Langues'}
+                    {b!.type === 'promotion_info' && b!.props.field === 'level' && 'Info Passage (Niveau)'}
+                    {b!.type === 'promotion_info' && b!.props.field === 'student' && 'Info Passage (Élève)'}
+                    {b!.type === 'promotion_info' && b!.props.field === 'year' && 'Info Passage (Année)'}
                   </span>
                 </div>
                 <span style={{ fontSize: 18, color: '#667eea' }}>+</span>
@@ -1408,6 +1450,39 @@ export default function TemplateBuilder() {
                     color: '#999'
                   }}>
                     {b.props.label || 'Signature'}
+                  </div>
+                )}
+                {b.type === 'promotion_info' && (
+                  <div style={{ 
+                    width: b.props.width || (b.props.field ? 150 : 300), 
+                    height: b.props.height || (b.props.field ? 30 : 100), 
+                    border: '1px dashed #6c5ce7', 
+                    background: '#f0f4ff',
+                    padding: 8,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    fontSize: b.props.fontSize || 12,
+                    color: b.props.color || '#2d3436',
+                    textAlign: 'center'
+                  }}>
+                    {!b.props.field && (
+                      <>
+                        <div style={{ fontWeight: 'bold', marginBottom: 4 }}>🎓 Passage en {b.props.targetLevel || '...'}</div>
+                        <div>{studentId ? 'Nom Prénom' : '{Nom Prénom}'}</div>
+                        <div style={{ fontSize: '0.9em', opacity: 0.7 }}>Année {new Date().getFullYear()}-{new Date().getFullYear()+1}</div>
+                      </>
+                    )}
+                    {b.props.field === 'level' && (
+                      <div style={{ fontWeight: 'bold' }}>Passage en {b.props.targetLevel || '...'}</div>
+                    )}
+                    {b.props.field === 'student' && (
+                      <div>{studentId ? 'Nom Prénom' : '{Nom Prénom}'}</div>
+                    )}
+                    {b.props.field === 'year' && (
+                      <div>Année {new Date().getFullYear()}-{new Date().getFullYear()+1}</div>
+                    )}
                   </div>
                 )}
                 {b.type === 'dropdown' && (
@@ -2230,6 +2305,28 @@ export default function TemplateBuilder() {
                 {tpl.pages[selectedPage].blocks[selectedIndex].type === 'signature' && (
                   <textarea placeholder="Labels séparés par des virgules" rows={3} value={(tpl.pages[selectedPage].blocks[selectedIndex].props.labels || []).join(',')} onChange={e => updateSelected({ labels: e.target.value.split(',').map(s => s.trim()) })} style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
                 )}
+                {tpl.pages[selectedPage].blocks[selectedIndex].type === 'promotion_info' && (
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    <div className="note">
+                      {tpl.pages[selectedPage].blocks[selectedIndex].props.field === 'level' && 'Info Passage (Niveau)'}
+                      {tpl.pages[selectedPage].blocks[selectedIndex].props.field === 'student' && 'Info Passage (Élève)'}
+                      {tpl.pages[selectedPage].blocks[selectedIndex].props.field === 'year' && 'Info Passage (Année)'}
+                      {!tpl.pages[selectedPage].blocks[selectedIndex].props.field && 'Info Passage (Complet)'}
+                    </div>
+                    <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Niveau cible</label>
+                    <select 
+                      value={tpl.pages[selectedPage].blocks[selectedIndex].props.targetLevel || 'MS'} 
+                      onChange={e => updateSelected({ targetLevel: e.target.value })} 
+                      style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', width: '100%' }}
+                    >
+                      <option value="MS">MS</option>
+                      <option value="GS">GS</option>
+                      <option value="EB1">EB1</option>
+                    </select>
+                    <input placeholder="Largeur" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.width || (tpl.pages[selectedPage].blocks[selectedIndex].props.field ? 150 : 300)} onChange={e => updateSelected({ width: Number(e.target.value) })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+                    <input placeholder="Hauteur" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.height || (tpl.pages[selectedPage].blocks[selectedIndex].props.field ? 30 : 100)} onChange={e => updateSelected({ height: Number(e.target.value) })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+                  </div>
+                )}
                 {tpl.pages[selectedPage].blocks[selectedIndex].type === 'language_toggle' && (
                   <div style={{ display: 'grid', gap: 8 }}>
                     <input placeholder="Rayon" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.radius || 40} onChange={e => updateSelected({ radius: Number(e.target.value) })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
@@ -2272,6 +2369,27 @@ export default function TemplateBuilder() {
                           items[i] = { ...items[i], logo: e.target.value }
                           updateSelected({ items })
                         }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', width: '100%' }} />
+                        <div style={{ marginTop: 8 }}>
+                          <div style={{ fontSize: 11, fontWeight: 600, color: '#6c757d', marginBottom: 4 }}>Niveaux assignés:</div>
+                          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                            {['PS', 'MS', 'GS'].map(l => (
+                              <label key={l} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, cursor: 'pointer' }}>
+                                <input 
+                                  type="checkbox" 
+                                  checked={(it.levels || []).includes(l)} 
+                                  onChange={e => {
+                                    const items = [...(tpl.pages[selectedPage].blocks[selectedIndex].props.items || [])]
+                                    const currentLevels = items[i].levels || []
+                                    if (e.target.checked) items[i] = { ...items[i], levels: [...currentLevels, l] }
+                                    else items[i] = { ...items[i], levels: currentLevels.filter((x: string) => x !== l) }
+                                    updateSelected({ items })
+                                  }} 
+                                />
+                                {l}
+                              </label>
+                            ))}
+                          </div>
+                        </div>
                       </div>
                     ))}
                     <button className="btn secondary" onClick={() => {
@@ -2286,6 +2404,27 @@ export default function TemplateBuilder() {
                     <div style={{ padding: 8, background: '#f0f4ff', borderRadius: 8, fontWeight: 'bold', color: '#6c5ce7' }}>Dropdown #{tpl.pages[selectedPage].blocks[selectedIndex].props.dropdownNumber || '?'}</div>
                     <input placeholder="Label" value={tpl.pages[selectedPage].blocks[selectedIndex].props.label || ''} onChange={e => updateSelected({ label: e.target.value })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
                     <input placeholder="Nom variable (ex: obs1)" value={tpl.pages[selectedPage].blocks[selectedIndex].props.variableName || ''} onChange={e => updateSelected({ variableName: e.target.value })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+                    
+                    <div style={{ marginTop: 8, marginBottom: 8 }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: '#6c757d', marginBottom: 4 }}>Niveaux assignés:</div>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        {['PS', 'MS', 'GS'].map(l => (
+                          <label key={l} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, cursor: 'pointer' }}>
+                            <input 
+                              type="checkbox" 
+                              checked={(tpl.pages[selectedPage].blocks[selectedIndex].props.levels || []).includes(l)} 
+                              onChange={e => {
+                                const currentLevels = tpl.pages[selectedPage].blocks[selectedIndex].props.levels || []
+                                if (e.target.checked) updateSelected({ levels: [...currentLevels, l] })
+                                else updateSelected({ levels: currentLevels.filter((x: string) => x !== l) })
+                              }} 
+                            />
+                            {l}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+
                     <div className="note">Options ({(tpl.pages[selectedPage].blocks[selectedIndex].props.options || []).length})</div>
                     {(tpl.pages[selectedPage].blocks[selectedIndex].props.options || []).map((opt: string, i: number) => (
                       <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -2331,14 +2470,17 @@ export default function TemplateBuilder() {
                     </div>
                   </div>
                 )}
-                <button className="btn secondary" onClick={() => {
-                  const pages = [...tpl.pages]
-                  const page = { ...pages[selectedPage] }
-                  const blocks = page.blocks.filter((_, i) => i !== selectedIndex)
-                  pages[selectedPage] = { ...page, blocks }
-                  setTpl({ ...tpl, pages }); setSelectedIndex(null)
-                  setSelectedCell(null)
-                }}>Supprimer le bloc</button>
+                <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                  <button className="btn secondary" onClick={duplicateBlock} style={{ flex: 1 }}>Dupliquer le bloc</button>
+                  <button className="btn secondary" onClick={() => {
+                    const pages = [...tpl.pages]
+                    const page = { ...pages[selectedPage] }
+                    const blocks = page.blocks.filter((_, i) => i !== selectedIndex)
+                    pages[selectedPage] = { ...page, blocks }
+                    setTpl({ ...tpl, pages }); setSelectedIndex(null)
+                    setSelectedCell(null)
+                  }} style={{ flex: 1, color: '#dc3545', borderColor: '#ffcdd2', background: '#fff' }}>Supprimer</button>
+                </div>
               </div>
             ) : (
               <div style={{ 

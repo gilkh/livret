@@ -7,6 +7,11 @@ import { TemplateSignature } from '../models/TemplateSignature'
 import { GradebookTemplate } from '../models/GradebookTemplate'
 import { Student } from '../models/Student'
 import { User } from '../models/User'
+import { Enrollment } from '../models/Enrollment'
+import { TeacherClassAssignment } from '../models/TeacherClassAssignment'
+import { ClassModel } from '../models/Class'
+import { RoleScope } from '../models/RoleScope'
+import { SchoolYear } from '../models/SchoolYear'
 import { logAudit } from '../utils/auditLogger'
 import multer from 'multer'
 import path from 'path'
@@ -133,22 +138,30 @@ subAdminTemplatesRouter.get('/classes', requireAuth(['SUBADMIN']), async (req, r
         const assignments = await SubAdminAssignment.find({ subAdminId }).lean()
         const teacherIds = assignments.map(a => a.teacherId)
 
-        // Get all template assignments for these teachers
-        const templateAssignments = await TemplateAssignment.find({
-            assignedTeachers: { $in: teacherIds },
-            status: { $in: ['in_progress', 'completed'] },
-        }).lean()
+        // Get classes assigned to these teachers
+        const teacherClassAssignments = await TeacherClassAssignment.find({ teacherId: { $in: teacherIds } }).lean()
+        let relevantClassIds = [...new Set(teacherClassAssignments.map(a => a.classId))]
 
-        // Get unique student IDs
-        const studentIds = [...new Set(templateAssignments.map(a => a.studentId))]
-        
-        // Get enrollments for these students to find their classes
-        const Enrollment = (await import('../models/Enrollment')).Enrollment
-        const enrollments = await Enrollment.find({ studentId: { $in: studentIds } }).lean()
+        // Check RoleScope for level assignments
+        const roleScope = await RoleScope.findOne({ userId: subAdminId }).lean()
+        if (roleScope?.levels?.length) {
+             const levelClasses = await ClassModel.find({ level: { $in: roleScope.levels } }).lean()
+             const levelClassIds = levelClasses.map(c => String(c._id))
+             relevantClassIds = [...new Set([...relevantClassIds, ...levelClassIds])]
+        }
+
+        // Get students in these classes
+        const enrollments = await Enrollment.find({ classId: { $in: relevantClassIds } }).lean()
+        const studentIds = enrollments.map(e => e.studentId)
+
+        // Get template assignments for these students
+        const templateAssignments = await TemplateAssignment.find({
+            studentId: { $in: studentIds },
+            status: { $in: ['draft', 'in_progress', 'completed'] },
+        }).lean()
         
         // Get unique class IDs and their details
         const classIds = [...new Set(enrollments.map(e => e.classId))]
-        const ClassModel = (await import('../models/Class')).ClassModel
         const classes = await ClassModel.find({ _id: { $in: classIds } }).lean()
 
         // For each class, count pending signatures
@@ -246,10 +259,26 @@ subAdminTemplatesRouter.get('/pending-signatures', requireAuth(['SUBADMIN']), as
         const assignments = await SubAdminAssignment.find({ subAdminId }).lean()
         const teacherIds = assignments.map(a => a.teacherId)
 
-        // Get ALL template assignments for these teachers (including signed ones)
+        // Get classes assigned to these teachers
+        const teacherClassAssignments = await TeacherClassAssignment.find({ teacherId: { $in: teacherIds } }).lean()
+        let classIds = [...new Set(teacherClassAssignments.map(a => a.classId))]
+
+        // Check RoleScope for level assignments
+        const roleScope = await RoleScope.findOne({ userId: subAdminId }).lean()
+        if (roleScope?.levels?.length) {
+             const levelClasses = await ClassModel.find({ level: { $in: roleScope.levels } }).lean()
+             const levelClassIds = levelClasses.map(c => String(c._id))
+             classIds = [...new Set([...classIds, ...levelClassIds])]
+        }
+
+        // Get students in these classes
+        const enrollments = await Enrollment.find({ classId: { $in: classIds } }).lean()
+        const studentIds = enrollments.map(e => e.studentId)
+
+        // Get ALL template assignments for these students (including signed ones)
         const templateAssignments = await TemplateAssignment.find({
-            assignedTeachers: { $in: teacherIds },
-            status: { $in: ['in_progress', 'completed', 'signed'] },
+            studentId: { $in: studentIds },
+            status: { $in: ['draft', 'in_progress', 'completed', 'signed'] },
         }).lean()
 
         // Get signature information for all assignments
@@ -277,6 +306,176 @@ subAdminTemplatesRouter.get('/pending-signatures', requireAuth(['SUBADMIN']), as
     }
 })
 
+// Sub-admin: Promote student
+subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote', requireAuth(['SUBADMIN']), async (req, res) => {
+    try {
+        const subAdminId = (req as any).user.userId
+        const { templateAssignmentId } = req.params
+        const { nextLevel } = req.body
+
+        if (!nextLevel) return res.status(400).json({ error: 'missing_level' })
+
+        // Get the template assignment
+        const assignment = await TemplateAssignment.findById(templateAssignmentId).lean()
+        if (!assignment) return res.status(404).json({ error: 'not_found' })
+
+        // Verify authorization via class enrollment
+        const enrollmentCheck = await Enrollment.findOne({ studentId: assignment.studentId }).lean()
+        if (!enrollmentCheck) return res.status(403).json({ error: 'student_not_enrolled' })
+
+        const teacherClassAssignments = await TeacherClassAssignment.find({ classId: enrollmentCheck.classId }).lean()
+        const classTeacherIds = teacherClassAssignments.map(ta => ta.teacherId)
+
+        const subAdminAssignments = await SubAdminAssignment.find({
+            subAdminId,
+            teacherId: { $in: classTeacherIds },
+        }).lean()
+
+        let authorized = subAdminAssignments.length > 0
+
+        if (!authorized) {
+            // Check RoleScope
+            const roleScope = await RoleScope.findOne({ userId: subAdminId }).lean()
+            if (roleScope?.levels?.length) {
+                const cls = await ClassModel.findById(enrollmentCheck.classId).lean()
+                if (cls && cls.level && roleScope.levels.includes(cls.level)) {
+                    authorized = true
+                }
+            }
+        }
+
+        if (!authorized) {
+            return res.status(403).json({ error: 'not_authorized' })
+        }
+
+        const student = await Student.findById(assignment.studentId)
+        if (!student) return res.status(404).json({ error: 'student_not_found' })
+
+        // Get current enrollment to find school year
+        const enrollment = await Enrollment.findOne({ studentId: assignment.studentId }).lean()
+        let yearName = new Date().getFullYear().toString()
+        let currentLevel = student.level || ''
+        let currentSchoolYearId = ''
+
+        if (enrollment) {
+            const cls = await ClassModel.findById(enrollment.classId).lean()
+            if (cls) {
+                currentLevel = cls.level || ''
+                currentSchoolYearId = cls.schoolYearId
+                const sy = await SchoolYear.findById(cls.schoolYearId).lean()
+                if (sy) yearName = sy.name
+            }
+            // Remove from class
+            await Enrollment.findByIdAndDelete(enrollment._id)
+        }
+
+        // Find next school year
+        let nextSchoolYearId = ''
+        if (currentSchoolYearId) {
+             const currentSy = await SchoolYear.findById(currentSchoolYearId).lean()
+             if (currentSy) {
+                 // Strategy 1: Name matching
+                 if (currentSy.name) {
+                     const match = currentSy.name.match(/(\d{4})([-/.])(\d{4})/)
+                     if (match) {
+                         const startYear = parseInt(match[1])
+                         const separator = match[2]
+                         const endYear = parseInt(match[3])
+                         const nextName = `${startYear + 1}${separator}${endYear + 1}`
+                         
+                         const nextSy = await SchoolYear.findOne({ name: nextName }).lean()
+                         if (nextSy) {
+                             nextSchoolYearId = String(nextSy._id)
+                         }
+                     }
+                 }
+                 
+                 // Strategy 2: Date based (if name matching failed)
+                 if (!nextSchoolYearId && currentSy.endDate) {
+                     // Find a school year that starts after this one ends (within 6 months)
+                     const nextSy = await SchoolYear.findOne({
+                         startDate: { $gte: currentSy.endDate },
+                         active: true
+                     }).sort({ startDate: 1 }).lean()
+                     
+                     if (nextSy) {
+                         nextSchoolYearId = String(nextSy._id)
+                     }
+                 }
+             }
+        }
+
+        // Update student level
+        student.level = nextLevel
+        if (nextSchoolYearId) {
+            student.schoolYearId = nextSchoolYearId
+        }
+        await student.save()
+
+        // Record promotion in assignment data
+        const promotionData = {
+            from: currentLevel,
+            to: nextLevel,
+            date: new Date(),
+            year: yearName
+        }
+
+        // Use findById and save to handle Mixed type safely
+        const assignmentDoc = await TemplateAssignment.findById(templateAssignmentId)
+        if (assignmentDoc) {
+            const data = assignmentDoc.data || {}
+            const promotions = Array.isArray(data.promotions) ? data.promotions : []
+            promotions.push(promotionData)
+            data.promotions = promotions
+            assignmentDoc.data = data
+            assignmentDoc.markModified('data')
+            await assignmentDoc.save()
+        }
+
+        await logAudit({
+            userId: subAdminId,
+            action: 'PROMOTE_STUDENT',
+            details: {
+                studentId: student._id,
+                from: currentLevel,
+                to: nextLevel,
+                templateAssignmentId
+            },
+            req,
+        })
+
+        // Return updated data to avoid client reload issues
+        const updatedAssignment = await TemplateAssignment.findById(templateAssignmentId).lean()
+        const updatedStudent = await Student.findById(student._id).lean()
+        
+        // Re-fetch template to ensure consistency (though it shouldn't change)
+        const template = await GradebookTemplate.findById(assignment.templateId).lean()
+        const versionedTemplate = JSON.parse(JSON.stringify(template))
+        if (updatedAssignment && updatedAssignment.data) {
+            for (const [key, value] of Object.entries(updatedAssignment.data)) {
+                if (key.startsWith('language_toggle_')) {
+                    const [, , pageIdx, blockIdx] = key.split('_')
+                    const pageIndex = parseInt(pageIdx)
+                    const blockIndex = parseInt(blockIdx)
+                    if (versionedTemplate.pages?.[pageIndex]?.blocks?.[blockIndex]?.props?.items) {
+                        versionedTemplate.pages[pageIndex].blocks[blockIndex].props.items = value
+                    }
+                }
+            }
+        }
+
+        res.json({ 
+            ok: true,
+            assignment: updatedAssignment,
+            student: updatedStudent,
+            template: versionedTemplate
+        })
+    } catch (e: any) {
+        console.error('Promotion error:', e)
+        res.status(500).json({ error: 'promotion_failed', message: e.message })
+    }
+})
+
 // Sub-admin: Sign a template
 subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', requireAuth(['SUBADMIN']), async (req, res) => {
     try {
@@ -287,13 +486,47 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', requireAut
         const assignment = await TemplateAssignment.findById(templateAssignmentId).lean()
         if (!assignment) return res.status(404).json({ error: 'not_found' })
 
-        // Verify the assigned teachers are supervised by this sub-admin
-        const subAdminAssignments = await SubAdminAssignment.find({
-            subAdminId,
-            teacherId: { $in: assignment.assignedTeachers },
-        }).lean()
+        // Verify authorization via class enrollment
+        const enrollmentCheck = await Enrollment.findOne({ studentId: assignment.studentId }).lean()
+        
+        let authorized = false
 
-        if (subAdminAssignments.length === 0) {
+        if (enrollmentCheck) {
+            const teacherClassAssignments = await TeacherClassAssignment.find({ classId: enrollmentCheck.classId }).lean()
+            const classTeacherIds = teacherClassAssignments.map(ta => ta.teacherId)
+
+            const subAdminAssignments = await SubAdminAssignment.find({
+                subAdminId,
+                teacherId: { $in: classTeacherIds },
+            }).lean()
+
+            authorized = subAdminAssignments.length > 0
+
+            if (!authorized) {
+                // Check RoleScope
+                const roleScope = await RoleScope.findOne({ userId: subAdminId }).lean()
+                if (roleScope?.levels?.length) {
+                    const cls = await ClassModel.findById(enrollmentCheck.classId).lean()
+                    if (cls && cls.level && roleScope.levels.includes(cls.level)) {
+                        authorized = true
+                    }
+                }
+            }
+        } else {
+             // If student is not enrolled (e.g. promoted), check if sub-admin is linked to assigned teachers
+            if (assignment.assignedTeachers && assignment.assignedTeachers.length > 0) {
+                const subAdminAssignments = await SubAdminAssignment.find({
+                    subAdminId,
+                    teacherId: { $in: assignment.assignedTeachers },
+                }).lean()
+                
+                if (subAdminAssignments.length > 0) {
+                    authorized = true
+                }
+            }
+        }
+
+        if (!authorized) {
             return res.status(403).json({ error: 'not_authorized' })
         }
 
@@ -345,13 +578,47 @@ subAdminTemplatesRouter.delete('/templates/:templateAssignmentId/sign', requireA
         const assignment = await TemplateAssignment.findById(templateAssignmentId).lean()
         if (!assignment) return res.status(404).json({ error: 'not_found' })
 
-        // Verify the assigned teachers are supervised by this sub-admin
-        const subAdminAssignments = await SubAdminAssignment.find({
-            subAdminId,
-            teacherId: { $in: assignment.assignedTeachers },
-        }).lean()
+        // Verify authorization via class enrollment
+        const enrollmentCheck = await Enrollment.findOne({ studentId: assignment.studentId }).lean()
+        
+        let authorized = false
 
-        if (subAdminAssignments.length === 0) {
+        if (enrollmentCheck) {
+            const teacherClassAssignments = await TeacherClassAssignment.find({ classId: enrollmentCheck.classId }).lean()
+            const classTeacherIds = teacherClassAssignments.map(ta => ta.teacherId)
+
+            const subAdminAssignments = await SubAdminAssignment.find({
+                subAdminId,
+                teacherId: { $in: classTeacherIds },
+            }).lean()
+
+            authorized = subAdminAssignments.length > 0
+
+            if (!authorized) {
+                // Check RoleScope
+                const roleScope = await RoleScope.findOne({ userId: subAdminId }).lean()
+                if (roleScope?.levels?.length) {
+                    const cls = await ClassModel.findById(enrollmentCheck.classId).lean()
+                    if (cls && cls.level && roleScope.levels.includes(cls.level)) {
+                        authorized = true
+                    }
+                }
+            }
+        } else {
+             // If student is not enrolled (e.g. promoted), check if sub-admin is linked to assigned teachers
+            if (assignment.assignedTeachers && assignment.assignedTeachers.length > 0) {
+                const subAdminAssignments = await SubAdminAssignment.find({
+                    subAdminId,
+                    teacherId: { $in: assignment.assignedTeachers },
+                }).lean()
+                
+                if (subAdminAssignments.length > 0) {
+                    authorized = true
+                }
+            }
+        }
+
+        if (!authorized) {
             return res.status(403).json({ error: 'not_authorized' })
         }
 
@@ -398,13 +665,47 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
         const assignment = await TemplateAssignment.findById(templateAssignmentId).lean()
         if (!assignment) return res.status(404).json({ error: 'not_found' })
 
-        // Verify the assigned teachers are supervised by this sub-admin
-        const subAdminAssignments = await SubAdminAssignment.find({
-            subAdminId,
-            teacherId: { $in: assignment.assignedTeachers },
-        }).lean()
+        // Verify authorization via class enrollment
+        const enrollmentCheck = await Enrollment.findOne({ studentId: assignment.studentId }).lean()
+        
+        let authorized = false
 
-        if (subAdminAssignments.length === 0) {
+        if (enrollmentCheck) {
+            const teacherClassAssignments = await TeacherClassAssignment.find({ classId: enrollmentCheck.classId }).lean()
+            const classTeacherIds = teacherClassAssignments.map(ta => ta.teacherId)
+
+            const subAdminAssignments = await SubAdminAssignment.find({
+                subAdminId,
+                teacherId: { $in: classTeacherIds },
+            }).lean()
+
+            authorized = subAdminAssignments.length > 0
+
+            if (!authorized) {
+                // Check RoleScope
+                const roleScope = await RoleScope.findOne({ userId: subAdminId }).lean()
+                if (roleScope?.levels?.length) {
+                    const cls = await ClassModel.findById(enrollmentCheck.classId).lean()
+                    if (cls && cls.level && roleScope.levels.includes(cls.level)) {
+                        authorized = true
+                    }
+                }
+            }
+        } else {
+             // If student is not enrolled (e.g. promoted), check if sub-admin is linked to assigned teachers
+            if (assignment.assignedTeachers && assignment.assignedTeachers.length > 0) {
+                const subAdminAssignments = await SubAdminAssignment.find({
+                    subAdminId,
+                    teacherId: { $in: assignment.assignedTeachers },
+                }).lean()
+                
+                if (subAdminAssignments.length > 0) {
+                    authorized = true
+                }
+            }
+        }
+
+        if (!authorized) {
             return res.status(403).json({ error: 'not_authorized' })
         }
 
@@ -412,6 +713,16 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
         const template = await GradebookTemplate.findById(assignment.templateId).lean()
         const student = await Student.findById(assignment.studentId).lean()
         const signature = await TemplateSignature.findOne({ templateAssignmentId }).lean()
+
+        // Get student level
+        let level = student?.level || ''
+        if (student) {
+            const enrollment = await Enrollment.findOne({ studentId: assignment.studentId }).lean()
+            if (enrollment && enrollment.classId) {
+                const classDoc = await ClassModel.findById(enrollment.classId).lean()
+                if (classDoc) level = classDoc.level || ''
+            }
+        }
 
         // Merge assignment data into template (for language toggles, dropdowns, etc.)
         const versionedTemplate = JSON.parse(JSON.stringify(template))
@@ -433,7 +744,7 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
         res.json({
             assignment,
             template: versionedTemplate,
-            student,
+            student: { ...student, level },
             signature,
         })
     } catch (e: any) {
@@ -448,18 +759,39 @@ subAdminTemplatesRouter.post('/templates/sign-class/:classId', requireAuth(['SUB
         const { classId } = req.params
 
         // Get all students in this class
-        const enrollments = await import('../models/Enrollment').then(m => m.Enrollment.find({ classId }).lean())
+        const enrollments = await Enrollment.find({ classId }).lean()
         const studentIds = enrollments.map(e => e.studentId)
 
-        // Get teachers assigned to this sub-admin
-        const subAdminAssignments = await SubAdminAssignment.find({ subAdminId }).lean()
-        const teacherIds = subAdminAssignments.map(a => a.teacherId)
+        // Verify authorization: Sub-admin must be assigned to at least one teacher of this class
+        const teacherClassAssignments = await TeacherClassAssignment.find({ classId }).lean()
+        const classTeacherIds = teacherClassAssignments.map(ta => ta.teacherId)
 
-        // Get all template assignments for these students that are supervised by this sub-admin's teachers
+        const subAdminAssignments = await SubAdminAssignment.find({
+            subAdminId,
+            teacherId: { $in: classTeacherIds },
+        }).lean()
+
+        let authorized = subAdminAssignments.length > 0
+
+        if (!authorized) {
+            // Check RoleScope
+            const roleScope = await RoleScope.findOne({ userId: subAdminId }).lean()
+            if (roleScope?.levels?.length) {
+                const cls = await ClassModel.findById(classId).lean()
+                if (cls && cls.level && roleScope.levels.includes(cls.level)) {
+                    authorized = true
+                }
+            }
+        }
+
+        if (!authorized) {
+            return res.status(403).json({ error: 'not_authorized' })
+        }
+
+        // Get all template assignments for these students
         const templateAssignments = await TemplateAssignment.find({
             studentId: { $in: studentIds },
-            assignedTeachers: { $in: teacherIds },
-            status: { $in: ['in_progress', 'completed'] },
+            status: { $in: ['draft', 'in_progress', 'completed'] },
         }).lean()
 
         // Filter out those already signed

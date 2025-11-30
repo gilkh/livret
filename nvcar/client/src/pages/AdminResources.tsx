@@ -4,86 +4,157 @@ import api from '../api'
 
 type Year = { _id: string; name: string; startDate: string; endDate: string; active: boolean }
 type ClassDoc = { _id: string; name: string; level?: string; schoolYearId: string }
-type StudentDoc = { _id: string; firstName: string; lastName: string; dateOfBirth: string; parentName?: string; parentPhone?: string }
+type StudentDoc = { 
+    _id: string; 
+    firstName: string; 
+    lastName: string; 
+    dateOfBirth: string; 
+    parentName?: string; 
+    parentPhone?: string; 
+    level?: string;
+    promotion?: { from: string; to: string; date: string; year: string }
+}
 
 export default function AdminResources() {
   const [years, setYears] = useState<Year[]>([])
   const [selectedYear, setSelectedYear] = useState<Year | null>(null)
-  const [name, setName] = useState('')
-  const [startDate, setStartDate] = useState('')
-  const [endDate, setEndDate] = useState('')
-  const [active, setActive] = useState(true)
+  
+  // Year editing state
   const [editingYearId, setEditingYearId] = useState<string | null>(null)
+  const [yearForm, setYearForm] = useState({ name: '', startDate: '', endDate: '', active: true })
 
+  // Class state
   const [classes, setClasses] = useState<ClassDoc[]>([])
-  const [clsName, setClsName] = useState('')
-  const [clsLevel, setClsLevel] = useState('')
   const [selectedClassId, setSelectedClassId] = useState<string>('')
   const [editingClassId, setEditingClassId] = useState<string | null>(null)
+  const [clsName, setClsName] = useState('') // For renaming
 
+  // Student state
   const [students, setStudents] = useState<StudentDoc[]>([])
+  const [unassignedStudents, setUnassignedStudents] = useState<StudentDoc[]>([])
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
   const [editingStudentId, setEditingStudentId] = useState<string | null>(null)
 
-  const loadYears = async () => { const r = await api.get('/school-years'); setYears(r.data) }
+  const promotedStudents = useMemo(() => {
+      return unassignedStudents.filter(s => s.promotion && s.promotion.from !== s.promotion.to)
+  }, [unassignedStudents])
+  
+  const otherUnassignedStudents = useMemo(() => {
+      return unassignedStudents.filter(s => !s.promotion || s.promotion.from === s.promotion.to)
+  }, [unassignedStudents])
+
+  const loadYears = async () => { 
+    const r = await api.get('/school-years')
+    setYears(r.data.sort((a: Year, b: Year) => a.name.localeCompare(b.name))) 
+  }
   useEffect(() => { loadYears() }, [])
 
   const loadClasses = async (yearId: string) => { const r = await api.get('/classes', { params: { schoolYearId: yearId } }); setClasses(r.data) }
   const loadStudents = async (classId: string) => { const r = await api.get(`/students/by-class/${classId}`); setStudents(r.data) }
+  const loadUnassignedStudents = async (yearId: string) => { const r = await api.get(`/students/unassigned/${yearId}`); setUnassignedStudents(r.data) }
 
   const selectYear = async (y: Year) => {
     setSelectedYear(y)
     setEditingYearId(y._id)
-    setName(y.name)
-    setStartDate(y.startDate?.slice(0,10) || '')
-    setEndDate(y.endDate?.slice(0,10) || '')
-    setActive(!!y.active)
+    setYearForm({
+        name: y.name,
+        startDate: y.startDate?.slice(0,10) || '',
+        endDate: y.endDate?.slice(0,10) || '',
+        active: !!y.active
+    })
     await loadClasses(y._id)
+    await loadUnassignedStudents(y._id)
     setSelectedClassId('')
     setStudents([])
     setEditingClassId(null)
     resetStudentForm()
   }
 
+  const assignSection = async (studentId: string, level: string, section: string) => {
+      if (!selectedYear) return
+      await api.post(`/students/${studentId}/assign-section`, {
+          schoolYearId: selectedYear._id,
+          level,
+          section
+      })
+      await loadUnassignedStudents(selectedYear._id)
+      await loadClasses(selectedYear._id)
+  }
+
+  const addNextYear = async () => {
+    const sorted = [...years].sort((a, b) => a.name.localeCompare(b.name))
+    const last = sorted[sorted.length - 1]
+    let startYear = new Date().getFullYear()
+    if (last) {
+        const match = last.name.match(/(\d{4})/)
+        if (match) startYear = parseInt(match[1]) + 1
+    }
+    
+    const name = `${startYear}/${startYear + 1}`
+    const startDate = `${startYear}-09-01`
+    const endDate = `${startYear + 1}-07-01`
+    
+    const r = await api.post('/school-years', { name, startDate, endDate, active: true })
+    await loadYears()
+    // Optionally select the new year, but loadYears is async. 
+    // We can just let the user see it in the list.
+  }
+
   const saveYear = async () => {
     if (editingYearId) {
-      const r = await api.patch(`/school-years/${editingYearId}`, { name, startDate, endDate, active })
+      const r = await api.patch(`/school-years/${editingYearId}`, yearForm)
       await loadYears()
-      await selectYear(r.data)
-    } else {
-      const r = await api.post('/school-years', { name, startDate, endDate, active })
-      await loadYears()
-      await selectYear(r.data)
+      setSelectedYear(r.data)
     }
   }
 
-  const resetYearForm = () => { setEditingYearId(null); setName(''); setStartDate(''); setEndDate(''); setActive(true); setSelectedYear(null); setClasses([]); setStudents([]); }
-
-  const startEditClass = async (c: ClassDoc) => {
-    setEditingClassId(c._id)
-    setSelectedClassId(c._id)
-    setClsName(c.name)
-    setClsLevel(c.level || '')
-    await loadStudents(c._id)
+  const deleteYear = async (e: React.MouseEvent, id: string) => {
+      e.stopPropagation()
+      if(!confirm('Supprimer cette année ?')) return
+      await api.delete(`/school-years/${id}`)
+      await loadYears()
+      if(selectedYear?._id === id) setSelectedYear(null)
   }
 
-  const saveClass = async () => {
+  // Classes
+  const LEVELS = ['PS', 'MS', 'GS']
+  
+  const addSection = async (level: string) => {
     if (!selectedYear) return
-    if (editingClassId) {
-      await api.patch(`/classes/${editingClassId}`, { name: clsName, level: clsLevel, schoolYearId: selectedYear._id })
-    } else {
-      const r = await api.post('/classes', { name: clsName, level: clsLevel, schoolYearId: selectedYear._id })
-      setSelectedClassId(r.data._id)
+    const levelClasses = classes.filter(c => c.level === level)
+    const usedLetters = new Set(levelClasses.map(c => {
+        return c.name.replace(level, '').trim()
+    }))
+    
+    const alphabet = 'ABCDEFGHIJK'
+    let nextLetter = 'A'
+    for (const char of alphabet) {
+        if (!usedLetters.has(char)) {
+            nextLetter = char
+            break
+        }
     }
-    setClsName(''); setClsLevel(''); setEditingClassId(null)
+    
+    const name = `${level} ${nextLetter}`
+    await api.post('/classes', { name, level, schoolYearId: selectedYear._id })
     await loadClasses(selectedYear._id)
-    if (selectedClassId) await loadStudents(selectedClassId)
   }
 
-  const resetClassForm = () => { setEditingClassId(null); setClsName(''); setClsLevel('') }
+  const deleteClass = async (e: React.MouseEvent, id: string) => {
+      e.stopPropagation()
+      if(!confirm('Supprimer cette classe ?')) return
+      await api.delete(`/classes/${id}`)
+      if(selectedYear) await loadClasses(selectedYear._id)
+      if(selectedClassId === id) {
+          setSelectedClassId('')
+          setStudents([])
+      }
+  }
+
   const selectClass = async (classId: string) => { setSelectedClassId(classId); setEditingClassId(null); await loadStudents(classId); resetStudentForm() }
 
+  // Students
   const startEditStudent = (s: StudentDoc) => { setEditingStudentId(s._id); setFirstName(s.firstName); setLastName(s.lastName) }
 
   const saveStudent = async () => {
@@ -98,6 +169,11 @@ export default function AdminResources() {
   }
 
   const resetStudentForm = () => { setEditingStudentId(null); setFirstName(''); setLastName('') }
+  const deleteStudent = async (id: string) => {
+      if(!confirm('Supprimer cet élève ?')) return
+      await api.delete(`/students/${id}`)
+      if(selectedClassId) await loadStudents(selectedClassId)
+  }
 
   return (
     <div className="container">
@@ -109,7 +185,7 @@ export default function AdminResources() {
         <Link to="/admin" className="btn secondary">Retour</Link>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: 24, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 24, alignItems: 'start' }}>
         
         {/* Column 1: Years */}
         <div className="card" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -118,23 +194,7 @@ export default function AdminResources() {
             <h3 style={{ margin: 0 }}>Années Scolaires</h3>
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 24 }}>
-            <input placeholder="Nom (ex: 2023-2024)" value={name} onChange={e => setName(e.target.value)} style={{ padding: 10, borderRadius: 8, border: '1px solid #ddd' }} />
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                <input type="date" placeholder="Début" value={startDate} onChange={e => setStartDate(e.target.value)} style={{ padding: 10, borderRadius: 8, border: '1px solid #ddd' }} />
-                <input type="date" placeholder="Fin" value={endDate} onChange={e => setEndDate(e.target.value)} style={{ padding: 10, borderRadius: 8, border: '1px solid #ddd' }} />
-            </div>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-              <input type="checkbox" checked={active} onChange={e => setActive(e.target.checked)} style={{ width: 16, height: 16 }} /> 
-              <span>Année active</span>
-            </label>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button className="btn" onClick={saveYear} style={{ flex: 1 }}>{editingYearId ? 'Mettre à jour' : 'Créer année'}</button>
-              {editingYearId && <button className="btn secondary" onClick={resetYearForm}>Annuler</button>}
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, overflowY: 'auto', maxHeight: 400 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, overflowY: 'auto', maxHeight: 400, marginBottom: 16 }}>
             {years.map(y => (
               <div 
                 key={y._id} 
@@ -145,19 +205,43 @@ export default function AdminResources() {
                     border: selectedYear?._id === y._id ? '2px solid #1890ff' : '1px solid #f0f0f0',
                     background: selectedYear?._id === y._id ? '#e6f7ff' : '#fff',
                     cursor: 'pointer',
-                    transition: 'all 0.2s'
+                    transition: 'all 0.2s',
+                    position: 'relative'
                 }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ fontWeight: 600 }}>{y.name}</span>
                     {y.active && <span className="pill" style={{ background: '#f6ffed', color: '#52c41a', fontSize: '0.7rem', padding: '2px 8px' }}>Active</span>}
                 </div>
-                <div className="note" style={{ fontSize: '0.8rem', marginTop: 4 }}>
-                    {y.startDate?.slice(0,10)} - {y.endDate?.slice(0,10)}
-                </div>
+                <button 
+                    onClick={(e) => deleteYear(e, y._id)}
+                    style={{ position: 'absolute', top: 8, right: 8, border: 'none', background: 'transparent', cursor: 'pointer', opacity: 0.5 }}
+                >✕</button>
               </div>
             ))}
           </div>
+          
+          <button className="btn" onClick={addNextYear} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+            <span style={{ fontSize: '1.2rem' }}>+</span> Ajouter année suivante
+          </button>
+
+          {/* Edit Year Form (Only if selected) */}
+          {selectedYear && (
+              <div style={{ marginTop: 24, paddingTop: 16, borderTop: '1px solid #f0f0f0' }}>
+                  <h4 style={{ margin: '0 0 12px 0' }}>Modifier l'année</h4>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    <input value={yearForm.name} onChange={e => setYearForm({...yearForm, name: e.target.value})} style={{ padding: 8, borderRadius: 4, border: '1px solid #ddd' }} />
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                        <input type="date" value={yearForm.startDate} onChange={e => setYearForm({...yearForm, startDate: e.target.value})} style={{ padding: 8, borderRadius: 4, border: '1px solid #ddd' }} />
+                        <input type="date" value={yearForm.endDate} onChange={e => setYearForm({...yearForm, endDate: e.target.value})} style={{ padding: 8, borderRadius: 4, border: '1px solid #ddd' }} />
+                    </div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <input type="checkbox" checked={yearForm.active} onChange={e => setYearForm({...yearForm, active: e.target.checked})} /> Active
+                    </label>
+                    <button className="btn secondary" onClick={saveYear}>Enregistrer modifications</button>
+                  </div>
+              </div>
+          )}
         </div>
 
         {/* Column 2: Classes */}
@@ -168,45 +252,50 @@ export default function AdminResources() {
           </div>
 
           {!selectedYear ? (
-             <div className="note" style={{ textAlign: 'center', padding: 20 }}>Sélectionnez une année pour gérer les classes</div>
+             <div className="note" style={{ textAlign: 'center', padding: 20 }}>Sélectionnez une année</div>
           ) : (
-            <>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 24 }}>
-                    <input placeholder="Nom de la classe" value={clsName} onChange={e => setClsName(e.target.value)} style={{ padding: 10, borderRadius: 8, border: '1px solid #ddd' }} />
-                    <input placeholder="Niveau (optionnel)" value={clsLevel} onChange={e => setClsLevel(e.target.value)} style={{ padding: 10, borderRadius: 8, border: '1px solid #ddd' }} />
-                    <div style={{ display: 'flex', gap: 8 }}>
-                    <button className="btn" onClick={saveClass} style={{ flex: 1 }}>{editingClassId ? 'Mettre à jour' : 'Ajouter classe'}</button>
-                    {editingClassId && <button className="btn secondary" onClick={resetClassForm}>Annuler</button>}
-                    </div>
-                </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+                
+                {/* Unassigned Students moved to separate column */}
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, overflowY: 'auto', maxHeight: 400, marginBottom: 24 }}>
-                    {classes.map(c => (
-                    <div key={c._id} style={{ 
-                        display: 'flex', 
-                        justifyContent: 'space-between', 
-                        alignItems: 'center',
-                        padding: 12,
-                        borderRadius: 8,
-                        border: selectedClassId === c._id ? '2px solid #eb2f96' : '1px solid #f0f0f0',
-                        background: selectedClassId === c._id ? '#fff0f6' : '#fff',
-                        cursor: 'pointer'
-                    }}>
-                        <div onClick={() => selectClass(c._id)} style={{ flex: 1 }}>
-                            <div style={{ fontWeight: 600 }}>{c.name}</div>
-                            {c.level && <div className="note">{c.level}</div>}
+                {LEVELS.map(level => (
+                    <div key={level}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                            <h4 style={{ margin: 0, color: '#555' }}>{level}</h4>
+                            <button className="btn secondary" style={{ padding: '2px 8px', fontSize: '0.8rem' }} onClick={() => addSection(level)}>+</button>
                         </div>
-                        <button className="btn secondary" style={{ padding: '4px 8px', fontSize: '0.8rem' }} onClick={(e) => { e.stopPropagation(); startEditClass(c); }}>✏️</button>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                            {classes.filter(c => c.level === level).sort((a,b) => a.name.localeCompare(b.name)).map(c => (
+                                <div 
+                                    key={c._id} 
+                                    onClick={() => selectClass(c._id)}
+                                    style={{ 
+                                        padding: '6px 12px', 
+                                        borderRadius: 16, 
+                                        border: selectedClassId === c._id ? '2px solid #eb2f96' : '1px solid #ddd',
+                                        background: selectedClassId === c._id ? '#fff0f6' : '#fff',
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 6
+                                    }}
+                                >
+                                    <span>{c.name.replace(level, '').trim() || c.name}</span>
+                                    {selectedClassId === c._id && (
+                                        <span onClick={(e) => deleteClass(e, c._id)} style={{ fontSize: '0.7rem', color: '#999', cursor: 'pointer' }}>✕</span>
+                                    )}
+                                </div>
+                            ))}
+                            {classes.filter(c => c.level === level).length === 0 && <span className="note" style={{ fontSize: '0.8rem' }}>Aucune section</span>}
+                        </div>
                     </div>
-                    ))}
-                    {classes.length === 0 && <div className="note" style={{ textAlign: 'center' }}>Aucune classe</div>}
-                </div>
+                ))}
 
                 <div style={{ borderTop: '1px solid #f0f0f0', paddingTop: 16 }}>
                     <h4 style={{ margin: '0 0 12px 0', fontSize: '0.9rem', color: '#8c8c8c' }}>Import CSV</h4>
                     <InlineImportCSV schoolYearId={selectedYear._id} />
                 </div>
-            </>
+            </div>
           )}
         </div>
 
@@ -244,12 +333,103 @@ export default function AdminResources() {
                         <div>
                             <div style={{ fontWeight: 500 }}>{s.firstName} {s.lastName}</div>
                         </div>
-                        <button className="btn secondary" style={{ padding: '4px 8px', fontSize: '0.8rem' }} onClick={() => startEditStudent(s)}>✏️</button>
+                        <div style={{ display: 'flex', gap: 4 }}>
+                            <button className="btn secondary" style={{ padding: '4px 8px', fontSize: '0.8rem' }} onClick={() => startEditStudent(s)}>✏️</button>
+                            <button className="btn secondary" style={{ padding: '4px 8px', fontSize: '0.8rem', color: 'red' }} onClick={() => deleteStudent(s._id)}>✕</button>
+                        </div>
                     </div>
                     ))}
                     {students.length === 0 && <div className="note" style={{ textAlign: 'center' }}>Aucun élève</div>}
                 </div>
             </>
+          )}
+        </div>
+      </div>
+
+      {/* Unassigned Students Section */}
+      <div style={{ marginTop: 64 }}>
+        <div className="card" style={{ display: 'flex', flexDirection: 'column', opacity: selectedYear ? 1 : 0.6, pointerEvents: selectedYear ? 'auto' : 'none', borderLeft: '4px solid #ffd591' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20, paddingBottom: 16, borderBottom: '1px solid #f0f0f0' }}>
+            <div style={{ background: '#fff7e6', padding: 8, borderRadius: 8, fontSize: 20 }}>⚠️</div>
+            <h3 style={{ margin: 0 }}>Élèves à affecter</h3>
+          </div>
+
+          {!selectedYear ? (
+             <div className="note" style={{ textAlign: 'center', padding: 20 }}>Sélectionnez une année</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 24, flex: 1 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span className="note">Total: {unassignedStudents.length}</span>
+                </div>
+
+                {unassignedStudents.length === 0 ? (
+                    <div className="note" style={{ fontStyle: 'italic', color: '#8c8c8c', textAlign: 'center', padding: 20 }}>
+                        Aucun élève en attente d'affectation pour cette année.
+                        <br/>
+                        <span style={{ fontSize: '0.8rem' }}>Les élèves promus par les sous-admins apparaîtront ici.</span>
+                    </div>
+                ) : (
+                    <div style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 16, flex: 1 }}>
+                        {/* Other Unassigned */}
+                        {otherUnassignedStudents.length > 0 && (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                {otherUnassignedStudents.map(s => (
+                                    <div key={s._id} style={{ background: '#fff', padding: 12, borderRadius: 8, border: '1px solid #eee', fontSize: '0.9rem' }}>
+                                        <div style={{ fontWeight: 600, marginBottom: 8 }}>{s.firstName} {s.lastName}</div>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <span className="pill" style={{ background: '#f0f0f0' }}>{s.level || '?'}</span>
+                                            <select 
+                                                style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #ccc', fontSize: '0.85rem' }}
+                                                onChange={(e) => {
+                                                    if (e.target.value) assignSection(s._id, s.level || 'MS', e.target.value)
+                                                }}
+                                                defaultValue=""
+                                            >
+                                                <option value="" disabled>Section...</option>
+                                                {['A','B','C','D','E','F','G','H','I','J','K'].map(l => (
+                                                    <option key={l} value={l}>{l}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
+                        {/* Promoted Unassigned */}
+                        {promotedStudents.length > 0 && (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                <div style={{ borderBottom: '1px solid #ffd591', paddingBottom: 4, marginBottom: 4 }}>
+                                    <h5 style={{ margin: 0, color: '#d46b08', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Promus ({promotedStudents.length})</h5>
+                                </div>
+                                {promotedStudents.map(s => (
+                                    <div key={s._id} style={{ background: '#fff', padding: 12, borderRadius: 8, border: '1px solid #ffd591', fontSize: '0.9rem' }}>
+                                        <div style={{ fontWeight: 600, marginBottom: 4 }}>{s.firstName} {s.lastName}</div>
+                                        <div style={{ fontSize: '0.8rem', color: '#888', marginBottom: 8 }}>
+                                            Promu de {s.promotion?.from} vers {s.promotion?.to}
+                                        </div>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <span className="pill" style={{ background: '#fff7e6', color: '#d46b08' }}>{s.level || '?'}</span>
+                                            <select 
+                                                style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #ccc', fontSize: '0.85rem' }}
+                                                onChange={(e) => {
+                                                    if (e.target.value) assignSection(s._id, s.level || 'MS', e.target.value)
+                                                }}
+                                                defaultValue=""
+                                            >
+                                                <option value="" disabled>Section...</option>
+                                                {['A','B','C','D','E','F','G','H','I','J','K'].map(l => (
+                                                    <option key={l} value={l}>{l}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
           )}
         </div>
       </div>

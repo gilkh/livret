@@ -3,6 +3,7 @@ import { Student } from '../models/Student'
 import { Enrollment } from '../models/Enrollment'
 import { ClassModel } from '../models/Class'
 import { StudentCompetencyStatus } from '../models/StudentCompetencyStatus'
+import { TemplateAssignment } from '../models/TemplateAssignment'
 import { requireAuth } from '../auth'
 
 export const studentsRouter = Router()
@@ -23,6 +24,83 @@ studentsRouter.get('/', requireAuth(['ADMIN','SUBADMIN','TEACHER']), async (req,
     return { ...s, classId: enr ? enr.classId : undefined, className: cls ? cls.name : undefined }
   })
   res.json(out)
+})
+
+studentsRouter.get('/unassigned/:schoolYearId', requireAuth(['ADMIN','SUBADMIN']), async (req, res) => {
+  const { schoolYearId } = req.params
+  
+  // Find students who are marked for this school year
+  const students = await Student.find({ schoolYearId }).lean()
+  
+  // Filter out those who already have an enrollment for this year
+  const studentIds = students.map(s => String(s._id))
+  const enrollments = await Enrollment.find({ 
+    studentId: { $in: studentIds },
+    schoolYearId 
+  }).lean()
+  
+  const enrolledStudentIds = new Set(enrollments.map(e => e.studentId))
+  const unassigned = students.filter(s => !enrolledStudentIds.has(String(s._id)))
+  
+  // Find assignments with promotions for these students
+  const unassignedIds = unassigned.map(s => String(s._id))
+  const assignments = await TemplateAssignment.find({ 
+    studentId: { $in: unassignedIds },
+    'data.promotions': { $exists: true, $not: { $size: 0 } }
+  }).lean()
+
+  const promotionMap: Record<string, any> = {}
+  
+  for (const a of assignments) {
+      if (a.data && Array.isArray(a.data.promotions)) {
+          const lastPromo = a.data.promotions[a.data.promotions.length - 1]
+          const existing = promotionMap[a.studentId]
+          if (!existing || new Date(lastPromo.date) > new Date(existing.date)) {
+              promotionMap[a.studentId] = lastPromo
+          }
+      }
+  }
+
+  const result = unassigned.map(s => ({
+      ...s,
+      promotion: promotionMap[String(s._id)]
+  }))
+  
+  res.json(result)
+})
+
+studentsRouter.post('/:id/assign-section', requireAuth(['ADMIN','SUBADMIN']), async (req, res) => {
+  const { id } = req.params
+  const { schoolYearId, level, section } = req.body // section is 'A', 'B', etc.
+  
+  if (!schoolYearId || !level || !section) return res.status(400).json({ error: 'missing_params' })
+  
+  const className = `${level} ${section}`
+  
+  // Find or create class
+  let cls = await ClassModel.findOne({ schoolYearId, name: className }).lean()
+  if (!cls) {
+    cls = await ClassModel.create({ 
+      name: className, 
+      level, 
+      schoolYearId 
+    })
+  }
+  
+  // Create enrollment
+  const existing = await Enrollment.findOne({ studentId: id, schoolYearId })
+  if (existing) {
+    existing.classId = String(cls._id)
+    await existing.save()
+  } else {
+    await Enrollment.create({
+      studentId: id,
+      classId: String(cls._id),
+      schoolYearId
+    })
+  }
+  
+  res.json({ ok: true })
 })
 
 studentsRouter.get('/:id', requireAuth(['ADMIN','SUBADMIN','TEACHER']), async (req, res) => {

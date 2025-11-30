@@ -130,10 +130,18 @@ teacherTemplatesRouter.get('/template-assignments/:assignmentId', requireAuth(['
         // Get the student
         const student = await Student.findById(assignment.studentId).lean()
 
+        // Get student level
+        let level = ''
+        const enrollment = await Enrollment.findOne({ studentId: assignment.studentId }).lean()
+        if (enrollment && enrollment.classId) {
+            const classDoc = await ClassModel.findById(enrollment.classId).lean()
+            if (classDoc) level = classDoc.level || ''
+        }
+
         res.json({
             assignment,
             template: versionedTemplate,
-            student,
+            student: { ...student, level },
         })
     } catch (e: any) {
         res.status(500).json({ error: 'fetch_failed', message: e.message })

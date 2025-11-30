@@ -5,7 +5,7 @@ import api from '../api'
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; blocks: Block[] }
 type Template = { _id?: string; name: string; pages: Page[] }
-type Student = { _id: string; firstName: string; lastName: string }
+type Student = { _id: string; firstName: string; lastName: string; level?: string }
 type Assignment = { _id: string; status: string }
 
 const pageWidth = 800
@@ -25,6 +25,8 @@ export default function SubAdminTemplateReview() {
     const [signing, setSigning] = useState(false)
     const [unsigning, setUnsigning] = useState(false)
 
+    const [promoting, setPromoting] = useState(false)
+
     useEffect(() => {
         const loadData = async () => {
             try {
@@ -43,6 +45,44 @@ export default function SubAdminTemplateReview() {
         }
         if (assignmentId) loadData()
     }, [assignmentId])
+
+    const getNextLevel = (current: string) => {
+        const c = current.toUpperCase()
+        if (c === 'TPS') return 'PS'
+        if (c === 'PS') return 'MS'
+        if (c === 'MS') return 'GS'
+        if (c === 'GS') return 'EB1'
+        
+        if (c === 'KG1') return 'KG2'
+        if (c === 'KG2') return 'KG3'
+        if (c === 'KG3') return 'EB1'
+        return null
+    }
+
+    const handlePromote = async () => {
+        if (!student?.level) return
+        const next = getNextLevel(student.level)
+        if (!next) return
+        
+        if (!confirm(`Confirmer le passage de ${student.firstName} en ${next} ?\nL'élève sera retiré de sa classe actuelle.`)) return
+
+        try {
+            setPromoting(true)
+            const r = await api.post(`/subadmin/templates/${assignmentId}/promote`, { nextLevel: next })
+            alert('Élève promu avec succès !')
+            
+            // Update state with returned data instead of reloading
+            if (r.data.student) setStudent(r.data.student)
+            if (r.data.assignment) setAssignment(r.data.assignment)
+            // We don't necessarily need to update template unless language toggles changed, but good practice
+            // if (r.data.template) setTemplate(r.data.template) 
+        } catch (e: any) {
+            setError('Échec de la promotion')
+            console.error(e)
+        } finally {
+            setPromoting(false)
+        }
+    }
 
     const handleSign = async () => {
         try {
@@ -165,6 +205,25 @@ export default function SubAdminTemplateReview() {
                             </button>
                         </>
                     )}
+
+                    {student?.level && getNextLevel(student.level) && (
+                        <button 
+                            className="btn" 
+                            onClick={handlePromote} 
+                            disabled={promoting}
+                            style={{
+                                background: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)',
+                                fontWeight: 500,
+                                padding: '12px 20px',
+                                boxShadow: '0 2px 8px rgba(139, 92, 246, 0.3)',
+                                color: 'white',
+                                border: 'none'
+                            }}
+                        >
+                            {promoting ? '⏳ Promotion...' : `Passer en classe supérieure ${getNextLevel(student.level)}`}
+                        </button>
+                    )}
+
                     <button className="btn secondary" onClick={handleExportPDF} style={{
                         background: '#f1f5f9',
                         color: '#475569',

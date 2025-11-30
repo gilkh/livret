@@ -2,8 +2,68 @@ import { Router } from 'express'
 import { requireAuth } from '../auth'
 import { SubAdminAssignment } from '../models/SubAdminAssignment'
 import { User } from '../models/User'
+import { ClassModel } from '../models/Class'
+import { TeacherClassAssignment } from '../models/TeacherClassAssignment'
+import { RoleScope } from '../models/RoleScope'
 
 export const subAdminAssignmentsRouter = Router()
+
+// Admin: Assign sub-admin to all teachers in a level
+subAdminAssignmentsRouter.post('/bulk-level', requireAuth(['ADMIN']), async (req, res) => {
+    try {
+        const { subAdminId, level } = req.body
+        if (!subAdminId || !level) return res.status(400).json({ error: 'missing_payload' })
+
+        // Verify sub-admin exists
+        const subAdmin = await User.findById(subAdminId).lean()
+        if (!subAdmin || subAdmin.role !== 'SUBADMIN') {
+            return res.status(400).json({ error: 'invalid_subadmin' })
+        }
+
+        // Find all classes in this level
+        const classes = await ClassModel.find({ level }).lean()
+        const classIds = classes.map(c => String(c._id))
+
+        if (classIds.length === 0) {
+            return res.json({ count: 0, message: 'No classes found for this level' })
+        }
+
+        // Find all teachers assigned to these classes
+        const teacherAssignments = await TeacherClassAssignment.find({ classId: { $in: classIds } }).lean()
+        const teacherIds = [...new Set(teacherAssignments.map(ta => ta.teacherId))]
+
+        if (teacherIds.length === 0) {
+            return res.json({ count: 0, message: 'No teachers found for this level' })
+        }
+
+        // Create assignments
+        let count = 0
+        for (const teacherId of teacherIds) {
+            await SubAdminAssignment.findOneAndUpdate(
+                { subAdminId, teacherId },
+                {
+                    subAdminId,
+                    teacherId,
+                    assignedBy: (req as any).user.userId,
+                    assignedAt: new Date(),
+                },
+                { upsert: true }
+            )
+            count++
+        }
+
+        // Also update RoleScope to persist the level assignment
+        await RoleScope.findOneAndUpdate(
+            { userId: subAdminId },
+            { $addToSet: { levels: level } },
+            { upsert: true, new: true }
+        )
+
+        res.json({ count, message: `Assigned ${count} teachers to sub-admin` })
+    } catch (e: any) {
+        res.status(500).json({ error: 'bulk_assign_failed', message: e.message })
+    }
+})
 
 // Admin: Assign teachers to sub-admin
 subAdminAssignmentsRouter.post('/', requireAuth(['ADMIN']), async (req, res) => {

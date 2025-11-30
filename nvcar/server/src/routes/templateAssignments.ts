@@ -10,6 +10,68 @@ import { ClassModel } from '../models/Class'
 
 export const templateAssignmentsRouter = Router()
 
+// Admin: Assign template to all students in a level
+templateAssignmentsRouter.post('/bulk-level', requireAuth(['ADMIN']), async (req, res) => {
+    try {
+        const { templateId, level } = req.body
+        if (!templateId || !level) return res.status(400).json({ error: 'missing_payload' })
+
+        // Verify template exists
+        const template = await GradebookTemplate.findById(templateId).lean()
+        if (!template) return res.status(404).json({ error: 'template_not_found' })
+
+        // Find all classes in this level
+        const classes = await ClassModel.find({ level }).lean()
+        const classIds = classes.map(c => String(c._id))
+
+        if (classIds.length === 0) {
+            return res.json({ count: 0, message: 'No classes found for this level' })
+        }
+
+        // Find all students in these classes
+        const enrollments = await Enrollment.find({ classId: { $in: classIds } }).lean()
+        const studentIds = [...new Set(enrollments.map(e => e.studentId))]
+
+        if (studentIds.length === 0) {
+            return res.json({ count: 0, message: 'No students found for this level' })
+        }
+
+        // Pre-fetch teacher assignments for all classes involved
+        const allTeacherAssignments = await TeacherClassAssignment.find({ classId: { $in: classIds } }).lean()
+        const teacherMap = new Map<string, string[]>() // classId -> teacherIds[]
+        
+        for (const ta of allTeacherAssignments) {
+            if (!teacherMap.has(ta.classId)) teacherMap.set(ta.classId, [])
+            teacherMap.get(ta.classId)?.push(ta.teacherId)
+        }
+
+        // Create assignments
+        let count = 0
+        for (const enrollment of enrollments) {
+            const teachers = teacherMap.get(enrollment.classId) || []
+            
+            await TemplateAssignment.findOneAndUpdate(
+                { templateId, studentId: enrollment.studentId },
+                {
+                    templateId,
+                    templateVersion: template.currentVersion || 1,
+                    studentId: enrollment.studentId,
+                    assignedTeachers: teachers,
+                    assignedBy: (req as any).user.userId,
+                    assignedAt: new Date(),
+                    status: 'draft',
+                },
+                { upsert: true }
+            )
+            count++
+        }
+
+        res.json({ count, message: `Assigned template to ${count} students` })
+    } catch (e: any) {
+        res.status(500).json({ error: 'bulk_assign_failed', message: e.message })
+    }
+})
+
 // Admin: Assign template to student with teachers
 templateAssignmentsRouter.post('/', requireAuth(['ADMIN']), async (req, res) => {
     try {

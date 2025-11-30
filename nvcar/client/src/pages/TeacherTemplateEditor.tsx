@@ -5,7 +5,7 @@ import api from '../api'
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; blocks: Block[] }
 type Template = { _id?: string; name: string; pages: Page[] }
-type Student = { _id: string; firstName: string; lastName: string }
+type Student = { _id: string; firstName: string; lastName: string; level?: string }
 type Assignment = { _id: string; status: string; data?: Record<string, any> }
 
 const pageWidth = 800
@@ -231,11 +231,15 @@ export default function TeacherTemplateEditor() {
                             {b.type === 'language_toggle' && (
                                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: b.props.spacing || 12 }}>
                                     {(b.props.items || []).map((it: any, i: number) => {
+                                        // Check level
+                                        if (it.levels && it.levels.length > 0 && student?.level && !it.levels.includes(student.level)) {
+                                            return null
+                                        }
                                         const r = b.props.radius || 40
                                         const size = r * 2
                                         return (
                                             <div 
-                                                key={i} 
+                                                key={i}  
                                                 style={{ 
                                                     width: size, 
                                                     height: size, 
@@ -279,7 +283,12 @@ export default function TeacherTemplateEditor() {
                                 {b.type === 'competency_list' && <div style={{ color: b.props.color, fontSize: b.props.fontSize }}>Liste des compétences</div>}
                                 {b.type === 'signature' && <div style={{ fontSize: b.props.fontSize }}>{(b.props.labels || []).join(' / ')}</div>}
                                 {b.type === 'dropdown' && (
-                                    <div style={{ width: b.props.width || 200, position: 'relative' }}>
+                                    <div style={{ 
+                                        width: b.props.width || 200, 
+                                        position: 'relative',
+                                        opacity: (b.props.levels && b.props.levels.length > 0 && student?.level && !b.props.levels.includes(student.level)) ? 0.5 : 1,
+                                        pointerEvents: (b.props.levels && b.props.levels.length > 0 && student?.level && !b.props.levels.includes(student.level)) ? 'none' : 'auto'
+                                    }}>
                                         <div style={{ fontSize: 10, fontWeight: 'bold', color: '#6c5ce7', marginBottom: 2 }}>Dropdown #{b.props.dropdownNumber || '?'}</div>
                                         {b.props.label && <div style={{ fontSize: 10, color: '#666', marginBottom: 2 }}>{b.props.label}</div>}
                                         <div

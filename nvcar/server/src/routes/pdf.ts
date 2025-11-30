@@ -77,6 +77,7 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN','SUBADMIN','TEACHER']), async
     const signatures = await StudentSignature.findOne({ studentId: id }).lean()
     const sigMap = new Map((signatures?.items || []).map((s: any) => [s.label, s]))
     const classDoc = enrollment ? await ClassModel.findById(enrollment.classId).lean() : null
+    const level = classDoc ? (classDoc as any).level : ''
     const resolveText = (t: string) => t
       .replace(/\{student\.firstName\}/g, String(student.firstName))
       .replace(/\{student\.lastName\}/g, String(student.lastName))
@@ -325,6 +326,10 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN','SUBADMIN','TEACHER']), async
           doc.rect(x, y, width, height).stroke('#000')
         }
       } else if (b.type === 'dropdown') {
+        // Check level
+        if (b.props?.levels && b.props.levels.length > 0 && level && !b.props.levels.includes(level)) {
+             return
+        }
         // Render dropdown with selected value or as empty box
         const dropdownNum = b.props?.dropdownNumber
         const selectedValue = dropdownNum ? assignmentData[`dropdown_${dropdownNum}`] : (b.props?.variableName ? assignmentData[b.props.variableName] : '')
@@ -378,12 +383,15 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN','SUBADMIN','TEACHER']), async
         doc.fillColor('#2d3436')
       } else if (b.type === 'language_toggle') {
         const items: any[] = b.props?.items || []
+        // Filter items by level
+        const filteredItems = items.filter(it => !it.levels || it.levels.length === 0 || !level || it.levels.includes(level))
+        
         const r = b.props?.radius || 40
         const size = r * 2
         const spacing = b.props?.spacing || 12
         let x = b.props?.x || 50
         const y = b.props?.y || 50
-        for (const it of items) {
+        for (const it of filteredItems) {
           doc.save()
           doc.circle(x + r, y + r, r).fill('#ddd')
           if (it?.logo) {
@@ -403,6 +411,45 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN','SUBADMIN','TEACHER']), async
           }
           doc.restore()
           x += size + spacing
+        }
+      } else if (b.type === 'promotion_info') {
+        const targetLevel = b.props?.targetLevel
+        const promotions = assignmentData.promotions || []
+        const promo = promotions.find((p: any) => p.to === targetLevel)
+        
+        if (promo) {
+          const x = b.props?.x || 50
+          const y = b.props?.y || 50
+          const width = b.props?.width || (b.props?.field ? 150 : 300)
+          const height = b.props?.height || (b.props?.field ? 30 : 100)
+          
+          doc.save()
+          
+          doc.fontSize(b.props?.fontSize || 12).fillColor(b.props?.color || '#2d3436')
+          
+          if (!b.props?.field) {
+             // Legacy behavior: Draw box and all info
+             doc.rect(x, y, width, height).stroke('#6c5ce7')
+             const textX = x + 10
+             let textY = y + 15
+             doc.font('Helvetica-Bold').text(`Passage en ${targetLevel}`, textX, textY, { width: width - 20, align: 'center' })
+             textY += 20
+             doc.font('Helvetica').text(`${student.firstName} ${student.lastName}`, textX, textY, { width: width - 20, align: 'center' })
+             textY += 20
+             doc.fontSize((b.props?.fontSize || 12) * 0.8).fillColor('#666')
+             doc.text(`Année ${promo.year}`, textX, textY, { width: width - 20, align: 'center' })
+          } else {
+             // Specific field
+             if (b.props.field === 'level') {
+                doc.font('Helvetica-Bold').text(`Passage en ${targetLevel}`, x, y + (height/2) - 6, { width, align: 'center' })
+             } else if (b.props.field === 'student') {
+                doc.font('Helvetica').text(`${student.firstName} ${student.lastName}`, x, y + (height/2) - 6, { width, align: 'center' })
+             } else if (b.props.field === 'year') {
+                doc.text(`Année ${promo.year}`, x, y + (height/2) - 6, { width, align: 'center' })
+             }
+          }
+          
+          doc.restore()
         }
       }
     }
