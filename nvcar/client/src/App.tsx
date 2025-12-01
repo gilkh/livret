@@ -18,6 +18,7 @@ import SubAdminDashboard from './pages/SubAdminDashboard'
 import SubAdminTeacherView from './pages/SubAdminTeacherView'
 import SubAdminTemplateReview from './pages/SubAdminTemplateReview'
 import SubAdminSignature from './pages/SubAdminSignature'
+import SubAdminProgress from './pages/SubAdminProgress'
 import AdminAssignments from './pages/AdminAssignments'
 import AdminAssignmentList from './pages/AdminAssignmentList'
 import AdminAuditLogs from './pages/AdminAuditLogs'
@@ -262,7 +263,15 @@ export default function App() {
           }
         />
         <Route
-          path="/admin/analytics"
+          path="/subadmin/progress"
+          element={
+            <RequireAuth>
+              <SubAdminProgress />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/teacher/classes"
           element={
             <RequireAuth>
               <AdminAnalytics />

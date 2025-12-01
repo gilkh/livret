@@ -6,8 +6,139 @@ import { OutlookUser } from '../models/OutlookUser'
 import { ClassModel } from '../models/Class'
 import { TeacherClassAssignment } from '../models/TeacherClassAssignment'
 import { RoleScope } from '../models/RoleScope'
+import { SchoolYear } from '../models/SchoolYear'
+import { Enrollment } from '../models/Enrollment'
+import { Student } from '../models/Student'
+import { TemplateAssignment } from '../models/TemplateAssignment'
+import { GradebookTemplate } from '../models/GradebookTemplate'
+import { Competency } from '../models/Competency'
+import { CompetencyVisibilityRule } from '../models/CompetencyVisibilityRule'
+import { StudentCompetencyStatus } from '../models/StudentCompetencyStatus'
 
 export const subAdminAssignmentsRouter = Router()
+
+// SubAdmin: Get student progress for assigned levels
+subAdminAssignmentsRouter.get('/progress', requireAuth(['SUBADMIN']), async (req, res) => {
+    try {
+        const subAdminId = (req as any).user.userId
+        
+        // Get assigned levels from RoleScope
+        const scope = await RoleScope.findOne({ userId: subAdminId }).lean()
+        if (!scope || !scope.levels || scope.levels.length === 0) {
+            return res.json([])
+        }
+        
+        const levels = scope.levels
+
+        // Get active school year
+        const activeYear = await SchoolYear.findOne({ active: true }).lean()
+        if (!activeYear) {
+            return res.status(400).json({ error: 'no_active_year' })
+        }
+
+        // Find classes in these levels for the active year
+        const classes = await ClassModel.find({ 
+            level: { $in: levels },
+            schoolYearId: String(activeYear._id)
+        }).lean()
+        
+        const classIds = classes.map(c => String(c._id))
+        
+        if (classIds.length === 0) {
+            return res.json([])
+        }
+
+        // Find enrollments
+        const enrollments = await Enrollment.find({
+            classId: { $in: classIds },
+            schoolYearId: String(activeYear._id)
+        }).lean()
+        
+        const studentIds = enrollments.map(e => e.studentId)
+        
+        if (studentIds.length === 0) {
+            return res.json([])
+        }
+
+        // Find completed assignments (Carnet Done)
+        const completedAssignments = await TemplateAssignment.find({
+            studentId: { $in: studentIds },
+            isCompleted: true
+        }).lean()
+        
+        const completedStudentIds = new Set(completedAssignments.map(a => a.studentId))
+        
+        // Filter students
+        const students = await Student.find({ _id: { $in: Array.from(completedStudentIds) } }).lean()
+        
+        // Fetch templates used in assignments
+        const templateIds = [...new Set(completedAssignments.map(a => a.templateId))]
+        const templates = await GradebookTemplate.find({ _id: { $in: templateIds } }).lean()
+        const templateMap = new Map(templates.map(t => [String(t._id), t]))
+
+        const result = students.map(student => {
+            const studentLevel = student.level || 'Unknown'
+            const enrollment = enrollments.find(e => e.studentId === String(student._id))
+            const cls = classes.find(c => String(c._id) === enrollment?.classId)
+            const level = cls?.level || studentLevel
+            
+            // Find the assignment for this student
+            const assignment = completedAssignments.find(a => a.studentId === String(student._id))
+            const template = assignment ? templateMap.get(assignment.templateId) : null
+            
+            let totalAvailable = 0
+            let activeCount = 0
+
+            if (template && assignment) {
+                const assignmentData = assignment.data || {}
+                
+                // Iterate through all pages and blocks to find language_toggle
+                template.pages.forEach((page: any, pageIdx: number) => {
+                    (page.blocks || []).forEach((block: any, blockIdx: number) => {
+                        if (block.type === 'language_toggle') {
+                            // Check for override in assignment data
+                            const key = `language_toggle_${pageIdx}_${blockIdx}`
+                            const overrideItems = assignmentData[key]
+                            
+                            const items = overrideItems || block.props.items || []
+                            
+                            items.forEach((item: any) => {
+                                // Check if item is assigned to student's level
+                                let isAssigned = true
+                                if (item.levels && Array.isArray(item.levels) && item.levels.length > 0) {
+                                    if (!level || !item.levels.includes(level)) {
+                                        isAssigned = false
+                                    }
+                                }
+                                
+                                if (isAssigned) {
+                                    totalAvailable++
+                                    if (item.active) activeCount++
+                                }
+                            })
+                        }
+                    })
+                })
+            }
+
+            return {
+                _id: student._id,
+                firstName: student.firstName,
+                lastName: student.lastName,
+                level,
+                className: cls?.name,
+                activeCount,
+                totalAvailable
+            }
+        })
+
+        res.json(result)
+
+    } catch (e: any) {
+        console.error(e)
+        res.status(500).json({ error: 'fetch_progress_failed', message: e.message })
+    }
+})
 
 // Admin: Assign sub-admin to all teachers in a level
 subAdminAssignmentsRouter.post('/bulk-level', requireAuth(['ADMIN']), async (req, res) => {

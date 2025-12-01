@@ -34,6 +34,7 @@ export default function NavBar() {
         {role === 'SUBADMIN' && (
           <>
             <Link to="/subadmin/dashboard" className="nav-link">Tableau de bord</Link>
+            <Link to="/subadmin/progress" className="nav-link">Progression</Link>
             <Link to="/subadmin/signature" className="nav-link">Ma signature</Link>
           </>
         )}

@@ -13,6 +13,7 @@ type StudentDoc = {
     parentPhone?: string; 
     level?: string;
     promotion?: { from: string; to: string; date: string; year: string }
+    previousClassName?: string
 }
 
 export default function AdminResources() {
@@ -43,6 +44,26 @@ export default function AdminResources() {
   const otherUnassignedStudents = useMemo(() => {
       return unassignedStudents.filter(s => !s.promotion || s.promotion.from === s.promotion.to)
   }, [unassignedStudents])
+
+  const groupedPromotedStudents = useMemo(() => {
+      const groups: Record<string, StudentDoc[]> = {}
+      for (const s of promotedStudents) {
+          const key = `${s.promotion?.from || '?'} → ${s.promotion?.to || '?'} (${s.previousClassName || '?'})`
+          if (!groups[key]) groups[key] = []
+          groups[key].push(s)
+      }
+      return groups
+  }, [promotedStudents])
+
+  const groupedOtherStudents = useMemo(() => {
+      const groups: Record<string, StudentDoc[]> = {}
+      for (const s of otherUnassignedStudents) {
+          const key = `${s.level || '?'} (${s.previousClassName || '?'})`
+          if (!groups[key]) groups[key] = []
+          groups[key].push(s)
+      }
+      return groups
+  }, [otherUnassignedStudents])
 
   const loadYears = async () => { 
     const r = await api.get('/school-years')
@@ -377,9 +398,12 @@ export default function AdminResources() {
                 ) : (
                     <div style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 16, flex: 1 }}>
                         {/* Other Unassigned */}
-                        {otherUnassignedStudents.length > 0 && (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                                {otherUnassignedStudents.map(s => (
+                        {Object.entries(groupedOtherStudents).map(([groupName, students]) => (
+                            <div key={groupName} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                <div style={{ borderBottom: '1px solid #eee', paddingBottom: 4, marginBottom: 4 }}>
+                                    <h5 style={{ margin: 0, color: '#555', fontSize: '0.85rem' }}>{groupName} ({students.length})</h5>
+                                </div>
+                                {students.map(s => (
                                     <div key={s._id} style={{ background: '#fff', padding: 12, borderRadius: 8, border: '1px solid #eee', fontSize: '0.9rem' }}>
                                         <div style={{ fontWeight: 600, marginBottom: 8 }}>{s.firstName} {s.lastName}</div>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -400,15 +424,15 @@ export default function AdminResources() {
                                     </div>
                                 ))}
                             </div>
-                        )}
+                        ))}
 
                         {/* Promoted Unassigned */}
-                        {promotedStudents.length > 0 && (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {Object.entries(groupedPromotedStudents).map(([groupName, students]) => (
+                            <div key={groupName} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                                 <div style={{ borderBottom: '1px solid #ffd591', paddingBottom: 4, marginBottom: 4 }}>
-                                    <h5 style={{ margin: 0, color: '#d46b08', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Promus ({promotedStudents.length})</h5>
+                                    <h5 style={{ margin: 0, color: '#d46b08', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{groupName} ({students.length})</h5>
                                 </div>
-                                {promotedStudents.map(s => (
+                                {students.map(s => (
                                     <div key={s._id} style={{ background: '#fff', padding: 12, borderRadius: 8, border: '1px solid #ffd591', fontSize: '0.9rem' }}>
                                         <div style={{ fontWeight: 600, marginBottom: 4 }}>{s.firstName} {s.lastName}</div>
                                         <div style={{ fontSize: '0.8rem', color: '#888', marginBottom: 8 }}>
@@ -432,7 +456,7 @@ export default function AdminResources() {
                                     </div>
                                 ))}
                             </div>
-                        )}
+                        ))}
                     </div>
                 )}
             </div>

@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { Student } from '../models/Student'
 import { Enrollment } from '../models/Enrollment'
 import { ClassModel } from '../models/Class'
+import { SchoolYear } from '../models/SchoolYear'
 import { StudentCompetencyStatus } from '../models/StudentCompetencyStatus'
 import { TemplateAssignment } from '../models/TemplateAssignment'
 import { requireAuth } from '../auth'
@@ -44,6 +45,34 @@ studentsRouter.get('/unassigned/:schoolYearId', requireAuth(['ADMIN','SUBADMIN']
   
   // Find assignments with promotions for these students
   const unassignedIds = unassigned.map(s => String(s._id))
+  
+  // Find previous school year to get previous class
+  const allYears = await SchoolYear.find({}).sort({ startDate: 1 }).lean()
+  const currentIndex = allYears.findIndex(y => String(y._id) === schoolYearId)
+  let previousYearId: string | null = null
+  if (currentIndex > 0) {
+      previousYearId = String(allYears[currentIndex - 1]._id)
+  }
+
+  const previousClassMap: Record<string, string> = {}
+  if (previousYearId) {
+      const prevEnrollments = await Enrollment.find({
+          studentId: { $in: unassignedIds },
+          schoolYearId: previousYearId
+      }).lean()
+      
+      const prevClassIds = prevEnrollments.map(e => e.classId)
+      const prevClasses = await ClassModel.find({ _id: { $in: prevClassIds } }).lean()
+      const prevClassIdToName: Record<string, string> = {}
+      for (const c of prevClasses) prevClassIdToName[String(c._id)] = c.name
+      
+      for (const e of prevEnrollments) {
+          if (prevClassIdToName[e.classId]) {
+              previousClassMap[e.studentId] = prevClassIdToName[e.classId]
+          }
+      }
+  }
+
   const assignments = await TemplateAssignment.find({ 
     studentId: { $in: unassignedIds },
     'data.promotions': { $exists: true, $not: { $size: 0 } }
@@ -63,7 +92,8 @@ studentsRouter.get('/unassigned/:schoolYearId', requireAuth(['ADMIN','SUBADMIN']
 
   const result = unassigned.map(s => ({
       ...s,
-      promotion: promotionMap[String(s._id)]
+      promotion: promotionMap[String(s._id)],
+      previousClassName: previousClassMap[String(s._id)]
   }))
   
   res.json(result)
