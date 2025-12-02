@@ -11,8 +11,8 @@ type Assignment = { _id: string; status: string; data?: any }
 const pageWidth = 800
 const pageHeight = 1120
 
-export default function CarnetPrint() {
-    const { assignmentId } = useParams<{ assignmentId: string }>()
+export default function CarnetPrint({ mode }: { mode?: 'saved' }) {
+    const { assignmentId, savedId } = useParams<{ assignmentId: string, savedId: string }>()
     const [searchParams] = useSearchParams()
     const token = searchParams.get('token')
     
@@ -36,12 +36,57 @@ export default function CarnetPrint() {
                     localStorage.setItem('token', token)
                 }
                 
-                console.log('[CarnetPrint] Loading data for assignment:', assignmentId)
-                const r = await api.get(`/subadmin/templates/${assignmentId}/review`)
-                setTemplate(r.data.template)
-                setStudent(r.data.student)
-                setAssignment(r.data.assignment)
-                setSignature(r.data.signature)
+                if (mode === 'saved' && savedId) {
+                    console.log('[CarnetPrint] Loading saved gradebook:', savedId)
+                    const r = await api.get(`/saved-gradebooks/${savedId}`)
+                    const savedData = r.data
+                    
+                    setStudent(savedData.data.student)
+                    setAssignment(savedData.data.assignment)
+                    setSignature(savedData.data.signature)
+                    
+                    if (savedData.templateId) {
+                         const t = await api.get(`/templates/${savedData.templateId}`)
+                         let templateData = t.data
+                         
+                         // Handle versioning
+                         const assignment = savedData.data.assignment
+                         if (assignment?.templateVersion && templateData.versionHistory) {
+                             const version = templateData.versionHistory.find((v: any) => v.version === assignment.templateVersion)
+                             if (version) {
+                                 templateData = {
+                                     ...templateData,
+                                     pages: version.pages,
+                                     variables: version.variables || {},
+                                     watermark: version.watermark
+                                 }
+                             }
+                         }
+
+                         // Merge assignment data into template blocks (specifically for language toggles)
+                         if (assignment && assignment.data) {
+                             templateData.pages.forEach((page: any, pIdx: number) => {
+                                 page.blocks.forEach((block: any, bIdx: number) => {
+                                     if (block.type === 'language_toggle') {
+                                         const key = `language_toggle_${pIdx}_${bIdx}`
+                                         if (assignment.data[key]) {
+                                             block.props.items = assignment.data[key]
+                                         }
+                                     }
+                                 })
+                             })
+                         }
+
+                         setTemplate(templateData)
+                    }
+                } else if (assignmentId) {
+                    console.log('[CarnetPrint] Loading data for assignment:', assignmentId)
+                    const r = await api.get(`/subadmin/templates/${assignmentId}/review`)
+                    setTemplate(r.data.template)
+                    setStudent(r.data.student)
+                    setAssignment(r.data.assignment)
+                    setSignature(r.data.signature)
+                }
                 
                 console.log('[CarnetPrint] Data loaded successfully')
                 
@@ -53,7 +98,7 @@ export default function CarnetPrint() {
             }
         }
         loadData()
-    }, [assignmentId, token])
+    }, [assignmentId, savedId, token, mode])
     
     // Signal ready after render is complete
     useEffect(() => {

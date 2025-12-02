@@ -6,10 +6,77 @@ export default function AdminSettings() {
   const [teacherLogin, setTeacherLogin] = useState(true)
   const [subAdminLogin, setSubAdminLogin] = useState(true)
   const [microsoftLogin, setMicrosoftLogin] = useState(true)
-  const [schoolName, setSchoolName] = useState('')
   const [loading, setLoading] = useState(true)
   const [msg, setMsg] = useState('')
   const [backupLoading, setBackupLoading] = useState(false)
+  const [autoBackupEnabled, setAutoBackupEnabled] = useState(false)
+  const [backupInterval, setBackupInterval] = useState(60) // in minutes
+  const [dirHandle, setDirHandle] = useState<any>(null)
+  const [nextBackupTime, setNextBackupTime] = useState<Date | null>(null)
+
+  useEffect(() => {
+    let intervalId: any;
+
+    if (autoBackupEnabled && dirHandle) {
+      // Calculate next backup time
+      const now = new Date();
+      const next = new Date(now.getTime() + backupInterval * 60000);
+      setNextBackupTime(next);
+
+      intervalId = setInterval(async () => {
+        await performAutoBackup();
+      }, backupInterval * 60000);
+    } else {
+      setNextBackupTime(null);
+    }
+
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [autoBackupEnabled, dirHandle, backupInterval]);
+
+  const pickFolder = async () => {
+    try {
+      // @ts-ignore
+      const handle = await window.showDirectoryPicker();
+      setDirHandle(handle);
+      setMsg('Dossier de sauvegarde sélectionné');
+    } catch (err) {
+      console.error(err);
+      setMsg('Erreur lors de la sélection du dossier');
+    }
+  };
+
+  const performAutoBackup = async () => {
+    if (!dirHandle) return;
+    
+    try {
+      // Don't set global loading to avoid blocking UI, maybe just a toast
+      const res = await api.get('/backup/full', { responseType: 'blob' });
+      const blob = new Blob([res.data]);
+      
+      const filename = `nvcar-auto-backup-${new Date().toISOString().replace(/[:.]/g, '-')}.zip`;
+      
+      // @ts-ignore
+      const fileHandle = await dirHandle.getFileHandle(filename, { create: true });
+      // @ts-ignore
+      const writable = await fileHandle.createWritable();
+      // @ts-ignore
+      await writable.write(blob);
+      // @ts-ignore
+      await writable.close();
+      
+      setMsg(`Sauvegarde automatique effectuée : ${filename}`);
+      
+      // Update next backup time
+      const now = new Date();
+      setNextBackupTime(new Date(now.getTime() + backupInterval * 60000));
+      
+    } catch (err) {
+      console.error('Auto backup failed', err);
+      setMsg('Échec de la sauvegarde automatique');
+    }
+  };
 
   useEffect(() => {
     loadSettings()
@@ -29,7 +96,6 @@ export default function AdminSettings() {
       setTeacherLogin(res.data.login_enabled_teacher !== false)
       setSubAdminLogin(res.data.login_enabled_subadmin !== false)
       setMicrosoftLogin(res.data.login_enabled_microsoft !== false)
-      setSchoolName(res.data.school_name || '')
     } catch (err) {
       console.error(err)
     } finally {
@@ -65,10 +131,6 @@ export default function AdminSettings() {
     const newVal = !microsoftLogin
     setMicrosoftLogin(newVal)
     if (!(await saveSetting('login_enabled_microsoft', newVal))) setMicrosoftLogin(!newVal)
-  }
-
-  const handleSchoolNameBlur = async () => {
-    await saveSetting('school_name', schoolName)
   }
 
   const downloadBackup = async () => {
@@ -126,40 +188,7 @@ export default function AdminSettings() {
 
       <div className="settings-grid">
         
-        {/* General Information Section */}
-        <div className="settings-section">
-          <div className="section-header">
-            <div className="section-icon-wrapper" style={{ background: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6' }}>
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
-                <polyline points="9 22 9 12 15 12 15 22"></polyline>
-              </svg>
-            </div>
-            <h2 className="section-title">Identité de l'École</h2>
-          </div>
-          <div className="setting-item">
-            <div className="setting-info">
-              <h3>Nom de l'établissement</h3>
-              <p>Ce nom apparaîtra sur les documents officiels</p>
-            </div>
-            <div style={{ width: '300px' }}>
-              <input 
-                type="text" 
-                value={schoolName}
-                onChange={e => setSchoolName(e.target.value)}
-                onBlur={handleSchoolNameBlur}
-                placeholder="Ex: École Maternelle Victor Hugo"
-                style={{ 
-                  width: '100%', 
-                  padding: '8px 12px', 
-                  borderRadius: '8px', 
-                  border: '1px solid #e2e8f0',
-                  fontSize: '0.95rem'
-                }}
-              />
-            </div>
-          </div>
-        </div>
+
 
         {/* Access & Security Section */}
         <div className="settings-section">
@@ -267,6 +296,118 @@ export default function AdminSettings() {
             >
               {backupLoading ? 'Création de l\'archive...' : '⬇️ Télécharger Backup Complet'}
             </button>
+          </div>
+
+          <div className="setting-item auto-backup-container" style={{ 
+            marginTop: '1.5rem', 
+            padding: '1.5rem', 
+            background: '#f8fafc', 
+            borderRadius: '12px',
+            border: '1px solid #e2e8f0',
+            display: 'block'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem' }}>
+                <div className="setting-info">
+                <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--accent)' }}>
+                    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+                    <polyline points="17 21 17 13 7 13 7 21"></polyline>
+                    <polyline points="7 3 7 8 15 8"></polyline>
+                    </svg>
+                    Sauvegarde Automatique
+                </h3>
+                <p style={{ marginTop: '0.5rem' }}>Sauvegarder automatiquement dans un dossier local (nécessite que l'onglet reste ouvert)</p>
+                </div>
+                
+                <div className="flex items-center" style={{ gap: '1rem' }}>
+                    <div className="status-indicator">
+                        <span className={`dot ${autoBackupEnabled ? 'active' : 'inactive'}`}></span>
+                        <span style={{ color: autoBackupEnabled ? 'var(--success)' : '#64748b', fontWeight: 500 }}>
+                        {autoBackupEnabled ? 'Activé' : 'Désactivé'}
+                        </span>
+                    </div>
+                    <label className="switch">
+                        <input 
+                        type="checkbox" 
+                        checked={autoBackupEnabled}
+                        onChange={(e) => {
+                            if (e.target.checked && !dirHandle) {
+                            alert("Veuillez d'abord choisir un dossier de sauvegarde.");
+                            return;
+                            }
+                            setAutoBackupEnabled(e.target.checked);
+                        }}
+                        />
+                        <span className="slider"></span>
+                    </label>
+                </div>
+            </div>
+
+            <div style={{ 
+                display: 'grid', 
+                gridTemplateColumns: '1fr 1fr', 
+                gap: '1rem',
+                alignItems: 'end'
+            }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    <label style={{ fontSize: '0.9rem', fontWeight: 500, color: '#475569' }}>Fréquence de sauvegarde</label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <input 
+                            type="number" 
+                            min="1"
+                            value={backupInterval}
+                            onChange={(e) => setBackupInterval(parseInt(e.target.value) || 60)}
+                            style={{ 
+                                width: '80px', 
+                                padding: '8px 12px', 
+                                borderRadius: '6px', 
+                                border: '1px solid #cbd5e1',
+                                fontSize: '0.95rem'
+                            }}
+                            disabled={autoBackupEnabled}
+                        />
+                        <span style={{ color: '#64748b' }}>minutes</span>
+                    </div>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    <label style={{ fontSize: '0.9rem', fontWeight: 500, color: '#475569' }}>Destination</label>
+                    <button 
+                        className="btn secondary" 
+                        onClick={pickFolder}
+                        style={{ 
+                            width: '100%', 
+                            justifyContent: 'center',
+                            background: dirHandle ? '#e0f2fe' : 'white',
+                            borderColor: dirHandle ? '#7dd3fc' : '#cbd5e1',
+                            color: dirHandle ? '#0284c7' : '#475569'
+                        }}
+                    >
+                        {dirHandle ? '📁 Dossier sélectionné' : '📁 Choisir le dossier'}
+                    </button>
+                </div>
+            </div>
+
+            {nextBackupTime && autoBackupEnabled && (
+                <div style={{ 
+                    marginTop: '1rem', 
+                    padding: '0.75rem', 
+                    background: '#ecfdf5', 
+                    borderRadius: '6px', 
+                    border: '1px solid #a7f3d0',
+                    color: '#047857',
+                    fontSize: '0.9rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem'
+                }}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <polyline points="12 6 12 12 16 14"></polyline>
+                    </svg>
+                    Prochaine sauvegarde prévue à <strong>{nextBackupTime.toLocaleTimeString()}</strong>
+                </div>
+            )}
           </div>
         </div>
       </div>

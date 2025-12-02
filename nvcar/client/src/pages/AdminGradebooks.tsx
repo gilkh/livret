@@ -60,7 +60,23 @@ export default function AdminGradebooks() {
                 setSavedGradebook(r.data)
                 if (r.data.templateId) {
                     const t = await api.get(`/templates/${r.data.templateId}`)
-                    setSavedTemplate(t.data)
+                    let templateData = t.data
+                    
+                    // Handle versioning
+                    const assignment = r.data.data?.assignment
+                    if (assignment?.templateVersion && templateData.versionHistory) {
+                        const version = templateData.versionHistory.find((v: any) => v.version === assignment.templateVersion)
+                        if (version) {
+                            templateData = {
+                                ...templateData,
+                                pages: version.pages,
+                                variables: version.variables || {},
+                                watermark: version.watermark
+                            }
+                        }
+                    }
+                    
+                    setSavedTemplate(templateData)
                 }
                 setLoadingSaved(false)
             })
@@ -200,7 +216,11 @@ export default function AdminGradebooks() {
                     {savedGradebook && savedTemplate && (
                         <div>
                             <div className="preview-actions">
-                                <button className="action-btn" onClick={() => window.print()}>
+                                <button className="action-btn" onClick={() => {
+                                    const token = localStorage.getItem('token')
+                                    const base = (api.defaults.baseURL || '').replace(/\/$/, '')
+                                    window.open(`${base}/pdf-v2/saved/${savedGradebook._id}?token=${token}`, '_blank')
+                                }}>
                                     <span>🖨️ Imprimer / PDF</span>
                                 </button>
                             </div>

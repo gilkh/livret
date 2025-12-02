@@ -35,7 +35,9 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                     }
                 }
             `}</style>
-            {template.pages.filter(p => !p.excludeFromPdf).map((page, pageIdx) => (
+            {template.pages.map((page, originalPageIdx) => ({ page, originalPageIdx }))
+                .filter(({ page }) => !page.excludeFromPdf)
+                .map(({ page, originalPageIdx }, pageIdx) => (
                 <div 
                     key={pageIdx}
                     className="page-canvas" 
@@ -52,8 +54,8 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                         boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
                     }}
                 >
-                    {page.blocks.map((b, idx) => (
-                        <div key={idx} style={{ position: 'absolute', left: b.props.x || 0, top: b.props.y || 0, zIndex: b.props.z ?? idx }}>
+                    {page.blocks.map((b, blockIdx) => (
+                        <div key={blockIdx} style={{ position: 'absolute', left: b.props.x || 0, top: b.props.y || 0, zIndex: b.props.z ?? blockIdx }}>
                             {b.type === 'text' && (
                                 <div style={{ color: b.props.color, fontSize: b.props.fontSize }}>{b.props.text}</div>
                             )}
@@ -74,27 +76,38 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                             
                             {b.type === 'language_toggle' && (
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: b.props.spacing || 12 }}>
-                                    {(b.props.items || []).map((it: any, i: number) => {
-                                        const isAllowed = !(it.levels && it.levels.length > 0 && student?.level && !it.levels.includes(student.level));
-                                        const r = b.props.radius || 40
-                                        const size = r * 2
-                                        return (
-                                            <div 
-                                                key={i}  
-                                                style={{ 
-                                                    width: size, 
-                                                    height: size, 
-                                                    borderRadius: '50%', 
-                                                    overflow: 'hidden', 
-                                                    position: 'relative',
-                                                    boxShadow: it.active ? '0 0 0 3px #6c5ce7' : '0 0 0 1px #ddd',
-                                                    opacity: isAllowed ? 0.9 : 0.5
-                                                }}
-                                            >
-                                                {it.logo ? <img src={it.logo} style={{ width: '100%', height: '100%', objectFit: 'cover', filter: it.active ? 'brightness(1.1)' : 'brightness(0.6)' }} alt="" /> : <div style={{ width: '100%', height: '100%', background: '#ddd' }} />}
-                                            </div>
-                                        )
-                                    })}
+                                    {(() => {
+                                        // Try both keys: with originalPageIdx and with current pageIdx
+                                        // This handles cases where versioning might have shifted indices or not
+                                        const toggleKeyOriginal = `language_toggle_${originalPageIdx}_${blockIdx}`
+                                        const toggleKeyCurrent = `language_toggle_${pageIdx}_${blockIdx}`
+                                        
+                                        const items = assignment?.data?.[toggleKeyOriginal] || 
+                                                      assignment?.data?.[toggleKeyCurrent] || 
+                                                      b.props.items || []
+                                        
+                                        return items.map((it: any, i: number) => {
+                                            const isAllowed = !(it.levels && it.levels.length > 0 && student?.level && !it.levels.includes(student.level));
+                                            const r = b.props.radius || 40
+                                            const size = r * 2
+                                            return (
+                                                <div 
+                                                    key={i}  
+                                                    style={{ 
+                                                        width: size, 
+                                                        height: size, 
+                                                        borderRadius: '50%', 
+                                                        overflow: 'hidden', 
+                                                        position: 'relative',
+                                                        boxShadow: it.active ? '0 0 0 3px #6c5ce7' : '0 0 0 1px #ddd',
+                                                        opacity: isAllowed ? 0.9 : 0.5
+                                                    }}
+                                                >
+                                                    {it.logo ? <img src={it.logo} style={{ width: '100%', height: '100%', objectFit: 'cover', filter: it.active ? 'brightness(1.1)' : 'brightness(0.6)' }} alt="" /> : <div style={{ width: '100%', height: '100%', background: '#ddd' }} />}
+                                                </div>
+                                            )
+                                        })
+                                    })()}
                                 </div>
                             )}
                             

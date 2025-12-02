@@ -19,6 +19,7 @@ import SubAdminTeacherView from './pages/SubAdminTeacherView'
 import SubAdminTemplateReview from './pages/SubAdminTemplateReview'
 import SubAdminSignature from './pages/SubAdminSignature'
 import SubAdminProgress from './pages/SubAdminProgress'
+import SubAdminGradebooks from './pages/SubAdminGradebooks'
 import AdminAssignments from './pages/AdminAssignments'
 import AdminAssignmentList from './pages/AdminAssignmentList'
 import AdminAuditLogs from './pages/AdminAuditLogs'
@@ -62,6 +63,7 @@ export default function App() {
         <Route path="/login" element={<Login />} />
         {/* Print route without auth/navbar for PDF generation */}
         <Route path="/print/carnet/:assignmentId" element={<CarnetPrint />} />
+        <Route path="/print/saved/:savedId" element={<CarnetPrint mode="saved" />} />
         <Route
           path="/"
           element={
@@ -267,6 +269,14 @@ export default function App() {
           element={
             <RequireAuth>
               <SubAdminProgress />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/subadmin/gradebooks"
+          element={
+            <RequireAuth>
+              <SubAdminGradebooks />
             </RequireAuth>
           }
         />

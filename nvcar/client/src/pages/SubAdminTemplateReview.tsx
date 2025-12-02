@@ -25,6 +25,7 @@ export default function SubAdminTemplateReview() {
     const [signing, setSigning] = useState(false)
     const [unsigning, setUnsigning] = useState(false)
     const [isPromoted, setIsPromoted] = useState(false)
+    const [isSignedByMe, setIsSignedByMe] = useState(false)
 
     const [promoting, setPromoting] = useState(false)
     const [canEdit, setCanEdit] = useState(false)
@@ -49,6 +50,7 @@ export default function SubAdminTemplateReview() {
                 setSignature(r.data.signature)
                 setCanEdit(r.data.canEdit)
                 setIsPromoted(r.data.isPromoted)
+                setIsSignedByMe(r.data.isSignedByMe)
             } catch (e: any) {
                 setError('Impossible de charger le carnet')
                 console.error(e)
@@ -160,6 +162,10 @@ export default function SubAdminTemplateReview() {
     }
 
     const handleSign = async () => {
+        if (assignment?.status !== 'completed') {
+            alert('L\'enseignant doit marquer le carnet comme terminé avant que vous puissiez le signer.')
+            return
+        }
         try {
             setSigning(true)
             setError('')
@@ -168,6 +174,7 @@ export default function SubAdminTemplateReview() {
             const r = await api.get(`/subadmin/templates/${assignmentId}/review`)
             setSignature(r.data.signature)
             setAssignment(r.data.assignment)
+            setIsSignedByMe(r.data.isSignedByMe)
         } catch (e: any) {
             setError('Échec de la signature')
             console.error(e)
@@ -185,6 +192,7 @@ export default function SubAdminTemplateReview() {
             const r = await api.get(`/subadmin/templates/${assignmentId}/review`)
             setSignature(r.data.signature)
             setAssignment(r.data.assignment)
+            setIsSignedByMe(r.data.isSignedByMe)
         } catch (e: any) {
             setError('Échec de la suppression de signature')
             console.error(e)
@@ -270,12 +278,15 @@ export default function SubAdminTemplateReview() {
 
                 <div style={{ marginTop: 20, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
                     {!signature ? (
-                        <button className="btn" onClick={handleSign} disabled={signing} style={{
-                            background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                        <button className="btn" onClick={handleSign} disabled={signing || assignment?.status !== 'completed'} style={{
+                            background: assignment?.status === 'completed' ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)' : '#cbd5e1',
                             fontWeight: 500,
                             padding: '12px 20px',
-                            boxShadow: '0 2px 8px rgba(16, 185, 129, 0.3)'
-                        }}>
+                            boxShadow: assignment?.status === 'completed' ? '0 2px 8px rgba(16, 185, 129, 0.3)' : 'none',
+                            cursor: assignment?.status === 'completed' ? 'pointer' : 'not-allowed'
+                        }}
+                        title={assignment?.status !== 'completed' ? "L'enseignant n'a pas encore terminé ce carnet" : ""}
+                        >
                             {signing ? '✍️ Signature...' : '✍️ Signer ce carnet'}
                         </button>
                     ) : (
@@ -305,17 +316,17 @@ export default function SubAdminTemplateReview() {
                         <button 
                             className="btn" 
                             onClick={handlePromote} 
-                            disabled={promoting || isPromoted}
+                            disabled={promoting || isPromoted || !isSignedByMe}
                             style={{
-                                background: isPromoted ? '#cbd5e1' : 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)',
+                                background: (isPromoted || !isSignedByMe) ? '#cbd5e1' : 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)',
                                 fontWeight: 500,
                                 padding: '12px 20px',
-                                boxShadow: isPromoted ? 'none' : '0 2px 8px rgba(139, 92, 246, 0.3)',
-                                color: isPromoted ? '#64748b' : 'white',
+                                boxShadow: (isPromoted || !isSignedByMe) ? 'none' : '0 2px 8px rgba(139, 92, 246, 0.3)',
+                                color: (isPromoted || !isSignedByMe) ? '#64748b' : 'white',
                                 border: 'none',
-                                cursor: isPromoted ? 'not-allowed' : 'pointer'
+                                cursor: (isPromoted || !isSignedByMe) ? 'not-allowed' : 'pointer'
                             }}
-                            title={isPromoted ? "Élève déjà promu cette année" : ""}
+                            title={isPromoted ? "Élève déjà promu cette année" : !isSignedByMe ? "Vous devez signer le carnet avant de promouvoir l'élève" : ""}
                         >
                             {promoting ? '⏳ Promotion...' : isPromoted ? 'Déjà promu' : `Passer en classe supérieure ${getNextLevel(student.level)}`}
                         </button>

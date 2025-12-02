@@ -160,6 +160,9 @@ subAdminTemplatesRouter.get('/promoted-students', requireAuth(['SUBADMIN']), asy
     try {
         const subAdminId = (req as any).user.userId
         
+        // Get active school year
+        const activeSchoolYear = await SchoolYear.findOne({ active: true }).lean()
+
         // Find students promoted by this sub-admin
         const students = await Student.find({
             'promotions.promotedBy': subAdminId
@@ -168,15 +171,24 @@ subAdminTemplatesRouter.get('/promoted-students', requireAuth(['SUBADMIN']), asy
         const promotedStudents = []
 
         for (const student of students) {
-            // Check if currently enrolled
-            const enrollment = await Enrollment.findOne({ studentId: student._id }).lean()
-            if (enrollment) continue // Already assigned to a class
+            // Check if currently enrolled in a class (active)
+            // We want to exclude students who have already been assigned to a class in the new year.
+            // The promotion creates an 'active' enrollment without a class.
+            // The old enrollment is marked 'promoted'.
+            // So if we find an 'active' enrollment WITH a class, they are already assigned.
+            const assignedEnrollment = await Enrollment.findOne({ 
+                studentId: student._id, 
+                status: 'active',
+                classId: { $exists: true, $ne: null }
+            }).lean()
+            
+            if (assignedEnrollment) continue // Already assigned to a class
 
             // Get the relevant promotion (the one by this sub-admin, likely the last one)
             const promotions = student.promotions || []
             const lastPromotion = promotions.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]
             
-            if (lastPromotion && lastPromotion.promotedBy === subAdminId) {
+            if (lastPromotion && lastPromotion.promotedBy === subAdminId && String(lastPromotion.schoolYearId) === String(activeSchoolYear?._id)) {
                 // Find the latest assignment for this student
                 const assignment = await TemplateAssignment.findOne({ studentId: student._id })
                     .sort({ assignedAt: -1 })
@@ -205,18 +217,28 @@ subAdminTemplatesRouter.get('/classes', requireAuth(['SUBADMIN']), async (req, r
     try {
         const subAdminId = (req as any).user.userId
 
+        // Get active school year
+        const activeSchoolYear = await SchoolYear.findOne({ active: true }).lean()
+        if (!activeSchoolYear) return res.json([])
+
         // Get teachers assigned to this sub-admin
         const assignments = await SubAdminAssignment.find({ subAdminId }).lean()
         const teacherIds = assignments.map(a => a.teacherId)
 
         // Get classes assigned to these teachers
-        const teacherClassAssignments = await TeacherClassAssignment.find({ teacherId: { $in: teacherIds } }).lean()
+        const teacherClassAssignments = await TeacherClassAssignment.find({ 
+            teacherId: { $in: teacherIds },
+            schoolYearId: activeSchoolYear._id
+        }).lean()
         let relevantClassIds = [...new Set(teacherClassAssignments.map(a => a.classId))]
 
         // Check RoleScope for level assignments
         const roleScope = await RoleScope.findOne({ userId: subAdminId }).lean()
         if (roleScope?.levels?.length) {
-             const levelClasses = await ClassModel.find({ level: { $in: roleScope.levels } }).lean()
+             const levelClasses = await ClassModel.find({ 
+                 level: { $in: roleScope.levels },
+                 schoolYearId: activeSchoolYear._id
+             }).lean()
              const levelClassIds = levelClasses.map(c => String(c._id))
              relevantClassIds = [...new Set([...relevantClassIds, ...levelClassIds])]
         }
@@ -326,18 +348,30 @@ subAdminTemplatesRouter.get('/pending-signatures', requireAuth(['SUBADMIN']), as
     try {
         const subAdminId = (req as any).user.userId
 
+        // Get active school year
+        const activeSchoolYear = await SchoolYear.findOne({ active: true }).lean()
+        if (!activeSchoolYear) {
+            return res.json([])
+        }
+
         // Get teachers assigned to this sub-admin
         const assignments = await SubAdminAssignment.find({ subAdminId }).lean()
         const teacherIds = assignments.map(a => a.teacherId)
 
         // Get classes assigned to these teachers
-        const teacherClassAssignments = await TeacherClassAssignment.find({ teacherId: { $in: teacherIds } }).lean()
+        const teacherClassAssignments = await TeacherClassAssignment.find({ 
+            teacherId: { $in: teacherIds },
+            schoolYearId: activeSchoolYear._id 
+        }).lean()
         let classIds = [...new Set(teacherClassAssignments.map(a => a.classId))]
 
         // Check RoleScope for level assignments
         const roleScope = await RoleScope.findOne({ userId: subAdminId }).lean()
         if (roleScope?.levels?.length) {
-             const levelClasses = await ClassModel.find({ level: { $in: roleScope.levels } }).lean()
+             const levelClasses = await ClassModel.find({ 
+                 level: { $in: roleScope.levels },
+                 schoolYearId: activeSchoolYear?._id
+             }).lean()
              const levelClassIds = levelClasses.map(c => String(c._id))
              classIds = [...new Set([...classIds, ...levelClassIds])]
         }
@@ -362,9 +396,6 @@ subAdminTemplatesRouter.get('/pending-signatures', requireAuth(['SUBADMIN']), as
         const signatures = await TemplateSignature.find({ templateAssignmentId: { $in: assignmentIds } }).lean()
         const signatureMap = new Map(signatures.map(s => [s.templateAssignmentId, s]))
 
-        // Get active school year
-        const activeSchoolYear = await SchoolYear.findOne({ active: true }).lean()
-
         // Enrich with template and student data, including signature info
         const enrichedAssignments = await Promise.all(templateAssignments.map(async (assignment) => {
             const template = await GradebookTemplate.findById(assignment.templateId).lean()
@@ -387,7 +418,10 @@ subAdminTemplatesRouter.get('/pending-signatures', requireAuth(['SUBADMIN']), as
             }
         }))
 
-        res.json(enrichedAssignments)
+        // Filter out promoted students
+        const finalAssignments = enrichedAssignments.filter(a => !a.isPromoted)
+
+        res.json(finalAssignments)
     } catch (e: any) {
         res.status(500).json({ error: 'fetch_failed', message: e.message })
     }
@@ -401,6 +435,16 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote', require
         const { nextLevel } = req.body
 
         if (!nextLevel) return res.status(400).json({ error: 'missing_level' })
+
+        // Check if signed by this sub-admin
+        const signature = await TemplateSignature.findOne({ 
+            templateAssignmentId, 
+            subAdminId 
+        }).lean()
+
+        if (!signature) {
+            return res.status(403).json({ error: 'not_signed_by_you', message: 'You must sign the carnet before promoting the student' })
+        }
 
         // Get the template assignment
         const assignment = await TemplateAssignment.findById(templateAssignmentId).lean()
@@ -645,6 +689,11 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', requireAut
         // Get the template assignment
         const assignment = await TemplateAssignment.findById(templateAssignmentId).lean()
         if (!assignment) return res.status(404).json({ error: 'not_found' })
+
+        // Check if assignment is completed
+        if (assignment.status !== 'completed') {
+            return res.status(400).json({ error: 'not_completed', message: 'Teacher must mark assignment as done before signing' })
+        }
 
         // Verify authorization via class enrollment
         const enrollments = await Enrollment.find({ studentId: assignment.studentId }).lean()
@@ -891,6 +940,7 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
         // Get template and signature (no change history for sub-admin)
         const template = await GradebookTemplate.findById(assignment.templateId).lean()
         const signature = await TemplateSignature.findOne({ templateAssignmentId }).lean()
+        const isSignedByMe = signature && signature.subAdminId === subAdminId
 
         // Get student level
         let level = student?.level || ''
@@ -929,6 +979,7 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
             template: versionedTemplate,
             student: { ...student, level },
             signature,
+            isSignedByMe,
             canEdit,
             isPromoted
         })
@@ -976,7 +1027,7 @@ subAdminTemplatesRouter.post('/templates/sign-class/:classId', requireAuth(['SUB
         // Get all template assignments for these students
         const templateAssignments = await TemplateAssignment.find({
             studentId: { $in: studentIds },
-            status: { $in: ['draft', 'in_progress', 'completed'] },
+            status: 'completed', // Only sign completed assignments
         }).lean()
 
         // Filter out those already signed
