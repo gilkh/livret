@@ -148,6 +148,8 @@ export default function SubAdminTemplateReview() {
         } catch (e: any) {
             if (e.response?.data?.error === 'already_promoted') {
                 alert('Cet élève a déjà été promu cette année.')
+            } else if (e.response?.data?.message) {
+                setError(`Échec de la promotion: ${e.response.data.message}`)
             } else {
                 setError('Échec de la promotion')
             }

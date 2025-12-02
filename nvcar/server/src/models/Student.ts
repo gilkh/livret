@@ -9,7 +9,9 @@ const studentSchema = new Schema({
   parentName: { type: String },
   parentPhone: { type: String },
   level: { type: String }, // Current level if not in a class, or cached level
+  nextLevel: { type: String }, // Staging for next level
   schoolYearId: { type: String }, // Current school year association
+  status: { type: String, enum: ['active', 'archived', 'left'], default: 'active' },
   promotions: [{
     schoolYearId: { type: String },
     date: { type: Date },

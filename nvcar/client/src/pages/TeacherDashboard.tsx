@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import api from '../api'
+import { useSchoolYear } from '../context/SchoolYearContext'
+import ProgressionChart from '../components/ProgressionChart'
 
 type ClassDoc = { _id: string; name: string; level?: string; schoolYearId: string }
 type CompletionStats = {
@@ -10,6 +12,7 @@ type CompletionStats = {
 }
 
 export default function TeacherDashboard() {
+  const { activeYearId } = useSchoolYear()
   const [classes, setClasses] = useState<ClassDoc[]>([])
   const [statsMap, setStatsMap] = useState<Map<string, CompletionStats>>(new Map())
   const [loading, setLoading] = useState(true)
@@ -19,7 +22,7 @@ export default function TeacherDashboard() {
     const loadClasses = async () => {
       try {
         setLoading(true)
-        const r = await api.get('/teacher/classes')
+        const r = await api.get(`/teacher/classes?schoolYearId=${activeYearId}`)
         setClasses(r.data)
 
         // Load stats for each class
@@ -43,7 +46,23 @@ export default function TeacherDashboard() {
       }
     }
     loadClasses()
-  }, [])
+  }, [activeYearId])
+
+  // Calculate global stats
+  const globalStats = Array.from(statsMap.values()).reduce((acc, stats) => {
+    acc.total += stats.totalAssignments
+    acc.completed += stats.completedAssignments
+    return acc
+  }, { total: 0, completed: 0 })
+
+  const breakdown = classes.map(c => {
+    const stats = statsMap.get(c._id)
+    return {
+      label: c.name,
+      total: stats?.totalAssignments || 0,
+      completed: stats?.completedAssignments || 0
+    }
+  }).sort((a, b) => a.label.localeCompare(b.label))
 
   return (
     <div className="container">
@@ -55,6 +74,15 @@ export default function TeacherDashboard() {
 
         {loading && <div className="note" style={{ textAlign: 'center', padding: 24 }}>Chargement...</div>}
         {error && <div className="note" style={{ color: '#dc2626', background: '#fef2f2', padding: 12, borderRadius: 8, border: '1px solid #fecaca' }}>{error}</div>}
+
+        {!loading && classes.length > 0 && (
+          <ProgressionChart 
+            title="📊 Progression Globale"
+            total={globalStats.total}
+            completed={globalStats.completed}
+            breakdown={breakdown}
+          />
+        )}
 
         <div style={{ marginTop: 20 }}>
           {Object.entries(classes.reduce((acc, cls) => {

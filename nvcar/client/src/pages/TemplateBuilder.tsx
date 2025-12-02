@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../api'
+import { useLevels } from '../context/LevelContext'
 
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
@@ -14,6 +15,7 @@ const pageHeight = 1120
 
 export default function TemplateBuilder() {
   const navigate = useNavigate()
+  const { levels } = useLevels()
   const [viewMode, setViewMode] = useState<'list' | 'edit'>('list')
   const [tpl, setTpl] = useState<Template>({ name: 'Nouveau Template', pages: [{ title: 'Page 1', blocks: [] }] })
   const [studentId, setStudentId] = useState('')
@@ -2386,20 +2388,20 @@ export default function TemplateBuilder() {
                         <div style={{ marginTop: 8 }}>
                           <div style={{ fontSize: 11, fontWeight: 600, color: '#6c757d', marginBottom: 4 }}>Niveaux assignés:</div>
                           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                            {['PS', 'MS', 'GS'].map(l => (
-                              <label key={l} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, cursor: 'pointer' }}>
+                            {levels.map(l => (
+                              <label key={l.code} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, cursor: 'pointer' }}>
                                 <input 
                                   type="checkbox" 
-                                  checked={(it.levels || []).includes(l)} 
+                                  checked={(it.levels || []).includes(l.code)} 
                                   onChange={e => {
                                     const items = [...(tpl.pages[selectedPage].blocks[selectedIndex].props.items || [])]
                                     const currentLevels = items[i].levels || []
-                                    if (e.target.checked) items[i] = { ...items[i], levels: [...currentLevels, l] }
-                                    else items[i] = { ...items[i], levels: currentLevels.filter((x: string) => x !== l) }
+                                    if (e.target.checked) items[i] = { ...items[i], levels: [...currentLevels, l.code] }
+                                    else items[i] = { ...items[i], levels: currentLevels.filter((x: string) => x !== l.code) }
                                     updateSelected({ items })
                                   }} 
                                 />
-                                {l}
+                                {l.code}
                               </label>
                             ))}
                           </div>
@@ -2422,18 +2424,18 @@ export default function TemplateBuilder() {
                     <div style={{ marginTop: 8, marginBottom: 8 }}>
                       <div style={{ fontSize: 11, fontWeight: 600, color: '#6c757d', marginBottom: 4 }}>Niveaux assignés:</div>
                       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                        {['PS', 'MS', 'GS'].map(l => (
-                          <label key={l} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, cursor: 'pointer' }}>
+                        {levels.map(l => (
+                          <label key={l.code} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, cursor: 'pointer' }}>
                             <input 
                               type="checkbox" 
-                              checked={(tpl.pages[selectedPage].blocks[selectedIndex].props.levels || []).includes(l)} 
+                              checked={(tpl.pages[selectedPage].blocks[selectedIndex].props.levels || []).includes(l.code)} 
                               onChange={e => {
                                 const currentLevels = tpl.pages[selectedPage].blocks[selectedIndex].props.levels || []
-                                if (e.target.checked) updateSelected({ levels: [...currentLevels, l] })
-                                else updateSelected({ levels: currentLevels.filter((x: string) => x !== l) })
+                                if (e.target.checked) updateSelected({ levels: [...currentLevels, l.code] })
+                                else updateSelected({ levels: currentLevels.filter((x: string) => x !== l.code) })
                               }} 
                             />
-                            {l}
+                            {l.code}
                           </label>
                         ))}
                       </div>

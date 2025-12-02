@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import api from '../api'
+import { useLevels } from '../context/LevelContext'
 
 type User = { _id: string; email: string; displayName: string; role: string }
 type Class = { _id: string; name: string; level?: string }
@@ -12,6 +13,7 @@ type SubAdminAssignment = { _id: string; subAdminId: string; teacherId: string; 
 type TemplateAssignment = { _id: string; templateId: string; studentId: string; className?: string; classId?: string; templateName?: string }
 
 export default function AdminAssignments() {
+    const { levels } = useLevels()
     const [teachers, setTeachers] = useState<User[]>([])
     const [subAdmins, setSubAdmins] = useState<User[]>([])
     const [classes, setClasses] = useState<Class[]>([])
@@ -33,8 +35,6 @@ export default function AdminAssignments() {
     const [selectedTemplateForLevel, setSelectedTemplateForLevel] = useState('')
 
     const [message, setMessage] = useState('')
-
-    const LEVELS = ['PS', 'MS', 'GS', 'EB1']
 
     const loadData = async () => {
         try {
@@ -254,7 +254,7 @@ export default function AdminAssignments() {
                             <label className="note" style={{ display: 'block', marginBottom: 6 }}>Niveau</label>
                             <select value={selectedLevelForSubAdmin} onChange={e => setSelectedLevelForSubAdmin(e.target.value)} style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid #ddd' }}>
                                 <option value="">Sélectionner niveau</option>
-                                {LEVELS.map(l => <option key={l} value={l}>{l}</option>)}
+                                {levels.map(l => <option key={l.code} value={l.code}>{l.code}</option>)}
                             </select>
                         </div>
                         <button className="btn" onClick={assignSubAdminToLevel} disabled={!selectedSubAdminForLevel || !selectedLevelForSubAdmin} style={{ marginTop: 8 }}>Assigner à tous les enseignants</button>
@@ -281,7 +281,7 @@ export default function AdminAssignments() {
                             <label className="note" style={{ display: 'block', marginBottom: 6 }}>Niveau</label>
                             <select value={selectedLevelForTemplate} onChange={e => setSelectedLevelForTemplate(e.target.value)} style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid #ddd' }}>
                                 <option value="">Sélectionner niveau</option>
-                                {LEVELS.map(l => <option key={l} value={l}>{l}</option>)}
+                                {levels.map(l => <option key={l.code} value={l.code}>{l.code}</option>)}
                             </select>
                         </div>
                         <button className="btn" onClick={assignTemplateToLevel} disabled={!selectedTemplateForLevel || !selectedLevelForTemplate} style={{ marginTop: 8 }}>Assigner à tous les élèves</button>

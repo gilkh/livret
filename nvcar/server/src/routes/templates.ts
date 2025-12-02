@@ -73,6 +73,13 @@ templatesRouter.post('/', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), async (
   }
 })
 
+templatesRouter.get('/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), async (req, res) => {
+  const { id } = req.params
+  const tpl = await GradebookTemplate.findById(id).lean()
+  if (!tpl) return res.status(404).json({ error: 'not_found' })
+  res.json(tpl)
+})
+
 templatesRouter.patch('/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), async (req, res) => {
   try {
     const { id } = req.params

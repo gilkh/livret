@@ -23,14 +23,22 @@ const ACTION_LABELS: Record<string, string> = {
     LOGOUT: 'Déconnexion',
     EDIT_TEMPLATE: 'Édition template',
     SIGN_TEMPLATE: 'Signature template',
+    UNSIGN_TEMPLATE: 'Annulation signature',
     EXPORT_PDF: 'Export PDF',
     CREATE_ASSIGNMENT: 'Création assignation',
     DELETE_ASSIGNMENT: 'Suppression assignation',
+    MARK_ASSIGNMENT_DONE: 'Assignation terminée',
+    UNMARK_ASSIGNMENT_DONE: 'Assignation non terminée',
     CREATE_OUTLOOK_USER: 'Création utilisateur Outlook',
     UPDATE_OUTLOOK_USER: 'Mise à jour utilisateur Outlook',
     DELETE_OUTLOOK_USER: 'Suppression utilisateur Outlook',
     START_IMPERSONATION: 'Début impersonnation',
     STOP_IMPERSONATION: 'Fin impersonnation',
+    UPLOAD_SIGNATURE: 'Upload signature',
+    DELETE_SIGNATURE: 'Suppression signature',
+    PROMOTE_STUDENT: 'Promotion élève',
+    UPDATE_TEMPLATE_DATA: 'Mise à jour données',
+    LOGIN_MICROSOFT: 'Connexion Microsoft',
 }
 
 const ACTION_COLORS: Record<string, string> = {
@@ -38,14 +46,22 @@ const ACTION_COLORS: Record<string, string> = {
     LOGOUT: '#fce4ec',
     EDIT_TEMPLATE: '#fff3e0',
     SIGN_TEMPLATE: '#e1bee7',
+    UNSIGN_TEMPLATE: '#f3e5f5',
     EXPORT_PDF: '#c8e6c9',
     CREATE_ASSIGNMENT: '#bbdefb',
     DELETE_ASSIGNMENT: '#ffcdd2',
+    MARK_ASSIGNMENT_DONE: '#c8e6c9',
+    UNMARK_ASSIGNMENT_DONE: '#ffccbc',
     CREATE_OUTLOOK_USER: '#b2dfdb',
     UPDATE_OUTLOOK_USER: '#b3e5fc',
     DELETE_OUTLOOK_USER: '#ffccbc',
     START_IMPERSONATION: '#fff9c4',
     STOP_IMPERSONATION: '#f0f4c3',
+    UPLOAD_SIGNATURE: '#d1c4e9',
+    DELETE_SIGNATURE: '#ffcdd2',
+    PROMOTE_STUDENT: '#b3e5fc',
+    UPDATE_TEMPLATE_DATA: '#fff9c4',
+    LOGIN_MICROSOFT: '#e3f2fd',
 }
 
 const formatDetails = (details: any) => {
@@ -68,13 +84,15 @@ export default function AdminAuditLogs() {
     const [loading, setLoading] = useState(true)
     const [filterAction, setFilterAction] = useState('')
     const [filterUser, setFilterUser] = useState('')
+    const [startDate, setStartDate] = useState('')
+    const [endDate, setEndDate] = useState('')
     const [page, setPage] = useState(0)
     const [total, setTotal] = useState(0)
     const limit = 50
 
     useEffect(() => {
         loadData()
-    }, [page, filterAction, filterUser])
+    }, [page, filterAction, filterUser, startDate, endDate])
 
     useEffect(() => {
         loadStats()
@@ -86,6 +104,8 @@ export default function AdminAuditLogs() {
             const params: any = { limit, skip: page * limit }
             if (filterAction) params.action = filterAction
             if (filterUser) params.userId = filterUser
+            if (startDate) params.startDate = startDate
+            if (endDate) params.endDate = endDate
 
             const r = await api.get('/audit-logs', { params })
             setLogs(r.data.logs)
@@ -166,7 +186,26 @@ export default function AdminAuditLogs() {
                         style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #ddd', flex: 1, minWidth: 200 }}
                     />
 
-                    <button className="btn secondary" onClick={() => { setFilterAction(''); setFilterUser(''); setPage(0) }}>
+                    <input
+                        type="date"
+                        value={startDate}
+                        onChange={e => { setStartDate(e.target.value); setPage(0) }}
+                        style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #ddd' }}
+                    />
+                    <input
+                        type="date"
+                        value={endDate}
+                        onChange={e => { setEndDate(e.target.value); setPage(0) }}
+                        style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #ddd' }}
+                    />
+
+                    <button className="btn secondary" onClick={() => { 
+                        setFilterAction('')
+                        setFilterUser('')
+                        setStartDate('')
+                        setEndDate('')
+                        setPage(0) 
+                    }}>
                         Réinitialiser
                     </button>
                 </div>

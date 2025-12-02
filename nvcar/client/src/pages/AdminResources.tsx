@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import api from '../api'
+import { useSchoolYear } from '../context/SchoolYearContext'
+import { useLevels } from '../context/LevelContext'
 
 type Year = { _id: string; name: string; startDate: string; endDate: string; active: boolean }
 type ClassDoc = { _id: string; name: string; level?: string; schoolYearId: string }
@@ -17,6 +19,8 @@ type StudentDoc = {
 }
 
 export default function AdminResources() {
+  const { activeYearId } = useSchoolYear()
+  const { levels } = useLevels()
   const [years, setYears] = useState<Year[]>([])
   const [selectedYear, setSelectedYear] = useState<Year | null>(null)
   
@@ -145,7 +149,6 @@ export default function AdminResources() {
   }
 
   // Classes
-  const LEVELS = ['PS', 'MS', 'GS']
   
   const addSection = async (level: string) => {
     if (!selectedYear) return
@@ -285,14 +288,14 @@ export default function AdminResources() {
                 
                 {/* Unassigned Students moved to separate column */}
 
-                {LEVELS.map(level => (
-                    <div key={level}>
+                {levels.filter(l => ['PS', 'MS', 'GS'].includes(l.name)).map(level => (
+                    <div key={level._id}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                            <h4 style={{ margin: 0, color: '#555' }}>{level}</h4>
-                            <button className="btn secondary" style={{ padding: '2px 8px', fontSize: '0.8rem' }} onClick={() => addSection(level)}>+</button>
+                            <h4 style={{ margin: 0, color: '#555' }}>{level.name}</h4>
+                            <button className="btn secondary" style={{ padding: '2px 8px', fontSize: '0.8rem' }} onClick={() => addSection(level.name)}>+</button>
                         </div>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                            {classes.filter(c => c.level === level).sort((a,b) => a.name.localeCompare(b.name)).map(c => (
+                            {classes.filter(c => c.level === level.name).sort((a,b) => a.name.localeCompare(b.name)).map(c => (
                                 <div 
                                     key={c._id} 
                                     onClick={() => selectClass(c._id)}
@@ -307,13 +310,13 @@ export default function AdminResources() {
                                         gap: 6
                                     }}
                                 >
-                                    <span>{c.name.replace(level, '').trim() || c.name}</span>
+                                    <span>{c.name.replace(level.name, '').trim() || c.name}</span>
                                     {selectedClassId === c._id && (
                                         <span onClick={(e) => deleteClass(e, c._id)} style={{ fontSize: '0.7rem', color: '#999', cursor: 'pointer' }}>✕</span>
                                     )}
                                 </div>
                             ))}
-                            {classes.filter(c => c.level === level).length === 0 && <span className="note" style={{ fontSize: '0.8rem' }}>Aucune section</span>}
+                            {classes.filter(c => c.level === level.name).length === 0 && <span className="note" style={{ fontSize: '0.8rem' }}>Aucune section</span>}
                         </div>
                     </div>
                 ))}

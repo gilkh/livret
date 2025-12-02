@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import api from '../api'
+import ProgressionChart from '../components/ProgressionChart'
 
 type Teacher = { _id: string; email: string; displayName: string }
 type PendingTemplate = {
@@ -132,6 +133,12 @@ export default function SubAdminDashboard() {
         return acc
     }, {} as Record<string, { total: number, signed: number, percentage: number }>)
 
+    const breakdown = Object.entries(levelStats).map(([level, stats]) => ({
+        label: level,
+        total: stats.total,
+        completed: stats.signed
+    })).sort((a, b) => a.label.localeCompare(b.label));
+
     return (
         <div className="container">
             <div className="card">
@@ -145,62 +152,12 @@ export default function SubAdminDashboard() {
 
                 {/* Global Statistics Bar */}
                 {!loading && (
-                    <div style={{ 
-                        marginBottom: 32, 
-                        padding: 20, 
-                        background: 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)', 
-                        borderRadius: 12, 
-                        border: '1px solid #e2e8f0',
-                        boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
-                    }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                            <div>
-                                <h3 style={{ margin: 0, fontSize: 18, color: '#1e293b', fontWeight: 600 }}>📊 Progression Globale</h3>
-                                <div style={{ fontSize: 14, color: '#64748b', marginTop: 4 }}>
-                                    <span style={{ fontWeight: 600, color: '#0f172a' }}>{totalStudents}</span> élèves au total
-                                </div>
-                            </div>
-                            <div style={{ textAlign: 'right' }}>
-                                <div style={{ fontSize: 24, fontWeight: 700, color: completionPercentage === 100 ? '#10b981' : '#3b82f6' }}>
-                                    {completionPercentage}%
-                                </div>
-                                <div style={{ fontSize: 13, color: '#64748b' }}>de carnets signés</div>
-                            </div>
-                        </div>
-                        
-                        {/* Progress Bar */}
-                        <div style={{ width: '100%', height: 8, background: '#e2e8f0', borderRadius: 4, overflow: 'hidden', marginBottom: 20 }}>
-                            <div style={{ 
-                                width: `${completionPercentage}%`, 
-                                height: '100%', 
-                                background: completionPercentage === 100 ? '#10b981' : 'linear-gradient(90deg, #3b82f6 0%, #60a5fa 100%)',
-                                transition: 'width 0.5s ease-out'
-                            }} />
-                        </div>
-
-                        {/* Level Breakdown */}
-                        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                            {Object.entries(levelStats).sort().map(([level, stats]) => (
-                                <div key={level} style={{ 
-                                    flex: 1, 
-                                    minWidth: 140,
-                                    background: 'white', 
-                                    padding: '10px 14px', 
-                                    borderRadius: 8, 
-                                    border: '1px solid #e2e8f0',
-                                    display: 'flex',
-                                    flexDirection: 'column',
-                                    gap: 4
-                                }}>
-                                    <div style={{ fontSize: 13, fontWeight: 600, color: '#475569' }}>{level}</div>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                                        <span style={{ fontSize: 18, fontWeight: 700, color: '#1e293b' }}>{stats.percentage}%</span>
-                                        <span style={{ fontSize: 12, color: '#94a3b8' }}>{stats.signed}/{stats.total}</span>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
+                    <ProgressionChart 
+                        title="📊 Progression Globale"
+                        total={totalStudents}
+                        completed={signedCount}
+                        breakdown={breakdown}
+                    />
                 )}
 
                 {/* Promoted Students Section */}

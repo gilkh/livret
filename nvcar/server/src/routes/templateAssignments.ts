@@ -7,6 +7,7 @@ import { User } from '../models/User'
 import { Enrollment } from '../models/Enrollment'
 import { TeacherClassAssignment } from '../models/TeacherClassAssignment'
 import { ClassModel } from '../models/Class'
+import { SchoolYear } from '../models/SchoolYear'
 
 export const templateAssignmentsRouter = Router()
 
@@ -48,7 +49,7 @@ templateAssignmentsRouter.post('/bulk-level', requireAuth(['ADMIN']), async (req
         // Create assignments
         let count = 0
         for (const enrollment of enrollments) {
-            const teachers = teacherMap.get(enrollment.classId) || []
+            const teachers = (enrollment.classId && teacherMap.get(enrollment.classId)) || []
             
             await TemplateAssignment.findOneAndUpdate(
                 { templateId, studentId: enrollment.studentId },
@@ -222,21 +223,62 @@ templateAssignmentsRouter.delete('/:id', requireAuth(['ADMIN']), async (req, res
 // Admin: Get all assignments
 templateAssignmentsRouter.get('/', requireAuth(['ADMIN']), async (req, res) => {
     try {
-        const assignments = await TemplateAssignment.find({}).lean()
-        const templateIds = assignments.map(a => a.templateId)
-        const studentIds = assignments.map(a => a.studentId)
-        const templates = await GradebookTemplate.find({ _id: { $in: templateIds } }).lean()
-        const students = await Student.find({ _id: { $in: studentIds } }).lean()
+        const { schoolYearId } = req.query
         
-        // Fetch enrollments and classes
-        const enrollments = await Enrollment.find({ studentId: { $in: studentIds } }).lean()
-        const classIds = enrollments.map(e => e.classId)
+        let dateFilter: any = {}
+        let studentIds: string[] = []
+        let enrollments: any[] = []
+        
+        if (schoolYearId) {
+            const sy = await SchoolYear.findById(schoolYearId).lean()
+            if (sy) {
+                dateFilter = {
+                    assignedAt: {
+                        $gte: sy.startDate,
+                        $lte: sy.endDate
+                    }
+                }
+            }
+            
+            enrollments = await Enrollment.find({ schoolYearId }).lean()
+            studentIds = enrollments.map(e => e.studentId)
+        } else {
+             // Fallback: get all enrollments (might be slow and incorrect for history)
+             enrollments = await Enrollment.find({}).lean()
+             // We don't filter assignments by date if no year specified
+        }
+
+        const query: any = { ...dateFilter }
+        if (studentIds.length > 0) {
+            query.studentId = { $in: studentIds }
+        } else if (schoolYearId) {
+            // If year specified but no students found, return empty
+            return res.json([])
+        }
+
+        const assignments = await TemplateAssignment.find(query).lean()
+        const templateIds = assignments.map(a => a.templateId)
+        const assignmentStudentIds = assignments.map(a => a.studentId)
+        
+        const templates = await GradebookTemplate.find({ _id: { $in: templateIds } }).lean()
+        const students = await Student.find({ _id: { $in: assignmentStudentIds } }).lean()
+        
+        // We already have enrollments for the year if schoolYearId is present.
+        // If not, we need to fetch them.
+        if (!schoolYearId) {
+             enrollments = await Enrollment.find({ studentId: { $in: assignmentStudentIds } }).lean()
+        }
+        
+        const classIds = enrollments.map(e => e.classId).filter(Boolean)
         const classes = await ClassModel.find({ _id: { $in: classIds } }).lean()
         
         const result = assignments.map(a => {
             const template = templates.find(t => String(t._id) === a.templateId)
             const student = students.find(s => String(s._id) === a.studentId)
             
+            // Find enrollment for this student
+            // If schoolYearId is present, enrollments are already filtered by year.
+            // If not, we might pick a random one.
             const enrollment = enrollments.find(e => e.studentId === a.studentId)
             const cls = enrollment ? classes.find(c => String(c._id) === enrollment.classId) : null
 

@@ -16,13 +16,19 @@ export const teacherTemplatesRouter = Router()
 teacherTemplatesRouter.get('/classes', requireAuth(['TEACHER']), async (req, res) => {
     try {
         const teacherId = (req as any).user.userId
+        const { schoolYearId } = req.query
         const assignments = await TeacherClassAssignment.find({ teacherId }).lean()
         const classIds = assignments.map(a => a.classId)
         
-        const activeYear = await SchoolYear.findOne({ active: true }).lean()
         const query: any = { _id: { $in: classIds } }
-        if (activeYear) {
-            query.schoolYearId = String(activeYear._id)
+        
+        if (schoolYearId) {
+            query.schoolYearId = schoolYearId
+        } else {
+            const activeYear = await SchoolYear.findOne({ active: true }).lean()
+            if (activeYear) {
+                query.schoolYearId = String(activeYear._id)
+            }
         }
 
         const classes = await ClassModel.find(query).lean()
@@ -467,6 +473,30 @@ teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data', require
             },
             { new: true }
         )
+
+        // Sync promotion status to Enrollment if present
+        if (data.promotions && Array.isArray(data.promotions) && data.promotions.length > 0) {
+            const lastPromo = data.promotions[data.promotions.length - 1]
+            // Map the unstructured decision to our enum
+            // Assuming lastPromo has a 'decision' or similar field, or we infer it.
+            // Since I don't know the exact structure of 'promotions' in the JSON blob, 
+            // I will assume it might have a 'decision' field. 
+            // If not, I'll default to 'promoted' if it exists.
+            
+            let status = 'pending'
+            const decision = lastPromo.decision?.toLowerCase() || ''
+            if (decision.includes('admis') || decision.includes('promoted')) status = 'promoted'
+            else if (decision.includes('maintien') || decision.includes('retained')) status = 'retained'
+            else if (decision.includes('essai') || decision.includes('conditional')) status = 'conditional'
+            else if (decision.includes('ete') || decision.includes('summer')) status = 'summer_school'
+            else if (decision.includes('quitte') || decision.includes('left')) status = 'left'
+            else status = 'promoted' // Default if entry exists but no clear keyword
+
+            await Enrollment.findOneAndUpdate(
+                { studentId: assignment.studentId, status: 'active' }, // Only update active enrollment
+                { $set: { promotionStatus: status } }
+            )
+        }
 
         res.json(updated)
     } catch (e: any) {

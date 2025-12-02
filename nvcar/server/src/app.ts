@@ -30,6 +30,8 @@ import { microsoftRouter } from './routes/microsoft'
 import { outlookUsersRouter } from './routes/outlookUsers'
 import { analyticsRouter } from './routes/analytics'
 import { backupRouter } from './routes/backup'
+import { levelsRouter } from './routes/levels'
+import { savedGradebooksRouter } from './routes/savedGradebooks'
 
 export const createApp = () => {
   const app = express()
@@ -46,6 +48,7 @@ export const createApp = () => {
   app.use('/auth', authRouter)
   app.use('/categories', categoriesRouter)
   app.use('/students', studentsRouter)
+  app.use('/levels', levelsRouter)
   app.use('/import', importRouter)
   // Use new Puppeteer-based PDF generation for better rendering
   app.use('/pdf-v2', pdfPuppeteerRouter)
@@ -74,6 +77,7 @@ export const createApp = () => {
   app.use('/outlook-users', outlookUsersRouter)
   app.use('/analytics', analyticsRouter)
   app.use('/backup', backupRouter)
+  app.use('/saved-gradebooks', savedGradebooksRouter)
   app.use('/uploads', express.static(path.join(process.cwd(), 'public', 'uploads')))
 
   app.get('/health', (_, res) => res.json({ ok: true }))

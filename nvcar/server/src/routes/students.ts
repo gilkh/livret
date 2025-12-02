@@ -10,19 +10,35 @@ import { requireAuth } from '../auth'
 export const studentsRouter = Router()
 
 studentsRouter.get('/', requireAuth(['ADMIN','SUBADMIN','TEACHER']), async (req, res) => {
+  const { schoolYearId } = req.query
   const students = await Student.find({}).lean()
   const ids = students.map(s => String(s._id))
-  const enrolls = await Enrollment.find({ studentId: { $in: ids } }).lean()
+  
+  const query: any = { studentId: { $in: ids } }
+  if (schoolYearId) {
+    query.schoolYearId = schoolYearId
+    // If we are looking at a specific year, we want active or promoted enrollments for that year
+    // But actually, an enrollment record is unique to a year.
+  } else {
+    // If no year specified, maybe default to active? Or return all?
+    // For backward compatibility, if no year, we might get mixed results if we don't filter.
+    // But the frontend should send it.
+    // Let's try to find the active year if not provided?
+    const activeYear = await SchoolYear.findOne({ active: true }).lean()
+    if (activeYear) query.schoolYearId = String(activeYear._id)
+  }
+
+  const enrolls = await Enrollment.find(query).lean()
   const enrollByStudent: Record<string, any> = {}
   for (const e of enrolls) enrollByStudent[e.studentId] = e
-  const classIds = enrolls.map(e => e.classId)
+  const classIds = enrolls.map(e => e.classId).filter(Boolean) // Filter out undefined/null classIds
   const classes = await ClassModel.find({ _id: { $in: classIds } }).lean()
   const classMap: Record<string, any> = {}
   for (const c of classes) classMap[String(c._id)] = c
   const out = students.map(s => {
     const enr = enrollByStudent[String(s._id)]
-    const cls = enr ? classMap[enr.classId] : null
-    return { ...s, classId: enr ? enr.classId : undefined, className: cls ? cls.name : undefined }
+    const cls = enr && enr.classId ? classMap[enr.classId] : null
+    return { ...s, classId: enr ? enr.classId : undefined, className: cls ? cls.name : undefined, level: cls ? cls.level : s.level }
   })
   res.json(out)
 })
@@ -30,18 +46,35 @@ studentsRouter.get('/', requireAuth(['ADMIN','SUBADMIN','TEACHER']), async (req,
 studentsRouter.get('/unassigned/:schoolYearId', requireAuth(['ADMIN','SUBADMIN']), async (req, res) => {
   const { schoolYearId } = req.params
   
-  // Find students who are marked for this school year
-  const students = await Student.find({ schoolYearId }).lean()
+  // 1. Get all enrollments for this year
+  const yearEnrollments = await Enrollment.find({ schoolYearId }).lean()
   
-  // Filter out those who already have an enrollment for this year
-  const studentIds = students.map(s => String(s._id))
-  const enrollments = await Enrollment.find({ 
-    studentId: { $in: studentIds },
-    schoolYearId 
-  }).lean()
+  // 2. Identify students assigned to a class
+  const assignedStudentIds = new Set(
+    yearEnrollments.filter(e => e.classId).map(e => e.studentId)
+  )
+
+  // 3. Identify students enrolled but NOT assigned (e.g. promoted)
+  const enrolledUnassignedIds = yearEnrollments
+    .filter(e => !e.classId)
+    .map(e => e.studentId)
+
+  // 4. Get students tagged with this schoolYearId (Legacy/Import)
+  const taggedStudents = await Student.find({ schoolYearId }).lean()
   
-  const enrolledStudentIds = new Set(enrollments.map(e => e.studentId))
-  const unassigned = students.filter(s => !enrolledStudentIds.has(String(s._id)))
+  // 5. Filter tagged students: Exclude those who are already assigned to a class
+  const validTaggedStudents = taggedStudents.filter(s => !assignedStudentIds.has(String(s._id)))
+  
+  // 6. Fetch students from step 3 who were not in step 4
+  const taggedIds = new Set(validTaggedStudents.map(s => String(s._id)))
+  const missingIds = enrolledUnassignedIds.filter(id => !taggedIds.has(id))
+  
+  let extraStudents: any[] = []
+  if (missingIds.length > 0) {
+      extraStudents = await Student.find({ _id: { $in: missingIds } }).lean()
+  }
+
+  const unassigned = [...validTaggedStudents, ...extraStudents]
   
   // Find assignments with promotions for these students
   const unassignedIds = unassigned.map(s => String(s._id))
@@ -61,13 +94,13 @@ studentsRouter.get('/unassigned/:schoolYearId', requireAuth(['ADMIN','SUBADMIN']
           schoolYearId: previousYearId
       }).lean()
       
-      const prevClassIds = prevEnrollments.map(e => e.classId)
+      const prevClassIds = prevEnrollments.map(e => e.classId).filter(Boolean)
       const prevClasses = await ClassModel.find({ _id: { $in: prevClassIds } }).lean()
       const prevClassIdToName: Record<string, string> = {}
       for (const c of prevClasses) prevClassIdToName[String(c._id)] = c.name
       
       for (const e of prevEnrollments) {
-          if (prevClassIdToName[e.classId]) {
+          if (e.classId && prevClassIdToName[e.classId]) {
               previousClassMap[e.studentId] = prevClassIdToName[e.classId]
           }
       }
@@ -90,11 +123,18 @@ studentsRouter.get('/unassigned/:schoolYearId', requireAuth(['ADMIN','SUBADMIN']
       }
   }
 
-  const result = unassigned.map(s => ({
-      ...s,
-      promotion: promotionMap[String(s._id)],
-      previousClassName: previousClassMap[String(s._id)]
-  }))
+  const result = unassigned.map(s => {
+      const promo = promotionMap[String(s._id)]
+      // Use nextLevel if available (staging), otherwise try promo.to (history), otherwise fallback to current level
+      const effectiveLevel = s.nextLevel || (promo ? promo.to : s.level)
+      
+      return {
+        ...s,
+        level: effectiveLevel,
+        promotion: promo,
+        previousClassName: previousClassMap[String(s._id)]
+      }
+  })
   
   res.json(result)
 })
@@ -137,8 +177,20 @@ studentsRouter.get('/:id', requireAuth(['ADMIN','SUBADMIN','TEACHER']), async (r
   const { id } = req.params
   const student = await Student.findById(id).lean()
   if (!student) return res.status(404).json({ error: 'not_found' })
+  
   const enrollments = await Enrollment.find({ studentId: id }).lean()
-  res.json({ ...student, enrollments })
+  
+  // Populate class names
+  const classIds = enrollments.map(e => e.classId).filter(Boolean)
+  const classes = await ClassModel.find({ _id: { $in: classIds } }).lean()
+  const classMap = new Map(classes.map(c => [String(c._id), c.name]))
+  
+  const enrichedEnrollments = enrollments.map(e => ({
+    ...e,
+    className: e.classId ? classMap.get(e.classId) : 'Unknown'
+  }))
+
+  res.json({ ...student, enrollments: enrichedEnrollments })
 })
 
 studentsRouter.get('/:id/competencies', requireAuth(['ADMIN','SUBADMIN','TEACHER']), async (req, res) => {

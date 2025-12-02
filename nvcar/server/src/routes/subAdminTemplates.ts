@@ -13,6 +13,9 @@ import { TeacherClassAssignment } from '../models/TeacherClassAssignment'
 import { ClassModel } from '../models/Class'
 import { RoleScope } from '../models/RoleScope'
 import { SchoolYear } from '../models/SchoolYear'
+import { Level } from '../models/Level'
+import { SavedGradebook } from '../models/SavedGradebook'
+import { StudentCompetencyStatus } from '../models/StudentCompetencyStatus'
 import { logAudit } from '../utils/auditLogger'
 import multer from 'multer'
 import path from 'path'
@@ -436,18 +439,36 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote', require
         if (!student) return res.status(404).json({ error: 'student_not_found' })
 
         // Get current enrollment to find school year
-        const enrollment = await Enrollment.findOne({ studentId: assignment.studentId }).lean()
+        // Handle missing status field by treating it as active
+        const enrollment = await Enrollment.findOne({ 
+            studentId: assignment.studentId, 
+            $or: [{ status: 'active' }, { status: { $exists: false } }] 
+        }).lean()
         let yearName = new Date().getFullYear().toString()
         let currentLevel = student.level || ''
         let currentSchoolYearId = ''
+        let currentSchoolYearSequence = 0
 
         if (enrollment) {
-            const cls = await ClassModel.findById(enrollment.classId).lean()
-            if (cls) {
-                currentLevel = cls.level || ''
-                currentSchoolYearId = cls.schoolYearId
-                const sy = await SchoolYear.findById(cls.schoolYearId).lean()
-                if (sy) yearName = sy.name
+            if (enrollment.classId) {
+                const cls = await ClassModel.findById(enrollment.classId).lean()
+                if (cls) {
+                    currentLevel = cls.level || ''
+                    currentSchoolYearId = cls.schoolYearId
+                }
+            }
+            
+            // Fallback to enrollment's schoolYearId if class lookup failed or no class
+            if (!currentSchoolYearId && enrollment.schoolYearId) {
+                currentSchoolYearId = enrollment.schoolYearId
+            }
+
+            if (currentSchoolYearId) {
+                const sy = await SchoolYear.findById(currentSchoolYearId).lean()
+                if (sy) {
+                    yearName = sy.name
+                    currentSchoolYearSequence = sy.sequence || 0
+                }
             }
         }
 
@@ -459,52 +480,85 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote', require
             }
         }
 
-        if (enrollment) {
-            // Remove from class
-            await Enrollment.findByIdAndDelete(enrollment._id)
+        // Calculate Next Level dynamically
+        const currentLevelDoc = await Level.findOne({ name: currentLevel }).lean()
+        let calculatedNextLevel = ''
+        if (currentLevelDoc) {
+            const nextLevelDoc = await Level.findOne({ order: currentLevelDoc.order + 1 }).lean()
+            if (nextLevelDoc) {
+                calculatedNextLevel = nextLevelDoc.name
+            }
         }
+        
+        // Fallback if levels not populated or not found
+        if (!calculatedNextLevel) calculatedNextLevel = nextLevel 
 
-        // Find next school year
+        // Find next school year by sequence
         let nextSchoolYearId = ''
-        if (currentSchoolYearId) {
+        if (currentSchoolYearSequence > 0) {
+             const nextSy = await SchoolYear.findOne({ sequence: currentSchoolYearSequence + 1 }).lean()
+             if (nextSy) {
+                 nextSchoolYearId = String(nextSy._id)
+             }
+        }
+        
+        if (!nextSchoolYearId && currentSchoolYearId) {
+             // Fallback to old logic if sequence is missing (shouldn't happen after migration)
              const currentSy = await SchoolYear.findById(currentSchoolYearId).lean()
-             if (currentSy) {
-                 // Strategy 1: Name matching
-                 if (currentSy.name) {
-                     const match = currentSy.name.match(/(\d{4})([-/.])(\d{4})/)
-                     if (match) {
-                         const startYear = parseInt(match[1])
-                         const separator = match[2]
-                         const endYear = parseInt(match[3])
-                         const nextName = `${startYear + 1}${separator}${endYear + 1}`
-                         
-                         const nextSy = await SchoolYear.findOne({ name: nextName }).lean()
-                         if (nextSy) {
-                             nextSchoolYearId = String(nextSy._id)
-                         }
-                     }
-                 }
-                 
-                 // Strategy 2: Date based (if name matching failed)
-                 if (!nextSchoolYearId && currentSy.endDate) {
-                     // Find a school year that starts after this one ends (within 6 months)
-                     const nextSy = await SchoolYear.findOne({
-                         startDate: { $gte: currentSy.endDate },
-                         active: true
-                     }).sort({ startDate: 1 }).lean()
-                     
-                     if (nextSy) {
-                         nextSchoolYearId = String(nextSy._id)
-                     }
+             if (currentSy && currentSy.name) {
+                 const match = currentSy.name.match(/(\d{4})([-/.])(\d{4})/)
+                 if (match) {
+                     const startYear = parseInt(match[1])
+                     const separator = match[2]
+                     const endYear = parseInt(match[3])
+                     const nextName = `${startYear + 1}${separator}${endYear + 1}`
+                     const nextSy = await SchoolYear.findOne({ name: nextName }).lean()
+                     if (nextSy) nextSchoolYearId = String(nextSy._id)
                  }
              }
         }
 
-        // Update student level
-        student.level = nextLevel
-        if (nextSchoolYearId) {
-            student.schoolYearId = nextSchoolYearId
+        if (!nextSchoolYearId) {
+             return res.status(400).json({ error: 'no_next_year', message: 'Next school year not found' })
         }
+
+        // Create Gradebook Snapshot
+        if (currentSchoolYearId && enrollment) {
+            const statuses = await StudentCompetencyStatus.find({ studentId: student._id }).lean()
+            
+            const snapshotData = {
+                student: student.toObject ? student.toObject() : student,
+                enrollment: enrollment,
+                statuses: statuses,
+                assignment: assignment
+            }
+
+            await SavedGradebook.create({
+                studentId: student._id,
+                schoolYearId: currentSchoolYearId,
+                level: currentLevel || 'Sans niveau',
+                classId: enrollment.classId,
+                templateId: assignment.templateId,
+                data: snapshotData
+            })
+        }
+
+        // Update Enrollment Status (Destructive Fix)
+        if (enrollment) {
+            await Enrollment.findByIdAndUpdate(enrollment._id, { status: 'promoted' })
+        }
+
+        // Create new Enrollment for next year
+        await Enrollment.create({
+            studentId: student._id,
+            schoolYearId: nextSchoolYearId,
+            status: 'active',
+            // classId is optional
+        })
+
+        // Update student staging (Decoupling Fix)
+        student.nextLevel = calculatedNextLevel
+        // Do NOT update student.level or student.schoolYearId yet
 
         // Add promotion record
         if (!student.promotions) student.promotions = [] as any
@@ -512,7 +566,7 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote', require
             schoolYearId: currentSchoolYearId,
             date: new Date(),
             fromLevel: currentLevel,
-            toLevel: nextLevel,
+            toLevel: calculatedNextLevel,
             promotedBy: subAdminId
         })
 
@@ -593,12 +647,25 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', requireAut
         if (!assignment) return res.status(404).json({ error: 'not_found' })
 
         // Verify authorization via class enrollment
-        const enrollmentCheck = await Enrollment.findOne({ studentId: assignment.studentId }).lean()
+        const enrollments = await Enrollment.find({ studentId: assignment.studentId }).lean()
         
         let authorized = false
 
-        if (enrollmentCheck) {
-            const teacherClassAssignments = await TeacherClassAssignment.find({ classId: enrollmentCheck.classId }).lean()
+        // Check if sub-admin is linked to assigned teachers (direct assignment check)
+        if (assignment.assignedTeachers && assignment.assignedTeachers.length > 0) {
+            const subAdminAssignments = await SubAdminAssignment.find({
+                subAdminId,
+                teacherId: { $in: assignment.assignedTeachers },
+            }).lean()
+            
+            if (subAdminAssignments.length > 0) {
+                authorized = true
+            }
+        }
+
+        if (!authorized && enrollments.length > 0) {
+            const classIds = enrollments.map(e => e.classId).filter(Boolean)
+            const teacherClassAssignments = await TeacherClassAssignment.find({ classId: { $in: classIds } }).lean()
             const classTeacherIds = teacherClassAssignments.map(ta => ta.teacherId)
 
             const subAdminAssignments = await SubAdminAssignment.find({
@@ -606,28 +673,18 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', requireAut
                 teacherId: { $in: classTeacherIds },
             }).lean()
 
-            authorized = subAdminAssignments.length > 0
+            if (subAdminAssignments.length > 0) {
+                authorized = true
+            }
 
             if (!authorized) {
                 // Check RoleScope
                 const roleScope = await RoleScope.findOne({ userId: subAdminId }).lean()
                 if (roleScope?.levels?.length) {
-                    const cls = await ClassModel.findById(enrollmentCheck.classId).lean()
-                    if (cls && cls.level && roleScope.levels.includes(cls.level)) {
+                    const classes = await ClassModel.find({ _id: { $in: classIds } }).lean()
+                    if (classes.some(c => c.level && roleScope.levels.includes(c.level))) {
                         authorized = true
                     }
-                }
-            }
-        } else {
-             // If student is not enrolled (e.g. promoted), check if sub-admin is linked to assigned teachers
-            if (assignment.assignedTeachers && assignment.assignedTeachers.length > 0) {
-                const subAdminAssignments = await SubAdminAssignment.find({
-                    subAdminId,
-                    teacherId: { $in: assignment.assignedTeachers },
-                }).lean()
-                
-                if (subAdminAssignments.length > 0) {
-                    authorized = true
                 }
             }
         }
@@ -685,12 +742,25 @@ subAdminTemplatesRouter.delete('/templates/:templateAssignmentId/sign', requireA
         if (!assignment) return res.status(404).json({ error: 'not_found' })
 
         // Verify authorization via class enrollment
-        const enrollmentCheck = await Enrollment.findOne({ studentId: assignment.studentId }).lean()
+        const enrollments = await Enrollment.find({ studentId: assignment.studentId }).lean()
         
         let authorized = false
 
-        if (enrollmentCheck) {
-            const teacherClassAssignments = await TeacherClassAssignment.find({ classId: enrollmentCheck.classId }).lean()
+        // Check if sub-admin is linked to assigned teachers (direct assignment check)
+        if (assignment.assignedTeachers && assignment.assignedTeachers.length > 0) {
+            const subAdminAssignments = await SubAdminAssignment.find({
+                subAdminId,
+                teacherId: { $in: assignment.assignedTeachers },
+            }).lean()
+            
+            if (subAdminAssignments.length > 0) {
+                authorized = true
+            }
+        }
+
+        if (!authorized && enrollments.length > 0) {
+            const classIds = enrollments.map(e => e.classId).filter(Boolean)
+            const teacherClassAssignments = await TeacherClassAssignment.find({ classId: { $in: classIds } }).lean()
             const classTeacherIds = teacherClassAssignments.map(ta => ta.teacherId)
 
             const subAdminAssignments = await SubAdminAssignment.find({
@@ -698,28 +768,18 @@ subAdminTemplatesRouter.delete('/templates/:templateAssignmentId/sign', requireA
                 teacherId: { $in: classTeacherIds },
             }).lean()
 
-            authorized = subAdminAssignments.length > 0
+            if (subAdminAssignments.length > 0) {
+                authorized = true
+            }
 
             if (!authorized) {
                 // Check RoleScope
                 const roleScope = await RoleScope.findOne({ userId: subAdminId }).lean()
                 if (roleScope?.levels?.length) {
-                    const cls = await ClassModel.findById(enrollmentCheck.classId).lean()
-                    if (cls && cls.level && roleScope.levels.includes(cls.level)) {
+                    const classes = await ClassModel.find({ _id: { $in: classIds } }).lean()
+                    if (classes.some(c => c.level && roleScope.levels.includes(c.level))) {
                         authorized = true
                     }
-                }
-            }
-        } else {
-             // If student is not enrolled (e.g. promoted), check if sub-admin is linked to assigned teachers
-            if (assignment.assignedTeachers && assignment.assignedTeachers.length > 0) {
-                const subAdminAssignments = await SubAdminAssignment.find({
-                    subAdminId,
-                    teacherId: { $in: assignment.assignedTeachers },
-                }).lean()
-                
-                if (subAdminAssignments.length > 0) {
-                    authorized = true
                 }
             }
         }
@@ -774,12 +834,25 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
         const student = await Student.findById(assignment.studentId).lean()
 
         // Verify authorization via class enrollment
-        const enrollmentCheck = await Enrollment.findOne({ studentId: assignment.studentId }).lean()
+        const enrollments = await Enrollment.find({ studentId: assignment.studentId }).lean()
         
         let authorized = false
 
-        if (enrollmentCheck) {
-            const teacherClassAssignments = await TeacherClassAssignment.find({ classId: enrollmentCheck.classId }).lean()
+        // Check if sub-admin is linked to assigned teachers (direct assignment check)
+        if (assignment.assignedTeachers && assignment.assignedTeachers.length > 0) {
+            const subAdminAssignments = await SubAdminAssignment.find({
+                subAdminId,
+                teacherId: { $in: assignment.assignedTeachers },
+            }).lean()
+            
+            if (subAdminAssignments.length > 0) {
+                authorized = true
+            }
+        }
+
+        if (!authorized && enrollments.length > 0) {
+            const classIds = enrollments.map(e => e.classId).filter(Boolean)
+            const teacherClassAssignments = await TeacherClassAssignment.find({ classId: { $in: classIds } }).lean()
             const classTeacherIds = teacherClassAssignments.map(ta => ta.teacherId)
 
             const subAdminAssignments = await SubAdminAssignment.find({
@@ -787,38 +860,28 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
                 teacherId: { $in: classTeacherIds },
             }).lean()
 
-            authorized = subAdminAssignments.length > 0
+            if (subAdminAssignments.length > 0) {
+                authorized = true
+            }
 
             if (!authorized) {
                 // Check RoleScope
                 const roleScope = await RoleScope.findOne({ userId: subAdminId }).lean()
                 if (roleScope?.levels?.length) {
-                    const cls = await ClassModel.findById(enrollmentCheck.classId).lean()
-                    if (cls && cls.level && roleScope.levels.includes(cls.level)) {
+                    const classes = await ClassModel.find({ _id: { $in: classIds } }).lean()
+                    if (classes.some(c => c.level && roleScope.levels.includes(c.level))) {
                         authorized = true
                     }
                 }
             }
-        } else {
-             // If student is not enrolled (e.g. promoted), check if sub-admin is linked to assigned teachers
-            if (assignment.assignedTeachers && assignment.assignedTeachers.length > 0) {
-                const subAdminAssignments = await SubAdminAssignment.find({
-                    subAdminId,
-                    teacherId: { $in: assignment.assignedTeachers },
-                }).lean()
-                
-                if (subAdminAssignments.length > 0) {
+        }
+
+        // Also check if the student was promoted by this sub-admin
+        if (!authorized && student && student.promotions) {
+                const lastPromotion = student.promotions.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]
+                if (lastPromotion && lastPromotion.promotedBy === subAdminId) {
                     authorized = true
                 }
-            }
-
-            // Also check if the student was promoted by this sub-admin
-            if (!authorized && student && student.promotions) {
-                 const lastPromotion = student.promotions.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]
-                 if (lastPromotion && lastPromotion.promotedBy === subAdminId) {
-                     authorized = true
-                 }
-            }
         }
 
         if (!authorized) {
@@ -852,15 +915,9 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
                         versionedTemplate.pages[pageIndex].blocks[blockIndex].props.items = value
                     }
                 }
-                // Add other data merging patterns here if needed
             }
         }
 
-        // Determine if sub-admin can edit (authorized via level or teacher assignment)
-        // We already checked 'authorized' variable above for access.
-        // If they are authorized to view, can they edit?
-        // The requirement says: "edit mode ... to be able to edit also all the toggle and drop down only of the level they were assigned to"
-        // So yes, if authorized, they can edit (subject to level constraints in frontend).
         const canEdit = authorized
 
         // Get active school year
@@ -1096,25 +1153,42 @@ subAdminTemplatesRouter.patch('/templates/:assignmentId/data', requireAuth(['SUB
         const enrollment = await Enrollment.findOne({ studentId: assignment.studentId }).lean()
         if (!enrollment) return res.status(403).json({ error: 'student_not_enrolled' })
 
-        const teacherClassAssignments = await TeacherClassAssignment.find({ classId: enrollment.classId }).lean()
-        const classTeacherIds = teacherClassAssignments.map(ta => ta.teacherId)
+        let authorized = false
+        
+        if (enrollment.classId) {
+            const teacherClassAssignments = await TeacherClassAssignment.find({ classId: enrollment.classId }).lean()
+            const classTeacherIds = teacherClassAssignments.map(ta => ta.teacherId)
 
-        const subAdminAssignments = await SubAdminAssignment.find({
-            subAdminId,
-            teacherId: { $in: classTeacherIds },
-        }).lean()
+            const subAdminAssignments = await SubAdminAssignment.find({
+                subAdminId,
+                teacherId: { $in: classTeacherIds },
+            }).lean()
 
-        let authorized = subAdminAssignments.length > 0
+            authorized = subAdminAssignments.length > 0
 
-        if (!authorized) {
-            // Check RoleScope
-            const roleScope = await RoleScope.findOne({ userId: subAdminId }).lean()
-            if (roleScope?.levels?.length) {
-                const cls = await ClassModel.findById(enrollment.classId).lean()
-                if (cls && cls.level && roleScope.levels.includes(cls.level)) {
-                    authorized = true
+            if (!authorized) {
+                // Check RoleScope
+                const roleScope = await RoleScope.findOne({ userId: subAdminId }).lean()
+                if (roleScope?.levels?.length) {
+                    const cls = await ClassModel.findById(enrollment.classId).lean()
+                    if (cls && cls.level && roleScope.levels.includes(cls.level)) {
+                        authorized = true
+                    }
                 }
             }
+        } else {
+             // If no class (e.g. promoted), check direct assignment to teachers?
+             // Or maybe check if sub-admin is assigned to the student's *previous* teachers?
+             // For now, if no class, we might rely on direct assignment check if implemented, 
+             // but here we only check class-based authorization.
+             // Let's check if the assignment has assignedTeachers (direct assignment)
+             if (assignment.assignedTeachers && assignment.assignedTeachers.length > 0) {
+                const subAdminAssignments = await SubAdminAssignment.find({
+                    subAdminId,
+                    teacherId: { $in: assignment.assignedTeachers },
+                }).lean()
+                if (subAdminAssignments.length > 0) authorized = true
+             }
         }
 
         if (!authorized) {

@@ -5,6 +5,7 @@ export default function NavBar() {
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
   const displayName = typeof window !== 'undefined' ? localStorage.getItem('displayName') : null
   const navigate = useNavigate()
+
   const logout = () => {
     localStorage.removeItem('token')
     localStorage.removeItem('role')
