@@ -1,0 +1,5 @@
+{
+  "devDependencies": {
+    "@types/archiver": "^7.0.0"
+  }
+}

@@ -193,6 +193,44 @@ export default function AdminAnalytics() {
           </div>
         </div>
       </div>
+
+      {/* Recent Activity */}
+      <div className="card">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
+          <Activity size={24} color="#2d3436" />
+          <h3 className="title" style={{ fontSize: '18px', margin: 0 }}>Activité Récente</h3>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {data.recentActivity.map((log: any) => (
+            <div key={log._id} style={{ 
+              padding: '16px', 
+              background: '#f8fafc', 
+              borderRadius: '8px',
+              borderLeft: '4px solid #3b82f6'
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                <span style={{ fontWeight: '600', color: '#1e293b' }}>
+                  {ACTION_LABELS[log.action] || log.action}
+                </span>
+                <span style={{ fontSize: '14px', color: '#64748b' }}>
+                  {new Date(log.timestamp).toLocaleString()}
+                </span>
+              </div>
+              <div style={{ fontSize: '14px', color: '#475569' }}>
+                <span style={{ fontWeight: '500' }}>{log.userEmail}</span>
+                {log.details && (
+                  <span style={{ marginLeft: '8px', color: '#94a3b8' }}>
+                    • {formatDetails(log.details)}
+                  </span>
+                )}
+              </div>
+            </div>
+          ))}
+          {data.recentActivity.length === 0 && (
+            <p style={{ color: '#64748b', textAlign: 'center', padding: '20px' }}>Aucune activité récente</p>
+          )}
+        </div>
+      </div>
     </div>
   )
 }

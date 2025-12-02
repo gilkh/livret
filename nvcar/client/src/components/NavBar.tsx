@@ -19,16 +19,19 @@ export default function NavBar() {
           role === 'ADMIN' ? '/admin' :
             role === 'SUBADMIN' ? '/subadmin/dashboard' :
               '/teacher/classes'
-        } className="nav-brand">NVCar</Link>
+        } className="nav-brand" style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+          <img src="/logosklnav.jpg" alt="Logo SKL" style={{ height: '66px', objectFit: 'contain' }} />
+          <img src="/logoaefenav.jpg" alt="Logo AEFE" style={{ height: '66px', objectFit: 'contain' }} />
+        </Link>
       </div>
       <div className="nav-center">
         {role === 'ADMIN' && (
           <>
             <Link to="/admin" className="nav-link">Accueil</Link>
+            <Link to="/admin/ressource" className="nav-link">Structure Scolaire</Link>
             <Link to="/admin/users" className="nav-link">Utilisateurs</Link>
             <Link to="/admin/assignments" className="nav-link">Assignations</Link>
             <Link to="/admin/template-builder" className="nav-link">Templates</Link>
-            <Link to="/admin/media" className="nav-link">Média</Link>
           </>
         )}
         {role === 'SUBADMIN' && (

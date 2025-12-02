@@ -22,21 +22,19 @@ type TemplateAssignment = {
     studentName?: string
     className?: string
     classId?: string
+    level?: string
 }
 
-type SubAdminAssignment = {
-    _id: string
+type SubAdminLevelAssignment = {
     subAdminId: string
-    teacherId: string
-    assignedAt: Date
-    subAdminName?: string
-    teacherName?: string
+    subAdminName: string
+    level: string
 }
 
 export default function AdminAssignmentList() {
     const [teacherClassAssignments, setTeacherClassAssignments] = useState<TeacherClassAssignment[]>([])
     const [templateAssignments, setTemplateAssignments] = useState<TemplateAssignment[]>([])
-    const [subAdminAssignments, setSubAdminAssignments] = useState<SubAdminAssignment[]>([])
+    const [subAdminAssignments, setSubAdminAssignments] = useState<SubAdminLevelAssignment[]>([])
     const [loading, setLoading] = useState(true)
     const [message, setMessage] = useState('')
 
@@ -50,11 +48,22 @@ export default function AdminAssignmentList() {
             const [tcRes, taRes, saRes] = await Promise.all([
                 api.get('/teacher-assignments'),
                 api.get('/template-assignments'),
-                api.get('/subadmin-assignments'),
+                api.get('/subadmin-assignments/levels'),
             ])
             setTeacherClassAssignments(tcRes.data)
             setTemplateAssignments(taRes.data)
-            setSubAdminAssignments(saRes.data)
+            
+            const flattened: SubAdminLevelAssignment[] = []
+            saRes.data.forEach((item: any) => {
+                item.levels.forEach((level: string) => {
+                    flattened.push({
+                        subAdminId: item.subAdminId,
+                        subAdminName: item.subAdminName,
+                        level: level
+                    })
+                })
+            })
+            setSubAdminAssignments(flattened)
         } catch (e) {
             console.error('Failed to load assignments', e)
         } finally {
@@ -86,10 +95,10 @@ export default function AdminAssignmentList() {
         }
     }
 
-    const deleteSubAdminAssignment = async (id: string) => {
-        if (!confirm('Supprimer cette assignation sous-admin-enseignant ?')) return
+    const deleteSubAdminAssignment = async (subAdminId: string, level: string) => {
+        if (!confirm(`Supprimer l'assignation ${level} ?`)) return
         try {
-            await api.delete(`/subadmin-assignments/${id}`)
+            await api.delete(`/subadmin-assignments/levels/${subAdminId}/${level}`)
             setMessage('✓ Assignation supprimée')
             setTimeout(() => setMessage(''), 3000)
             loadData()
@@ -98,7 +107,7 @@ export default function AdminAssignmentList() {
         }
     }
 
-    const deleteClassTemplateAssignment = async (ids: string[]) => {
+    const deleteGroupedTemplateAssignment = async (ids: string[]) => {
         if (!confirm(`Supprimer ces ${ids.length} assignations ?`)) return
         try {
             await Promise.all(ids.map(id => api.delete(`/template-assignments/${id}`)))
@@ -110,17 +119,16 @@ export default function AdminAssignmentList() {
         }
     }
 
-    // Group template assignments by class
-    const classTemplateAssignments = templateAssignments.reduce((acc, curr) => {
-        if (!curr.className || !curr.classId) return acc
-        const key = `${curr.templateId}-${curr.classId}`
+    // Group template assignments by level
+    const levelTemplateAssignments = templateAssignments.reduce((acc, curr) => {
+        if (!curr.level) return acc
+        const key = `${curr.templateId}-${curr.level}`
         if (!acc[key]) {
             acc[key] = {
                 key,
                 templateId: curr.templateId,
-                classId: curr.classId,
+                level: curr.level,
                 templateName: curr.templateName,
-                className: curr.className,
                 count: 0,
                 ids: []
             }
@@ -128,9 +136,9 @@ export default function AdminAssignmentList() {
         acc[key].count++
         acc[key].ids.push(curr._id)
         return acc
-    }, {} as Record<string, { key: string, templateId: string, classId: string, templateName: string, className: string, count: number, ids: string[] }>)
+    }, {} as Record<string, { key: string, templateId: string, level: string, templateName: string, count: number, ids: string[] }>)
 
-    const classTemplateList = Object.values(classTemplateAssignments)
+    const levelTemplateList = Object.values(levelTemplateAssignments)
 
     if (loading) return (
         <div className="container">
@@ -220,13 +228,13 @@ export default function AdminAssignmentList() {
                     </div>
                 </div>
 
-                {/* Template-Class Assignments (Grouped) */}
+                {/* Template-Level Assignments (Grouped) */}
                 <div className="card">
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20, paddingBottom: 16, borderBottom: '1px solid #f0f0f0' }}>
                         <div style={{ background: '#fff7e6', padding: 8, borderRadius: 8, fontSize: 20 }}>📚</div>
                         <div>
-                            <h3 style={{ margin: 0 }}>Carnet → Classe</h3>
-                            <div className="note">{classTemplateList.length} assignation(s) de groupe</div>
+                            <h3 style={{ margin: 0 }}>Carnet → Niveau</h3>
+                            <div className="note">{levelTemplateList.length} assignation(s) de groupe</div>
                         </div>
                     </div>
 
@@ -235,90 +243,30 @@ export default function AdminAssignmentList() {
                             <thead>
                                 <tr>
                                     <th style={{ textAlign: 'left', padding: '0 16px', color: '#8c8c8c', fontWeight: 500, fontSize: '0.9rem' }}>Template</th>
-                                    <th style={{ textAlign: 'left', padding: '0 16px', color: '#8c8c8c', fontWeight: 500, fontSize: '0.9rem' }}>Classe</th>
+                                    <th style={{ textAlign: 'left', padding: '0 16px', color: '#8c8c8c', fontWeight: 500, fontSize: '0.9rem' }}>Niveau</th>
                                     <th style={{ textAlign: 'left', padding: '0 16px', color: '#8c8c8c', fontWeight: 500, fontSize: '0.9rem' }}>Élèves concernés</th>
                                     <th style={{ textAlign: 'right', padding: '0 16px', color: '#8c8c8c', fontWeight: 500, fontSize: '0.9rem' }}>Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {classTemplateList.map(a => (
+                                {levelTemplateList.map(a => (
                                     <tr key={a.key} style={{ background: '#fff' }}>
                                         <td style={{ padding: '12px 16px', borderTop: '1px solid #f0f0f0', borderBottom: '1px solid #f0f0f0', borderLeft: '1px solid #f0f0f0', borderTopLeftRadius: 8, borderBottomLeftRadius: 8 }}>
                                             <div style={{ fontWeight: 500 }}>{a.templateName || a.templateId}</div>
                                         </td>
                                         <td style={{ padding: '12px 16px', borderTop: '1px solid #f0f0f0', borderBottom: '1px solid #f0f0f0' }}>
-                                            <div className="pill" style={{ background: '#fff7e6', color: '#fa8c16', display: 'inline-block' }}>{a.className}</div>
+                                            <div className="pill" style={{ background: '#fff7e6', color: '#fa8c16', display: 'inline-block' }}>{a.level}</div>
                                         </td>
                                         <td style={{ padding: '12px 16px', borderTop: '1px solid #f0f0f0', borderBottom: '1px solid #f0f0f0' }}>
                                             {a.count} élève(s)
                                         </td>
                                         <td style={{ padding: '12px 16px', borderTop: '1px solid #f0f0f0', borderBottom: '1px solid #f0f0f0', borderRight: '1px solid #f0f0f0', borderTopRightRadius: 8, borderBottomRightRadius: 8, textAlign: 'right' }}>
-                                            <button className="btn secondary" style={{ padding: '6px 12px', fontSize: '0.85rem', background: '#fff1f0', color: '#cf1322', border: '1px solid #ffa39e' }} onClick={() => deleteClassTemplateAssignment(a.ids)}>Tout supprimer</button>
+                                            <button className="btn secondary" style={{ padding: '6px 12px', fontSize: '0.85rem', background: '#fff1f0', color: '#cf1322', border: '1px solid #ffa39e' }} onClick={() => deleteGroupedTemplateAssignment(a.ids)}>Tout supprimer</button>
                                         </td>
                                     </tr>
                                 ))}
-                                {classTemplateList.length === 0 && (
+                                {levelTemplateList.length === 0 && (
                                     <tr><td colSpan={4} style={{ padding: 32, textAlign: 'center', color: '#8c8c8c', background: '#fafafa', borderRadius: 8 }}>Aucune assignation de groupe trouvée</td></tr>
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-
-                {/* Template Assignments */}
-                <div className="card">
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20, paddingBottom: 16, borderBottom: '1px solid #f0f0f0' }}>
-                        <div style={{ background: '#f6ffed', padding: 8, borderRadius: 8, fontSize: 20 }}>🎓</div>
-                        <div>
-                            <h3 style={{ margin: 0 }}>Carnet → Élève</h3>
-                            <div className="note">{templateAssignments.length} assignation(s) active(s)</div>
-                        </div>
-                    </div>
-
-                    <div style={{ overflowX: 'auto' }}>
-                        <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0 8px' }}>
-                            <thead>
-                                <tr>
-                                    <th style={{ textAlign: 'left', padding: '0 16px', color: '#8c8c8c', fontWeight: 500, fontSize: '0.9rem' }}>Template</th>
-                                    <th style={{ textAlign: 'left', padding: '0 16px', color: '#8c8c8c', fontWeight: 500, fontSize: '0.9rem' }}>Élève</th>
-                                    <th style={{ textAlign: 'left', padding: '0 16px', color: '#8c8c8c', fontWeight: 500, fontSize: '0.9rem' }}>Classe</th>
-                                    <th style={{ textAlign: 'left', padding: '0 16px', color: '#8c8c8c', fontWeight: 500, fontSize: '0.9rem' }}>Statut</th>
-                                    <th style={{ textAlign: 'left', padding: '0 16px', color: '#8c8c8c', fontWeight: 500, fontSize: '0.9rem' }}>Date</th>
-                                    <th style={{ textAlign: 'right', padding: '0 16px', color: '#8c8c8c', fontWeight: 500, fontSize: '0.9rem' }}>Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {templateAssignments.map(a => (
-                                    <tr key={a._id} style={{ background: '#fff' }}>
-                                        <td style={{ padding: '12px 16px', borderTop: '1px solid #f0f0f0', borderBottom: '1px solid #f0f0f0', borderLeft: '1px solid #f0f0f0', borderTopLeftRadius: 8, borderBottomLeftRadius: 8 }}>
-                                            <div style={{ fontWeight: 500 }}>{a.templateName || a.templateId}</div>
-                                        </td>
-                                        <td style={{ padding: '12px 16px', borderTop: '1px solid #f0f0f0', borderBottom: '1px solid #f0f0f0' }}>
-                                            {a.studentName || a.studentId}
-                                        </td>
-                                        <td style={{ padding: '12px 16px', borderTop: '1px solid #f0f0f0', borderBottom: '1px solid #f0f0f0' }}>
-                                            <div className="pill" style={{ background: '#f0f5ff', color: '#2f54eb', display: 'inline-block' }}>{a.className || '-'}</div>
-                                        </td>
-                                        <td style={{ padding: '12px 16px', borderTop: '1px solid #f0f0f0', borderBottom: '1px solid #f0f0f0' }}>
-                                            <span className="pill" style={{
-                                                background: a.status === 'signed' ? '#f9f0ff' : a.status === 'completed' ? '#f6ffed' : a.status === 'in_progress' ? '#e6f7ff' : '#f5f5f5',
-                                                color: a.status === 'signed' ? '#722ed1' : a.status === 'completed' ? '#52c41a' : a.status === 'in_progress' ? '#1890ff' : '#8c8c8c',
-                                                fontSize: '0.8rem',
-                                                padding: '4px 10px'
-                                            }}>
-                                                {a.status === 'in_progress' ? 'En cours' : a.status === 'completed' ? 'Terminé' : a.status === 'signed' ? 'Signé' : a.status}
-                                            </span>
-                                        </td>
-                                        <td style={{ padding: '12px 16px', borderTop: '1px solid #f0f0f0', borderBottom: '1px solid #f0f0f0', color: '#8c8c8c', fontSize: '0.9rem' }}>
-                                            {new Date(a.assignedAt).toLocaleDateString()}
-                                        </td>
-                                        <td style={{ padding: '12px 16px', borderTop: '1px solid #f0f0f0', borderBottom: '1px solid #f0f0f0', borderRight: '1px solid #f0f0f0', borderTopRightRadius: 8, borderBottomRightRadius: 8, textAlign: 'right' }}>
-                                            <button className="btn secondary" style={{ padding: '6px 12px', fontSize: '0.85rem', background: '#fff1f0', color: '#cf1322', border: '1px solid #ffa39e' }} onClick={() => deleteTemplateAssignment(a._id)}>Supprimer</button>
-                                        </td>
-                                    </tr>
-                                ))}
-                                {templateAssignments.length === 0 && (
-                                    <tr><td colSpan={6} style={{ padding: 32, textAlign: 'center', color: '#8c8c8c', background: '#fafafa', borderRadius: 8 }}>Aucune assignation trouvée</td></tr>
                                 )}
                             </tbody>
                         </table>
@@ -330,7 +278,7 @@ export default function AdminAssignmentList() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20, paddingBottom: 16, borderBottom: '1px solid #f0f0f0' }}>
                         <div style={{ background: '#fff0f6', padding: 8, borderRadius: 8, fontSize: 20 }}>👔</div>
                         <div>
-                            <h3 style={{ margin: 0 }}>Sous-Admin → Enseignant</h3>
+                            <h3 style={{ margin: 0 }}>Sous-Admin → levels</h3>
                             <div className="note">{subAdminAssignments.length} assignation(s) active(s)</div>
                         </div>
                     </div>
@@ -340,30 +288,26 @@ export default function AdminAssignmentList() {
                             <thead>
                                 <tr>
                                     <th style={{ textAlign: 'left', padding: '0 16px', color: '#8c8c8c', fontWeight: 500, fontSize: '0.9rem' }}>Sous-Admin</th>
-                                    <th style={{ textAlign: 'left', padding: '0 16px', color: '#8c8c8c', fontWeight: 500, fontSize: '0.9rem' }}>Enseignant</th>
-                                    <th style={{ textAlign: 'left', padding: '0 16px', color: '#8c8c8c', fontWeight: 500, fontSize: '0.9rem' }}>Date</th>
+                                    <th style={{ textAlign: 'left', padding: '0 16px', color: '#8c8c8c', fontWeight: 500, fontSize: '0.9rem' }}>Niveau</th>
                                     <th style={{ textAlign: 'right', padding: '0 16px', color: '#8c8c8c', fontWeight: 500, fontSize: '0.9rem' }}>Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {subAdminAssignments.map(a => (
-                                    <tr key={a._id} style={{ background: '#fff' }}>
+                                {subAdminAssignments.map((a, idx) => (
+                                    <tr key={`${a.subAdminId}-${a.level}-${idx}`} style={{ background: '#fff' }}>
                                         <td style={{ padding: '12px 16px', borderTop: '1px solid #f0f0f0', borderBottom: '1px solid #f0f0f0', borderLeft: '1px solid #f0f0f0', borderTopLeftRadius: 8, borderBottomLeftRadius: 8 }}>
                                             <div style={{ fontWeight: 500 }}>{a.subAdminName || a.subAdminId}</div>
                                         </td>
                                         <td style={{ padding: '12px 16px', borderTop: '1px solid #f0f0f0', borderBottom: '1px solid #f0f0f0' }}>
-                                            {a.teacherName || a.teacherId}
-                                        </td>
-                                        <td style={{ padding: '12px 16px', borderTop: '1px solid #f0f0f0', borderBottom: '1px solid #f0f0f0', color: '#8c8c8c', fontSize: '0.9rem' }}>
-                                            {new Date(a.assignedAt).toLocaleDateString()}
+                                            <div className="pill" style={{ background: '#fff0f6', color: '#eb2f96', display: 'inline-block' }}>{a.level}</div>
                                         </td>
                                         <td style={{ padding: '12px 16px', borderTop: '1px solid #f0f0f0', borderBottom: '1px solid #f0f0f0', borderRight: '1px solid #f0f0f0', borderTopRightRadius: 8, borderBottomRightRadius: 8, textAlign: 'right' }}>
-                                            <button className="btn secondary" style={{ padding: '6px 12px', fontSize: '0.85rem', background: '#fff1f0', color: '#cf1322', border: '1px solid #ffa39e' }} onClick={() => deleteSubAdminAssignment(a._id)}>Supprimer</button>
+                                            <button className="btn secondary" style={{ padding: '6px 12px', fontSize: '0.85rem', background: '#fff1f0', color: '#cf1322', border: '1px solid #ffa39e' }} onClick={() => deleteSubAdminAssignment(a.subAdminId, a.level)}>Supprimer</button>
                                         </td>
                                     </tr>
                                 ))}
                                 {subAdminAssignments.length === 0 && (
-                                    <tr><td colSpan={4} style={{ padding: 32, textAlign: 'center', color: '#8c8c8c', background: '#fafafa', borderRadius: 8 }}>Aucune assignation trouvée</td></tr>
+                                    <tr><td colSpan={3} style={{ padding: 32, textAlign: 'center', color: '#8c8c8c', background: '#fafafa', borderRadius: 8 }}>Aucune assignation trouvée</td></tr>
                                 )}
                             </tbody>
                         </table>

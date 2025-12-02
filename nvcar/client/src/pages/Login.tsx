@@ -8,11 +8,19 @@ export default function Login() {
   const [error, setError] = useState<string | null>(null)
   const [focusedField, setFocusedField] = useState<string | null>(null)
   const [isLoadingMicrosoft, setIsLoadingMicrosoft] = useState(false)
+  const [showMicrosoftLogin, setShowMicrosoftLogin] = useState(true)
   const navigate = useNavigate()
   const processingRef = useRef(false)
 
   // Handle Microsoft OAuth callback
   useEffect(() => {
+    // Fetch public settings
+    api.get('/settings/public').then(res => {
+      if (res.data.login_enabled_microsoft !== undefined) {
+        setShowMicrosoftLogin(res.data.login_enabled_microsoft)
+      }
+    }).catch(console.error)
+
     if (processingRef.current) return
     
     // Log everything for debugging
@@ -222,54 +230,58 @@ export default function Login() {
             </form>
 
             {/* Divider */}
-            <div style={{ 
-              display: 'flex', 
-              alignItems: 'center', 
-              margin: '24px 0',
-              gap: 12
-            }}>
-              <div style={{ flex: 1, height: 1, background: '#e0e0e0' }}></div>
-              <span style={{ color: '#999', fontSize: '0.85rem' }}>OU</span>
-              <div style={{ flex: 1, height: 1, background: '#e0e0e0' }}></div>
-            </div>
+            {showMicrosoftLogin && (
+              <>
+                <div style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  margin: '24px 0',
+                  gap: 12
+                }}>
+                  <div style={{ flex: 1, height: 1, background: '#e0e0e0' }}></div>
+                  <span style={{ color: '#999', fontSize: '0.85rem' }}>OU</span>
+                  <div style={{ flex: 1, height: 1, background: '#e0e0e0' }}></div>
+                </div>
 
-            {/* Microsoft Login Button */}
-            <button 
-              type="button"
-              onClick={handleMicrosoftLogin}
-              style={{
-                width: '100%',
-                padding: '12px 24px',
-                border: '1px solid #e0e0e0',
-                borderRadius: 8,
-                background: 'white',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 12,
-                fontSize: '1rem',
-                fontWeight: 500,
-                transition: 'all 0.2s',
-                color: '#333'
-              }}
-              onMouseEnter={e => {
-                e.currentTarget.style.background = '#f5f5f5'
-                e.currentTarget.style.borderColor = '#0078d4'
-              }}
-              onMouseLeave={e => {
-                e.currentTarget.style.background = 'white'
-                e.currentTarget.style.borderColor = '#e0e0e0'
-              }}
-            >
-              <svg width="21" height="21" viewBox="0 0 21 21" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <rect x="1" y="1" width="9" height="9" fill="#f25022"/>
-                <rect x="11" y="1" width="9" height="9" fill="#7fba00"/>
-                <rect x="1" y="11" width="9" height="9" fill="#00a4ef"/>
-                <rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
-              </svg>
-              <span>Se connecter avec Microsoft</span>
-            </button>
+                {/* Microsoft Login Button */}
+                <button 
+                  type="button"
+                  onClick={handleMicrosoftLogin}
+                  style={{
+                    width: '100%',
+                    padding: '12px 24px',
+                    border: '1px solid #e0e0e0',
+                    borderRadius: 8,
+                    background: 'white',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 12,
+                    fontSize: '1rem',
+                    fontWeight: 500,
+                    transition: 'all 0.2s',
+                    color: '#333'
+                  }}
+                  onMouseEnter={e => {
+                    e.currentTarget.style.background = '#f5f5f5'
+                    e.currentTarget.style.borderColor = '#0078d4'
+                  }}
+                  onMouseLeave={e => {
+                    e.currentTarget.style.background = 'white'
+                    e.currentTarget.style.borderColor = '#e0e0e0'
+                  }}
+                >
+                  <svg width="21" height="21" viewBox="0 0 21 21" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <rect x="1" y="1" width="9" height="9" fill="#f25022"/>
+                    <rect x="11" y="1" width="9" height="9" fill="#7fba00"/>
+                    <rect x="1" y="11" width="9" height="9" fill="#00a4ef"/>
+                    <rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
+                  </svg>
+                  <span>Se connecter avec Microsoft</span>
+                </button>
+              </>
+            )}
 
             <div className="login-footer">
               <p>Système de gestion académique</p>

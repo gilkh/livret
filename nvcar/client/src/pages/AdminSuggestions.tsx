@@ -79,7 +79,12 @@ export default function AdminSuggestions() {
                         }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
                                 <div>
-                                    <div style={{ fontWeight: 600, color: '#1e293b' }}>{s.template?.name || 'Template inconnu'}</div>
+                                    <div style={{ fontWeight: 600, color: '#1e293b' }}>
+                                        {s.template?.name || 'Template inconnu'}
+                                        <span style={{ fontWeight: 400, color: '#64748b', marginLeft: 8, fontSize: '0.9em' }}>
+                                            • Page {s.pageIndex + 1}
+                                        </span>
+                                    </div>
                                     <div style={{ fontSize: 13, color: '#64748b' }}>
                                         Par {s.subAdmin?.displayName || s.subAdmin?.email || 'Sous-admin'} • {new Date(s.createdAt).toLocaleDateString()}
                                     </div>

@@ -271,7 +271,7 @@ export default function App() {
           }
         />
         <Route
-          path="/teacher/classes"
+          path="/admin/analytics"
           element={
             <RequireAuth>
               <AdminAnalytics />

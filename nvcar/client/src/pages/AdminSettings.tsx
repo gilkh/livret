@@ -5,8 +5,11 @@ import './AdminSettings.css'
 export default function AdminSettings() {
   const [teacherLogin, setTeacherLogin] = useState(true)
   const [subAdminLogin, setSubAdminLogin] = useState(true)
+  const [microsoftLogin, setMicrosoftLogin] = useState(true)
+  const [schoolName, setSchoolName] = useState('')
   const [loading, setLoading] = useState(true)
   const [msg, setMsg] = useState('')
+  const [backupLoading, setBackupLoading] = useState(false)
 
   useEffect(() => {
     loadSettings()
@@ -22,9 +25,11 @@ export default function AdminSettings() {
   const loadSettings = async () => {
     try {
       const res = await api.get('/settings')
-      // If value is undefined, default to true
+      // If value is undefined, default to true for booleans
       setTeacherLogin(res.data.login_enabled_teacher !== false)
       setSubAdminLogin(res.data.login_enabled_subadmin !== false)
+      setMicrosoftLogin(res.data.login_enabled_microsoft !== false)
+      setSchoolName(res.data.school_name || '')
     } catch (err) {
       console.error(err)
     } finally {
@@ -32,29 +37,65 @@ export default function AdminSettings() {
     }
   }
 
+  const saveSetting = async (key: string, value: any) => {
+    try {
+      await api.post('/settings', { key, value })
+      setMsg('Paramètres mis à jour avec succès')
+      return true
+    } catch (err) {
+      console.error(err)
+      setMsg('Erreur lors de la mise à jour')
+      return false
+    }
+  }
+
   const toggleTeacher = async () => {
     const newVal = !teacherLogin
     setTeacherLogin(newVal)
-    try {
-      await api.post('/settings', { key: 'login_enabled_teacher', value: newVal })
-      setMsg('Paramètres mis à jour avec succès')
-    } catch (err) {
-      console.error(err)
-      setTeacherLogin(!newVal) // revert
-      setMsg('Erreur lors de la mise à jour')
-    }
+    if (!(await saveSetting('login_enabled_teacher', newVal))) setTeacherLogin(!newVal)
   }
 
   const toggleSubAdmin = async () => {
     const newVal = !subAdminLogin
     setSubAdminLogin(newVal)
+    if (!(await saveSetting('login_enabled_subadmin', newVal))) setSubAdminLogin(!newVal)
+  }
+
+  const toggleMicrosoft = async () => {
+    const newVal = !microsoftLogin
+    setMicrosoftLogin(newVal)
+    if (!(await saveSetting('login_enabled_microsoft', newVal))) setMicrosoftLogin(!newVal)
+  }
+
+  const handleSchoolNameBlur = async () => {
+    await saveSetting('school_name', schoolName)
+  }
+
+  const downloadBackup = async () => {
+    for (let i = 1; i <= 5; i++) {
+      if (!confirm(`CONFIRMATION ${i}/5 : Voulez-vous vraiment télécharger une copie complète de l'application (Code + BDD) ? Cela peut prendre du temps.`)) {
+        return
+      }
+    }
+
+    setBackupLoading(true)
     try {
-      await api.post('/settings', { key: 'login_enabled_subadmin', value: newVal })
-      setMsg('Paramètres mis à jour avec succès')
-    } catch (err) {
-      console.error(err)
-      setSubAdminLogin(!newVal) // revert
-      setMsg('Erreur lors de la mise à jour')
+      const response = await api.get('/backup/full', { responseType: 'blob' })
+      
+      const url = window.URL.createObjectURL(new Blob([response.data]))
+      const link = document.createElement('a')
+      link.href = url
+      link.setAttribute('download', `nvcar-full-backup-${new Date().toISOString().split('T')[0]}.zip`)
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      
+      setMsg('Sauvegarde téléchargée')
+    } catch (e) {
+      console.error(e)
+      setMsg('Erreur lors de la sauvegarde')
+    } finally {
+      setBackupLoading(false)
     }
   }
 
@@ -84,6 +125,43 @@ export default function AdminSettings() {
       )}
 
       <div className="settings-grid">
+        
+        {/* General Information Section */}
+        <div className="settings-section">
+          <div className="section-header">
+            <div className="section-icon-wrapper" style={{ background: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6' }}>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                <polyline points="9 22 9 12 15 12 15 22"></polyline>
+              </svg>
+            </div>
+            <h2 className="section-title">Identité de l'École</h2>
+          </div>
+          <div className="setting-item">
+            <div className="setting-info">
+              <h3>Nom de l'établissement</h3>
+              <p>Ce nom apparaîtra sur les documents officiels</p>
+            </div>
+            <div style={{ width: '300px' }}>
+              <input 
+                type="text" 
+                value={schoolName}
+                onChange={e => setSchoolName(e.target.value)}
+                onBlur={handleSchoolNameBlur}
+                placeholder="Ex: École Maternelle Victor Hugo"
+                style={{ 
+                  width: '100%', 
+                  padding: '8px 12px', 
+                  borderRadius: '8px', 
+                  border: '1px solid #e2e8f0',
+                  fontSize: '0.95rem'
+                }}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Access & Security Section */}
         <div className="settings-section">
           <div className="section-header">
             <div className="section-icon-wrapper">
@@ -140,24 +218,55 @@ export default function AdminSettings() {
               </label>
             </div>
           </div>
+
+          <div className="setting-item">
+            <div className="setting-info">
+              <h3>Connexion Microsoft / Outlook</h3>
+              <p>Afficher le bouton de connexion Microsoft sur la page d'accueil</p>
+            </div>
+            <div className="flex items-center" style={{ gap: '1rem' }}>
+              <div className="status-indicator">
+                <span className={`dot ${microsoftLogin ? 'active' : 'inactive'}`}></span>
+                <span style={{ color: microsoftLogin ? 'var(--success)' : '#ff7675' }}>
+                  {microsoftLogin ? 'Activé' : 'Désactivé'}
+                </span>
+              </div>
+              <label className="switch">
+                <input 
+                  type="checkbox" 
+                  checked={microsoftLogin}
+                  onChange={toggleMicrosoft}
+                />
+                <span className="slider"></span>
+              </label>
+            </div>
+          </div>
         </div>
 
-        {/* Placeholder for future settings */}
-        <div className="settings-section" style={{ opacity: 0.7 }}>
+        {/* Maintenance Section */}
+        <div className="settings-section">
           <div className="section-header">
             <div className="section-icon-wrapper" style={{ background: 'rgba(253, 121, 168, 0.1)', color: 'var(--accent)' }}>
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="12" cy="12" r="3"></circle>
-                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1-2-2l-.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
               </svg>
             </div>
-            <h2 className="section-title">Autres Paramètres</h2>
+            <h2 className="section-title">Maintenance</h2>
           </div>
           <div className="setting-item">
             <div className="setting-info">
-              <h3>Maintenance</h3>
-              <p>Bientôt disponible</p>
+              <h3>Sauvegarde complète</h3>
+              <p>Télécharger une archive ZIP contenant tout le code source et la base de données</p>
             </div>
+            <button 
+              className="btn secondary" 
+              onClick={downloadBackup}
+              disabled={backupLoading}
+              style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+            >
+              {backupLoading ? 'Création de l\'archive...' : '⬇️ Télécharger Backup Complet'}
+            </button>
           </div>
         </div>
       </div>

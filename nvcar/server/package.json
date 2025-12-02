@@ -32,6 +32,7 @@
     "xml2js": "^0.6.2"
   },
   "devDependencies": {
+    "@types/archiver": "^7.0.0",
     "@types/bcryptjs": "^2.4.2",
     "@types/body-parser": "^1.19.5",
     "@types/cors": "^2.8.17",

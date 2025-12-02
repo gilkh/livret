@@ -245,7 +245,8 @@ templateAssignmentsRouter.get('/', requireAuth(['ADMIN']), async (req, res) => {
                 templateName: template ? template.name : 'Unknown',
                 studentName: student ? `${student.firstName} ${student.lastName}` : 'Unknown',
                 className: cls ? cls.name : '',
-                classId: cls ? cls._id : ''
+                classId: cls ? cls._id : '',
+                level: cls ? cls.level : ''
             }
         })
         res.json(result)

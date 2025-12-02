@@ -265,6 +265,47 @@ subAdminAssignmentsRouter.get('/subadmin/:subAdminId', requireAuth(['ADMIN', 'SU
     }
 })
 
+// Get all sub-admin level assignments
+subAdminAssignmentsRouter.get('/levels', requireAuth(['ADMIN']), async (req, res) => {
+    try {
+        const scopes = await RoleScope.find({ levels: { $exists: true, $not: { $size: 0 } } }).lean()
+        
+        const userIds = scopes.map(s => s.userId)
+        const [users, outlookUsers] = await Promise.all([
+            User.find({ _id: { $in: userIds } }).lean(),
+            OutlookUser.find({ _id: { $in: userIds } }).lean()
+        ])
+        const allUsers = [...users, ...outlookUsers] as any[]
+
+        const result = scopes.map(scope => {
+            const user = allUsers.find(u => String(u._id) === scope.userId)
+            return {
+                subAdminId: scope.userId,
+                subAdminName: user ? (user.displayName || user.email) : 'Unknown',
+                levels: scope.levels
+            }
+        })
+        
+        res.json(result)
+    } catch (e: any) {
+        res.status(500).json({ error: 'fetch_failed', message: e.message })
+    }
+})
+
+// Remove a level assignment from a sub-admin
+subAdminAssignmentsRouter.delete('/levels/:subAdminId/:level', requireAuth(['ADMIN']), async (req, res) => {
+    try {
+        const { subAdminId, level } = req.params
+        await RoleScope.findOneAndUpdate(
+            { userId: subAdminId },
+            { $pull: { levels: level } }
+        )
+        res.json({ ok: true })
+    } catch (e: any) {
+        res.status(500).json({ error: 'delete_failed', message: e.message })
+    }
+})
+
 // Admin: Delete assignment
 subAdminAssignmentsRouter.delete('/:id', requireAuth(['ADMIN']), async (req, res) => {
     try {

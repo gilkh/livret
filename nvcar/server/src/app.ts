@@ -29,6 +29,7 @@ import { settingsRouter } from './routes/settings'
 import { microsoftRouter } from './routes/microsoft'
 import { outlookUsersRouter } from './routes/outlookUsers'
 import { analyticsRouter } from './routes/analytics'
+import { backupRouter } from './routes/backup'
 
 export const createApp = () => {
   const app = express()
@@ -72,6 +73,7 @@ export const createApp = () => {
   app.use('/microsoft', microsoftRouter)
   app.use('/outlook-users', outlookUsersRouter)
   app.use('/analytics', analyticsRouter)
+  app.use('/backup', backupRouter)
   app.use('/uploads', express.static(path.join(process.cwd(), 'public', 'uploads')))
 
   app.get('/health', (_, res) => res.json({ ok: true }))

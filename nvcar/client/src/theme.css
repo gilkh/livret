@@ -34,7 +34,7 @@ body { margin: 0; font-family: 'Poppins', system-ui, sans-serif; background: var
 .btn { padding: 10px 14px; border-radius: 8px; border: none; background: var(--primary); color: white; cursor: pointer; }
 .btn.secondary { background: var(--accent); }
 .toolbar { display: flex; gap: 12px; }
-.navbar { position: sticky; top: 0; z-index: 1000; display: flex; align-items: center; justify-content: space-between; padding: 12px 24px; background: #ffffffcc; backdrop-filter: blur(8px); border-bottom: 1px solid #eee; }
+.navbar { position: sticky; top: 0; z-index: 1000; display: flex; align-items: center; justify-content: space-between; padding: 4px 24px; background: #ffffffcc; backdrop-filter: blur(8px); border-bottom: 1px solid #eee; }
 .nav-left, .nav-center, .nav-right { display: flex; align-items: center; gap: 12px; }
 .nav-brand { font-weight: 600; color: var(--primary); text-decoration: none; }
 .nav-link { color: var(--text); text-decoration: none; padding: 8px 10px; border-radius: 8px; }
