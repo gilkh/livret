@@ -13,7 +13,7 @@ const path_1 = __importDefault(require("path"));
 const pptxImporter_1 = require("../utils/pptxImporter");
 exports.templatesRouter = (0, express_1.Router)();
 const upload = (0, multer_1.default)({ storage: multer_1.default.memoryStorage() });
-exports.templatesRouter.get('/', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', 'TEACHER']), async (req, res) => {
+exports.templatesRouter.get('/', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', 'AEFE', 'TEACHER']), async (req, res) => {
     const list = await GradebookTemplate_1.GradebookTemplate.find({}).lean();
     res.json(list);
 });
@@ -73,6 +73,13 @@ exports.templatesRouter.post('/', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', 
         res.status(500).json({ error: 'create_failed', message: e.message });
     }
 });
+exports.templatesRouter.get('/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', 'AEFE', 'TEACHER']), async (req, res) => {
+    const { id } = req.params;
+    const tpl = await GradebookTemplate_1.GradebookTemplate.findById(id).lean();
+    if (!tpl)
+        return res.status(404).json({ error: 'not_found' });
+    res.json(tpl);
+});
 exports.templatesRouter.patch('/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', 'TEACHER']), async (req, res) => {
     try {
         const { id } = req.params;
@@ -112,6 +119,10 @@ exports.templatesRouter.patch('/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
             data.currentVersion = currentTemplate.currentVersion;
         }
         const tpl = await GradebookTemplate_1.GradebookTemplate.findByIdAndUpdate(id, data, { new: true });
+        // Update existing assignments to use the new version so changes propagate immediately
+        if (hasActiveAssignments && hasSignificantChange && tpl) {
+            await TemplateAssignment_1.TemplateAssignment.updateMany({ templateId: id }, { $set: { templateVersion: tpl.currentVersion } });
+        }
         res.json(tpl);
     }
     catch (e) {

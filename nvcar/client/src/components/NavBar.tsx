@@ -6,7 +6,7 @@ export default function NavBar() {
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
   const displayName = typeof window !== 'undefined' ? localStorage.getItem('displayName') : null
   const navigate = useNavigate()
-  const { activeYear } = useSchoolYear()
+  const { activeYear, years, activeYearId, setActiveYearId } = useSchoolYear()
 
   const logout = () => {
     localStorage.removeItem('token')
@@ -66,21 +66,55 @@ export default function NavBar() {
           <Link to="/login" className="btn">Connexion</Link>
         ) : (
           <>
+            {/* Year Switcher (hidden for teachers) */}
+            {years.length > 0 && role !== 'TEACHER' && (
+              <div style={{ marginRight: '16px', position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
+                <select
+                  value={activeYearId}
+                  onChange={(e) => setActiveYearId(e.target.value)}
+                  style={{
+                    appearance: 'none',
+                    backgroundColor: 'rgba(108, 92, 231, 0.1)',
+                    border: '1px solid rgba(108, 92, 231, 0.2)',
+                    borderRadius: '16px',
+                    padding: '4px 28px 4px 12px',
+                    color: 'var(--primary)',
+                    fontWeight: '600',
+                    fontSize: '0.85rem',
+                    cursor: 'pointer',
+                    outline: 'none',
+                    fontFamily: 'inherit'
+                  }}
+                >
+                  {years.map(y => (
+                    <option key={y._id} value={y._id}>
+                      {y.name} {y.active ? '(Actif)' : ''}
+                    </option>
+                  ))}
+                </select>
+                <svg 
+                  width="10" 
+                  height="6" 
+                  viewBox="0 0 10 6" 
+                  fill="none" 
+                  stroke="currentColor" 
+                  strokeWidth="2" 
+                  strokeLinecap="round" 
+                  strokeLinejoin="round"
+                  style={{
+                    position: 'absolute',
+                    right: '10px',
+                    pointerEvents: 'none',
+                    color: 'var(--primary)'
+                  }}
+                >
+                  <polyline points="1 1 5 5 9 1"></polyline>
+                </svg>
+              </div>
+            )}
+
             {role === 'ADMIN' && (
               <>
-                {activeYear && (
-                  <span style={{ 
-                    marginRight: '16px', 
-                    fontWeight: '600',
-                    color: 'var(--primary)',
-                    backgroundColor: 'rgba(108, 92, 231, 0.1)',
-                    padding: '4px 12px',
-                    borderRadius: '16px',
-                    fontSize: '0.85rem'
-                  }}>
-                    {activeYear.name} - S{activeYear.activeSemester || 1}
-                  </span>
-                )}
                 <Link to="/admin/settings" className="nav-link" title="Paramètres" style={{ marginRight: '16px', display: 'inline-flex', alignItems: 'center' }}>
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <circle cx="12" cy="12" r="3"></circle>

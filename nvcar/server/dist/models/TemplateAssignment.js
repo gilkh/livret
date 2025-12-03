@@ -7,6 +7,14 @@ const templateAssignmentSchema = new mongoose_1.Schema({
     templateVersion: { type: Number, required: true, default: 1 },
     studentId: { type: String, required: true },
     assignedTeachers: { type: [String], default: [] },
+    teacherCompletions: {
+        type: [{
+                teacherId: String,
+                completed: Boolean,
+                completedAt: Date
+            }],
+        default: []
+    },
     status: { type: String, enum: ['draft', 'in_progress', 'completed', 'signed'], default: 'draft' },
     assignedAt: { type: Date, default: () => new Date() },
     assignedBy: { type: String, required: true },

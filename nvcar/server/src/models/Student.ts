@@ -21,4 +21,8 @@ const studentSchema = new Schema({
   }]
 })
 
+// Add indexes for performance
+studentSchema.index({ schoolYearId: 1 })
+studentSchema.index({ status: 1 })
+
 export const Student = model('Student', studentSchema)

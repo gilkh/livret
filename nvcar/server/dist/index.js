@@ -6,9 +6,10 @@ Object.defineProperty(exports, "__esModule", { value: true });
 require("dotenv/config");
 const app_1 = require("./app");
 const os_1 = __importDefault(require("os"));
+const socket_1 = require("./socket");
 const port = process.env.PORT ? Number(process.env.PORT) : 4000;
 const app = (0, app_1.createApp)();
-app.listen(port, () => {
+const server = app.listen(port, () => {
     const nets = os_1.default.networkInterfaces();
     const addrs = [];
     for (const name of Object.keys(nets)) {
@@ -23,3 +24,4 @@ app.listen(port, () => {
             console.log(`server shared on http://${a}:${port}`);
     }
 });
+(0, socket_1.initSocket)(server);

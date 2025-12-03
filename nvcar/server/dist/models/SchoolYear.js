@@ -7,5 +7,7 @@ const schoolYearSchema = new mongoose_1.Schema({
     startDate: { type: Date, required: true },
     endDate: { type: Date, required: true },
     active: { type: Boolean, default: true },
+    activeSemester: { type: Number, default: 1 },
+    sequence: { type: Number }, // Sequential identifier for ordering
 });
 exports.SchoolYear = (0, mongoose_1.model)('SchoolYear', schoolYearSchema);

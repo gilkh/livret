@@ -10,15 +10,27 @@ const GradebookTemplate_1 = require("../models/GradebookTemplate");
 const Student_1 = require("../models/Student");
 const Enrollment_1 = require("../models/Enrollment");
 const Class_1 = require("../models/Class");
+const SchoolYear_1 = require("../models/SchoolYear");
 const auditLogger_1 = require("../utils/auditLogger");
 exports.teacherTemplatesRouter = (0, express_1.Router)();
 // Teacher: Get classes assigned to logged-in teacher
 exports.teacherTemplatesRouter.get('/classes', (0, auth_1.requireAuth)(['TEACHER']), async (req, res) => {
     try {
         const teacherId = req.user.userId;
+        const { schoolYearId } = req.query;
         const assignments = await TeacherClassAssignment_1.TeacherClassAssignment.find({ teacherId }).lean();
         const classIds = assignments.map(a => a.classId);
-        const classes = await Class_1.ClassModel.find({ _id: { $in: classIds } }).lean();
+        const query = { _id: { $in: classIds } };
+        if (schoolYearId) {
+            query.schoolYearId = schoolYearId;
+        }
+        else {
+            const activeYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
+            if (activeYear) {
+                query.schoolYearId = String(activeYear._id);
+            }
+        }
+        const classes = await Class_1.ClassModel.find(query).lean();
         res.json(classes);
     }
     catch (e) {
@@ -60,9 +72,11 @@ exports.teacherTemplatesRouter.get('/students/:studentId/templates', (0, auth_1.
         // Combine assignment data with template data
         const result = assignments.map(assignment => {
             const template = templates.find(t => String(t._id) === assignment.templateId);
+            const myCompletion = assignment.teacherCompletions?.find((tc) => tc.teacherId === teacherId);
             return {
                 ...assignment,
                 template,
+                isMyWorkCompleted: !!myCompletion?.completed
             };
         });
         res.json(result);
@@ -122,6 +136,7 @@ exports.teacherTemplatesRouter.get('/template-assignments/:assignmentId', (0, au
         // Get student level and verify teacher class assignment
         let level = '';
         let className = '';
+        let allowedLanguages = [];
         const enrollment = await Enrollment_1.Enrollment.findOne({ studentId: assignment.studentId }).lean();
         if (!enrollment) {
             return res.status(403).json({ error: 'student_not_enrolled' });
@@ -140,15 +155,29 @@ exports.teacherTemplatesRouter.get('/template-assignments/:assignmentId', (0, au
             if (!teacherClassAssignment) {
                 return res.status(403).json({ error: 'not_assigned_to_class' });
             }
+            allowedLanguages = teacherClassAssignment.languages || [];
         }
         // Determine if teacher can edit
         // Since we enforce class assignment above, if they reach here, they can edit.
         const canEdit = true;
+        const isProfPolyvalent = (enrollment && enrollment.classId)
+            ? (await TeacherClassAssignment_1.TeacherClassAssignment.findOne({ teacherId, classId: enrollment.classId }).lean())?.isProfPolyvalent
+            : false;
+        // Check my completion status
+        const myCompletion = assignment.teacherCompletions?.find((tc) => tc.teacherId === teacherId);
+        const isMyWorkCompleted = !!myCompletion?.completed;
+        // Get active semester from the active school year
+        const activeYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
+        const activeSemester = activeYear?.activeSemester || 1;
         res.json({
             assignment,
             template: versionedTemplate,
             student: { ...student, level, className },
             canEdit,
+            allowedLanguages,
+            isProfPolyvalent,
+            isMyWorkCompleted,
+            activeSemester
         });
     }
     catch (e) {
@@ -184,6 +213,35 @@ exports.teacherTemplatesRouter.patch('/template-assignments/:assignmentId/langua
             return res.status(400).json({ error: 'invalid_block_index' });
         if (block.type !== 'language_toggle') {
             return res.status(403).json({ error: 'can_only_edit_language_toggle' });
+        }
+        // Verify language permissions
+        const enrollment = await Enrollment_1.Enrollment.findOne({ studentId: assignment.studentId }).lean();
+        if (enrollment && enrollment.classId) {
+            const teacherClassAssignment = await TeacherClassAssignment_1.TeacherClassAssignment.findOne({
+                teacherId,
+                classId: enrollment.classId
+            }).lean();
+            const allowedLanguages = teacherClassAssignment?.languages || [];
+            if (allowedLanguages.length > 0) {
+                const currentData = assignment.data || {};
+                const key = `language_toggle_${pageIndex}_${blockIndex}`;
+                // Get previous state: either from assignment data or default from block props
+                const previousItems = currentData[key] || block.props.items || [];
+                // Check each item for changes
+                for (let i = 0; i < items.length; i++) {
+                    const newItem = items[i];
+                    const oldItem = previousItems[i] || (block.props.items && block.props.items[i]);
+                    // If state changed
+                    if (newItem && oldItem && newItem.active !== oldItem.active) {
+                        // Check if language is allowed
+                        // Use code from block props to be safe (source of truth)
+                        const langCode = block.props.items && block.props.items[i]?.code;
+                        if (langCode && !allowedLanguages.includes(langCode)) {
+                            return res.status(403).json({ error: 'language_not_allowed', details: langCode });
+                        }
+                    }
+                }
+            }
         }
         // Store language toggle state in assignment data with unique key
         const key = `language_toggle_${pageIndex}_${blockIndex}`;
@@ -225,11 +283,25 @@ exports.teacherTemplatesRouter.post('/templates/:assignmentId/mark-done', (0, au
         if (!assignment.assignedTeachers.includes(teacherId)) {
             return res.status(403).json({ error: 'not_assigned_to_template' });
         }
+        // Update teacher completion
+        let teacherCompletions = assignment.teacherCompletions || [];
+        // Remove existing entry for this teacher if any
+        teacherCompletions = teacherCompletions.filter((tc) => tc.teacherId !== teacherId);
+        // Add new entry
+        teacherCompletions.push({
+            teacherId,
+            completed: true,
+            completedAt: new Date()
+        });
+        // Check if all teachers have completed
+        const allCompleted = assignment.assignedTeachers.every((tid) => teacherCompletions.some((tc) => tc.teacherId === tid && tc.completed));
         // Update assignment
         const updated = await TemplateAssignment_1.TemplateAssignment.findByIdAndUpdate(assignmentId, {
-            isCompleted: true,
-            completedAt: new Date(),
-            completedBy: teacherId,
+            teacherCompletions,
+            status: allCompleted ? 'completed' : 'in_progress',
+            isCompleted: allCompleted,
+            completedAt: allCompleted ? new Date() : undefined,
+            completedBy: allCompleted ? teacherId : undefined,
         }, { new: true });
         // Log audit
         const template = await GradebookTemplate_1.GradebookTemplate.findById(assignment.templateId).lean();
@@ -264,8 +336,20 @@ exports.teacherTemplatesRouter.post('/templates/:assignmentId/unmark-done', (0, 
         if (!assignment.assignedTeachers.includes(teacherId)) {
             return res.status(403).json({ error: 'not_assigned_to_template' });
         }
+        // Update teacher completion
+        let teacherCompletions = assignment.teacherCompletions || [];
+        // Remove existing entry for this teacher if any
+        teacherCompletions = teacherCompletions.filter((tc) => tc.teacherId !== teacherId);
+        // Add new entry (completed: false)
+        teacherCompletions.push({
+            teacherId,
+            completed: false,
+            completedAt: new Date()
+        });
         // Update assignment
         const updated = await TemplateAssignment_1.TemplateAssignment.findByIdAndUpdate(assignmentId, {
+            teacherCompletions,
+            status: 'in_progress',
             isCompleted: false,
             completedAt: null,
             completedBy: null,
@@ -395,6 +479,31 @@ exports.teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data',
             $set: { data: { ...assignment.data, ...data } },
             status: assignment.status === 'draft' ? 'in_progress' : assignment.status
         }, { new: true });
+        // Sync promotion status to Enrollment if present
+        if (data.promotions && Array.isArray(data.promotions) && data.promotions.length > 0) {
+            const lastPromo = data.promotions[data.promotions.length - 1];
+            // Map the unstructured decision to our enum
+            // Assuming lastPromo has a 'decision' or similar field, or we infer it.
+            // Since I don't know the exact structure of 'promotions' in the JSON blob, 
+            // I will assume it might have a 'decision' field. 
+            // If not, I'll default to 'promoted' if it exists.
+            let status = 'pending';
+            const decision = lastPromo.decision?.toLowerCase() || '';
+            if (decision.includes('admis') || decision.includes('promoted'))
+                status = 'promoted';
+            else if (decision.includes('maintien') || decision.includes('retained'))
+                status = 'retained';
+            else if (decision.includes('essai') || decision.includes('conditional'))
+                status = 'conditional';
+            else if (decision.includes('ete') || decision.includes('summer'))
+                status = 'summer_school';
+            else if (decision.includes('quitte') || decision.includes('left'))
+                status = 'left';
+            else
+                status = 'promoted'; // Default if entry exists but no clear keyword
+            await Enrollment_1.Enrollment.findOneAndUpdate({ studentId: assignment.studentId, status: 'active' }, // Only update active enrollment
+            { $set: { promotionStatus: status } });
+        }
         res.json(updated);
     }
     catch (e) {

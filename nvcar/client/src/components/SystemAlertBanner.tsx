@@ -8,6 +8,9 @@ export default function SystemAlertBanner() {
     const isAdmin = location.pathname.startsWith('/admin')
 
     useEffect(() => {
+        const token = localStorage.getItem('token')
+        if (!token) return
+
         const checkAlert = async () => {
             try {
                 const res = await api.get('/admin-extras/alert')

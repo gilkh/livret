@@ -4,6 +4,8 @@ import { TeacherClassAssignment } from '../models/TeacherClassAssignment'
 import { ClassModel } from '../models/Class'
 import { User } from '../models/User'
 import { OutlookUser } from '../models/OutlookUser'
+import { Enrollment } from '../models/Enrollment'
+import { TemplateAssignment } from '../models/TemplateAssignment'
 
 export const teacherAssignmentsRouter = Router()
 
@@ -42,6 +44,27 @@ teacherAssignmentsRouter.post('/', requireAuth(['ADMIN']), async (req, res) => {
             { upsert: true, new: true }
         )
 
+        // Update existing template assignments for students in this class
+        // Find all active enrollments for this class
+        const enrollments = await Enrollment.find({ 
+            classId, 
+            schoolYearId: classDoc.schoolYearId,
+            status: 'active' 
+        }).select('studentId').lean()
+
+        if (enrollments.length > 0) {
+            const studentIds = enrollments.map(e => e.studentId)
+            
+            // Add teacher to assignedTeachers for active templates
+            await TemplateAssignment.updateMany(
+                { 
+                    studentId: { $in: studentIds }, 
+                    status: { $in: ['draft', 'in_progress'] } 
+                },
+                { $addToSet: { assignedTeachers: teacherId } }
+            )
+        }
+
         res.json(assignment)
     } catch (e: any) {
         res.status(500).json({ error: 'create_failed', message: e.message })
@@ -66,7 +89,32 @@ teacherAssignmentsRouter.get('/teacher/:teacherId', requireAuth(['ADMIN', 'SUBAD
 teacherAssignmentsRouter.delete('/:id', requireAuth(['ADMIN']), async (req, res) => {
     try {
         const { id } = req.params
-        await TeacherClassAssignment.findByIdAndDelete(id)
+        const assignment = await TeacherClassAssignment.findById(id).lean()
+        
+        if (assignment) {
+            await TeacherClassAssignment.findByIdAndDelete(id)
+
+            // Remove teacher from template assignments for students in this class
+            const enrollments = await Enrollment.find({ 
+                classId: assignment.classId, 
+                schoolYearId: assignment.schoolYearId,
+                status: 'active' 
+            }).select('studentId').lean()
+
+            if (enrollments.length > 0) {
+                const studentIds = enrollments.map(e => e.studentId)
+                
+                // Remove teacher from assignedTeachers for active templates
+                await TemplateAssignment.updateMany(
+                    { 
+                        studentId: { $in: studentIds }, 
+                        status: { $in: ['draft', 'in_progress'] } 
+                    },
+                    { $pull: { assignedTeachers: assignment.teacherId } }
+                )
+            }
+        }
+        
         res.json({ ok: true })
     } catch (e: any) {
         res.status(500).json({ error: 'delete_failed', message: e.message })

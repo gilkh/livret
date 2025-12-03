@@ -1,11 +1,12 @@
 import 'dotenv/config'
 import { createApp } from './app'
 import os from 'os'
+import { initSocket } from './socket'
 
 const port = process.env.PORT ? Number(process.env.PORT) : 4000
 const app = createApp()
 
-app.listen(port, () => {
+const server = app.listen(port, () => {
   const nets = os.networkInterfaces()
   const addrs: string[] = []
   for (const name of Object.keys(nets)) {
@@ -18,3 +19,5 @@ app.listen(port, () => {
     for (const a of addrs) console.log(`server shared on http://${a}:${port}`)
   }
 })
+
+initSocket(server)

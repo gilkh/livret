@@ -5,13 +5,43 @@ import { TemplateAssignment } from '../models/TemplateAssignment'
 import { TemplateSignature } from '../models/TemplateSignature'
 import { SavedGradebook } from '../models/SavedGradebook'
 import { requireAuth } from '../auth'
-import puppeteer from 'puppeteer'
+import puppeteer, { Browser } from 'puppeteer'
 
 export const pdfPuppeteerRouter = Router()
 
+// Singleton browser instance
+let browserInstance: Browser | null = null
+
+const getBrowser = async () => {
+  if (browserInstance && browserInstance.isConnected()) {
+    return browserInstance
+  }
+
+  console.log('[PDF] Launching new browser instance...')
+  browserInstance = await puppeteer.launch({
+    headless: true,
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-accelerated-2d-canvas',
+      '--no-first-run',
+      '--no-zygote',
+      '--disable-gpu'
+    ]
+  })
+
+  browserInstance.on('disconnected', () => {
+    console.log('[PDF] Browser disconnected')
+    browserInstance = null
+  })
+
+  return browserInstance
+}
+
 // Generate PDF using Puppeteer from HTML render
 pdfPuppeteerRouter.get('/student/:id', requireAuth(['ADMIN','SUBADMIN','TEACHER']), async (req, res) => {
-  let browser: any = null
+  let page: any = null
   try {
     const { id } = req.params
     const { templateId } = req.query
@@ -52,23 +82,11 @@ pdfPuppeteerRouter.get('/student/:id', requireAuth(['ADMIN','SUBADMIN','TEACHER'
       token = String(req.query.token)
     }
     
-    console.log('[PDF] Launching Puppeteer...')
-    // Launch Puppeteer with more options
-    browser = await puppeteer.launch({
-      headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--no-first-run',
-        '--no-zygote',
-        '--disable-gpu'
-      ]
-    })
+    console.log('[PDF] Getting browser instance...')
+    const browser = await getBrowser()
     
     console.log('[PDF] Creating page...')
-    const page = await browser.newPage()
+    page = await browser.newPage()
     
     // Add error logging to see what breaks in headless mode
     page.on('console', (msg: any) => {
@@ -130,8 +148,8 @@ pdfPuppeteerRouter.get('/student/:id', requireAuth(['ADMIN','SUBADMIN','TEACHER'
     
     console.log('[PDF] PDF generated successfully, size:', pdfBuffer.length, 'bytes')
     
-    await browser.close()
-    browser = null
+    await page.close()
+    page = null
     
     // Verify PDF is valid
     if (!pdfBuffer || pdfBuffer.length === 0) {
@@ -152,12 +170,12 @@ pdfPuppeteerRouter.get('/student/:id', requireAuth(['ADMIN','SUBADMIN','TEACHER'
     console.error('[PDF] PDF generation error:', error.message)
     console.error('[PDF] Stack:', error.stack)
     
-    // Clean up browser if it's still open
-    if (browser) {
+    // Clean up page if it's still open
+    if (page) {
       try {
-        await browser.close()
+        await page.close()
       } catch (e) {
-        console.error('[PDF] Error closing browser:', e)
+        console.error('[PDF] Error closing page:', e)
       }
     }
     
@@ -171,7 +189,7 @@ pdfPuppeteerRouter.get('/student/:id', requireAuth(['ADMIN','SUBADMIN','TEACHER'
 
 // Generate PDF for Saved Gradebook
 pdfPuppeteerRouter.get('/saved/:id', requireAuth(['ADMIN','SUBADMIN','TEACHER']), async (req, res) => {
-  let browser: any = null
+  let page: any = null
   try {
     const { id } = req.params
     
@@ -191,22 +209,11 @@ pdfPuppeteerRouter.get('/saved/:id', requireAuth(['ADMIN','SUBADMIN','TEACHER'])
       token = String(req.query.token)
     }
     
-    console.log('[PDF] Launching Puppeteer...')
-    browser = await puppeteer.launch({
-      headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--no-first-run',
-        '--no-zygote',
-        '--disable-gpu'
-      ]
-    })
+    console.log('[PDF] Getting browser instance...')
+    const browser = await getBrowser()
     
     console.log('[PDF] Creating page...')
-    const page = await browser.newPage()
+    page = await browser.newPage()
     
     // Add error logging
     page.on('console', (msg: any) => {
@@ -263,8 +270,8 @@ pdfPuppeteerRouter.get('/saved/:id', requireAuth(['ADMIN','SUBADMIN','TEACHER'])
     
     console.log('[PDF] PDF generated successfully, size:', pdfBuffer.length, 'bytes')
     
-    await browser.close()
-    browser = null
+    await page.close()
+    page = null
     
     if (!pdfBuffer || pdfBuffer.length === 0) {
       throw new Error('Generated PDF buffer is empty')
@@ -286,11 +293,11 @@ pdfPuppeteerRouter.get('/saved/:id', requireAuth(['ADMIN','SUBADMIN','TEACHER'])
     console.error('[PDF] PDF generation error:', error.message)
     console.error('[PDF] Stack:', error.stack)
     
-    if (browser) {
+    if (page) {
       try {
-        await browser.close()
+        await page.close()
       } catch (e) {
-        console.error('[PDF] Error closing browser:', e)
+        console.error('[PDF] Error closing page:', e)
       }
     }
     

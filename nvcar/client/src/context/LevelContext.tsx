@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
+import { useLocation } from 'react-router-dom'
 import api from '../api'
 
 type Level = {
@@ -18,8 +19,18 @@ const LevelContext = createContext<LevelContextType | undefined>(undefined)
 export function LevelProvider({ children }: { children: ReactNode }) {
   const [levels, setLevels] = useState<Level[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const location = useLocation()
 
   useEffect(() => {
+    const token = localStorage.getItem('token')
+    if (!token) {
+      setLevels([])
+      setIsLoading(false)
+      return
+    }
+
+    if (levels.length > 0) return
+
     const loadLevels = async () => {
       try {
         const res = await api.get('/levels')
@@ -47,7 +58,7 @@ export function LevelProvider({ children }: { children: ReactNode }) {
       }
     }
     loadLevels()
-  }, [])
+  }, [location.pathname, levels.length])
 
   const levelNames = levels.map(l => l.name)
 

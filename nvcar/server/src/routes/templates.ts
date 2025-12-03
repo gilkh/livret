@@ -125,6 +125,15 @@ templatesRouter.patch('/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), asy
     }
     
     const tpl = await GradebookTemplate.findByIdAndUpdate(id, data, { new: true })
+
+    // Update existing assignments to use the new version so changes propagate immediately
+    if (hasActiveAssignments && hasSignificantChange && tpl) {
+      await TemplateAssignment.updateMany(
+        { templateId: id },
+        { $set: { templateVersion: tpl.currentVersion } }
+      )
+    }
+
     res.json(tpl)
   } catch (e: any) {
     res.status(500).json({ error: 'update_failed', message: e.message })

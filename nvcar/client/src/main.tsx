@@ -6,6 +6,7 @@ import App from './App'
 import './theme.css'
 import { SchoolYearProvider } from './context/SchoolYearContext'
 import { LevelProvider } from './context/LevelContext'
+import { SocketProvider } from './context/SocketContext'
 
 const queryClient = new QueryClient()
 
@@ -15,7 +16,9 @@ createRoot(document.getElementById('root')!).render(
       <BrowserRouter>
         <SchoolYearProvider>
           <LevelProvider>
-            <App />
+            <SocketProvider>
+              <App />
+            </SocketProvider>
           </LevelProvider>
         </SchoolYearProvider>
       </BrowserRouter>

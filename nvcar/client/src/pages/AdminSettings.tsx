@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import api from '../api'
+import { useSchoolYear } from '../context/SchoolYearContext'
 import './AdminSettings.css'
 
 export default function AdminSettings() {
+  const { years, activeYearId, setActiveYearId } = useSchoolYear()
   const [teacherLogin, setTeacherLogin] = useState(true)
   const [subAdminLogin, setSubAdminLogin] = useState(true)
   const [microsoftLogin, setMicrosoftLogin] = useState(true)
@@ -245,6 +247,46 @@ export default function AdminSettings() {
                 {systemStatus?.database === 'connected' ? 'Connectée' : 'Déconnectée'}
               </span>
             </div>
+          </div>
+        </div>
+
+        {/* Session View Section */}
+        <div className="settings-section">
+          <div className="section-header">
+            <div className="section-icon-wrapper" style={{ background: 'rgba(108, 92, 231, 0.1)', color: 'var(--primary)' }}>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                <line x1="16" y1="2" x2="16" y2="6"></line>
+                <line x1="8" y1="2" x2="8" y2="6"></line>
+                <line x1="3" y1="10" x2="21" y2="10"></line>
+              </svg>
+            </div>
+            <h2 className="section-title">Année Scolaire (Vue Admin)</h2>
+          </div>
+          
+          <div className="setting-item">
+            <div className="setting-info">
+              <h3>Année active pour cette session</h3>
+              <p>Changez l'année visible uniquement pour vous (n'affecte pas les autres utilisateurs)</p>
+            </div>
+            <select 
+              value={activeYearId} 
+              onChange={(e) => setActiveYearId(e.target.value)}
+              style={{
+                padding: '8px 12px',
+                borderRadius: '6px',
+                border: '1px solid #cbd5e1',
+                fontSize: '0.95rem',
+                minWidth: '200px',
+                backgroundColor: 'white'
+              }}
+            >
+              {years.map(y => (
+                <option key={y._id} value={y._id}>
+                  {y.name} {y.active ? '(Active par défaut)' : ''}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
 

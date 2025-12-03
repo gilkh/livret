@@ -61,6 +61,7 @@ const templateAssignments_1 = require("./routes/templateAssignments");
 const subAdminAssignments_1 = require("./routes/subAdminAssignments");
 const teacherTemplates_1 = require("./routes/teacherTemplates");
 const subAdminTemplates_1 = require("./routes/subAdminTemplates");
+const aefeTemplates_1 = require("./routes/aefeTemplates");
 const auditLogs_1 = require("./routes/auditLogs");
 const impersonation_1 = require("./routes/impersonation");
 const suggestions_1 = require("./routes/suggestions");
@@ -68,6 +69,11 @@ const settings_1 = require("./routes/settings");
 const microsoft_1 = require("./routes/microsoft");
 const outlookUsers_1 = require("./routes/outlookUsers");
 const analytics_1 = require("./routes/analytics");
+const backup_1 = require("./routes/backup");
+const levels_1 = require("./routes/levels");
+const savedGradebooks_1 = require("./routes/savedGradebooks");
+const Level_1 = require("./models/Level");
+const adminExtras_1 = require("./routes/adminExtras");
 const createApp = () => {
     const app = (0, express_1.default)();
     app.use((0, cors_1.default)({
@@ -84,6 +90,7 @@ const createApp = () => {
     app.use('/auth', auth_1.authRouter);
     app.use('/categories', categories_1.categoriesRouter);
     app.use('/students', students_1.studentsRouter);
+    app.use('/levels', levels_1.levelsRouter);
     app.use('/import', import_1.importRouter);
     // Use new Puppeteer-based PDF generation for better rendering
     app.use('/pdf-v2', pdfPuppeteer_1.pdfPuppeteerRouter);
@@ -104,13 +111,17 @@ const createApp = () => {
     app.use('/subadmin-assignments', subAdminAssignments_1.subAdminAssignmentsRouter);
     app.use('/teacher', teacherTemplates_1.teacherTemplatesRouter);
     app.use('/subadmin', subAdminTemplates_1.subAdminTemplatesRouter);
+    app.use('/aefe', aefeTemplates_1.aefeTemplatesRouter);
     app.use('/audit-logs', auditLogs_1.auditLogsRouter);
     app.use('/impersonation', impersonation_1.impersonationRouter);
     app.use('/suggestions', suggestions_1.suggestionsRouter);
     app.use('/settings', settings_1.settingsRouter);
+    app.use('/admin-extras', adminExtras_1.adminExtrasRouter);
     app.use('/microsoft', microsoft_1.microsoftRouter);
     app.use('/outlook-users', outlookUsers_1.outlookUsersRouter);
     app.use('/analytics', analytics_1.analyticsRouter);
+    app.use('/backup', backup_1.backupRouter);
+    app.use('/saved-gradebooks', savedGradebooks_1.savedGradebooksRouter);
     app.use('/uploads', express_1.default.static(path_1.default.join(process.cwd(), 'public', 'uploads')));
     app.get('/health', (_, res) => res.json({ ok: true }));
     (0, db_1.connectDb)()
@@ -121,6 +132,16 @@ const createApp = () => {
             const hash = await bcrypt.hash('admin', 10);
             await User_1.User.create({ email: 'admin', passwordHash: hash, role: 'ADMIN', displayName: 'Admin' });
             console.log('seeded default admin user');
+        }
+        // Seed levels if they don't exist
+        const levelCount = await Level_1.Level.countDocuments();
+        if (levelCount === 0) {
+            await Level_1.Level.insertMany([
+                { name: 'PS', order: 1 },
+                { name: 'MS', order: 2 },
+                { name: 'GS', order: 3 },
+            ]);
+            console.log('seeded default levels (PS, MS, GS)');
         }
     })
         .catch(e => console.error('mongo error', e));

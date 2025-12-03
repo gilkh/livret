@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import api from '../api'
+import { useSocket } from '../context/SocketContext'
 
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
@@ -27,6 +28,57 @@ export default function TeacherTemplateEditor() {
     const [isProfPolyvalent, setIsProfPolyvalent] = useState(false)
     const [isMyWorkCompleted, setIsMyWorkCompleted] = useState(false)
     const [activeSemester, setActiveSemester] = useState<number>(1)
+
+    const socket = useSocket()
+
+    useEffect(() => {
+        if (assignmentId && socket) {
+            const roomId = `assignment:${assignmentId}`
+            socket.emit('join-room', roomId)
+
+            const handleUpdate = (payload: any) => {
+                if (payload.type === 'language-toggle') {
+                    setTemplate(prev => {
+                        if (!prev) return prev
+                        const newTemplate = { ...prev }
+                        const { pageIndex, blockIndex, items } = payload
+                        if (newTemplate.pages[pageIndex]?.blocks[blockIndex]) {
+                             newTemplate.pages[pageIndex].blocks[blockIndex].props.items = items
+                        }
+                        return newTemplate
+                    })
+                }
+
+                if (payload.type === 'assignment-data') {
+                    setAssignment(prev => {
+                        if (!prev) return prev
+                        if (payload.assignmentId && payload.assignmentId !== prev._id) return prev
+                        const nextData = { ...(prev.data || {}), ...(payload.data || {}) }
+                        return { ...prev, data: nextData }
+                    })
+                }
+            }
+
+            socket.on('update-received', handleUpdate)
+
+            return () => {
+                socket.emit('leave-room', roomId)
+                socket.off('update-received', handleUpdate)
+            }
+        }
+    }, [assignmentId, socket])
+
+    const emitAssignmentDataUpdate = (dataPatch: Record<string, any>) => {
+        if (!socket || !assignmentId) return
+        socket.emit('broadcast-update', {
+            roomId: `assignment:${assignmentId}`,
+            payload: {
+                type: 'assignment-data',
+                assignmentId,
+                data: dataPatch
+            }
+        })
+    }
 
     useEffect(() => {
         const loadData = async () => {
@@ -74,6 +126,18 @@ export default function TeacherTemplateEditor() {
                 const newTemplate = { ...template }
                 newTemplate.pages[pageIndex].blocks[blockIndex].props.items = items
                 setTemplate(newTemplate)
+
+                if (socket) {
+                    socket.emit('broadcast-update', {
+                        roomId: `assignment:${assignmentId}`,
+                        payload: {
+                            type: 'language-toggle',
+                            pageIndex,
+                            blockIndex,
+                            items
+                        }
+                    })
+                }
             }
 
             setSaveStatus('Enregistré avec succès ✓')
@@ -432,6 +496,7 @@ export default function TeacherTemplateEditor() {
                                                                 setAssignment({ ...assignment, data: newData })
                                                                 try {
                                                                     await api.patch(`/teacher/template-assignments/${assignment._id}/data`, { data: { [key]: '' } })
+                                                                    emitAssignmentDataUpdate({ [key]: '' })
                                                                     setSaveStatus('Enregistré avec succès ✓')
                                                                     setTimeout(() => setSaveStatus(''), 3000)
                                                                 } catch (err) {
@@ -466,6 +531,7 @@ export default function TeacherTemplateEditor() {
                                                                     setAssignment({ ...assignment, data: newData })
                                                                     try {
                                                                         await api.patch(`/teacher/template-assignments/${assignment._id}/data`, { data: { [key]: opt } })
+                                                                        emitAssignmentDataUpdate({ [key]: opt })
                                                                         setSaveStatus('Enregistré avec succès ✓')
                                                                         setTimeout(() => setSaveStatus(''), 3000)
                                                                     } catch (err) {

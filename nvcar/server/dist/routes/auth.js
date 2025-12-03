@@ -53,7 +53,7 @@ exports.authRouter.post('/login', async (req, res) => {
             const hash = await bcrypt.hash('admin', 10);
             admin = await User_1.User.create({ email: 'admin', passwordHash: hash, role: 'ADMIN', displayName: 'Admin' });
         }
-        const token = (0, auth_1.signToken)({ userId: String(admin._id), role: 'ADMIN' });
+        const token = (0, auth_1.signToken)({ userId: String(admin._id), role: 'ADMIN', tokenVersion: admin.tokenVersion || 0 });
         // Log login
         await (0, auditLogger_1.logAudit)({ userId: String(admin._id), action: 'LOGIN', details: { email }, req });
         return res.json({ token, role: 'ADMIN', displayName: 'Admin' });
@@ -77,7 +77,13 @@ exports.authRouter.post('/login', async (req, res) => {
             return res.status(403).json({ error: 'login_disabled' });
         }
     }
-    const token = (0, auth_1.signToken)({ userId: String(user._id), role: user.role });
+    if (user.role === 'AEFE') {
+        const s = await Setting_1.Setting.findOne({ key: 'login_enabled_aefe' });
+        if (s && s.value === false) {
+            return res.status(403).json({ error: 'login_disabled' });
+        }
+    }
+    const token = (0, auth_1.signToken)({ userId: String(user._id), role: user.role, tokenVersion: user.tokenVersion || 0 });
     // Log login
     await (0, auditLogger_1.logAudit)({ userId: String(user._id), action: 'LOGIN', details: { email }, req });
     res.json({ token, role: user.role, displayName: user.displayName });

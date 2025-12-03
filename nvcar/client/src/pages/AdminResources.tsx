@@ -40,6 +40,7 @@ export default function AdminResources() {
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
   const [editingStudentId, setEditingStudentId] = useState<string | null>(null)
+  const [showImportModal, setShowImportModal] = useState(false)
 
   const promotedStudents = useMemo(() => {
       return unassignedStudents.filter(s => s.promotion && s.promotion.from !== s.promotion.to)
@@ -365,7 +366,8 @@ export default function AdminResources() {
 
                 <div style={{ borderTop: '1px solid #f0f0f0', paddingTop: 16 }}>
                     <h4 style={{ margin: '0 0 12px 0', fontSize: '0.9rem', color: '#8c8c8c' }}>Import CSV</h4>
-                    <InlineImportCSV schoolYearId={selectedYear._id} />
+                    <button className="btn secondary" style={{ width: '100%' }} onClick={() => setShowImportModal(true)}>Importer des élèves (CSV)</button>
+                    {selectedYear && <ImportStudentsModal isOpen={showImportModal} onClose={() => setShowImportModal(false)} schoolYearId={selectedYear._id} />}
                 </div>
             </div>
           )}
@@ -512,11 +514,19 @@ export default function AdminResources() {
   )
 }
 
-function InlineImportCSV({ schoolYearId }: { schoolYearId: string }) {
-  const [csv, setCsv] = useState('FirstName,LastName,level,section\nLara,Haddad,KG1,A')
+function ImportStudentsModal({ isOpen, onClose, schoolYearId }: { isOpen: boolean; onClose: () => void; schoolYearId: string }) {
+  const [csv, setCsv] = useState('')
   const [report, setReport] = useState<any>(null)
-  const [mappingText, setMappingText] = useState('')
-  const [isOpen, setIsOpen] = useState(false)
+  const [loading, setLoading] = useState(false)
+
+  // Reset state when opening
+  useEffect(() => {
+      if (isOpen) {
+          setCsv('FirstName,LastName,level,section\n')
+          setReport(null)
+          setLoading(false)
+      }
+  }, [isOpen])
 
   const onFile = async (e: any) => {
     const f = e.target.files?.[0]
@@ -524,17 +534,42 @@ function InlineImportCSV({ schoolYearId }: { schoolYearId: string }) {
     const txt = await f.text()
     setCsv(txt)
   }
+
   const submit = async () => {
-    let mapping
-    try { mapping = mappingText ? JSON.parse(mappingText) : undefined } catch {}
+    setLoading(true)
+    setReport(null)
+    
     let processedCsv = csv
     try {
-      const lines = processedCsv.split(/\r?\n/).filter(l => l.trim().length > 0)
+      let lines = processedCsv.split(/\r?\n/).filter(l => l.trim().length > 0)
+      
+      // 1. Auto-detect missing headers
+      if (lines.length > 0) {
+          const firstLine = lines[0].toLowerCase()
+          if (!firstLine.includes('firstname') && !firstLine.includes('nom') && !firstLine.includes('prenom')) {
+              // Assume data without headers, prepend default headers
+              lines = ['FirstName,LastName,level,section', ...lines]
+          }
+      }
+
       if (lines.length > 1) {
-        const headers = lines[0].split(',').map(h => h.trim())
+        let headers = lines[0].split(',').map(h => h.trim())
+        
+        // 2. Auto-add DateOfBirth if missing
+        const dobIdx = headers.findIndex(h => h.toLowerCase().includes('date') || h.toLowerCase() === 'dob')
+        if (dobIdx === -1) {
+            headers.push('DateOfBirth')
+            lines = [
+                headers.join(','),
+                ...lines.slice(1).map(l => `${l},2020-01-01`)
+            ]
+        }
+
+        // 3. Combine level + section -> ClassName
         const hasClassName = headers.some(h => h.toLowerCase() === 'classname')
         const levelIdx = headers.findIndex(h => h.toLowerCase() === 'level')
         const sectionIdx = headers.findIndex(h => h.toLowerCase() === 'section')
+        
         if (!hasClassName && levelIdx !== -1 && sectionIdx !== -1) {
           const newHeaders = [...headers, 'ClassName']
           const newRows = lines.slice(1).map(row => {
@@ -545,34 +580,84 @@ function InlineImportCSV({ schoolYearId }: { schoolYearId: string }) {
             return [...cols, cls].join(',')
           })
           processedCsv = [newHeaders.join(','), ...newRows].join('\n')
+        } else {
+            processedCsv = lines.join('\n')
         }
       }
     } catch {}
-    const r = await api.post('/import/students', { csv: processedCsv, schoolYearId, dryRun: false, mapping })
-    setReport(r.data)
-  }
-  
-  if (!isOpen) {
-      return <button className="btn secondary" style={{ width: '100%', fontSize: '0.9rem' }} onClick={() => setIsOpen(true)}>Importer des élèves (CSV)</button>
+
+    try {
+        const r = await api.post('/import/students', { csv: processedCsv, schoolYearId, dryRun: false })
+        setReport(r.data)
+    } catch (e) {
+        alert('Erreur lors de l\'import')
+    } finally {
+        setLoading(false)
+    }
   }
 
+  if (!isOpen) return null
+
   return (
-    <div style={{ background: '#fafafa', padding: 12, borderRadius: 8 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-        <span style={{ fontWeight: 500 }}>Import CSV</span>
-        <button style={{ border: 'none', background: 'none', cursor: 'pointer' }} onClick={() => setIsOpen(false)}>✕</button>
-      </div>
-      <div className="note" style={{ marginBottom: 8 }}>Format: <code>FirstName,LastName,level,section</code></div>
-      <input type="file" accept=".csv" onChange={onFile} style={{ fontSize: '0.8rem', marginBottom: 8, width: '100%' }} />
-      <textarea value={csv} onChange={e => setCsv(e.target.value)} rows={4} style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #ddd', fontSize: '0.8rem', fontFamily: 'monospace' }} />
-      <div className="note" style={{ marginTop: 8 }}>Mapping JSON (optionnel):</div>
-      <textarea value={mappingText} onChange={e => setMappingText(e.target.value)} rows={2} placeholder='{"firstName":"Prenom"}' style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #ddd', fontSize: '0.8rem', fontFamily: 'monospace' }} />
-      <div style={{ marginTop: 8 }}>
-        <button className="btn" onClick={submit} style={{ width: '100%' }}>Importer</button>
-      </div>
-      {report && (
-        <div className="note" style={{ marginTop: 8, padding: 8, background: '#e6f7ff', borderRadius: 4 }}>{report.summary}</div>
-      )}
+    <div style={{
+        position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+        background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000
+    }} onClick={onClose}>
+        <div style={{
+            background: 'white', padding: 24, borderRadius: 12, width: '600px', maxWidth: '90%',
+            maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
+        }} onClick={e => e.stopPropagation()}>
+            
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+                <h3 style={{ margin: 0, fontSize: '1.5rem' }}>Importer des élèves</h3>
+                <button onClick={onClose} style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: '1.5rem', color: '#999' }}>✕</button>
+            </div>
+
+            <div style={{ marginBottom: 20 }}>
+                <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>1. Fichier CSV</label>
+                <div style={{ border: '2px dashed #ddd', padding: 20, borderRadius: 8, textAlign: 'center', background: '#fafafa', marginBottom: 12 }}>
+                    <input type="file" accept=".csv" onChange={onFile} style={{ display: 'none' }} id="csv-upload" />
+                    <label htmlFor="csv-upload" style={{ cursor: 'pointer', color: '#1890ff', fontWeight: 500 }}>
+                        Cliquez pour sélectionner un fichier
+                    </label>
+                    <div style={{ fontSize: '0.8rem', color: '#999', marginTop: 4 }}>ou glissez-déposez ici</div>
+                </div>
+                
+                <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Ou coller le contenu CSV</label>
+                <textarea 
+                    value={csv} 
+                    onChange={e => setCsv(e.target.value)} 
+                    rows={6} 
+                    style={{ width: '100%', padding: 12, borderRadius: 8, border: '1px solid #ddd', fontFamily: 'monospace', fontSize: '0.9rem' }} 
+                    placeholder="FirstName,LastName,level,section..."
+                />
+                <div className="note" style={{ marginTop: 4 }}>Format attendu: <code>FirstName,LastName,level,section</code></div>
+            </div>
+
+            {report && (
+                <div style={{ marginBottom: 20, padding: 16, background: report.created > 0 ? '#f6ffed' : '#fffbe6', border: `1px solid ${report.created > 0 ? '#b7eb8f' : '#ffe58f'}`, borderRadius: 8 }}>
+                    <h4 style={{ margin: '0 0 8px 0' }}>Résultat de l'import</h4>
+                    <ul style={{ margin: 0, paddingLeft: 20 }}>
+                        <li>Créés: <b>{report.created}</b></li>
+                        <li>Mis à jour: <b>{report.updated}</b></li>
+                        <li>Ignorés: <b>{report.ignored}</b></li>
+                        <li>Erreurs: <b>{report.errors?.length || 0}</b></li>
+                    </ul>
+                    {report.errors && report.errors.length > 0 && (
+                        <div style={{ marginTop: 8, maxHeight: 100, overflowY: 'auto', fontSize: '0.85rem', color: 'red' }}>
+                            {report.errors.map((e: any, i: number) => <div key={i}>{JSON.stringify(e)}</div>)}
+                        </div>
+                    )}
+                </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
+                <button className="btn secondary" onClick={onClose}>Fermer</button>
+                <button className="btn" onClick={submit} disabled={loading || !csv.trim()}>
+                    {loading ? 'Importation...' : 'Importer les élèves'}
+                </button>
+            </div>
+        </div>
     </div>
   )
 }

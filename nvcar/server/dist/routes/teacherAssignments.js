@@ -11,7 +11,7 @@ exports.teacherAssignmentsRouter = (0, express_1.Router)();
 // Admin: Assign teacher to class
 exports.teacherAssignmentsRouter.post('/', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
     try {
-        const { teacherId, classId } = req.body;
+        const { teacherId, classId, languages, isProfPolyvalent } = req.body;
         if (!teacherId || !classId)
             return res.status(400).json({ error: 'missing_payload' });
         // Verify teacher exists and has TEACHER role (check both User and OutlookUser)
@@ -31,6 +31,8 @@ exports.teacherAssignmentsRouter.post('/', (0, auth_1.requireAuth)(['ADMIN']), a
             teacherId,
             classId,
             schoolYearId: classDoc.schoolYearId,
+            languages: languages || [],
+            isProfPolyvalent: !!isProfPolyvalent,
             assignedBy: req.user.userId,
             assignedAt: new Date(),
         }, { upsert: true, new: true });

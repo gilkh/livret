@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import axios from 'axios'
 import { OutlookUser } from '../models/OutlookUser'
+import { User } from '../models/User'
 import { signToken } from '../auth'
 import { logAudit } from '../utils/auditLogger'
 
@@ -77,36 +78,63 @@ microsoftRouter.post('/callback', async (req, res) => {
     }
 
     // Check if user is authorized (match any alias)
-    const outlookUser = await OutlookUser.findOne({ email: { $in: possibleEmails } })
-    if (!outlookUser) {
-      return res.status(403).json({
-        error: 'Email not authorized. Please contact administrator.',
-        details: { receivedEmails: possibleEmails }
-      })
+    // We check the main User collection first, then OutlookUser for legacy/specific config
+    // Actually, we should unify this. For now, let's assume we want to log in as a User.
+    
+    // Strategy:
+    // 1. Find a User with this email.
+    // 2. If found, log them in.
+    // 3. If not found, check OutlookUser whitelist.
+    // 4. If in whitelist but not in User, create/update User? Or just use OutlookUser?
+    
+    // The auth middleware uses User.findById. So we MUST have a User document.
+    
+    let user = await User.findOne({ email: { $in: possibleEmails } })
+    
+    if (!user) {
+        // Check if authorized in OutlookUser whitelist
+        const outlookUser = await OutlookUser.findOne({ email: { $in: possibleEmails } })
+        
+        if (outlookUser) {
+            // Create a User record for them if it doesn't exist
+            // We need a dummy password hash since they use OAuth
+            user = await User.create({
+                email: outlookUser.email,
+                passwordHash: 'oauth-managed',
+                role: outlookUser.role,
+                displayName: displayName || outlookUser.displayName || outlookUser.email,
+                tokenVersion: 0
+            })
+        } else {
+             return res.status(403).json({
+                error: 'Email not authorized. Please contact administrator.',
+                details: { receivedEmails: possibleEmails }
+            })
+        }
     }
 
     // Update last login
-    outlookUser.lastLogin = new Date()
-    if (!outlookUser.displayName && displayName) {
-      outlookUser.displayName = displayName
+    user.lastActive = new Date()
+    if (!user.displayName && displayName) {
+      user.displayName = displayName
     }
-    await outlookUser.save()
+    await user.save()
 
     // Generate JWT token
-    const token = signToken({ userId: String(outlookUser._id), role: outlookUser.role })
+    const token = signToken({ userId: String(user._id), role: user.role as any, tokenVersion: user.tokenVersion })
 
     // Log the login
     await logAudit({
-      userId: String(outlookUser._id),
+      userId: String(user._id),
       action: 'LOGIN_MICROSOFT',
-      details: { email: outlookUser.email },
+      details: { email: user.email },
       req
     })
 
     res.json({
       token,
-      role: outlookUser.role,
-      displayName: outlookUser.displayName || outlookUser.email
+      role: user.role,
+      displayName: user.displayName || user.email
     })
 
   } catch (e: any) {

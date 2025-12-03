@@ -5,6 +5,7 @@ import { ClassModel } from '../models/Class'
 import { SchoolYear } from '../models/SchoolYear'
 import { StudentCompetencyStatus } from '../models/StudentCompetencyStatus'
 import { TemplateAssignment } from '../models/TemplateAssignment'
+import { TeacherClassAssignment } from '../models/TeacherClassAssignment'
 import { requireAuth } from '../auth'
 
 export const studentsRouter = Router()
@@ -169,6 +170,18 @@ studentsRouter.post('/:id/assign-section', requireAuth(['ADMIN','SUBADMIN']), as
       schoolYearId
     })
   }
+
+  // Update template assignments with new class teachers
+  const teacherAssignments = await TeacherClassAssignment.find({ classId: String(cls._id) }).lean()
+  const teacherIds = teacherAssignments.map(t => t.teacherId)
+
+  await TemplateAssignment.updateMany(
+    { 
+      studentId: id, 
+      status: { $in: ['draft', 'in_progress'] } 
+    },
+    { $set: { assignedTeachers: teacherIds } }
+  )
   
   res.json({ ok: true })
 })

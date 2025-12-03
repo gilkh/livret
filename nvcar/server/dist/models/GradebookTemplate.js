@@ -9,6 +9,7 @@ const blockSchema = new mongoose_1.Schema({
 const pageSchema = new mongoose_1.Schema({
     title: { type: String },
     layout: { type: String, default: 'single' },
+    excludeFromPdf: { type: Boolean, default: false },
     blocks: { type: [blockSchema], default: [] },
 });
 const templateSchema = new mongoose_1.Schema({

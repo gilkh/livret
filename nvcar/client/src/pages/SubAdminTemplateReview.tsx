@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import api from '../api'
+import { useSocket } from '../context/SocketContext'
 
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
@@ -46,6 +47,57 @@ export default function SubAdminTemplateReview() {
         isOpen: boolean
     } | null>(null)
     const [suggestionText, setSuggestionText] = useState('')
+
+    const socket = useSocket()
+
+    useEffect(() => {
+        if (!assignmentId || !socket) return
+
+        const roomId = `assignment:${assignmentId}`
+        socket.emit('join-room', roomId)
+
+        const handleUpdate = (payload: any) => {
+            if (payload.type === 'language-toggle') {
+                setTemplate(prev => {
+                    if (!prev) return prev
+                    const updated = { ...prev }
+                    const { pageIndex, blockIndex, items } = payload
+                    if (updated.pages[pageIndex]?.blocks[blockIndex]) {
+                        updated.pages[pageIndex].blocks[blockIndex].props.items = items
+                    }
+                    return updated
+                })
+            }
+
+            if (payload.type === 'assignment-data') {
+                setAssignment(prev => {
+                    if (!prev) return prev
+                    if (payload.assignmentId && payload.assignmentId !== prev._id) return prev
+                    const nextData = { ...(prev.data || {}), ...(payload.data || {}) }
+                    return { ...prev, data: nextData }
+                })
+            }
+        }
+
+        socket.on('update-received', handleUpdate)
+
+        return () => {
+            socket.emit('leave-room', roomId)
+            socket.off('update-received', handleUpdate)
+        }
+    }, [assignmentId, socket])
+
+    const emitAssignmentDataUpdate = (dataPatch: Record<string, any>) => {
+        if (!socket || !assignmentId) return
+        socket.emit('broadcast-update', {
+            roomId: `assignment:${assignmentId}`,
+            payload: {
+                type: 'assignment-data',
+                assignmentId,
+                data: dataPatch
+            }
+        })
+    }
 
     useEffect(() => {
         const loadData = async () => {
@@ -94,6 +146,18 @@ export default function SubAdminTemplateReview() {
                 const newTemplate = { ...template }
                 newTemplate.pages[pageIndex].blocks[blockIndex].props.items = items
                 setTemplate(newTemplate)
+
+                if (socket && assignmentId) {
+                    socket.emit('broadcast-update', {
+                        roomId: `assignment:${assignmentId}`,
+                        payload: {
+                            type: 'language-toggle',
+                            pageIndex,
+                            blockIndex,
+                            items
+                        }
+                    })
+                }
             }
         } catch (e: any) {
             setError('Échec de l\'enregistrement')
@@ -671,6 +735,7 @@ export default function SubAdminTemplateReview() {
                                                                 setAssignment({ ...assignment, data: newData })
                                                                 try {
                                                                     await api.patch(`${apiPrefix}/templates/${assignment._id}/data`, { data: { [key]: '' } })
+                                                                    emitAssignmentDataUpdate({ [key]: '' })
                                                                 } catch (err) {
                                                                     setError('Erreur sauvegarde')
                                                                 }
@@ -703,6 +768,7 @@ export default function SubAdminTemplateReview() {
                                                                     setAssignment({ ...assignment, data: newData })
                                                                     try {
                                                                         await api.patch(`${apiPrefix}/templates/${assignment._id}/data`, { data: { [key]: opt } })
+                                                                        emitAssignmentDataUpdate({ [key]: opt })
                                                                     } catch (err) {
                                                                         setError('Erreur sauvegarde')
                                                                     }

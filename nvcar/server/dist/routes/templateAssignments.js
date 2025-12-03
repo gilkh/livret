@@ -10,6 +10,7 @@ const User_1 = require("../models/User");
 const Enrollment_1 = require("../models/Enrollment");
 const TeacherClassAssignment_1 = require("../models/TeacherClassAssignment");
 const Class_1 = require("../models/Class");
+const SchoolYear_1 = require("../models/SchoolYear");
 exports.templateAssignmentsRouter = (0, express_1.Router)();
 // Admin: Assign template to all students in a level
 exports.templateAssignmentsRouter.post('/bulk-level', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
@@ -21,14 +22,21 @@ exports.templateAssignmentsRouter.post('/bulk-level', (0, auth_1.requireAuth)(['
         const template = await GradebookTemplate_1.GradebookTemplate.findById(templateId).lean();
         if (!template)
             return res.status(404).json({ error: 'template_not_found' });
-        // Find all classes in this level
-        const classes = await Class_1.ClassModel.find({ level }).lean();
+        // Find the active school year
+        const activeYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
+        if (!activeYear)
+            return res.status(400).json({ error: 'no_active_year' });
+        // Find all classes in this level for the active school year
+        const classes = await Class_1.ClassModel.find({ level, schoolYearId: String(activeYear._id) }).lean();
         const classIds = classes.map(c => String(c._id));
         if (classIds.length === 0) {
-            return res.json({ count: 0, message: 'No classes found for this level' });
+            return res.json({ count: 0, message: 'No classes found for this level in active year' });
         }
-        // Find all students in these classes
-        const enrollments = await Enrollment_1.Enrollment.find({ classId: { $in: classIds } }).lean();
+        // Find all students in these classes with active enrollments
+        const enrollments = await Enrollment_1.Enrollment.find({
+            classId: { $in: classIds },
+            status: { $ne: 'archived' }
+        }).lean();
         const studentIds = [...new Set(enrollments.map(e => e.studentId))];
         if (studentIds.length === 0) {
             return res.json({ count: 0, message: 'No students found for this level' });
@@ -44,7 +52,7 @@ exports.templateAssignmentsRouter.post('/bulk-level', (0, auth_1.requireAuth)(['
         // Create assignments
         let count = 0;
         for (const enrollment of enrollments) {
-            const teachers = teacherMap.get(enrollment.classId) || [];
+            const teachers = (enrollment.classId && teacherMap.get(enrollment.classId)) || [];
             await TemplateAssignment_1.TemplateAssignment.findOneAndUpdate({ templateId, studentId: enrollment.studentId }, {
                 templateId,
                 templateVersion: template.currentVersion || 1,
@@ -192,18 +200,54 @@ exports.templateAssignmentsRouter.delete('/:id', (0, auth_1.requireAuth)(['ADMIN
 // Admin: Get all assignments
 exports.templateAssignmentsRouter.get('/', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
     try {
-        const assignments = await TemplateAssignment_1.TemplateAssignment.find({}).lean();
+        const { schoolYearId } = req.query;
+        let dateFilter = {};
+        let studentIds = [];
+        let enrollments = [];
+        if (schoolYearId) {
+            const sy = await SchoolYear_1.SchoolYear.findById(schoolYearId).lean();
+            if (sy) {
+                dateFilter = {
+                    assignedAt: {
+                        $gte: sy.startDate,
+                        $lte: sy.endDate
+                    }
+                };
+            }
+            enrollments = await Enrollment_1.Enrollment.find({ schoolYearId }).lean();
+            studentIds = enrollments.map(e => e.studentId);
+        }
+        else {
+            // Fallback: get all enrollments (might be slow and incorrect for history)
+            enrollments = await Enrollment_1.Enrollment.find({}).lean();
+            // We don't filter assignments by date if no year specified
+        }
+        const query = { ...dateFilter };
+        if (studentIds.length > 0) {
+            query.studentId = { $in: studentIds };
+        }
+        else if (schoolYearId) {
+            // If year specified but no students found, return empty
+            return res.json([]);
+        }
+        const assignments = await TemplateAssignment_1.TemplateAssignment.find(query).lean();
         const templateIds = assignments.map(a => a.templateId);
-        const studentIds = assignments.map(a => a.studentId);
+        const assignmentStudentIds = assignments.map(a => a.studentId);
         const templates = await GradebookTemplate_1.GradebookTemplate.find({ _id: { $in: templateIds } }).lean();
-        const students = await Student_1.Student.find({ _id: { $in: studentIds } }).lean();
-        // Fetch enrollments and classes
-        const enrollments = await Enrollment_1.Enrollment.find({ studentId: { $in: studentIds } }).lean();
-        const classIds = enrollments.map(e => e.classId);
+        const students = await Student_1.Student.find({ _id: { $in: assignmentStudentIds } }).lean();
+        // We already have enrollments for the year if schoolYearId is present.
+        // If not, we need to fetch them.
+        if (!schoolYearId) {
+            enrollments = await Enrollment_1.Enrollment.find({ studentId: { $in: assignmentStudentIds } }).lean();
+        }
+        const classIds = enrollments.map(e => e.classId).filter(Boolean);
         const classes = await Class_1.ClassModel.find({ _id: { $in: classIds } }).lean();
         const result = assignments.map(a => {
             const template = templates.find(t => String(t._id) === a.templateId);
             const student = students.find(s => String(s._id) === a.studentId);
+            // Find enrollment for this student
+            // If schoolYearId is present, enrollments are already filtered by year.
+            // If not, we might pick a random one.
             const enrollment = enrollments.find(e => e.studentId === a.studentId);
             const cls = enrollment ? classes.find(c => String(c._id) === enrollment.classId) : null;
             return {
@@ -211,7 +255,8 @@ exports.templateAssignmentsRouter.get('/', (0, auth_1.requireAuth)(['ADMIN']), a
                 templateName: template ? template.name : 'Unknown',
                 studentName: student ? `${student.firstName} ${student.lastName}` : 'Unknown',
                 className: cls ? cls.name : '',
-                classId: cls ? cls._id : ''
+                classId: cls ? cls._id : '',
+                level: cls ? cls.level : ''
             };
         });
         res.json(result);

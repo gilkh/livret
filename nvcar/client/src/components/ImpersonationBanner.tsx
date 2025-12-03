@@ -21,7 +21,10 @@ export default function ImpersonationBanner() {
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
-    checkImpersonationStatus()
+    const token = localStorage.getItem('token')
+    if (token) {
+      checkImpersonationStatus()
+    }
   }, [])
 
   const checkImpersonationStatus = async () => {

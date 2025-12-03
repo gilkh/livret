@@ -11,6 +11,28 @@ api.interceptors.request.use(config => {
   return config
 })
 
+api.interceptors.response.use(
+  response => response,
+  error => {
+    // Don't redirect if it's the Microsoft callback endpoint that failed
+    // This allows the Login component to handle the error and show a message
+    if (error.config && error.config.url && error.config.url.includes('/microsoft/callback')) {
+      return Promise.reject(error)
+    }
+
+    if (error.response && error.response.status === 401) {
+      localStorage.removeItem('token')
+      localStorage.removeItem('role')
+      localStorage.removeItem('displayName')
+      if (window.location.pathname !== '/login') {
+        // Preserve query parameters (like OAuth code) when redirecting
+        window.location.href = '/login' + window.location.search
+      }
+    }
+    return Promise.reject(error)
+  }
+)
+
 export default api
 
 // Impersonation API functions

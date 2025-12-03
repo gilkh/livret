@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../api'
 import { useLevels } from '../context/LevelContext'
+import { useSocket } from '../context/SocketContext'
 
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
@@ -38,6 +39,42 @@ export default function TemplateBuilder() {
 
   const [error, setError] = useState('')
   const pptxInputRef = useRef<HTMLInputElement>(null)
+
+  const socket = useSocket()
+  const isRemoteUpdate = useRef(false)
+
+  useEffect(() => {
+    if (viewMode === 'edit' && tpl._id && socket) {
+      socket.emit('join-template', tpl._id)
+      
+      const handleUpdate = (newTpl: any) => {
+        isRemoteUpdate.current = true
+        setTpl(newTpl)
+      }
+
+      socket.on('template-updated', handleUpdate)
+
+      return () => {
+        socket.emit('leave-template', tpl._id)
+        socket.off('template-updated', handleUpdate)
+      }
+    }
+  }, [viewMode, tpl._id, socket])
+
+  useEffect(() => {
+    if (viewMode === 'edit' && tpl._id && socket) {
+      if (isRemoteUpdate.current) {
+        isRemoteUpdate.current = false
+        return
+      }
+      
+      const timer = setTimeout(() => {
+        socket.emit('update-template', { templateId: tpl._id, template: tpl })
+      }, 500)
+      
+      return () => clearTimeout(timer)
+    }
+  }, [tpl, viewMode, socket])
 
   // Modal state
   const [showCreateModal, setShowCreateModal] = useState(false)

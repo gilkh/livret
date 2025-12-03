@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
+import { useLocation } from 'react-router-dom'
 import api from '../api'
 
 type SchoolYear = {
@@ -25,8 +26,19 @@ export function SchoolYearProvider({ children }: { children: ReactNode }) {
   const [years, setYears] = useState<SchoolYear[]>([])
   const [activeYearId, setActiveYearId] = useState<string>('')
   const [isLoading, setIsLoading] = useState(true)
+  const location = useLocation()
 
   useEffect(() => {
+    const token = localStorage.getItem('token')
+    if (!token) {
+      setYears([])
+      setActiveYearId('')
+      setIsLoading(false)
+      return
+    }
+
+    if (years.length > 0) return
+
     const loadYears = async () => {
       try {
         const res = await api.get('/school-years')
@@ -47,7 +59,7 @@ export function SchoolYearProvider({ children }: { children: ReactNode }) {
       }
     }
     loadYears()
-  }, [])
+  }, [location.pathname, years.length])
 
   const activeYear = years.find(y => y._id === activeYearId)
 

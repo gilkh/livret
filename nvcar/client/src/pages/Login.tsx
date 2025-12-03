@@ -71,16 +71,19 @@ export default function Login() {
       // Clear the URL parameters
       window.history.replaceState({}, document.title, window.location.pathname)
 
-      // Redirect based on role
-      if (r.data.role === 'ADMIN') {
-        navigate('/admin')
-      } else if (r.data.role === 'SUBADMIN') {
-        navigate('/subadmin/dashboard')
-      } else if (r.data.role === 'TEACHER') {
-        navigate('/teacher/classes')
-      } else {
-        navigate('/')
-      }
+      // Force a small delay to ensure state is updated before navigation
+      setTimeout(() => {
+        // Redirect based on role
+        if (r.data.role === 'ADMIN') {
+          navigate('/admin')
+        } else if (r.data.role === 'SUBADMIN') {
+          navigate('/subadmin/dashboard')
+        } else if (r.data.role === 'TEACHER') {
+          navigate('/teacher/classes')
+        } else {
+          navigate('/')
+        }
+      }, 100)
     } catch (e: any) {
       console.error('Microsoft authentication error:', e)
       const errorMsg = e.response?.data?.error || 'Échec de l\'authentification Microsoft'
