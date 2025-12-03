@@ -32,6 +32,7 @@ import { analyticsRouter } from './routes/analytics'
 import { backupRouter } from './routes/backup'
 import { levelsRouter } from './routes/levels'
 import { savedGradebooksRouter } from './routes/savedGradebooks'
+import { Level } from './models/Level'
 
 export const createApp = () => {
   const app = express()
@@ -89,6 +90,17 @@ export const createApp = () => {
         const hash = await bcrypt.hash('admin', 10)
         await User.create({ email: 'admin', passwordHash: hash, role: 'ADMIN', displayName: 'Admin' })
         console.log('seeded default admin user')
+      }
+
+      // Seed levels if they don't exist
+      const levelCount = await Level.countDocuments()
+      if (levelCount === 0) {
+        await Level.insertMany([
+          { name: 'PS', order: 1 },
+          { name: 'MS', order: 2 },
+          { name: 'GS', order: 3 },
+        ])
+        console.log('seeded default levels (PS, MS, GS)')
       }
     })
     .catch(e => console.error('mongo error', e))

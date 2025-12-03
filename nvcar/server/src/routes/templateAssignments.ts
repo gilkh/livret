@@ -21,16 +21,23 @@ templateAssignmentsRouter.post('/bulk-level', requireAuth(['ADMIN']), async (req
         const template = await GradebookTemplate.findById(templateId).lean()
         if (!template) return res.status(404).json({ error: 'template_not_found' })
 
-        // Find all classes in this level
-        const classes = await ClassModel.find({ level }).lean()
+        // Find the active school year
+        const activeYear = await SchoolYear.findOne({ active: true }).lean()
+        if (!activeYear) return res.status(400).json({ error: 'no_active_year' })
+
+        // Find all classes in this level for the active school year
+        const classes = await ClassModel.find({ level, schoolYearId: String(activeYear._id) }).lean()
         const classIds = classes.map(c => String(c._id))
 
         if (classIds.length === 0) {
-            return res.json({ count: 0, message: 'No classes found for this level' })
+            return res.json({ count: 0, message: 'No classes found for this level in active year' })
         }
 
-        // Find all students in these classes
-        const enrollments = await Enrollment.find({ classId: { $in: classIds } }).lean()
+        // Find all students in these classes with active enrollments
+        const enrollments = await Enrollment.find({ 
+            classId: { $in: classIds },
+            status: { $ne: 'archived' }
+        }).lean()
         const studentIds = [...new Set(enrollments.map(e => e.studentId))]
 
         if (studentIds.length === 0) {

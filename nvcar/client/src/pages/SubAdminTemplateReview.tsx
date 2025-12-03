@@ -18,14 +18,18 @@ export default function SubAdminTemplateReview() {
     const [student, setStudent] = useState<Student | null>(null)
     const [assignment, setAssignment] = useState<Assignment | null>(null)
     const [signature, setSignature] = useState<any>(null)
+    const [finalSignature, setFinalSignature] = useState<any>(null)
     const [selectedPage, setSelectedPage] = useState(0)
     const [continuousScroll, setContinuousScroll] = useState(true)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState('')
     const [signing, setSigning] = useState(false)
     const [unsigning, setUnsigning] = useState(false)
+    const [signingFinal, setSigningFinal] = useState(false)
+    const [unsigningFinal, setUnsigningFinal] = useState(false)
     const [isPromoted, setIsPromoted] = useState(false)
     const [isSignedByMe, setIsSignedByMe] = useState(false)
+    const [activeSemester, setActiveSemester] = useState<number>(1)
 
     const [promoting, setPromoting] = useState(false)
     const [canEdit, setCanEdit] = useState(false)
@@ -48,9 +52,11 @@ export default function SubAdminTemplateReview() {
                 setStudent(r.data.student)
                 setAssignment(r.data.assignment)
                 setSignature(r.data.signature)
+                setFinalSignature(r.data.finalSignature)
                 setCanEdit(r.data.canEdit)
                 setIsPromoted(r.data.isPromoted)
                 setIsSignedByMe(r.data.isSignedByMe)
+                setActiveSemester(r.data.activeSemester || 1)
             } catch (e: any) {
                 setError('Impossible de charger le carnet')
                 console.error(e)
@@ -173,6 +179,7 @@ export default function SubAdminTemplateReview() {
             // Reload data to get updated signature
             const r = await api.get(`/subadmin/templates/${assignmentId}/review`)
             setSignature(r.data.signature)
+            setFinalSignature(r.data.finalSignature)
             setAssignment(r.data.assignment)
             setIsSignedByMe(r.data.isSignedByMe)
         } catch (e: any) {
@@ -191,6 +198,7 @@ export default function SubAdminTemplateReview() {
             // Reload data to get updated state
             const r = await api.get(`/subadmin/templates/${assignmentId}/review`)
             setSignature(r.data.signature)
+            setFinalSignature(r.data.finalSignature)
             setAssignment(r.data.assignment)
             setIsSignedByMe(r.data.isSignedByMe)
         } catch (e: any) {
@@ -198,6 +206,50 @@ export default function SubAdminTemplateReview() {
             console.error(e)
         } finally {
             setUnsigning(false)
+        }
+    }
+
+    const handleSignFinal = async () => {
+        if (assignment?.status !== 'completed' && assignment?.status !== 'signed') {
+            alert('L\'enseignant doit marquer le carnet comme terminé avant que vous puissiez le signer.')
+            return
+        }
+        try {
+            setSigningFinal(true)
+            setError('')
+            await api.post(`/subadmin/templates/${assignmentId}/sign`, { type: 'end_of_year' })
+            // Reload data to get updated signature
+            const r = await api.get(`/subadmin/templates/${assignmentId}/review`)
+            setSignature(r.data.signature)
+            setFinalSignature(r.data.finalSignature)
+            setAssignment(r.data.assignment)
+            setIsSignedByMe(r.data.isSignedByMe)
+        } catch (e: any) {
+            setError('Échec de la signature fin d\'année')
+            console.error(e)
+        } finally {
+            setSigningFinal(false)
+        }
+    }
+
+    const handleUnsignFinal = async () => {
+        try {
+            setUnsigningFinal(true)
+            setError('')
+            // Use data property for DELETE body if supported by axios/backend, or query param
+            // Axios delete supports data in config
+            await api.delete(`/subadmin/templates/${assignmentId}/sign`, { data: { type: 'end_of_year' } })
+            // Reload data to get updated state
+            const r = await api.get(`/subadmin/templates/${assignmentId}/review`)
+            setSignature(r.data.signature)
+            setFinalSignature(r.data.finalSignature)
+            setAssignment(r.data.assignment)
+            setIsSignedByMe(r.data.isSignedByMe)
+        } catch (e: any) {
+            setError('Échec de la suppression de signature fin d\'année')
+            console.error(e)
+        } finally {
+            setUnsigningFinal(false)
         }
     }
 
@@ -312,21 +364,56 @@ export default function SubAdminTemplateReview() {
                         </>
                     )}
 
+                    {!finalSignature ? (
+                        <button className="btn" onClick={handleSignFinal} disabled={signingFinal || !signature || (assignment?.status !== 'completed' && assignment?.status !== 'signed')} style={{
+                            background: (!signature || (assignment?.status !== 'completed' && assignment?.status !== 'signed')) ? '#cbd5e1' : 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                            fontWeight: 500,
+                            padding: '12px 20px',
+                            boxShadow: (!signature || (assignment?.status !== 'completed' && assignment?.status !== 'signed')) ? 'none' : '0 2px 8px rgba(59, 130, 246, 0.3)',
+                            cursor: (!signature || (assignment?.status !== 'completed' && assignment?.status !== 'signed')) ? 'not-allowed' : 'pointer'
+                        }}
+                        title={!signature ? "Vous devez d'abord signer le carnet (signature standard)" : (assignment?.status !== 'completed' && assignment?.status !== 'signed') ? "L'enseignant n'a pas encore terminé ce carnet" : ""}
+                        >
+                            {signingFinal ? '✍️ Signature...' : '✍️ Signer ce carnet fin années'}
+                        </button>
+                    ) : (
+                        <>
+                            <div className="note" style={{ 
+                                padding: 12, 
+                                background: 'linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%)', 
+                                borderRadius: 8,
+                                border: '1px solid #93c5fd',
+                                color: '#1e40af',
+                                fontWeight: 500
+                            }}>
+                                ✅ Signé fin année le {new Date(finalSignature.signedAt).toLocaleString('fr-FR')}
+                            </div>
+                            <button className="btn" style={{ 
+                                background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                                fontWeight: 500,
+                                padding: '12px 20px',
+                                boxShadow: '0 2px 8px rgba(245, 158, 11, 0.3)'
+                            }} onClick={handleUnsignFinal} disabled={unsigningFinal}>
+                                {unsigningFinal ? '⏳ Annulation...' : '🔄 Annuler la signature fin année'}
+                            </button>
+                        </>
+                    )}
+
                     {student?.level && getNextLevel(student.level) && (
                         <button 
                             className="btn" 
                             onClick={handlePromote} 
-                            disabled={promoting || isPromoted || !isSignedByMe}
+                            disabled={promoting || isPromoted || !finalSignature}
                             style={{
-                                background: (isPromoted || !isSignedByMe) ? '#cbd5e1' : 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)',
+                                background: (isPromoted || !finalSignature) ? '#cbd5e1' : 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)',
                                 fontWeight: 500,
                                 padding: '12px 20px',
-                                boxShadow: (isPromoted || !isSignedByMe) ? 'none' : '0 2px 8px rgba(139, 92, 246, 0.3)',
-                                color: (isPromoted || !isSignedByMe) ? '#64748b' : 'white',
+                                boxShadow: (isPromoted || !finalSignature) ? 'none' : '0 2px 8px rgba(139, 92, 246, 0.3)',
+                                color: (isPromoted || !finalSignature) ? '#64748b' : 'white',
                                 border: 'none',
-                                cursor: (isPromoted || !isSignedByMe) ? 'not-allowed' : 'pointer'
+                                cursor: (isPromoted || !finalSignature) ? 'not-allowed' : 'pointer'
                             }}
-                            title={isPromoted ? "Élève déjà promu cette année" : !isSignedByMe ? "Vous devez signer le carnet avant de promouvoir l'élève" : ""}
+                            title={isPromoted ? "Élève déjà promu cette année" : !finalSignature ? "Vous devez signer le carnet (fin année) avant de promouvoir l'élève" : ""}
                         >
                             {promoting ? '⏳ Promotion...' : isPromoted ? 'Déjà promu' : `Passer en classe supérieure ${getNextLevel(student.level)}`}
                         </button>
@@ -507,12 +594,20 @@ export default function SubAdminTemplateReview() {
                                 {b.type === 'student_info' && <div style={{ color: b.props.color, fontSize: b.props.fontSize }}>Nom, Classe, Naissance</div>}
                                 {b.type === 'category_title' && <div style={{ color: b.props.color, fontSize: b.props.fontSize }}>Titre catégorie</div>}
                                 {b.type === 'competency_list' && <div style={{ color: b.props.color, fontSize: b.props.fontSize }}>Liste des compétences</div>}
-                                {b.type === 'dropdown' && (
+                                {b.type === 'dropdown' && (() => {
+                                    // Check if dropdown is allowed for current level
+                                    const isLevelAllowed = !(b.props.levels && b.props.levels.length > 0 && student?.level && !b.props.levels.includes(student.level))
+                                    // Check if dropdown is allowed for current semester (default to both semesters if not specified)
+                                    const dropdownSemesters = b.props.semesters || [1, 2]
+                                    const isSemesterAllowed = dropdownSemesters.includes(activeSemester)
+                                    const isDropdownAllowed = isLevelAllowed && isSemesterAllowed
+
+                                    return (
                                     <div style={{ 
                                         width: b.props.width || 200, 
                                         position: 'relative',
-                                        opacity: (b.props.levels && b.props.levels.length > 0 && student?.level && !b.props.levels.includes(student.level)) ? 0.5 : 1,
-                                        pointerEvents: (b.props.levels && b.props.levels.length > 0 && student?.level && !b.props.levels.includes(student.level)) ? 'none' : 'auto'
+                                        opacity: isDropdownAllowed ? 1 : 0.5,
+                                        pointerEvents: isDropdownAllowed ? 'auto' : 'none'
                                     }}>
                                         <div style={{ fontSize: 10, fontWeight: 'bold', color: '#6c5ce7', marginBottom: 2 }}>Dropdown #{b.props.dropdownNumber || '?'}</div>
                                         {b.props.label && <div style={{ fontSize: 10, color: '#666', marginBottom: 2 }}>{b.props.label}</div>}
@@ -525,8 +620,8 @@ export default function SubAdminTemplateReview() {
                                                 padding: '4px 24px 4px 8px', 
                                                 borderRadius: 4, 
                                                 border: '1px solid #ccc',
-                                                background: (editMode && canEdit) ? '#fff' : '#f9f9f9',
-                                                cursor: (editMode && canEdit) ? 'pointer' : 'default',
+                                                background: (editMode && canEdit && isDropdownAllowed) ? '#fff' : '#f9f9f9',
+                                                cursor: (editMode && canEdit && isDropdownAllowed) ? 'pointer' : 'default',
                                                 position: 'relative',
                                                 display: 'flex',
                                                 alignItems: 'center',
@@ -535,7 +630,7 @@ export default function SubAdminTemplateReview() {
                                             }}
                                             onClick={(e) => {
                                                 e.stopPropagation()
-                                                if (!editMode || !canEdit) return
+                                                if (!editMode || !canEdit || !isDropdownAllowed) return
                                                 const key = `dropdown_${actualPageIndex}_${idx}`
                                                 setOpenDropdown(openDropdown === key ? null : key)
                                             }}
@@ -625,7 +720,7 @@ export default function SubAdminTemplateReview() {
                                             </div>
                                         )}
                                     </div>
-                                )}
+                                )})()}
                                 {b.type === 'dropdown_reference' && (
                                     <div style={{ 
                                         color: b.props.color || '#333', 
@@ -725,6 +820,42 @@ export default function SubAdminTemplateReview() {
                                     />
                                 )}
                                 {b.type === 'signature' && <div style={{ fontSize: b.props.fontSize }}>{(b.props.labels || []).join(' / ')}</div>}
+                                {b.type === 'final_signature_box' && (
+                                    <div style={{ 
+                                        width: b.props.width || 200, 
+                                        height: b.props.height || 80, 
+                                        border: '1px solid #000', 
+                                        background: '#fff',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        fontSize: 10,
+                                        color: '#999'
+                                    }}>
+                                        {finalSignature ? '✓ Signé Fin Année' : b.props.label || 'Signature Fin Année'}
+                                    </div>
+                                )}
+                                {b.type === 'final_signature_info' && (
+                                    <div style={{ 
+                                        width: b.props.width || 150,
+                                        height: b.props.height || 30,
+                                        fontSize: b.props.fontSize || 12,
+                                        color: b.props.color || '#333',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: b.props.align || 'flex-start'
+                                    }}>
+                                        {finalSignature ? (
+                                            <>
+                                                {b.props.field === 'year' && <span>{new Date().getFullYear()}</span>}
+                                                {b.props.field === 'student' && <span>{student?.firstName} {student?.lastName}</span>}
+                                                {b.props.field === 'nextLevel' && <span>{getNextLevel(student?.level || '')}</span>}
+                                            </>
+                                        ) : (
+                                            <span style={{ color: '#ccc' }}>{b.props.placeholder || '...'}</span>
+                                        )}
+                                    </div>
+                                )}
                                 {b.type === 'signature_box' && (
                                     <div style={{ 
                                         width: b.props.width || 200, 

@@ -9,6 +9,7 @@ type TeacherClassAssignment = {
     assignedAt: Date
     className?: string
     teacherName?: string
+    languages?: string[]
 }
 
 type TemplateAssignment = {
@@ -199,6 +200,7 @@ export default function AdminAssignmentList() {
                                 <tr>
                                     <th style={{ textAlign: 'left', padding: '0 16px', color: '#8c8c8c', fontWeight: 500, fontSize: '0.9rem' }}>Enseignant</th>
                                     <th style={{ textAlign: 'left', padding: '0 16px', color: '#8c8c8c', fontWeight: 500, fontSize: '0.9rem' }}>Classe</th>
+                                    <th style={{ textAlign: 'left', padding: '0 16px', color: '#8c8c8c', fontWeight: 500, fontSize: '0.9rem' }}>Langues</th>
                                     <th style={{ textAlign: 'left', padding: '0 16px', color: '#8c8c8c', fontWeight: 500, fontSize: '0.9rem' }}>Date</th>
                                     <th style={{ textAlign: 'right', padding: '0 16px', color: '#8c8c8c', fontWeight: 500, fontSize: '0.9rem' }}>Actions</th>
                                 </tr>
@@ -211,6 +213,19 @@ export default function AdminAssignmentList() {
                                         </td>
                                         <td style={{ padding: '12px 16px', borderTop: '1px solid #f0f0f0', borderBottom: '1px solid #f0f0f0' }}>
                                             <div className="pill" style={{ background: '#f0f5ff', color: '#2f54eb', display: 'inline-block' }}>{a.className || a.classId}</div>
+                                        </td>
+                                        <td style={{ padding: '12px 16px', borderTop: '1px solid #f0f0f0', borderBottom: '1px solid #f0f0f0' }}>
+                                            {a.languages && a.languages.length > 0 ? (
+                                                <div style={{ display: 'flex', gap: 4 }}>
+                                                    {a.languages.map(lang => (
+                                                        <span key={lang} style={{ fontSize: '0.75rem', background: '#e6f7ff', padding: '2px 6px', borderRadius: 4, color: '#1890ff', textTransform: 'uppercase' }}>
+                                                            {lang}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            ) : (
+                                                <span style={{ color: '#ccc', fontSize: '0.85rem' }}>Toutes</span>
+                                            )}
                                         </td>
                                         <td style={{ padding: '12px 16px', borderTop: '1px solid #f0f0f0', borderBottom: '1px solid #f0f0f0', color: '#8c8c8c', fontSize: '0.9rem' }}>
                                             {new Date(a.assignedAt).toLocaleDateString()}

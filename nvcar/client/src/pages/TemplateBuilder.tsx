@@ -54,9 +54,25 @@ export default function TemplateBuilder() {
     { type: 'competency_list', props: { fontSize: 12, color: '#2d3436' } },
     { type: 'signature', props: { labels: ['Directeur', 'Enseignant', 'Parent'], fontSize: 12 } },
     { type: 'signature_box', props: { width: 200, height: 80, label: 'Signature Sous-Admin' } },
-    { type: 'promotion_info', props: { field: 'level', targetLevel: 'MS', fontSize: 12, color: '#2d3436', width: 150, height: 30 } },
-    { type: 'promotion_info', props: { field: 'student', targetLevel: 'MS', fontSize: 12, color: '#2d3436', width: 150, height: 30 } },
-    { type: 'promotion_info', props: { field: 'year', targetLevel: 'MS', fontSize: 12, color: '#2d3436', width: 150, height: 30 } },
+    
+    // PS -> MS
+    { type: 'promotion_info', props: { field: 'year', targetLevel: 'MS', fontSize: 12, color: '#2d3436', width: 150, height: 30, label: 'Année (PS->MS)' } },
+    { type: 'promotion_info', props: { field: 'currentLevel', targetLevel: 'MS', fontSize: 12, color: '#2d3436', width: 150, height: 30, label: 'Niveau (PS)' } },
+    { type: 'promotion_info', props: { field: 'class', targetLevel: 'MS', fontSize: 12, color: '#2d3436', width: 150, height: 30, label: 'Classe (PS)' } },
+    { type: 'promotion_info', props: { field: 'level', targetLevel: 'MS', fontSize: 12, color: '#2d3436', width: 150, height: 30, label: 'Passage en MS' } },
+    
+    // MS -> GS
+    { type: 'promotion_info', props: { field: 'year', targetLevel: 'GS', fontSize: 12, color: '#2d3436', width: 150, height: 30, label: 'Année (MS->GS)' } },
+    { type: 'promotion_info', props: { field: 'currentLevel', targetLevel: 'GS', fontSize: 12, color: '#2d3436', width: 150, height: 30, label: 'Niveau (MS)' } },
+    { type: 'promotion_info', props: { field: 'class', targetLevel: 'GS', fontSize: 12, color: '#2d3436', width: 150, height: 30, label: 'Classe (MS)' } },
+    { type: 'promotion_info', props: { field: 'level', targetLevel: 'GS', fontSize: 12, color: '#2d3436', width: 150, height: 30, label: 'Passage en GS' } },
+
+    // GS -> EB1
+    { type: 'promotion_info', props: { field: 'year', targetLevel: 'EB1', fontSize: 12, color: '#2d3436', width: 150, height: 30, label: 'Année (GS->EB1)' } },
+    { type: 'promotion_info', props: { field: 'currentLevel', targetLevel: 'EB1', fontSize: 12, color: '#2d3436', width: 150, height: 30, label: 'Niveau (GS)' } },
+    { type: 'promotion_info', props: { field: 'class', targetLevel: 'EB1', fontSize: 12, color: '#2d3436', width: 150, height: 30, label: 'Classe (GS)' } },
+    { type: 'promotion_info', props: { field: 'level', targetLevel: 'EB1', fontSize: 12, color: '#2d3436', width: 150, height: 30, label: 'Passage en EB1' } },
+    
     { type: 'rect', props: { width: 160, height: 80, color: '#eef1f7' } },
     { type: 'circle', props: { radius: 60, color: '#ffeaa7' } },
     {
@@ -68,7 +84,7 @@ export default function TemplateBuilder() {
         ]
       }
     },
-    { type: 'dropdown', props: { label: 'Menu déroulant', options: ['Option 1', 'Option 2'], variableName: 'var1', width: 200, height: 40, fontSize: 12, color: '#333' } },
+    { type: 'dropdown', props: { label: 'Menu déroulant', options: ['Option 1', 'Option 2'], variableName: 'var1', width: 200, height: 40, fontSize: 12, color: '#333', semesters: [1, 2] } },
     { type: 'dropdown_reference', props: { dropdownNumber: 1, text: 'Référence dropdown #{number}', fontSize: 12, color: '#2d3436' } },
     { type: 'line', props: { x2: 300, y2: 0, stroke: '#b2bec3', strokeWidth: 2 } },
     { type: 'arrow', props: { x2: 120, y2: 0, stroke: '#6c5ce7', strokeWidth: 2 } },
@@ -1299,9 +1315,7 @@ export default function TemplateBuilder() {
                     {b!.type === 'dropdown' && 'Menu déroulant'}
                     {b!.type === 'dropdown_reference' && 'Réf. dropdown'}
                     {b!.type === 'language_toggle' && 'Langues'}
-                    {b!.type === 'promotion_info' && b!.props.field === 'level' && 'Info Passage (Niveau)'}
-                    {b!.type === 'promotion_info' && b!.props.field === 'student' && 'Info Passage (Élève)'}
-                    {b!.type === 'promotion_info' && b!.props.field === 'year' && 'Info Passage (Année)'}
+                    {b!.type === 'promotion_info' && (b!.props.label || 'Info Passage')}
                   </span>
                 </div>
                 <span style={{ fontSize: 18, color: '#667eea' }}>+</span>
@@ -1484,6 +1498,12 @@ export default function TemplateBuilder() {
                     )}
                     {b.props.field === 'year' && (
                       <div>Année {new Date().getFullYear()}-{new Date().getFullYear()+1}</div>
+                    )}
+                    {b.props.field === 'class' && (
+                      <div>{studentId ? 'Classe' : '{Classe}'}</div>
+                    )}
+                    {b.props.field === 'currentLevel' && (
+                      <div>{studentId ? 'Niveau' : '{Niveau}'}</div>
                     )}
                   </div>
                 )}
@@ -2389,19 +2409,19 @@ export default function TemplateBuilder() {
                           <div style={{ fontSize: 11, fontWeight: 600, color: '#6c757d', marginBottom: 4 }}>Niveaux assignés:</div>
                           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                             {levels.map(l => (
-                              <label key={l.code} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, cursor: 'pointer' }}>
+                              <label key={l.name} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, cursor: 'pointer' }}>
                                 <input 
                                   type="checkbox" 
-                                  checked={(it.levels || []).includes(l.code)} 
+                                  checked={(it.levels || []).includes(l.name)} 
                                   onChange={e => {
                                     const items = [...(tpl.pages[selectedPage].blocks[selectedIndex].props.items || [])]
                                     const currentLevels = items[i].levels || []
-                                    if (e.target.checked) items[i] = { ...items[i], levels: [...currentLevels, l.code] }
-                                    else items[i] = { ...items[i], levels: currentLevels.filter((x: string) => x !== l.code) }
+                                    if (e.target.checked) items[i] = { ...items[i], levels: [...currentLevels, l.name] }
+                                    else items[i] = { ...items[i], levels: currentLevels.filter((x: string) => x !== l.name) }
                                     updateSelected({ items })
                                   }} 
                                 />
-                                {l.code}
+                                {l.name}
                               </label>
                             ))}
                           </div>
@@ -2425,17 +2445,37 @@ export default function TemplateBuilder() {
                       <div style={{ fontSize: 11, fontWeight: 600, color: '#6c757d', marginBottom: 4 }}>Niveaux assignés:</div>
                       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                         {levels.map(l => (
-                          <label key={l.code} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, cursor: 'pointer' }}>
+                          <label key={l.name} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, cursor: 'pointer' }}>
                             <input 
                               type="checkbox" 
-                              checked={(tpl.pages[selectedPage].blocks[selectedIndex].props.levels || []).includes(l.code)} 
+                              checked={(tpl.pages[selectedPage].blocks[selectedIndex].props.levels || []).includes(l.name)} 
                               onChange={e => {
                                 const currentLevels = tpl.pages[selectedPage].blocks[selectedIndex].props.levels || []
-                                if (e.target.checked) updateSelected({ levels: [...currentLevels, l.code] })
-                                else updateSelected({ levels: currentLevels.filter((x: string) => x !== l.code) })
+                                if (e.target.checked) updateSelected({ levels: [...currentLevels, l.name] })
+                                else updateSelected({ levels: currentLevels.filter((x: string) => x !== l.name) })
                               }} 
                             />
-                            {l.code}
+                            {l.name}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div style={{ marginTop: 8, marginBottom: 8 }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: '#6c757d', marginBottom: 4 }}>Semestres assignés:</div>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        {[1, 2].map(sem => (
+                          <label key={sem} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, cursor: 'pointer' }}>
+                            <input 
+                              type="checkbox" 
+                              checked={(tpl.pages[selectedPage].blocks[selectedIndex].props.semesters || [1, 2]).includes(sem)} 
+                              onChange={e => {
+                                const currentSemesters = tpl.pages[selectedPage].blocks[selectedIndex].props.semesters || [1, 2]
+                                if (e.target.checked) updateSelected({ semesters: [...currentSemesters, sem].sort() })
+                                else updateSelected({ semesters: currentSemesters.filter((x: number) => x !== sem) })
+                              }} 
+                            />
+                            Semestre {sem}
                           </label>
                         ))}
                       </div>

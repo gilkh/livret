@@ -156,12 +156,16 @@ subAdminAssignmentsRouter.post('/bulk-level', requireAuth(['ADMIN']), async (req
             return res.status(400).json({ error: 'invalid_subadmin' })
         }
 
-        // Find all classes in this level
-        const classes = await ClassModel.find({ level }).lean()
+        // Find the active school year
+        const activeYear = await SchoolYear.findOne({ active: true }).lean()
+        if (!activeYear) return res.status(400).json({ error: 'no_active_year' })
+
+        // Find all classes in this level for the active school year
+        const classes = await ClassModel.find({ level, schoolYearId: String(activeYear._id) }).lean()
         const classIds = classes.map(c => String(c._id))
 
         if (classIds.length === 0) {
-            return res.json({ count: 0, message: 'No classes found for this level' })
+            return res.json({ count: 0, message: 'No classes found for this level in active year' })
         }
 
         // Find all teachers assigned to these classes

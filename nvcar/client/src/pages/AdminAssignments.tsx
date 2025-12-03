@@ -2,18 +2,21 @@ import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import api from '../api'
 import { useLevels } from '../context/LevelContext'
+import { useSchoolYear } from '../context/SchoolYearContext'
 
 type User = { _id: string; email: string; displayName: string; role: string }
 type Class = { _id: string; name: string; level?: string }
 type Student = { _id: string; firstName: string; lastName: string }
 type Template = { _id: string; name: string }
 
-type TeacherAssignment = { _id: string; teacherId: string; classId: string; teacherName?: string; className?: string }
+type TeacherAssignment = { _id: string; teacherId: string; classId: string; teacherName?: string; className?: string; languages?: string[]; isProfPolyvalent?: boolean }
 type SubAdminAssignment = { _id: string; subAdminId: string; teacherId: string; subAdminName?: string; teacherName?: string }
+type SubAdminLevelAssignment = { subAdminId: string; subAdminName: string; levels: string[] }
 type TemplateAssignment = { _id: string; templateId: string; studentId: string; className?: string; classId?: string; templateName?: string }
 
 export default function AdminAssignments() {
     const { levels } = useLevels()
+    const { activeYearId } = useSchoolYear()
     const [teachers, setTeachers] = useState<User[]>([])
     const [subAdmins, setSubAdmins] = useState<User[]>([])
     const [classes, setClasses] = useState<Class[]>([])
@@ -22,10 +25,13 @@ export default function AdminAssignments() {
 
     const [teacherAssignments, setTeacherAssignments] = useState<TeacherAssignment[]>([])
     const [subAdminAssignments, setSubAdminAssignments] = useState<SubAdminAssignment[]>([])
+    const [subAdminLevelAssignments, setSubAdminLevelAssignments] = useState<SubAdminLevelAssignment[]>([])
     const [templateAssignments, setTemplateAssignments] = useState<TemplateAssignment[]>([])
 
     const [selectedTeacher, setSelectedTeacher] = useState('')
     const [selectedClass, setSelectedClass] = useState('')
+    const [selectedLanguages, setSelectedLanguages] = useState<string[]>([])
+    const [isProfPolyvalent, setIsProfPolyvalent] = useState(false)
     
     // Level assignment states
     const [selectedLevelForSubAdmin, setSelectedLevelForSubAdmin] = useState('')
@@ -37,15 +43,17 @@ export default function AdminAssignments() {
     const [message, setMessage] = useState('')
 
     const loadData = async () => {
+        if (!activeYearId) return
         try {
-            const [usersRes, classesRes, studentsRes, templatesRes, taRes, saRes, tplRes] = await Promise.all([
+            const [usersRes, classesRes, studentsRes, templatesRes, taRes, saRes, tplRes, salRes] = await Promise.all([
                 api.get('/users'),
-                api.get('/classes'),
+                api.get(`/classes?schoolYearId=${activeYearId}`),
                 api.get('/students'),
                 api.get('/templates'),
                 api.get('/teacher-assignments'),
                 api.get('/subadmin-assignments'),
                 api.get('/template-assignments'),
+                api.get('/subadmin-assignments/levels'),
             ])
 
             const allUsers = usersRes.data
@@ -58,18 +66,24 @@ export default function AdminAssignments() {
             setTeacherAssignments(taRes.data)
             setSubAdminAssignments(saRes.data)
             setTemplateAssignments(tplRes.data)
+            setSubAdminLevelAssignments(salRes.data)
         } catch (e) {
             console.error('Failed to load data', e)
         }
     }
 
     useEffect(() => {
-        loadData()
-    }, [])
+        if (activeYearId) loadData()
+    }, [activeYearId])
 
     const assignTeacherToClass = async () => {
         try {
-            await api.post('/teacher-assignments', { teacherId: selectedTeacher, classId: selectedClass })
+            await api.post('/teacher-assignments', { 
+                teacherId: selectedTeacher, 
+                classId: selectedClass,
+                languages: selectedLanguages,
+                isProfPolyvalent
+            })
             setMessage('✓ Enseignant assigné à la classe')
             setTimeout(() => setMessage(''), 3000)
             loadData()
@@ -112,8 +126,20 @@ export default function AdminAssignments() {
             <div style={{ maxHeight: 150, overflowY: 'auto', marginTop: 16, background: '#f9f9f9', padding: 8, borderRadius: 4 }}>
                 <div style={{ fontWeight: 'bold', marginBottom: 4, fontSize: '0.8rem' }}>Déjà assigné :</div>
                 {teacherAssignments.map(ta => (
-                    <div key={ta._id} style={{ fontSize: '0.85rem', color: '#666', padding: '2px 0' }}>
-                        {ta.teacherName} → {ta.className}
+                    <div key={ta._id} style={{ fontSize: '0.85rem', color: '#666', padding: '2px 0', display: 'flex', alignItems: 'center' }}>
+                        <span>{ta.teacherName} → {ta.className}</span>
+                        {ta.languages && ta.languages.length > 0 ? (
+                            <span style={{ marginLeft: 8, fontSize: '0.75rem', background: '#e6f7ff', padding: '1px 4px', borderRadius: 4, color: '#1890ff' }}>
+                                {ta.languages.join(', ').toUpperCase()}
+                            </span>
+                        ) : (
+                            <span style={{ marginLeft: 8, fontSize: '0.75rem', color: '#999' }}>(Toutes)</span>
+                        )}
+                        {ta.isProfPolyvalent && (
+                            <span style={{ marginLeft: 8, fontSize: '0.75rem', background: '#fff7e6', padding: '1px 4px', borderRadius: 4, color: '#fa8c16' }}>
+                                Polyvalent
+                            </span>
+                        )}
                     </div>
                 ))}
             </div>
@@ -121,29 +147,14 @@ export default function AdminAssignments() {
     }
 
     const renderSubAdminLevelSummary = () => {
-        const summary = new Map<string, Set<string>>()
-        
-        subAdminAssignments.forEach(sa => {
-            const subAdminName = sa.subAdminName || 'Unknown'
-            if (!summary.has(subAdminName)) summary.set(subAdminName, new Set())
-            
-            const teacherClasses = teacherAssignments.filter(ta => ta.teacherId === sa.teacherId)
-            teacherClasses.forEach(tc => {
-                const cls = classes.find(c => c._id === tc.classId)
-                if (cls && cls.level) {
-                    summary.get(subAdminName)?.add(cls.level)
-                }
-            })
-        })
-
-        if (summary.size === 0) return <div className="note" style={{ marginTop: 16 }}>Aucune assignation</div>
+        if (subAdminLevelAssignments.length === 0) return <div className="note" style={{ marginTop: 16 }}>Aucune assignation</div>
 
         return (
             <div style={{ maxHeight: 150, overflowY: 'auto', marginTop: 16, background: '#f9f9f9', padding: 8, borderRadius: 4 }}>
                 <div style={{ fontWeight: 'bold', marginBottom: 4, fontSize: '0.8rem' }}>Déjà assigné :</div>
-                {Array.from(summary.entries()).map(([name, levels]) => (
-                    <div key={name} style={{ fontSize: '0.85rem', color: '#666', padding: '2px 0' }}>
-                        {name} → {Array.from(levels).sort().join(', ') || 'Aucun niveau'}
+                {subAdminLevelAssignments.map(sa => (
+                    <div key={sa.subAdminId} style={{ fontSize: '0.85rem', color: '#666', padding: '2px 0' }}>
+                        {sa.subAdminName} → {sa.levels.sort().join(', ')}
                     </div>
                 ))}
             </div>
@@ -230,6 +241,38 @@ export default function AdminAssignments() {
                                 {classes.map(c => <option key={c._id} value={c._id}>{c.name}</option>)}
                             </select>
                         </div>
+                        <div>
+                            <label className="note" style={{ display: 'block', marginBottom: 6 }}>Langues autorisées</label>
+                            <div style={{ display: 'flex', gap: 12 }}>
+                                {['fr', 'ar', 'en'].map(lang => (
+                                    <label key={lang} style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+                                        <input 
+                                            type="checkbox" 
+                                            checked={selectedLanguages.includes(lang)} 
+                                            onChange={e => {
+                                                if (e.target.checked) {
+                                                    setSelectedLanguages([...selectedLanguages, lang])
+                                                } else {
+                                                    setSelectedLanguages(selectedLanguages.filter(l => l !== lang))
+                                                }
+                                            }}
+                                        />
+                                        <span style={{ textTransform: 'uppercase' }}>{lang}</span>
+                                    </label>
+                                ))}
+                            </div>
+                        </div>
+                        <div>
+                            <label className="note" style={{ display: 'block', marginBottom: 6 }}>Options</label>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                                <input 
+                                    type="checkbox" 
+                                    checked={isProfPolyvalent} 
+                                    onChange={e => setIsProfPolyvalent(e.target.checked)}
+                                />
+                                <span>Prof Polyvalent (peut modifier les menus déroulants)</span>
+                            </label>
+                        </div>
                         <button className="btn" onClick={assignTeacherToClass} disabled={!selectedTeacher || !selectedClass} style={{ marginTop: 8 }}>Assigner</button>
                         
                         {renderTeacherClassSummary()}
@@ -254,7 +297,7 @@ export default function AdminAssignments() {
                             <label className="note" style={{ display: 'block', marginBottom: 6 }}>Niveau</label>
                             <select value={selectedLevelForSubAdmin} onChange={e => setSelectedLevelForSubAdmin(e.target.value)} style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid #ddd' }}>
                                 <option value="">Sélectionner niveau</option>
-                                {levels.map(l => <option key={l.code} value={l.code}>{l.code}</option>)}
+                                {levels.map(l => <option key={l._id} value={l.name}>{l.name}</option>)}
                             </select>
                         </div>
                         <button className="btn" onClick={assignSubAdminToLevel} disabled={!selectedSubAdminForLevel || !selectedLevelForSubAdmin} style={{ marginTop: 8 }}>Assigner à tous les enseignants</button>
@@ -281,7 +324,7 @@ export default function AdminAssignments() {
                             <label className="note" style={{ display: 'block', marginBottom: 6 }}>Niveau</label>
                             <select value={selectedLevelForTemplate} onChange={e => setSelectedLevelForTemplate(e.target.value)} style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid #ddd' }}>
                                 <option value="">Sélectionner niveau</option>
-                                {levels.map(l => <option key={l.code} value={l.code}>{l.code}</option>)}
+                                {levels.map(l => <option key={l._id} value={l.name}>{l.name}</option>)}
                             </select>
                         </div>
                         <button className="btn" onClick={assignTemplateToLevel} disabled={!selectedTemplateForLevel || !selectedLevelForTemplate} style={{ marginTop: 8 }}>Assigner à tous les élèves</button>

@@ -23,6 +23,10 @@ export default function TeacherTemplateEditor() {
     const [saveStatus, setSaveStatus] = useState('')
     const [openDropdown, setOpenDropdown] = useState<string | null>(null)
     const [canEdit, setCanEdit] = useState(false)
+    const [allowedLanguages, setAllowedLanguages] = useState<string[]>([])
+    const [isProfPolyvalent, setIsProfPolyvalent] = useState(false)
+    const [isMyWorkCompleted, setIsMyWorkCompleted] = useState(false)
+    const [activeSemester, setActiveSemester] = useState<number>(1)
 
     useEffect(() => {
         const loadData = async () => {
@@ -33,6 +37,10 @@ export default function TeacherTemplateEditor() {
                 setStudent(r.data.student)
                 setAssignment(r.data.assignment)
                 setCanEdit(r.data.canEdit)
+                setAllowedLanguages(r.data.allowedLanguages || [])
+                setIsProfPolyvalent(r.data.isProfPolyvalent || false)
+                setIsMyWorkCompleted(r.data.isMyWorkCompleted || false)
+                setActiveSemester(r.data.activeSemester || 1)
             } catch (e: any) {
                 setError('Impossible de charger le carnet')
                 console.error(e)
@@ -81,10 +89,11 @@ export default function TeacherTemplateEditor() {
         if (!assignment) return
         try {
             setSaveStatus('Enregistrement...')
-            const action = assignment.status === 'completed' ? 'unmark-done' : 'mark-done'
+            const action = isMyWorkCompleted ? 'unmark-done' : 'mark-done'
             const r = await api.post(`/teacher/templates/${assignmentId}/${action}`)
             setAssignment(r.data)
-            setSaveStatus(assignment.status === 'completed' ? 'Rouvert avec succès' : 'Terminé avec succès ✓')
+            setIsMyWorkCompleted(!isMyWorkCompleted)
+            setSaveStatus(isMyWorkCompleted ? 'Rouvert avec succès' : 'Terminé avec succès ✓')
             setTimeout(() => setSaveStatus(''), 3000)
         } catch (e: any) {
             setError('Erreur lors de la mise à jour du statut')
@@ -156,15 +165,15 @@ export default function TeacherTemplateEditor() {
                                 marginLeft: 12,
                                 padding: '6px 12px',
                                 fontSize: 13,
-                                background: assignment?.status === 'completed' ? '#fff' : '#10b981',
-                                color: assignment?.status === 'completed' ? '#ef4444' : '#fff',
-                                border: assignment?.status === 'completed' ? '1px solid #ef4444' : 'none',
+                                background: isMyWorkCompleted ? '#fff' : '#10b981',
+                                color: isMyWorkCompleted ? '#ef4444' : '#fff',
+                                border: isMyWorkCompleted ? '1px solid #ef4444' : 'none',
                                 cursor: 'pointer',
                                 borderRadius: 6,
                                 fontWeight: 500
                             }}
                         >
-                            {assignment?.status === 'completed' ? 'Rouvrir' : 'Marquer comme terminé'}
+                            {isMyWorkCompleted ? 'Rouvrir' : 'Marquer comme terminé'}
                         </button>
                     )}
                 </div>
@@ -291,8 +300,10 @@ export default function TeacherTemplateEditor() {
                             {b.type === 'language_toggle' && (
                                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: b.props.spacing || 12 }}>
                                     {(b.props.items || []).map((it: any, i: number) => {
-                                        // Check level
-                                        const isAllowed = !(it.levels && it.levels.length > 0 && student?.level && !it.levels.includes(student.level));
+                                        // Check level and language
+                                        const isLevelAllowed = !(it.levels && it.levels.length > 0 && student?.level && !it.levels.includes(student.level));
+                                        const isLanguageAllowed = allowedLanguages.length === 0 || (it.code && allowedLanguages.includes(it.code));
+                                        const isAllowed = isLevelAllowed && isLanguageAllowed;
                                         
                                         const r = b.props.radius || 40
                                         const size = r * 2
@@ -344,12 +355,18 @@ export default function TeacherTemplateEditor() {
                                 {b.type === 'category_title' && <div style={{ color: b.props.color, fontSize: b.props.fontSize }}>Titre catégorie</div>}
                                 {b.type === 'competency_list' && <div style={{ color: b.props.color, fontSize: b.props.fontSize }}>Liste des compétences</div>}
                                 {b.type === 'signature' && <div style={{ fontSize: b.props.fontSize }}>{(b.props.labels || []).join(' / ')}</div>}
-                                {b.type === 'dropdown' && (
+                                {b.type === 'dropdown' && (() => {
+                                    // Check if dropdown is allowed for current level
+                                    const isLevelAllowed = !(b.props.levels && b.props.levels.length > 0 && student?.level && !b.props.levels.includes(student.level))
+                                    // Check if dropdown is allowed for current semester (default to both semesters if not specified)
+                                    const dropdownSemesters = b.props.semesters || [1, 2]
+                                    const isSemesterAllowed = dropdownSemesters.includes(activeSemester)
+                                    const isDropdownAllowed = isLevelAllowed && isSemesterAllowed
+                                    
+                                    return (
                                     <div style={{ 
                                         width: b.props.width || 200, 
                                         position: 'relative',
-                                        opacity: (b.props.levels && b.props.levels.length > 0 && student?.level && !b.props.levels.includes(student.level)) ? 0.5 : 1,
-                                        pointerEvents: (b.props.levels && b.props.levels.length > 0 && student?.level && !b.props.levels.includes(student.level)) ? 'none' : 'auto'
                                     }}>
                                         <div style={{ fontSize: 10, fontWeight: 'bold', color: '#6c5ce7', marginBottom: 2 }}>Dropdown #{b.props.dropdownNumber || '?'}</div>
                                         {b.props.label && <div style={{ fontSize: 10, color: '#666', marginBottom: 2 }}>{b.props.label}</div>}
@@ -362,8 +379,9 @@ export default function TeacherTemplateEditor() {
                                                 padding: '4px 24px 4px 8px', 
                                                 borderRadius: 4, 
                                                 border: '1px solid #ccc',
-                                                background: canEdit ? '#fff' : '#f9f9f9',
-                                                cursor: canEdit ? 'pointer' : 'not-allowed',
+                                                background: (canEdit && isProfPolyvalent && isDropdownAllowed) ? '#fff' : '#f9f9f9',
+                                                cursor: (canEdit && isProfPolyvalent && isDropdownAllowed) ? 'pointer' : 'not-allowed',
+                                                opacity: isDropdownAllowed ? 1 : 0.5,
                                                 position: 'relative',
                                                 display: 'flex',
                                                 alignItems: 'center',
@@ -372,7 +390,7 @@ export default function TeacherTemplateEditor() {
                                             }}
                                             onClick={(e) => {
                                                 e.stopPropagation()
-                                                if (!canEdit) return
+                                                if (!canEdit || !isProfPolyvalent || !isDropdownAllowed) return
                                                 const key = `dropdown_${actualPageIndex}_${idx}`
                                                 setOpenDropdown(openDropdown === key ? null : key)
                                             }}
@@ -466,7 +484,7 @@ export default function TeacherTemplateEditor() {
                                             </div>
                                         )}
                                     </div>
-                                )}
+                                )})()}
                                 {b.type === 'dropdown_reference' && (
                                     <div style={{ 
                                         width: b.props.width || 200,

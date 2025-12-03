@@ -11,6 +11,7 @@ type TemplateAssignment = {
     completedAt?: Date
     completedBy?: string
     template?: { _id: string; name: string }
+    isMyWorkCompleted?: boolean
 }
 
 export default function TeacherStudentTemplates() {
@@ -53,7 +54,11 @@ export default function TeacherStudentTemplates() {
 
             // Update local state
             setAssignments(prev => prev.map(a =>
-                a._id === assignmentId ? { ...a, ...response.data } : a
+                a._id === assignmentId ? { 
+                    ...a, 
+                    ...response.data,
+                    isMyWorkCompleted: !currentStatus
+                } : a
             ))
         } catch (e: any) {
             setError('Échec de la mise à jour')
@@ -90,7 +95,7 @@ export default function TeacherStudentTemplates() {
                             border: '1px solid #e2e8f0',
                             background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)'
                         }}>
-                            {a.isCompleted && (
+                            {a.isMyWorkCompleted && (
                                 <div style={{
                                     position: 'absolute',
                                     top: 14,
@@ -143,23 +148,23 @@ export default function TeacherStudentTemplates() {
                                     }}>✏️ Éditer</button>
                                 </Link>
                                 <button
-                                    className={a.isCompleted ? 'btn secondary' : 'btn'}
-                                    onClick={() => toggleCompletion(a._id, a.isCompleted || false)}
+                                    className={a.isMyWorkCompleted ? 'btn secondary' : 'btn'}
+                                    onClick={() => toggleCompletion(a._id, a.isMyWorkCompleted || false)}
                                     disabled={updating === a._id}
                                     style={{
-                                        background: a.isCompleted 
+                                        background: a.isMyWorkCompleted 
                                             ? 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)' 
                                             : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
                                         color: 'white',
                                         minWidth: 130,
                                         fontWeight: 500,
                                         padding: '10px 16px',
-                                        boxShadow: a.isCompleted 
+                                        boxShadow: a.isMyWorkCompleted 
                                             ? '0 2px 8px rgba(245, 158, 11, 0.3)' 
                                             : '0 2px 8px rgba(16, 185, 129, 0.3)'
                                     }}
                                 >
-                                    {updating === a._id ? '⏳ ...' : (a.isCompleted ? '🔄 Incomplet' : '✔️ Terminé')}
+                                    {updating === a._id ? '⏳ ...' : (a.isMyWorkCompleted ? '🔄 Incomplet' : '✔️ Terminé')}
                                 </button>
                             </div>
                         </div>

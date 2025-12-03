@@ -14,9 +14,10 @@ interface GradebookRendererProps {
     student: Student
     assignment: Assignment
     signature?: any
+    finalSignature?: any
 }
 
-export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, student, assignment, signature }) => {
+export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, student, assignment, signature, finalSignature }) => {
     return (
         <div style={{ margin: 0, padding: 0 }}>
             <style>{`
@@ -191,6 +192,10 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                                 return <div>{student?.firstName} {student?.lastName}</div>
                                             } else if (b.props.field === 'year') {
                                                 return <div>Année {promo.year}</div>
+                                            } else if (b.props.field === 'class') {
+                                                return <div>{promo.class || ''}</div>
+                                            } else if (b.props.field === 'currentLevel') {
+                                                return <div>{promo.from || ''}</div>
                                             }
                                         }
                                         return <div style={{ color: '#999' }}>Pas de promotion</div>
@@ -235,6 +240,54 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                 />
                             )}
                             
+                            {b.type === 'final_signature_box' && (
+                                <div style={{ 
+                                    width: b.props.width || 200, 
+                                    height: b.props.height || 80, 
+                                    border: '1px solid #000', 
+                                    background: '#fff',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    fontSize: 10,
+                                    color: '#999'
+                                }}>
+                                    {finalSignature ? '✓ Signé Fin Année' : (b.props.label || 'Signature Fin Année')}
+                                </div>
+                            )}
+                            
+                            {b.type === 'final_signature_info' && (
+                                <div style={{ 
+                                    width: b.props.width || 150,
+                                    height: b.props.height || 30,
+                                    fontSize: b.props.fontSize || 12,
+                                    color: b.props.color || '#333',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: b.props.align || 'flex-start'
+                                }}>
+                                    {finalSignature ? (
+                                        <>
+                                            {b.props.field === 'year' && <span>{new Date().getFullYear()}</span>}
+                                            {b.props.field === 'student' && <span>{student?.firstName} {student?.lastName}</span>}
+                                            {b.props.field === 'nextLevel' && <span>{(() => {
+                                                const c = (student?.level || '').toUpperCase()
+                                                if (c === 'TPS') return 'PS'
+                                                if (c === 'PS') return 'MS'
+                                                if (c === 'MS') return 'GS'
+                                                if (c === 'GS') return 'EB1'
+                                                if (c === 'KG1') return 'KG2'
+                                                if (c === 'KG2') return 'KG3'
+                                                if (c === 'KG3') return 'EB1'
+                                                return ''
+                                            })()}</span>}
+                                        </>
+                                    ) : (
+                                        <span style={{ color: '#ccc' }}>{b.props.placeholder || '...'}</span>
+                                    )}
+                                </div>
+                            )}
+
                             {b.type === 'signature_box' && (
                                 <div style={{ 
                                     width: b.props.width || 200, 

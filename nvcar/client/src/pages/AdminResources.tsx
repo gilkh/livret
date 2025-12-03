@@ -268,6 +268,48 @@ export default function AdminResources() {
                     <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <input type="checkbox" checked={yearForm.active} onChange={e => setYearForm({...yearForm, active: e.target.checked})} /> Active
                     </label>
+                    
+                    {/* Semester Toggle */}
+                    <div style={{ marginTop: 8 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#555', marginBottom: 6 }}>Semestre actif:</div>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button 
+                          className={`btn ${(selectedYear.activeSemester || 1) === 1 ? '' : 'secondary'}`}
+                          onClick={async () => {
+                            await api.patch(`/school-years/${selectedYear._id}/semester`, { semester: 1 })
+                            setSelectedYear({ ...selectedYear, activeSemester: 1 })
+                            loadYears()
+                          }}
+                          style={{ 
+                            flex: 1, 
+                            padding: '8px 12px',
+                            background: (selectedYear.activeSemester || 1) === 1 ? '#6c5ce7' : '#f5f5f5',
+                            color: (selectedYear.activeSemester || 1) === 1 ? '#fff' : '#333',
+                            border: (selectedYear.activeSemester || 1) === 1 ? '2px solid #6c5ce7' : '1px solid #ddd'
+                          }}
+                        >
+                          Semestre 1
+                        </button>
+                        <button 
+                          className={`btn ${(selectedYear.activeSemester || 1) === 2 ? '' : 'secondary'}`}
+                          onClick={async () => {
+                            await api.patch(`/school-years/${selectedYear._id}/semester`, { semester: 2 })
+                            setSelectedYear({ ...selectedYear, activeSemester: 2 })
+                            loadYears()
+                          }}
+                          style={{ 
+                            flex: 1, 
+                            padding: '8px 12px',
+                            background: (selectedYear.activeSemester || 1) === 2 ? '#6c5ce7' : '#f5f5f5',
+                            color: (selectedYear.activeSemester || 1) === 2 ? '#fff' : '#333',
+                            border: (selectedYear.activeSemester || 1) === 2 ? '2px solid #6c5ce7' : '1px solid #ddd'
+                          }}
+                        >
+                          Semestre 2
+                        </button>
+                      </div>
+                    </div>
+
                     <button className="btn secondary" onClick={saveYear}>Enregistrer modifications</button>
                   </div>
               </div>

@@ -4,6 +4,8 @@ const teacherClassAssignmentSchema = new Schema({
     teacherId: { type: String, required: true },
     classId: { type: String, required: true },
     schoolYearId: { type: String, required: true },
+    languages: { type: [String], default: [] },
+    isProfPolyvalent: { type: Boolean, default: false },
     assignedAt: { type: Date, default: () => new Date() },
     assignedBy: { type: String, required: true },
 })

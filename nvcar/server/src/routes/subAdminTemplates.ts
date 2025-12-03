@@ -436,14 +436,15 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote', require
 
         if (!nextLevel) return res.status(400).json({ error: 'missing_level' })
 
-        // Check if signed by this sub-admin
+        // Check if signed by this sub-admin (End of Year signature required for promotion)
         const signature = await TemplateSignature.findOne({ 
             templateAssignmentId, 
-            subAdminId 
+            subAdminId,
+            type: 'end_of_year'
         }).lean()
 
         if (!signature) {
-            return res.status(403).json({ error: 'not_signed_by_you', message: 'You must sign the carnet before promoting the student' })
+            return res.status(403).json({ error: 'not_signed_by_you', message: 'You must sign the carnet (End of Year) before promoting the student' })
         }
 
         // Get the template assignment
@@ -617,11 +618,19 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote', require
         await student.save()
 
         // Record promotion in assignment data
+        let className = ''
+        const enrollmentForClass = await Enrollment.findOne({ studentId: student._id, schoolYearId: currentSchoolYearId })
+        if (enrollmentForClass && enrollmentForClass.classId) {
+            const cls = await ClassModel.findById(enrollmentForClass.classId)
+            if (cls) className = cls.name
+        }
+
         const promotionData = {
             from: currentLevel,
             to: nextLevel,
             date: new Date(),
-            year: yearName
+            year: yearName,
+            class: className
         }
 
         // Use findById and save to handle Mixed type safely
@@ -691,7 +700,7 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', requireAut
         if (!assignment) return res.status(404).json({ error: 'not_found' })
 
         // Check if assignment is completed
-        if (assignment.status !== 'completed') {
+        if (assignment.status !== 'completed' && assignment.status !== 'signed') {
             return res.status(400).json({ error: 'not_completed', message: 'Teacher must mark assignment as done before signing' })
         }
 
@@ -742,8 +751,10 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', requireAut
             return res.status(403).json({ error: 'not_authorized' })
         }
 
+        const { type = 'standard' } = req.body
+
         // Check if already signed
-        const existing = await TemplateSignature.findOne({ templateAssignmentId }).lean()
+        const existing = await TemplateSignature.findOne({ templateAssignmentId, type }).lean()
         if (existing) {
             return res.status(400).json({ error: 'already_signed' })
         }
@@ -754,9 +765,13 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', requireAut
             subAdminId,
             signedAt: new Date(),
             status: 'signed',
+            type
         })
 
-        // Update assignment status
+        // Update assignment status (only if standard signature, or maybe always?)
+        // Let's keep it simple: if any signature is added, we can consider it signed, 
+        // but usually the standard one is the main one. 
+        // If we sign 'end_of_year', we probably also want to mark it as signed if not already.
         await TemplateAssignment.findByIdAndUpdate(templateAssignmentId, { status: 'signed' })
 
         // Log audit
@@ -837,17 +852,23 @@ subAdminTemplatesRouter.delete('/templates/:templateAssignmentId/sign', requireA
             return res.status(403).json({ error: 'not_authorized' })
         }
 
+        const type = req.body.type || req.query.type || 'standard'
+
         // Check if signed
-        const existing = await TemplateSignature.findOne({ templateAssignmentId }).lean()
+        const existing = await TemplateSignature.findOne({ templateAssignmentId, type }).lean()
         if (!existing) {
             return res.status(400).json({ error: 'not_signed' })
         }
 
         // Delete signature
-        await TemplateSignature.deleteOne({ templateAssignmentId })
+        await TemplateSignature.deleteOne({ templateAssignmentId, type })
 
-        // Update assignment status back to completed
-        await TemplateAssignment.findByIdAndUpdate(templateAssignmentId, { status: 'completed' })
+        // Check if any signature remains
+        const remaining = await TemplateSignature.countDocuments({ templateAssignmentId })
+        if (remaining === 0) {
+            // Update assignment status back to completed
+            await TemplateAssignment.findByIdAndUpdate(templateAssignmentId, { status: 'completed' })
+        }
 
         // Log audit
         const template = await GradebookTemplate.findById(assignment.templateId).lean()
@@ -939,7 +960,11 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
 
         // Get template and signature (no change history for sub-admin)
         const template = await GradebookTemplate.findById(assignment.templateId).lean()
-        const signature = await TemplateSignature.findOne({ templateAssignmentId }).lean()
+        const signatures = await TemplateSignature.find({ templateAssignmentId }).lean()
+        
+        const signature = signatures.find(s => s.type === 'standard' || !s.type)
+        const finalSignature = signatures.find(s => s.type === 'end_of_year')
+        
         const isSignedByMe = signature && signature.subAdminId === subAdminId
 
         // Get student level
@@ -973,15 +998,18 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
         // Get active school year
         const activeSchoolYear = await SchoolYear.findOne({ active: true }).lean()
         const isPromoted = student?.promotions?.some((p: any) => p.schoolYearId === String(activeSchoolYear?._id))
+        const activeSemester = (activeSchoolYear as any)?.activeSemester || 1
 
         res.json({
             assignment,
             template: versionedTemplate,
             student: { ...student, level },
             signature,
+            finalSignature,
             isSignedByMe,
             canEdit,
-            isPromoted
+            isPromoted,
+            activeSemester
         })
     } catch (e: any) {
         res.status(500).json({ error: 'fetch_failed', message: e.message })
