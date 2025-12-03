@@ -9,7 +9,7 @@ import { PptxImporter } from '../utils/pptxImporter'
 export const templatesRouter = Router()
 const upload = multer({ storage: multer.memoryStorage() })
 
-templatesRouter.get('/', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), async (req, res) => {
+templatesRouter.get('/', requireAuth(['ADMIN', 'SUBADMIN', 'AEFE', 'TEACHER']), async (req, res) => {
   const list = await GradebookTemplate.find({}).lean()
   res.json(list)
 })
@@ -73,7 +73,7 @@ templatesRouter.post('/', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), async (
   }
 })
 
-templatesRouter.get('/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), async (req, res) => {
+templatesRouter.get('/:id', requireAuth(['ADMIN', 'SUBADMIN', 'AEFE', 'TEACHER']), async (req, res) => {
   const { id } = req.params
   const tpl = await GradebookTemplate.findById(id).lean()
   if (!tpl) return res.status(404).json({ error: 'not_found' })

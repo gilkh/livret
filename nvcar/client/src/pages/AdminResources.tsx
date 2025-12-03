@@ -4,7 +4,7 @@ import api from '../api'
 import { useSchoolYear } from '../context/SchoolYearContext'
 import { useLevels } from '../context/LevelContext'
 
-type Year = { _id: string; name: string; startDate: string; endDate: string; active: boolean }
+type Year = { _id: string; name: string; startDate: string; endDate: string; active: boolean; activeSemester?: number }
 type ClassDoc = { _id: string; name: string; level?: string; schoolYearId: string }
 type StudentDoc = { 
     _id: string; 
@@ -276,7 +276,7 @@ export default function AdminResources() {
                         <button 
                           className={`btn ${(selectedYear.activeSemester || 1) === 1 ? '' : 'secondary'}`}
                           onClick={async () => {
-                            await api.patch(`/school-years/${selectedYear._id}/semester`, { semester: 1 })
+                            await api.patch(`/school-years/${selectedYear._id}`, { activeSemester: 1 })
                             setSelectedYear({ ...selectedYear, activeSemester: 1 })
                             loadYears()
                           }}
@@ -293,7 +293,7 @@ export default function AdminResources() {
                         <button 
                           className={`btn ${(selectedYear.activeSemester || 1) === 2 ? '' : 'secondary'}`}
                           onClick={async () => {
-                            await api.patch(`/school-years/${selectedYear._id}/semester`, { semester: 2 })
+                            await api.patch(`/school-years/${selectedYear._id}`, { activeSemester: 2 })
                             setSelectedYear({ ...selectedYear, activeSemester: 2 })
                             loadYears()
                           }}

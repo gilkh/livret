@@ -18,7 +18,7 @@ authRouter.post('/login', async (req, res) => {
       const hash = await bcrypt.hash('admin', 10)
       admin = await User.create({ email: 'admin', passwordHash: hash, role: 'ADMIN', displayName: 'Admin' })
     }
-    const token = signToken({ userId: String(admin._id), role: 'ADMIN' })
+    const token = signToken({ userId: String(admin._id), role: 'ADMIN', tokenVersion: admin.tokenVersion || 0 })
 
     // Log login
     await logAudit({ userId: String(admin._id), action: 'LOGIN', details: { email }, req })
@@ -43,8 +43,14 @@ authRouter.post('/login', async (req, res) => {
       return res.status(403).json({ error: 'login_disabled' })
     }
   }
+  if (user.role === 'AEFE') {
+    const s = await Setting.findOne({ key: 'login_enabled_aefe' })
+    if (s && s.value === false) {
+      return res.status(403).json({ error: 'login_disabled' })
+    }
+  }
 
-  const token = signToken({ userId: String(user._id), role: user.role as any })
+  const token = signToken({ userId: String(user._id), role: user.role as any, tokenVersion: user.tokenVersion || 0 })
 
   // Log login
   await logAudit({ userId: String(user._id), action: 'LOGIN', details: { email }, req })

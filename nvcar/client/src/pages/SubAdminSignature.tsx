@@ -1,9 +1,13 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import api from '../api'
 
 export default function SubAdminSignature() {
     const navigate = useNavigate()
+    const location = useLocation()
+    const isAefeUser = location.pathname.includes('/aefe')
+    const apiPrefix = isAefeUser ? '/aefe' : '/subadmin'
+    const dashboardPath = isAefeUser ? '/aefe/dashboard' : '/subadmin/dashboard'
     const [signature, setSignature] = useState<string | null>(null)
     const [uploading, setUploading] = useState(false)
     const [error, setError] = useState('')
@@ -15,7 +19,7 @@ export default function SubAdminSignature() {
 
     const loadSignature = async () => {
         try {
-            const r = await api.get('/subadmin/signature')
+            const r = await api.get(`${apiPrefix}/signature`)
             setSignature(r.data.signatureUrl)
         } catch (e: any) {
             if (e.response?.status !== 404) {
@@ -42,7 +46,7 @@ export default function SubAdminSignature() {
             const formData = new FormData()
             formData.append('file', file)
 
-            const r = await api.post('/subadmin/signature/upload', formData, {
+            const r = await api.post(`${apiPrefix}/signature/upload`, formData, {
                 headers: {
                     'Content-Type': 'multipart/form-data'
                 }
@@ -63,7 +67,7 @@ export default function SubAdminSignature() {
 
         try {
             setError('')
-            await api.delete('/subadmin/signature')
+            await api.delete(`${apiPrefix}/signature`)
             setSignature(null)
             setSuccess('Signature supprimée')
         } catch (e: any) {
@@ -75,7 +79,7 @@ export default function SubAdminSignature() {
     return (
         <div className="container">
             <div className="card">
-                <button className="btn secondary" onClick={() => navigate('/subadmin/dashboard')} style={{ 
+                <button className="btn secondary" onClick={() => navigate(dashboardPath)} style={{ 
                     marginBottom: 20,
                     display: 'inline-flex',
                     alignItems: 'center',

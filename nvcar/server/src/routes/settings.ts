@@ -1,8 +1,20 @@
 import { Router } from 'express'
+import mongoose from 'mongoose'
 import { requireAuth } from '../auth'
 import { Setting } from '../models/Setting'
 
 export const settingsRouter = Router()
+
+settingsRouter.get('/status', requireAuth(['ADMIN']), async (req, res) => {
+  const dbState = mongoose.connection.readyState
+  const dbStatus = dbState === 1 ? 'connected' : dbState === 2 ? 'connecting' : 'disconnected'
+  
+  res.json({
+    backend: 'online',
+    database: dbStatus,
+    uptime: process.uptime()
+  })
+})
 
 settingsRouter.get('/public', async (req, res) => {
   const settings = await Setting.find({
@@ -40,4 +52,11 @@ settingsRouter.post('/', requireAuth(['ADMIN']), async (req, res) => {
     { upsert: true, new: true }
   )
   res.json({ success: true })
+})
+
+settingsRouter.post('/restart', requireAuth(['ADMIN']), async (req, res) => {
+  res.json({ success: true, message: 'Restarting server...' })
+  setTimeout(() => {
+    process.exit(1)
+  }, 1000)
 })

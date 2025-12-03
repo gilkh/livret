@@ -1,14 +1,28 @@
 import { useEffect, useState } from 'react'
 import api from '../api'
 
+type CategoryProgress = {
+    name: string
+    total: number
+    filled: number
+    percentage: number
+}
+
+type LevelProgress = {
+    level: string
+    activeCount: number
+    totalAvailable: number
+    percentage: number
+    byCategory: CategoryProgress[]
+}
+
 type StudentProgress = {
     _id: string
     firstName: string
     lastName: string
-    level: string
+    currentLevel: string
     className: string
-    activeCount: number
-    totalAvailable: number
+    levelsData: LevelProgress[]
 }
 
 export default function SubAdminProgress() {
@@ -33,7 +47,7 @@ export default function SubAdminProgress() {
     }, [])
 
     const grouped = students.reduce((acc, student) => {
-        const level = student.level || 'Sans niveau'
+        const level = student.currentLevel || 'Sans niveau'
         const className = student.className || 'Sans classe'
         
         if (!acc[level]) acc[level] = {}
@@ -91,48 +105,84 @@ export default function SubAdminProgress() {
                                             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                                                 <thead>
                                                     <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
-                                                        <th style={{ padding: 12, textAlign: 'left', color: '#475569', width: '40%' }}>Élève</th>
-                                                        <th style={{ padding: 12, textAlign: 'center', color: '#475569', width: '30%' }}>Progression</th>
-                                                        <th style={{ padding: 12, textAlign: 'right', color: '#475569', width: '30%' }}>%</th>
+                                                        <th style={{ padding: 12, textAlign: 'left', color: '#475569', width: '20%' }}>Élève</th>
+                                                        <th style={{ padding: 12, textAlign: 'center', color: '#475569', width: '10%' }}>Niveau</th>
+                                                        <th style={{ padding: 12, textAlign: 'center', color: '#475569', width: '15%' }}>Global</th>
+                                                        <th style={{ padding: 12, textAlign: 'left', color: '#475569', width: '55%' }}>Par Langue</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody>
                                                     {grouped[level][className].map(student => {
-                                                        const percentage = student.totalAvailable > 0 
-                                                            ? Math.round((student.activeCount / student.totalAvailable) * 100) 
-                                                            : 0
+                                                        const levels = student.levelsData.length > 0 ? student.levelsData : [{ level: '-', activeCount: 0, totalAvailable: 0, percentage: 0, byCategory: [] }]
                                                         
-                                                        return (
-                                                            <tr key={student._id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                                                <td style={{ padding: 12, fontWeight: 500 }}>
-                                                                    {student.firstName} {student.lastName}
+                                                        return levels.map((lvlData, idx) => (
+                                                            <tr key={`${student._id}-${lvlData.level}`} style={{ borderBottom: idx === levels.length - 1 ? '1px solid #f1f5f9' : 'none' }}>
+                                                                {idx === 0 && (
+                                                                    <td rowSpan={levels.length} style={{ padding: 12, fontWeight: 500, verticalAlign: 'top', borderRight: '1px solid #f1f5f9' }}>
+                                                                        {student.firstName} {student.lastName}
+                                                                    </td>
+                                                                )}
+                                                                <td style={{ padding: 12, textAlign: 'center', fontWeight: 600, color: '#64748b' }}>
+                                                                    {lvlData.level}
                                                                 </td>
                                                                 <td style={{ padding: 12, textAlign: 'center' }}>
-                                                                    <div style={{ 
-                                                                        display: 'inline-flex', 
-                                                                        alignItems: 'center', 
-                                                                        gap: 8,
-                                                                        background: '#f0f9ff',
-                                                                        padding: '4px 12px',
-                                                                        borderRadius: 16,
-                                                                        color: '#0369a1',
-                                                                        fontWeight: 600
-                                                                    }}>
-                                                                        <span>{student.activeCount}</span>
-                                                                        <span style={{ color: '#94a3b8' }}>/</span>
-                                                                        <span>{student.totalAvailable}</span>
+                                                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                                                                        <div style={{ 
+                                                                            display: 'inline-flex', 
+                                                                            alignItems: 'center', 
+                                                                            gap: 8,
+                                                                            background: '#f0f9ff',
+                                                                            padding: '4px 12px',
+                                                                            borderRadius: 16,
+                                                                            color: '#0369a1',
+                                                                            fontWeight: 600
+                                                                        }}>
+                                                                            <span>{lvlData.activeCount}</span>
+                                                                            <span style={{ color: '#94a3b8' }}>/</span>
+                                                                            <span>{lvlData.totalAvailable}</span>
+                                                                        </div>
+                                                                        <span style={{ 
+                                                                            fontSize: 12,
+                                                                            fontWeight: 600, 
+                                                                            color: lvlData.percentage >= 80 ? '#16a34a' : lvlData.percentage >= 50 ? '#ca8a04' : '#dc2626'
+                                                                        }}>
+                                                                            {lvlData.percentage}%
+                                                                        </span>
                                                                     </div>
                                                                 </td>
-                                                                <td style={{ padding: 12, textAlign: 'right' }}>
-                                                                    <span style={{ 
-                                                                        fontWeight: 600, 
-                                                                        color: percentage >= 80 ? '#16a34a' : percentage >= 50 ? '#ca8a04' : '#dc2626'
-                                                                    }}>
-                                                                        {percentage}%
-                                                                    </span>
+                                                                <td style={{ padding: 12 }}>
+                                                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                                                                        {lvlData.byCategory.map(cat => (
+                                                                            <div key={cat.name} style={{ 
+                                                                                background: '#f8fafc', 
+                                                                                border: '1px solid #e2e8f0',
+                                                                                borderRadius: 6,
+                                                                                padding: '4px 8px',
+                                                                                display: 'flex',
+                                                                                alignItems: 'center',
+                                                                                gap: 8,
+                                                                                fontSize: 12
+                                                                            }}>
+                                                                                <span style={{ color: '#475569', fontWeight: 500 }}>{cat.name}</span>
+                                                                                <div style={{ 
+                                                                                    background: cat.percentage >= 80 ? '#dcfce7' : cat.percentage >= 50 ? '#fef9c3' : '#fee2e2',
+                                                                                    color: cat.percentage >= 80 ? '#166534' : cat.percentage >= 50 ? '#854d0e' : '#991b1b',
+                                                                                    padding: '2px 6px',
+                                                                                    borderRadius: 4,
+                                                                                    fontWeight: 600,
+                                                                                    display: 'flex',
+                                                                                    alignItems: 'center',
+                                                                                    gap: 4
+                                                                                }}>
+                                                                                    <span>{cat.filled}/{cat.total}</span>
+                                                                                    <span style={{ opacity: 0.8, fontSize: '0.9em' }}>({cat.percentage}%)</span>
+                                                                                </div>
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
                                                                 </td>
                                                             </tr>
-                                                        )
+                                                        ))
                                                     })}
                                                 </tbody>
                                             </table>

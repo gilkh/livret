@@ -99,8 +99,38 @@ export default function AdminDashboard() {
             <div style={{ background: '#fdf2f8', padding: 12, borderRadius: 12, fontSize: 24 }}>💡</div>
             <h3 style={{ margin: 0 }}>Suggestions</h3>
           </div>
-          <p className="note" style={{ marginBottom: 24, flex: 1 }}>Revoir les suggestions des sous-admins.</p>
-          <Link className="btn" to="/admin/suggestions" style={{ textAlign: 'center' }}>Voir les suggestions</Link>
+          <p className="note" style={{ marginBottom: 24, flex: 1 }}>Voir les suggestions des enseignants.</p>
+          <Link className="btn" to="/admin/suggestions" style={{ textAlign: 'center' }}>Voir</Link>
+        </div>
+
+        {/* Progress - NEW */}
+        <div className="card" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+            <div style={{ background: '#ecfeff', padding: 12, borderRadius: 12, fontSize: 24 }}>📈</div>
+            <h3 style={{ margin: 0 }}>Progression</h3>
+          </div>
+          <p className="note" style={{ marginBottom: 24, flex: 1 }}>Suivi global des classes et enseignants.</p>
+          <Link className="btn" to="/admin/progress" style={{ textAlign: 'center' }}>Voir la progression</Link>
+        </div>
+
+        {/* Permissions - NEW */}
+        <div className="card" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+            <div style={{ background: '#fffbeb', padding: 12, borderRadius: 12, fontSize: 24 }}>🔑</div>
+            <h3 style={{ margin: 0 }}>Permissions</h3>
+          </div>
+          <p className="note" style={{ marginBottom: 24, flex: 1 }}>Gérer les droits des sous-admins.</p>
+          <Link className="btn" to="/admin/permissions" style={{ textAlign: 'center' }}>Gérer</Link>
+        </div>
+
+        {/* Online Users - NEW */}
+        <div className="card" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+            <div style={{ background: '#f0fdf4', padding: 12, borderRadius: 12, fontSize: 24 }}>🟢</div>
+            <h3 style={{ margin: 0 }}>En Ligne</h3>
+          </div>
+          <p className="note" style={{ marginBottom: 24, flex: 1 }}>Utilisateurs actifs et alertes.</p>
+          <Link className="btn" to="/admin/online-users" style={{ textAlign: 'center' }}>Gérer</Link>
         </div>
       </div>
     </div>

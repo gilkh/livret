@@ -699,8 +699,39 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', requireAut
         const assignment = await TemplateAssignment.findById(templateAssignmentId).lean()
         if (!assignment) return res.status(404).json({ error: 'not_found' })
 
+        const bypassScopes = (req as any).user.bypassScopes || []
+        
+        // Check granular bypass permissions
+        let canBypass = false
+        if (bypassScopes.some((s: any) => s.type === 'ALL')) {
+            canBypass = true
+        } else {
+            // Check specific scopes
+            const enrollments = await Enrollment.find({ studentId: assignment.studentId }).lean()
+            const classIds = enrollments.map(e => String(e.classId))
+            
+            // Check STUDENT scope
+            if (bypassScopes.some((s: any) => s.type === 'STUDENT' && s.value === assignment.studentId)) {
+                canBypass = true
+            }
+            
+            // Check CLASS scope
+            if (!canBypass && bypassScopes.some((s: any) => s.type === 'CLASS' && classIds.includes(s.value))) {
+                canBypass = true
+            }
+
+            // Check LEVEL scope
+            if (!canBypass) {
+                const classes = await ClassModel.find({ _id: { $in: classIds } }).lean()
+                const levels = classes.map(c => c.level).filter(Boolean)
+                if (bypassScopes.some((s: any) => s.type === 'LEVEL' && levels.includes(s.value))) {
+                    canBypass = true
+                }
+            }
+        }
+
         // Check if assignment is completed
-        if (assignment.status !== 'completed' && assignment.status !== 'signed') {
+        if (!canBypass && assignment.status !== 'completed' && assignment.status !== 'signed') {
             return res.status(400).json({ error: 'not_completed', message: 'Teacher must mark assignment as done before signing' })
         }
 
@@ -1052,11 +1083,28 @@ subAdminTemplatesRouter.post('/templates/sign-class/:classId', requireAuth(['SUB
             return res.status(403).json({ error: 'not_authorized' })
         }
 
+        const bypassScopes = (req as any).user.bypassScopes || []
+        let canBypass = false
+        
+        if (bypassScopes.some((s: any) => s.type === 'ALL')) {
+            canBypass = true
+        } else if (bypassScopes.some((s: any) => s.type === 'CLASS' && s.value === classId)) {
+            canBypass = true
+        } else {
+            // Check LEVEL
+            const cls = await ClassModel.findById(classId).lean()
+            if (cls && cls.level && bypassScopes.some((s: any) => s.type === 'LEVEL' && s.value === cls.level)) {
+                canBypass = true
+            }
+        }
+
+        const query: any = { studentId: { $in: studentIds } }
+        if (!canBypass) {
+            query.status = 'completed'
+        }
+
         // Get all template assignments for these students
-        const templateAssignments = await TemplateAssignment.find({
-            studentId: { $in: studentIds },
-            status: 'completed', // Only sign completed assignments
-        }).lean()
+        const templateAssignments = await TemplateAssignment.find(query).lean()
 
         // Filter out those already signed
         const assignmentIds = templateAssignments.map(a => String(a._id))

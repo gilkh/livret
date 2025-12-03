@@ -22,6 +22,7 @@ import { templateAssignmentsRouter } from './routes/templateAssignments'
 import { subAdminAssignmentsRouter } from './routes/subAdminAssignments'
 import { teacherTemplatesRouter } from './routes/teacherTemplates'
 import { subAdminTemplatesRouter } from './routes/subAdminTemplates'
+import { aefeTemplatesRouter } from './routes/aefeTemplates'
 import { auditLogsRouter } from './routes/auditLogs'
 import { impersonationRouter } from './routes/impersonation'
 import { suggestionsRouter } from './routes/suggestions'
@@ -33,6 +34,7 @@ import { backupRouter } from './routes/backup'
 import { levelsRouter } from './routes/levels'
 import { savedGradebooksRouter } from './routes/savedGradebooks'
 import { Level } from './models/Level'
+import { adminExtrasRouter } from './routes/adminExtras'
 
 export const createApp = () => {
   const app = express()
@@ -70,10 +72,12 @@ export const createApp = () => {
   app.use('/subadmin-assignments', subAdminAssignmentsRouter)
   app.use('/teacher', teacherTemplatesRouter)
   app.use('/subadmin', subAdminTemplatesRouter)
+  app.use('/aefe', aefeTemplatesRouter)
   app.use('/audit-logs', auditLogsRouter)
   app.use('/impersonation', impersonationRouter)
   app.use('/suggestions', suggestionsRouter)
   app.use('/settings', settingsRouter)
+  app.use('/admin-extras', adminExtrasRouter)
   app.use('/microsoft', microsoftRouter)
   app.use('/outlook-users', outlookUsersRouter)
   app.use('/analytics', analyticsRouter)

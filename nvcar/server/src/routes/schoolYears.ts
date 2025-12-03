@@ -8,7 +8,7 @@ import { ClassModel } from '../models/Class'
 
 export const schoolYearsRouter = Router()
 
-schoolYearsRouter.get('/', requireAuth(['ADMIN','SUBADMIN']), async (req, res) => {
+schoolYearsRouter.get('/', requireAuth(['ADMIN','SUBADMIN','AEFE']), async (req, res) => {
   const list = await SchoolYear.find({}).sort({ startDate: -1 }).lean()
   res.json(list)
 })

@@ -21,6 +21,7 @@ export default function NavBar() {
         <Link to={
           role === 'ADMIN' ? '/admin' :
             role === 'SUBADMIN' ? '/subadmin/dashboard' :
+              role === 'AEFE' ? '/aefe/dashboard' :
               '/teacher/classes'
         } className="nav-brand" style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
           <img src="/logosklnav.jpg" alt="Logo SKL" style={{ height: '66px', objectFit: 'contain' }} />
@@ -41,8 +42,17 @@ export default function NavBar() {
           <>
             <Link to="/subadmin/dashboard" className="nav-link">Tableau de bord</Link>
             <Link to="/subadmin/progress" className="nav-link">Progression</Link>
+            <Link to="/subadmin/teacher-progress" className="nav-link">Suivi Enseignants</Link>
             <Link to="/subadmin/gradebooks" className="nav-link">Carnet</Link>
             <Link to="/subadmin/signature" className="nav-link">Ma signature</Link>
+          </>
+        )}
+        {role === 'AEFE' && (
+          <>
+            <Link to="/aefe/dashboard" className="nav-link">Tableau de bord</Link>
+            <Link to="/aefe/progress" className="nav-link">Progression</Link>
+            <Link to="/aefe/teacher-progress" className="nav-link">Suivi Enseignants</Link>
+            <Link to="/aefe/gradebooks" className="nav-link">Carnet</Link>
           </>
         )}
         {role === 'TEACHER' && token && (
@@ -68,7 +78,7 @@ export default function NavBar() {
                     borderRadius: '16px',
                     fontSize: '0.85rem'
                   }}>
-                    {activeYear.name}
+                    {activeYear.name} - S{activeYear.activeSemester || 1}
                   </span>
                 )}
                 <Link to="/admin/settings" className="nav-link" title="Paramètres" style={{ marginRight: '16px', display: 'inline-flex', alignItems: 'center' }}>

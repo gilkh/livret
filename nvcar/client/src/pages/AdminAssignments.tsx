@@ -19,6 +19,7 @@ export default function AdminAssignments() {
     const { activeYearId } = useSchoolYear()
     const [teachers, setTeachers] = useState<User[]>([])
     const [subAdmins, setSubAdmins] = useState<User[]>([])
+    const [aefeUsers, setAefeUsers] = useState<User[]>([])
     const [classes, setClasses] = useState<Class[]>([])
     const [students, setStudents] = useState<Student[]>([])
     const [templates, setTemplates] = useState<Template[]>([])
@@ -36,6 +37,9 @@ export default function AdminAssignments() {
     // Level assignment states
     const [selectedLevelForSubAdmin, setSelectedLevelForSubAdmin] = useState('')
     const [selectedSubAdminForLevel, setSelectedSubAdminForLevel] = useState('')
+    
+    const [selectedLevelForAefe, setSelectedLevelForAefe] = useState('')
+    const [selectedAefeForLevel, setSelectedAefeForLevel] = useState('')
     
     const [selectedLevelForTemplate, setSelectedLevelForTemplate] = useState('')
     const [selectedTemplateForLevel, setSelectedTemplateForLevel] = useState('')
@@ -59,6 +63,7 @@ export default function AdminAssignments() {
             const allUsers = usersRes.data
             setTeachers(allUsers.filter((u: User) => u.role === 'TEACHER'))
             setSubAdmins(allUsers.filter((u: User) => u.role === 'SUBADMIN'))
+            setAefeUsers(allUsers.filter((u: User) => u.role === 'AEFE'))
             setClasses(classesRes.data)
             setStudents(studentsRes.data)
             setTemplates(templatesRes.data)
@@ -97,6 +102,20 @@ export default function AdminAssignments() {
             const res = await api.post('/subadmin-assignments/bulk-level', {
                 subAdminId: selectedSubAdminForLevel,
                 level: selectedLevelForSubAdmin,
+            })
+            setMessage(`✓ ${res.data.message}`)
+            setTimeout(() => setMessage(''), 3000)
+            loadData()
+        } catch (e) {
+            setMessage('✗ Échec de l\'assignation')
+        }
+    }
+
+    const assignAefeToLevel = async () => {
+        try {
+            const res = await api.post('/subadmin-assignments/bulk-level', {
+                subAdminId: selectedAefeForLevel,
+                level: selectedLevelForAefe,
             })
             setMessage(`✓ ${res.data.message}`)
             setTimeout(() => setMessage(''), 3000)
@@ -147,12 +166,37 @@ export default function AdminAssignments() {
     }
 
     const renderSubAdminLevelSummary = () => {
-        if (subAdminLevelAssignments.length === 0) return <div className="note" style={{ marginTop: 16 }}>Aucune assignation</div>
+        const subAdminOnly = subAdminLevelAssignments.filter(sa => {
+            const user = subAdmins.find(u => u._id === sa.subAdminId)
+            return user !== undefined
+        })
+        
+        if (subAdminOnly.length === 0) return <div className="note" style={{ marginTop: 16 }}>Aucune assignation</div>
 
         return (
             <div style={{ maxHeight: 150, overflowY: 'auto', marginTop: 16, background: '#f9f9f9', padding: 8, borderRadius: 4 }}>
                 <div style={{ fontWeight: 'bold', marginBottom: 4, fontSize: '0.8rem' }}>Déjà assigné :</div>
-                {subAdminLevelAssignments.map(sa => (
+                {subAdminOnly.map(sa => (
+                    <div key={sa.subAdminId} style={{ fontSize: '0.85rem', color: '#666', padding: '2px 0' }}>
+                        {sa.subAdminName} → {sa.levels.sort().join(', ')}
+                    </div>
+                ))}
+            </div>
+        )
+    }
+
+    const renderAefeLevelSummary = () => {
+        const aefeOnly = subAdminLevelAssignments.filter(sa => {
+            const user = aefeUsers.find(u => u._id === sa.subAdminId)
+            return user !== undefined
+        })
+        
+        if (aefeOnly.length === 0) return <div className="note" style={{ marginTop: 16 }}>Aucune assignation</div>
+
+        return (
+            <div style={{ maxHeight: 150, overflowY: 'auto', marginTop: 16, background: '#f9f9f9', padding: 8, borderRadius: 4 }}>
+                <div style={{ fontWeight: 'bold', marginBottom: 4, fontSize: '0.8rem' }}>Déjà assigné :</div>
+                {aefeOnly.map(sa => (
                     <div key={sa.subAdminId} style={{ fontSize: '0.85rem', color: '#666', padding: '2px 0' }}>
                         {sa.subAdminName} → {sa.levels.sort().join(', ')}
                     </div>
@@ -303,6 +347,33 @@ export default function AdminAssignments() {
                         <button className="btn" onClick={assignSubAdminToLevel} disabled={!selectedSubAdminForLevel || !selectedLevelForSubAdmin} style={{ marginTop: 8 }}>Assigner à tous les enseignants</button>
                         
                         {renderSubAdminLevelSummary()}
+                    </div>
+                </div>
+
+                {/* AEFE to Level */}
+                <div className="card">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+                        <div style={{ background: '#fff7e6', padding: 8, borderRadius: 8 }}>🌍</div>
+                        <h3 style={{ margin: 0 }}>AEFE → Niveau</h3>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                        <div>
+                            <label className="note" style={{ display: 'block', marginBottom: 6 }}>Utilisateur AEFE</label>
+                            <select value={selectedAefeForLevel} onChange={e => setSelectedAefeForLevel(e.target.value)} style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid #ddd' }}>
+                                <option value="">Sélectionner AEFE</option>
+                                {aefeUsers.map(s => <option key={s._id} value={s._id}>{s.displayName} ({s.email})</option>)}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="note" style={{ display: 'block', marginBottom: 6 }}>Niveau</label>
+                            <select value={selectedLevelForAefe} onChange={e => setSelectedLevelForAefe(e.target.value)} style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid #ddd' }}>
+                                <option value="">Sélectionner niveau</option>
+                                {levels.map(l => <option key={l._id} value={l.name}>{l.name}</option>)}
+                            </select>
+                        </div>
+                        <button className="btn" onClick={assignAefeToLevel} disabled={!selectedAefeForLevel || !selectedLevelForAefe} style={{ marginTop: 8 }}>Assigner à tous les enseignants</button>
+                        
+                        {renderAefeLevelSummary()}
                     </div>
                 </div>
 

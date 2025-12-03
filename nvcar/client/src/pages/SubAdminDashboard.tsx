@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import api from '../api'
 import ProgressionChart from '../components/ProgressionChart'
 
@@ -34,6 +34,10 @@ type PromotedStudent = {
 }
 
 export default function SubAdminDashboard() {
+    const location = useLocation()
+    const isAefeUser = location.pathname.includes('/aefe')
+    const apiPrefix = isAefeUser ? '/aefe' : '/subadmin'
+    const routePrefix = isAefeUser ? '/aefe' : '/subadmin'
     const [teachers, setTeachers] = useState<Teacher[]>([])
     const [pending, setPending] = useState<PendingTemplate[]>([])
     const [classes, setClasses] = useState<ClassInfo[]>([])
@@ -49,10 +53,10 @@ export default function SubAdminDashboard() {
             try {
                 setLoading(true)
                 const [teachersRes, pendingRes, classesRes, promotedRes] = await Promise.all([
-                    api.get('/subadmin/teachers'),
-                    api.get('/subadmin/pending-signatures'),
-                    api.get('/subadmin/classes'),
-                    api.get('/subadmin/promoted-students'),
+                    api.get(`${apiPrefix}/teachers`),
+                    api.get(`${apiPrefix}/pending-signatures`),
+                    api.get(`${apiPrefix}/classes`),
+                    api.get(`${apiPrefix}/promoted-students`),
                 ])
                 setTeachers(teachersRes.data)
                 setPending(pendingRes.data)
@@ -66,7 +70,7 @@ export default function SubAdminDashboard() {
             }
         }
         loadData()
-    }, [])
+    }, [apiPrefix])
 
     const filteredPending = pending.filter(p => {
         if (filter === 'all') return true
@@ -79,11 +83,11 @@ export default function SubAdminDashboard() {
         try {
             setSigningClass(classId)
             setError('')
-            await api.post(`/subadmin/templates/sign-class/${classId}`)
+            await api.post(`${apiPrefix}/templates/sign-class/${classId}`)
             // Reload data
             const [pendingRes, classesRes] = await Promise.all([
-                api.get('/subadmin/pending-signatures'),
-                api.get('/subadmin/classes'),
+                api.get(`${apiPrefix}/pending-signatures`),
+                api.get(`${apiPrefix}/classes`),
             ])
             setPending(pendingRes.data)
             setClasses(classesRes.data)
@@ -199,7 +203,7 @@ export default function SubAdminDashboard() {
                                                     <td style={{ padding: '12px 16px', textAlign: 'right' }}>
                                                         {student.assignmentId && (
                                                             <Link 
-                                                                to={`/subadmin/templates/${student.assignmentId}/review`}
+                                                                to={`${routePrefix}/templates/${student.assignmentId}/review`}
                                                                 style={{ 
                                                                     display: 'inline-block',
                                                                     padding: '6px 12px',
@@ -288,7 +292,7 @@ export default function SubAdminDashboard() {
                                             {isExpanded && (
                                                 <div style={{ padding: 16, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 18, background: 'white', borderTop: '1px solid #e2e8f0' }}>
                                                     {templates.map(p => (
-                                                        <Link key={p._id} to={`/subadmin/templates/${p._id}/review`} style={{ textDecoration: 'none' }}>
+                                                        <Link key={p._id} to={`${routePrefix}/templates/${p._id}/review`} style={{ textDecoration: 'none' }}>
                                                             <div className="card" style={{ 
                                                                 cursor: 'pointer', 
                                                                 position: 'relative',

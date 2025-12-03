@@ -8,7 +8,7 @@ import { requireAuth } from '../auth'
 export const savedGradebooksRouter = Router()
 
 // List years
-savedGradebooksRouter.get('/years', requireAuth(['ADMIN', 'SUBADMIN']), async (req, res) => {
+savedGradebooksRouter.get('/years', requireAuth(['ADMIN', 'SUBADMIN', 'AEFE']), async (req, res) => {
     const yearIds = await SavedGradebook.distinct('schoolYearId')
     const years = await SchoolYear.find({ _id: { $in: yearIds } })
         .select('name')
@@ -18,7 +18,7 @@ savedGradebooksRouter.get('/years', requireAuth(['ADMIN', 'SUBADMIN']), async (r
 })
 
 // List levels for a year
-savedGradebooksRouter.get('/years/:yearId/levels', requireAuth(['ADMIN', 'SUBADMIN']), async (req, res) => {
+savedGradebooksRouter.get('/years/:yearId/levels', requireAuth(['ADMIN', 'SUBADMIN', 'AEFE']), async (req, res) => {
     const { yearId } = req.params
     const user = (req as any).user
 
@@ -40,7 +40,7 @@ savedGradebooksRouter.get('/years/:yearId/levels', requireAuth(['ADMIN', 'SUBADM
 })
 
 // List students for a year and level
-savedGradebooksRouter.get('/years/:yearId/levels/:level/students', requireAuth(['ADMIN', 'SUBADMIN']), async (req, res) => {
+savedGradebooksRouter.get('/years/:yearId/levels/:level/students', requireAuth(['ADMIN', 'SUBADMIN', 'AEFE']), async (req, res) => {
     const { yearId, level } = req.params
     const user = (req as any).user
 
@@ -71,7 +71,7 @@ savedGradebooksRouter.get('/years/:yearId/levels/:level/students', requireAuth([
 })
 
 // Get a specific saved gradebook
-savedGradebooksRouter.get('/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), async (req, res) => {
+savedGradebooksRouter.get('/:id', requireAuth(['ADMIN', 'SUBADMIN', 'AEFE', 'TEACHER']), async (req, res) => {
     const { id } = req.params
     const saved = await SavedGradebook.findById(id).lean()
     if (!saved) return res.status(404).json({ error: 'not_found' })

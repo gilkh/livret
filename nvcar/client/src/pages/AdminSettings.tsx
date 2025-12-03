@@ -13,6 +13,7 @@ export default function AdminSettings() {
   const [backupInterval, setBackupInterval] = useState(60) // in minutes
   const [dirHandle, setDirHandle] = useState<any>(null)
   const [nextBackupTime, setNextBackupTime] = useState<Date | null>(null)
+  const [systemStatus, setSystemStatus] = useState<{ backend: string; database: string; uptime: number } | null>(null)
 
   useEffect(() => {
     let intervalId: any;
@@ -80,6 +81,7 @@ export default function AdminSettings() {
 
   useEffect(() => {
     loadSettings()
+    checkStatus()
   }, [])
 
   useEffect(() => {
@@ -100,6 +102,15 @@ export default function AdminSettings() {
       console.error(err)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const checkStatus = async () => {
+    try {
+      const res = await api.get('/settings/status')
+      setSystemStatus(res.data)
+    } catch (e) {
+      setSystemStatus({ backend: 'offline', database: 'unknown', uptime: 0 })
     }
   }
 
@@ -188,7 +199,54 @@ export default function AdminSettings() {
 
       <div className="settings-grid">
         
+        {/* System Status Section */}
+        <div className="settings-section">
+          <div className="section-header">
+            <div className="section-icon-wrapper" style={{ background: 'rgba(0, 184, 148, 0.1)', color: '#00b894' }}>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+              </svg>
+            </div>
+            <h2 className="section-title">État du Système</h2>
+          </div>
+          
+          <div className="setting-item">
+            <div className="setting-info">
+              <h3>Frontend (Client)</h3>
+              <p>Interface utilisateur</p>
+            </div>
+            <div className="status-indicator">
+              <span className="dot active"></span>
+              <span style={{ color: 'var(--success)' }}>En ligne</span>
+            </div>
+          </div>
 
+          <div className="setting-item">
+            <div className="setting-info">
+              <h3>Backend (Serveur)</h3>
+              <p>API et logique métier</p>
+            </div>
+            <div className="status-indicator">
+              <span className={`dot ${systemStatus?.backend === 'online' ? 'active' : 'inactive'}`}></span>
+              <span style={{ color: systemStatus?.backend === 'online' ? 'var(--success)' : '#ff7675' }}>
+                {systemStatus?.backend === 'online' ? 'En ligne' : 'Hors ligne'}
+              </span>
+            </div>
+          </div>
+
+          <div className="setting-item">
+            <div className="setting-info">
+              <h3>Base de données</h3>
+              <p>MongoDB</p>
+            </div>
+            <div className="status-indicator">
+              <span className={`dot ${systemStatus?.database === 'connected' ? 'active' : 'inactive'}`}></span>
+              <span style={{ color: systemStatus?.database === 'connected' ? 'var(--success)' : '#ff7675' }}>
+                {systemStatus?.database === 'connected' ? 'Connectée' : 'Déconnectée'}
+              </span>
+            </div>
+          </div>
+        </div>
 
         {/* Access & Security Section */}
         <div className="settings-section">
@@ -295,6 +353,28 @@ export default function AdminSettings() {
               style={{ display: 'flex', alignItems: 'center', gap: 8 }}
             >
               {backupLoading ? 'Création de l\'archive...' : '⬇️ Télécharger Backup Complet'}
+            </button>
+          </div>
+
+          <div className="setting-item">
+            <div className="setting-info">
+              <h3>Redémarrer le serveur</h3>
+              <p>Redémarrer le backend pour appliquer les nouvelles fonctionnalités</p>
+            </div>
+            <button 
+              className="btn secondary" 
+              onClick={async () => {
+                if(!confirm('Voulez-vous vraiment redémarrer le serveur ? Cela peut prendre quelques secondes.')) return
+                try {
+                  await api.post('/settings/restart')
+                  setMsg('Redémarrage en cours...')
+                } catch(e) {
+                  setMsg('Erreur lors du redémarrage')
+                }
+              }}
+              style={{ display: 'flex', alignItems: 'center', gap: 8, borderColor: '#ff7675', backgroundColor: '#ff7675', color: '#fff' }}
+            >
+              🔄 Redémarrer
             </button>
           </div>
 

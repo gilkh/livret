@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import api from '../api'
 
 type Block = { type: string; props: any }
@@ -14,6 +14,10 @@ const pageHeight = 1120
 export default function SubAdminTemplateReview() {
     const { assignmentId } = useParams<{ assignmentId: string }>()
     const navigate = useNavigate()
+    const location = useLocation()
+    const isAefeUser = location.pathname.includes('/aefe/')
+    const apiPrefix = isAefeUser ? '/aefe' : '/subadmin'
+    const dashboardPath = isAefeUser ? '/aefe/dashboard' : '/subadmin/dashboard'
     const [template, setTemplate] = useState<Template | null>(null)
     const [student, setStudent] = useState<Student | null>(null)
     const [assignment, setAssignment] = useState<Assignment | null>(null)
@@ -47,7 +51,7 @@ export default function SubAdminTemplateReview() {
         const loadData = async () => {
             try {
                 setLoading(true)
-                const r = await api.get(`/subadmin/templates/${assignmentId}/review`)
+                const r = await api.get(`${apiPrefix}/templates/${assignmentId}/review`)
                 setTemplate(r.data.template)
                 setStudent(r.data.student)
                 setAssignment(r.data.assignment)
@@ -65,7 +69,7 @@ export default function SubAdminTemplateReview() {
             }
         }
         if (assignmentId) loadData()
-    }, [assignmentId])
+    }, [assignmentId, apiPrefix])
 
     // Close dropdown when clicking outside
     useEffect(() => {
@@ -78,14 +82,7 @@ export default function SubAdminTemplateReview() {
 
     const updateLanguageToggle = async (pageIndex: number, blockIndex: number, items: any[]) => {
         try {
-            // Reuse teacher endpoint or create subadmin one?
-            // Ideally subadmin should have their own endpoint or use a shared one.
-            // Let's assume we can use the teacher endpoint if we have permission, OR create a subadmin specific one.
-            // Since we are in subadmin view, we should probably use a subadmin route.
-            // But for now, let's try to use the teacher one if the backend allows it (it might check role).
-            // Actually, better to add a subadmin route for editing data.
-            
-            await api.patch(`/subadmin/templates/${assignmentId}/data`, {
+            await api.patch(`${apiPrefix}/templates/${assignmentId}/data`, {
                 type: 'language_toggle',
                 pageIndex,
                 blockIndex,
@@ -144,7 +141,7 @@ export default function SubAdminTemplateReview() {
 
         try {
             setPromoting(true)
-            const r = await api.post(`/subadmin/templates/${assignmentId}/promote`, { nextLevel: next })
+            const r = await api.post(`${apiPrefix}/templates/${assignmentId}/promote`, { nextLevel: next })
             alert('Élève promu avec succès !')
             
             // Update state with returned data instead of reloading
@@ -175,9 +172,9 @@ export default function SubAdminTemplateReview() {
         try {
             setSigning(true)
             setError('')
-            await api.post(`/subadmin/templates/${assignmentId}/sign`)
+            await api.post(`${apiPrefix}/templates/${assignmentId}/sign`)
             // Reload data to get updated signature
-            const r = await api.get(`/subadmin/templates/${assignmentId}/review`)
+            const r = await api.get(`${apiPrefix}/templates/${assignmentId}/review`)
             setSignature(r.data.signature)
             setFinalSignature(r.data.finalSignature)
             setAssignment(r.data.assignment)
@@ -194,9 +191,9 @@ export default function SubAdminTemplateReview() {
         try {
             setUnsigning(true)
             setError('')
-            await api.delete(`/subadmin/templates/${assignmentId}/sign`)
+            await api.delete(`${apiPrefix}/templates/${assignmentId}/sign`)
             // Reload data to get updated state
-            const r = await api.get(`/subadmin/templates/${assignmentId}/review`)
+            const r = await api.get(`${apiPrefix}/templates/${assignmentId}/review`)
             setSignature(r.data.signature)
             setFinalSignature(r.data.finalSignature)
             setAssignment(r.data.assignment)
@@ -217,9 +214,9 @@ export default function SubAdminTemplateReview() {
         try {
             setSigningFinal(true)
             setError('')
-            await api.post(`/subadmin/templates/${assignmentId}/sign`, { type: 'end_of_year' })
+            await api.post(`${apiPrefix}/templates/${assignmentId}/sign`, { type: 'end_of_year' })
             // Reload data to get updated signature
-            const r = await api.get(`/subadmin/templates/${assignmentId}/review`)
+            const r = await api.get(`${apiPrefix}/templates/${assignmentId}/review`)
             setSignature(r.data.signature)
             setFinalSignature(r.data.finalSignature)
             setAssignment(r.data.assignment)
@@ -238,9 +235,9 @@ export default function SubAdminTemplateReview() {
             setError('')
             // Use data property for DELETE body if supported by axios/backend, or query param
             // Axios delete supports data in config
-            await api.delete(`/subadmin/templates/${assignmentId}/sign`, { data: { type: 'end_of_year' } })
+            await api.delete(`${apiPrefix}/templates/${assignmentId}/sign`, { data: { type: 'end_of_year' } })
             // Reload data to get updated state
-            const r = await api.get(`/subadmin/templates/${assignmentId}/review`)
+            const r = await api.get(`${apiPrefix}/templates/${assignmentId}/review`)
             setSignature(r.data.signature)
             setFinalSignature(r.data.finalSignature)
             setAssignment(r.data.assignment)
@@ -276,7 +273,7 @@ export default function SubAdminTemplateReview() {
     return (
         <div style={{ padding: 24 }}>
             <div className="card">
-                <button className="btn secondary" onClick={() => navigate('/subadmin/dashboard')} style={{ 
+                <button className="btn secondary" onClick={() => navigate(dashboardPath)} style={{ 
                     marginBottom: 20,
                     display: 'inline-flex',
                     alignItems: 'center',
@@ -291,7 +288,7 @@ export default function SubAdminTemplateReview() {
                         <h2 className="title" style={{ fontSize: 28, marginBottom: 8, color: '#1e293b' }}>📝 Examen du carnet - {student ? `${student.firstName} ${student.lastName}` : 'Élève'}</h2>
                         <div className="note" style={{ fontSize: 14, color: '#64748b' }}>{template.name}</div>
                     </div>
-                    {canEdit && (
+                    {canEdit && !isAefeUser && (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                             <span style={{ fontSize: 14, fontWeight: 500, color: editMode ? '#10b981' : '#64748b' }}>
                                 {editMode ? 'Mode Édition' : 'Mode Lecture'}
@@ -328,105 +325,107 @@ export default function SubAdminTemplateReview() {
                 </div>
                 {error && <div className="note" style={{ marginTop: 12, color: '#dc2626', background: '#fef2f2', padding: 12, borderRadius: 8, border: '1px solid #fecaca' }}>{error}</div>}
 
-                <div style={{ marginTop: 20, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-                    {!signature ? (
-                        <button className="btn" onClick={handleSign} disabled={signing || assignment?.status !== 'completed'} style={{
-                            background: assignment?.status === 'completed' ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)' : '#cbd5e1',
-                            fontWeight: 500,
-                            padding: '12px 20px',
-                            boxShadow: assignment?.status === 'completed' ? '0 2px 8px rgba(16, 185, 129, 0.3)' : 'none',
-                            cursor: assignment?.status === 'completed' ? 'pointer' : 'not-allowed'
-                        }}
-                        title={assignment?.status !== 'completed' ? "L'enseignant n'a pas encore terminé ce carnet" : ""}
-                        >
-                            {signing ? '✍️ Signature...' : '✍️ Signer ce carnet'}
-                        </button>
-                    ) : (
-                        <>
-                            <div className="note" style={{ 
-                                padding: 12, 
-                                background: 'linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%)', 
-                                borderRadius: 8,
-                                border: '1px solid #6ee7b7',
-                                color: '#065f46',
-                                fontWeight: 500
-                            }}>
-                                ✅ Signé le {new Date(signature.signedAt).toLocaleString('fr-FR')}
-                            </div>
-                            <button className="btn" style={{ 
-                                background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                {!isAefeUser && (
+                    <div style={{ marginTop: 20, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+                        {!signature ? (
+                            <button className="btn" onClick={handleSign} disabled={signing || assignment?.status !== 'completed'} style={{
+                                background: assignment?.status === 'completed' ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)' : '#cbd5e1',
                                 fontWeight: 500,
                                 padding: '12px 20px',
-                                boxShadow: '0 2px 8px rgba(245, 158, 11, 0.3)'
-                            }} onClick={handleUnsign} disabled={unsigning}>
-                                {unsigning ? '⏳ Annulation...' : '🔄 Annuler la signature'}
-                            </button>
-                        </>
-                    )}
-
-                    {!finalSignature ? (
-                        <button className="btn" onClick={handleSignFinal} disabled={signingFinal || !signature || (assignment?.status !== 'completed' && assignment?.status !== 'signed')} style={{
-                            background: (!signature || (assignment?.status !== 'completed' && assignment?.status !== 'signed')) ? '#cbd5e1' : 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
-                            fontWeight: 500,
-                            padding: '12px 20px',
-                            boxShadow: (!signature || (assignment?.status !== 'completed' && assignment?.status !== 'signed')) ? 'none' : '0 2px 8px rgba(59, 130, 246, 0.3)',
-                            cursor: (!signature || (assignment?.status !== 'completed' && assignment?.status !== 'signed')) ? 'not-allowed' : 'pointer'
-                        }}
-                        title={!signature ? "Vous devez d'abord signer le carnet (signature standard)" : (assignment?.status !== 'completed' && assignment?.status !== 'signed') ? "L'enseignant n'a pas encore terminé ce carnet" : ""}
-                        >
-                            {signingFinal ? '✍️ Signature...' : '✍️ Signer ce carnet fin années'}
-                        </button>
-                    ) : (
-                        <>
-                            <div className="note" style={{ 
-                                padding: 12, 
-                                background: 'linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%)', 
-                                borderRadius: 8,
-                                border: '1px solid #93c5fd',
-                                color: '#1e40af',
-                                fontWeight: 500
-                            }}>
-                                ✅ Signé fin année le {new Date(finalSignature.signedAt).toLocaleString('fr-FR')}
-                            </div>
-                            <button className="btn" style={{ 
-                                background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
-                                fontWeight: 500,
-                                padding: '12px 20px',
-                                boxShadow: '0 2px 8px rgba(245, 158, 11, 0.3)'
-                            }} onClick={handleUnsignFinal} disabled={unsigningFinal}>
-                                {unsigningFinal ? '⏳ Annulation...' : '🔄 Annuler la signature fin année'}
-                            </button>
-                        </>
-                    )}
-
-                    {student?.level && getNextLevel(student.level) && (
-                        <button 
-                            className="btn" 
-                            onClick={handlePromote} 
-                            disabled={promoting || isPromoted || !finalSignature}
-                            style={{
-                                background: (isPromoted || !finalSignature) ? '#cbd5e1' : 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)',
-                                fontWeight: 500,
-                                padding: '12px 20px',
-                                boxShadow: (isPromoted || !finalSignature) ? 'none' : '0 2px 8px rgba(139, 92, 246, 0.3)',
-                                color: (isPromoted || !finalSignature) ? '#64748b' : 'white',
-                                border: 'none',
-                                cursor: (isPromoted || !finalSignature) ? 'not-allowed' : 'pointer'
+                                boxShadow: assignment?.status === 'completed' ? '0 2px 8px rgba(16, 185, 129, 0.3)' : 'none',
+                                cursor: assignment?.status === 'completed' ? 'pointer' : 'not-allowed'
                             }}
-                            title={isPromoted ? "Élève déjà promu cette année" : !finalSignature ? "Vous devez signer le carnet (fin année) avant de promouvoir l'élève" : ""}
-                        >
-                            {promoting ? '⏳ Promotion...' : isPromoted ? 'Déjà promu' : `Passer en classe supérieure ${getNextLevel(student.level)}`}
-                        </button>
-                    )}
+                            title={assignment?.status !== 'completed' ? "L'enseignant n'a pas encore terminé ce carnet" : ""}
+                            >
+                                {signing ? '✍️ Signature...' : '✍️ Signer ce carnet'}
+                            </button>
+                        ) : (
+                            <>
+                                <div className="note" style={{ 
+                                    padding: 12, 
+                                    background: 'linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%)', 
+                                    borderRadius: 8,
+                                    border: '1px solid #6ee7b7',
+                                    color: '#065f46',
+                                    fontWeight: 500
+                                }}>
+                                    ✅ Signé le {new Date(signature.signedAt).toLocaleString('fr-FR')}
+                                </div>
+                                <button className="btn" style={{ 
+                                    background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                                    fontWeight: 500,
+                                    padding: '12px 20px',
+                                    boxShadow: '0 2px 8px rgba(245, 158, 11, 0.3)'
+                                }} onClick={handleUnsign} disabled={unsigning}>
+                                    {unsigning ? '⏳ Annulation...' : '🔄 Annuler la signature'}
+                                </button>
+                            </>
+                        )}
 
-                    <button className="btn secondary" onClick={handleExportPDF} style={{
-                        background: '#f1f5f9',
-                        color: '#475569',
-                        fontWeight: 500,
-                        border: '1px solid #e2e8f0',
-                        padding: '12px 20px'
-                    }}>📄 Exporter en PDF</button>
-                </div>
+                        {!finalSignature ? (
+                            <button className="btn" onClick={handleSignFinal} disabled={signingFinal || !signature || (assignment?.status !== 'completed' && assignment?.status !== 'signed')} style={{
+                                background: (!signature || (assignment?.status !== 'completed' && assignment?.status !== 'signed')) ? '#cbd5e1' : 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                                fontWeight: 500,
+                                padding: '12px 20px',
+                                boxShadow: (!signature || (assignment?.status !== 'completed' && assignment?.status !== 'signed')) ? 'none' : '0 2px 8px rgba(59, 130, 246, 0.3)',
+                                cursor: (!signature || (assignment?.status !== 'completed' && assignment?.status !== 'signed')) ? 'not-allowed' : 'pointer'
+                            }}
+                            title={!signature ? "Vous devez d'abord signer le carnet (signature standard)" : (assignment?.status !== 'completed' && assignment?.status !== 'signed') ? "L'enseignant n'a pas encore terminé ce carnet" : ""}
+                            >
+                                {signingFinal ? '✍️ Signature...' : '✍️ Signer ce carnet fin années'}
+                            </button>
+                        ) : (
+                            <>
+                                <div className="note" style={{ 
+                                    padding: 12, 
+                                    background: 'linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%)', 
+                                    borderRadius: 8,
+                                    border: '1px solid #93c5fd',
+                                    color: '#1e40af',
+                                    fontWeight: 500
+                                }}>
+                                    ✅ Signé fin année le {new Date(finalSignature.signedAt).toLocaleString('fr-FR')}
+                                </div>
+                                <button className="btn" style={{ 
+                                    background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                                    fontWeight: 500,
+                                    padding: '12px 20px',
+                                    boxShadow: '0 2px 8px rgba(245, 158, 11, 0.3)'
+                                }} onClick={handleUnsignFinal} disabled={unsigningFinal}>
+                                    {unsigningFinal ? '⏳ Annulation...' : '🔄 Annuler la signature fin année'}
+                                </button>
+                            </>
+                        )}
+
+                        {student?.level && getNextLevel(student.level) && (
+                            <button 
+                                className="btn" 
+                                onClick={handlePromote} 
+                                disabled={promoting || isPromoted || !finalSignature}
+                                style={{
+                                    background: (isPromoted || !finalSignature) ? '#cbd5e1' : 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)',
+                                    fontWeight: 500,
+                                    padding: '12px 20px',
+                                    boxShadow: (isPromoted || !finalSignature) ? 'none' : '0 2px 8px rgba(139, 92, 246, 0.3)',
+                                    color: (isPromoted || !finalSignature) ? '#64748b' : 'white',
+                                    border: 'none',
+                                    cursor: (isPromoted || !finalSignature) ? 'not-allowed' : 'pointer'
+                                }}
+                                title={isPromoted ? "Élève déjà promu cette année" : !finalSignature ? "Vous devez signer le carnet (fin année) avant de promouvoir l'élève" : ""}
+                            >
+                                {promoting ? '⏳ Promotion...' : isPromoted ? 'Déjà promu' : `Passer en classe supérieure ${getNextLevel(student.level)}`}
+                            </button>
+                        )}
+
+                        <button className="btn secondary" onClick={handleExportPDF} style={{
+                            background: '#f1f5f9',
+                            color: '#475569',
+                            fontWeight: 500,
+                            border: '1px solid #e2e8f0',
+                            padding: '12px 20px'
+                        }}>📄 Exporter en PDF</button>
+                    </div>
+                )}
 
                 <div style={{ marginTop: 20, marginBottom: 16, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', padding: 16, background: '#f8fafc', borderRadius: 12, border: '1px solid #e2e8f0' }}>
                     <button className="btn secondary" onClick={() => setContinuousScroll(!continuousScroll)} style={{
@@ -671,7 +670,7 @@ export default function SubAdminTemplateReview() {
                                                                 const newData = { ...assignment.data, [key]: '' }
                                                                 setAssignment({ ...assignment, data: newData })
                                                                 try {
-                                                                    await api.patch(`/subadmin/templates/${assignment._id}/data`, { data: { [key]: '' } })
+                                                                    await api.patch(`${apiPrefix}/templates/${assignment._id}/data`, { data: { [key]: '' } })
                                                                 } catch (err) {
                                                                     setError('Erreur sauvegarde')
                                                                 }
@@ -703,7 +702,7 @@ export default function SubAdminTemplateReview() {
                                                                     const newData = { ...assignment.data, [key]: opt }
                                                                     setAssignment({ ...assignment, data: newData })
                                                                     try {
-                                                                        await api.patch(`/subadmin/templates/${assignment._id}/data`, { data: { [key]: opt } })
+                                                                        await api.patch(`${apiPrefix}/templates/${assignment._id}/data`, { data: { [key]: opt } })
                                                                     } catch (err) {
                                                                         setError('Erreur sauvegarde')
                                                                     }

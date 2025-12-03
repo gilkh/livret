@@ -19,6 +19,7 @@ import SubAdminTeacherView from './pages/SubAdminTeacherView'
 import SubAdminTemplateReview from './pages/SubAdminTemplateReview'
 import SubAdminSignature from './pages/SubAdminSignature'
 import SubAdminProgress from './pages/SubAdminProgress'
+import SubAdminTeacherProgress from './pages/SubAdminTeacherProgress'
 import SubAdminGradebooks from './pages/SubAdminGradebooks'
 import AdminAssignments from './pages/AdminAssignments'
 import AdminAssignmentList from './pages/AdminAssignmentList'
@@ -30,6 +31,10 @@ import AdminStudents from './pages/AdminStudents'
 import AdminAnalytics from './pages/AdminAnalytics'
 import AdminSettings from './pages/AdminSettings'
 import CarnetPrint from './pages/CarnetPrint'
+import AdminProgress from './pages/AdminProgress'
+import AdminPermissions from './pages/AdminPermissions'
+import AdminOnlineUsers from './pages/AdminOnlineUsers'
+import SystemAlertBanner from './components/SystemAlertBanner'
 
 const RequireAuth = ({ children }: { children: JSX.Element }) => {
   const token = localStorage.getItem('token')
@@ -53,6 +58,7 @@ export default function App() {
 
   return (
     <>
+      <SystemAlertBanner />
       {showNavBar && (
         <>
           <ImpersonationBanner />
@@ -273,7 +279,63 @@ export default function App() {
           }
         />
         <Route
+          path="/subadmin/teacher-progress"
+          element={
+            <RequireAuth>
+              <SubAdminTeacherProgress />
+            </RequireAuth>
+          }
+        />
+        <Route
           path="/subadmin/gradebooks"
+          element={
+            <RequireAuth>
+              <SubAdminGradebooks />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/aefe/dashboard"
+          element={
+            <RequireAuth>
+              <SubAdminDashboard />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/aefe/teachers/:teacherId"
+          element={
+            <RequireAuth>
+              <SubAdminTeacherView />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/aefe/templates/:assignmentId/review"
+          element={
+            <RequireAuth>
+              <SubAdminTemplateReview />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/aefe/progress"
+          element={
+            <RequireAuth>
+              <SubAdminProgress />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/aefe/teacher-progress"
+          element={
+            <RequireAuth>
+              <SubAdminTeacherProgress />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/aefe/gradebooks"
           element={
             <RequireAuth>
               <SubAdminGradebooks />
@@ -285,6 +347,30 @@ export default function App() {
           element={
             <RequireAuth>
               <AdminAnalytics />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/admin/progress"
+          element={
+            <RequireAuth>
+              <AdminProgress />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/admin/permissions"
+          element={
+            <RequireAuth>
+              <AdminPermissions />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/admin/online-users"
+          element={
+            <RequireAuth>
+              <AdminOnlineUsers />
             </RequireAuth>
           }
         />

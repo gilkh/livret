@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react'
 import api, { impersonationApi } from '../api'
 
-type User = { _id: string; email: string; role: 'ADMIN'|'SUBADMIN'|'TEACHER'; displayName: string }
-type OutlookUser = { _id: string; email: string; role: 'ADMIN'|'SUBADMIN'|'TEACHER'; displayName?: string; lastLogin?: string }
+type User = { _id: string; email: string; role: 'ADMIN'|'SUBADMIN'|'TEACHER'|'AEFE'; displayName: string }
+type OutlookUser = { _id: string; email: string; role: 'ADMIN'|'SUBADMIN'|'TEACHER'|'AEFE'; displayName?: string; lastLogin?: string }
 
 export default function Users() {
   const [users, setUsers] = useState<User[]>([])
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [role, setRole] = useState<'ADMIN'|'SUBADMIN'|'TEACHER'>('TEACHER')
+  const [role, setRole] = useState<'ADMIN'|'SUBADMIN'|'TEACHER'|'AEFE'>('TEACHER')
   const [displayName, setDisplayName] = useState('')
   const [resetMap, setResetMap] = useState<Record<string, string>>({})
   const [impersonating, setImpersonating] = useState<string | null>(null)
@@ -16,7 +16,7 @@ export default function Users() {
   // Outlook Users state
   const [outlookUsers, setOutlookUsers] = useState<OutlookUser[]>([])
   const [outlookEmail, setOutlookEmail] = useState('')
-  const [outlookRole, setOutlookRole] = useState<'ADMIN'|'SUBADMIN'|'TEACHER'>('TEACHER')
+  const [outlookRole, setOutlookRole] = useState<'ADMIN'|'SUBADMIN'|'TEACHER'|'AEFE'>('TEACHER')
   const [outlookDisplayName, setOutlookDisplayName] = useState('')
   const [activeTab, setActiveTab] = useState<'local' | 'microsoft'>('local')
 
@@ -24,6 +24,7 @@ export default function Users() {
     switch(role) {
       case 'ADMIN': return { bg: '#fff0f6', color: '#c41d7f', border: '#ffadd2' }
       case 'SUBADMIN': return { bg: '#e6f7ff', color: '#096dd9', border: '#91d5ff' }
+      case 'AEFE': return { bg: '#fff7e6', color: '#d46b08', border: '#ffd591' }
       case 'TEACHER': return { bg: '#f6ffed', color: '#389e0d', border: '#b7eb8f' }
       default: return { bg: '#f5f5f5', color: '#595959', border: '#d9d9d9' }
     }
@@ -33,12 +34,13 @@ export default function Users() {
     switch(role) {
       case 'ADMIN': return 'Administrateur'
       case 'SUBADMIN': return 'Sous-Administrateur'
+      case 'AEFE': return 'AEFE'
       case 'TEACHER': return 'Enseignant'
       default: return role
     }
   }
 
-  const renderRoleSection = (role: 'ADMIN'|'SUBADMIN'|'TEACHER', userList: (User|OutlookUser)[], isOutlook: boolean) => {
+  const renderRoleSection = (role: 'ADMIN'|'SUBADMIN'|'TEACHER'|'AEFE', userList: (User|OutlookUser)[], isOutlook: boolean) => {
     const filteredUsers = userList.filter(u => u.role === role)
     if (filteredUsers.length === 0) return null
 
@@ -120,6 +122,7 @@ export default function Users() {
                       >
                         <option value="TEACHER">Enseignant</option>
                         <option value="SUBADMIN">Sous-admin</option>
+                        <option value="AEFE">AEFE</option>
                         <option value="ADMIN">Admin</option>
                       </select>
                    ) : (
@@ -257,6 +260,8 @@ export default function Users() {
         targetUrl = '/teacher/classes'
       } else if (user.role === 'SUBADMIN') {
         targetUrl = '/subadmin/dashboard'
+      } else if (user.role === 'AEFE') {
+        targetUrl = '/aefe/dashboard'
       }
       
       // Open in new tab with the impersonation token
@@ -343,6 +348,7 @@ export default function Users() {
                     <select value={role} onChange={e => setRole(e.target.value as any)} style={{ width: '100%', padding: '10px', borderRadius: 6, border: '1px solid #d9d9d9', backgroundColor: 'white' }}>
                       <option value="ADMIN">Admin</option>
                       <option value="SUBADMIN">Sous-admin</option>
+                      <option value="AEFE">AEFE</option>
                       <option value="TEACHER">Enseignant</option>
                     </select>
                 </div>
@@ -352,6 +358,7 @@ export default function Users() {
 
           {renderRoleSection('ADMIN', users, false)}
           {renderRoleSection('SUBADMIN', users, false)}
+          {renderRoleSection('AEFE', users, false)}
           {renderRoleSection('TEACHER', users, false)}
         </div>
       )}
@@ -377,6 +384,7 @@ export default function Users() {
                     <select value={outlookRole} onChange={e => setOutlookRole(e.target.value as any)} style={{ width: '100%', padding: '10px', borderRadius: 6, border: '1px solid #d9d9d9', backgroundColor: 'white' }}>
                       <option value="ADMIN">Admin</option>
                       <option value="SUBADMIN">Sous-admin</option>
+                      <option value="AEFE">AEFE</option>
                       <option value="TEACHER">Enseignant</option>
                     </select>
                 </div>
@@ -386,6 +394,7 @@ export default function Users() {
 
           {renderRoleSection('ADMIN', outlookUsers as User[], true)}
           {renderRoleSection('SUBADMIN', outlookUsers as User[], true)}
+          {renderRoleSection('AEFE', outlookUsers as User[], true)}
           {renderRoleSection('TEACHER', outlookUsers as User[], true)}
         </div>
       )}

@@ -7,6 +7,7 @@ type SchoolYear = {
   startDate: string
   endDate: string
   active: boolean
+  activeSemester?: number
   sequence?: number
 }
 

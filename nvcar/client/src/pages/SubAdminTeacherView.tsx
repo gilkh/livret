@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, useLocation } from 'react-router-dom'
 import api from '../api'
 
 type Change = {
@@ -16,6 +16,9 @@ type Change = {
 
 export default function SubAdminTeacherView() {
     const { teacherId } = useParams<{ teacherId: string }>()
+    const location = useLocation()
+    const isAefeUser = location.pathname.includes('/aefe')
+    const apiPrefix = isAefeUser ? '/aefe' : '/subadmin'
     const [changes, setChanges] = useState<Change[]>([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState('')
@@ -24,7 +27,7 @@ export default function SubAdminTeacherView() {
         const loadChanges = async () => {
             try {
                 setLoading(true)
-                const r = await api.get(`/subadmin/teachers/${teacherId}/changes`)
+                const r = await api.get(`${apiPrefix}/teachers/${teacherId}/changes`)
                 setChanges(r.data)
             } catch (e: any) {
                 setError('Impossible de charger les modifications')
@@ -34,7 +37,7 @@ export default function SubAdminTeacherView() {
             }
         }
         if (teacherId) loadChanges()
-    }, [teacherId])
+    }, [teacherId, apiPrefix])
 
     return (
         <div className="container">
