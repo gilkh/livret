@@ -204,11 +204,28 @@ adminExtrasRouter.get('/online-users', requireAuth(['ADMIN']), async (req, res) 
 // 3. Alerts
 adminExtrasRouter.post('/alert', requireAuth(['ADMIN']), async (req, res) => {
     try {
-        const { message } = req.body
+        const { message, duration } = req.body
         await SystemAlert.updateMany({}, { active: false }) // Deactivate old alerts
         if (message) {
-            await SystemAlert.create({ message, createdBy: (req as any).user.userId })
+            const alertData: any = { 
+                message, 
+                createdBy: (req as any).user.userId,
+                active: true
+            }
+            if (duration && !isNaN(Number(duration))) {
+                alertData.expiresAt = new Date(Date.now() + Number(duration) * 60 * 1000)
+            }
+            await SystemAlert.create(alertData)
         }
+        res.json({ success: true })
+    } catch (e) {
+        res.status(500).json({ error: 'failed' })
+    }
+})
+
+adminExtrasRouter.post('/alert/stop', requireAuth(['ADMIN']), async (req, res) => {
+    try {
+        await SystemAlert.updateMany({ active: true }, { active: false })
         res.json({ success: true })
     } catch (e) {
         res.status(500).json({ error: 'failed' })
@@ -218,6 +235,12 @@ adminExtrasRouter.post('/alert', requireAuth(['ADMIN']), async (req, res) => {
 adminExtrasRouter.get('/alert', async (req, res) => {
     try {
         const alert = await SystemAlert.findOne({ active: true }).sort({ createdAt: -1 }).lean()
+        
+        if (alert && alert.expiresAt && new Date() > new Date(alert.expiresAt)) {
+            await SystemAlert.updateOne({ _id: alert._id }, { active: false })
+            return res.json(null)
+        }
+        
         res.json(alert)
     } catch (e) {
         res.status(500).json({ error: 'failed' })

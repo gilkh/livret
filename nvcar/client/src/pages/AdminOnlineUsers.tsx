@@ -12,6 +12,7 @@ type OnlineUser = {
 export default function AdminOnlineUsers() {
     const [users, setUsers] = useState<OnlineUser[]>([])
     const [alertMsg, setAlertMsg] = useState('')
+    const [duration, setDuration] = useState('')
     const [loading, setLoading] = useState(true)
 
     const loadUsers = async () => {
@@ -35,9 +36,23 @@ export default function AdminOnlineUsers() {
         if (!alertMsg.trim()) return
         if (!confirm('Envoyer cette alerte à TOUS les utilisateurs connectés ?')) return
         try {
-            await api.post('/admin-extras/alert', { message: alertMsg })
+            await api.post('/admin-extras/alert', { 
+                message: alertMsg,
+                duration: duration ? parseInt(duration) : undefined
+            })
             setAlertMsg('')
+            setDuration('')
             alert('Alerte envoyée')
+        } catch (e) {
+            alert('Erreur')
+        }
+    }
+
+    const stopAlert = async () => {
+        if (!confirm('Arrêter l\'alerte en cours ?')) return
+        try {
+            await api.post('/admin-extras/alert/stop')
+            alert('Alerte arrêtée')
         } catch (e) {
             alert('Erreur')
         }
@@ -138,7 +153,22 @@ export default function AdminOnlineUsers() {
                             placeholder="Message d'alerte (ex: Maintenance dans 10 min...)"
                             style={{ width: '100%', height: 100, padding: 8, borderRadius: 4, border: '1px solid #ccc', marginBottom: 12 }}
                         />
-                        <button className="btn" onClick={sendAlert} disabled={!alertMsg}>Envoyer Alerte</button>
+                        
+                        <div style={{ marginBottom: 12 }}>
+                            <label style={{ fontSize: 14, display: 'block', marginBottom: 4 }}>Durée (minutes, optionnel)</label>
+                            <input 
+                                type="number" 
+                                value={duration} 
+                                onChange={e => setDuration(e.target.value)}
+                                placeholder="Ex: 10"
+                                style={{ padding: 8, borderRadius: 4, border: '1px solid #ccc', width: '100%' }}
+                            />
+                        </div>
+
+                        <div style={{ display: 'flex', gap: 8 }}>
+                            <button className="btn" onClick={sendAlert} disabled={!alertMsg}>Envoyer Alerte</button>
+                            <button className="btn secondary" onClick={stopAlert} style={{ borderColor: '#dc2626', color: '#dc2626' }}>Arrêter Alerte</button>
+                        </div>
                     </div>
 
                     {/* Logout All */}

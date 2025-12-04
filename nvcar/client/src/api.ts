@@ -1,8 +1,9 @@
 import axios from 'axios'
 
 const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost'
+const protocol = typeof window !== 'undefined' ? window.location.protocol : 'http:'
 const envBase = (import.meta as any)?.env?.VITE_API_URL as string | undefined
-const baseURL = envBase || `http://${host}:4000`
+const baseURL = envBase || `${protocol}//${host}:4000`
 const api = axios.create({ baseURL })
 
 api.interceptors.request.use(config => {
