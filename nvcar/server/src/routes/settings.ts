@@ -18,7 +18,7 @@ settingsRouter.get('/status', requireAuth(['ADMIN']), async (req, res) => {
 
 settingsRouter.get('/public', async (req, res) => {
   const settings = await Setting.find({
-    key: { $in: ['login_enabled_microsoft', 'school_name'] }
+    key: { $in: ['login_enabled_microsoft', 'school_name', 'nav_permissions'] }
   }).lean()
   
   const settingsMap: Record<string, any> = {}
@@ -29,6 +29,7 @@ settingsRouter.get('/public', async (req, res) => {
   // Defaults
   if (settingsMap.login_enabled_microsoft === undefined) settingsMap.login_enabled_microsoft = true
   if (settingsMap.school_name === undefined) settingsMap.school_name = ''
+  if (settingsMap.nav_permissions === undefined) settingsMap.nav_permissions = {}
   
   res.json(settingsMap)
 })

@@ -427,14 +427,14 @@ export default function SubAdminTemplateReview() {
                         )}
 
                         {!finalSignature ? (
-                            <button className="btn" onClick={handleSignFinal} disabled={signingFinal || !signature || (assignment?.status !== 'completed' && assignment?.status !== 'signed')} style={{
-                                background: (!signature || (assignment?.status !== 'completed' && assignment?.status !== 'signed')) ? '#cbd5e1' : 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                            <button className="btn" onClick={handleSignFinal} disabled={signingFinal || !signature || (assignment?.status !== 'completed' && assignment?.status !== 'signed') || activeSemester !== 2} style={{
+                                background: (!signature || (assignment?.status !== 'completed' && assignment?.status !== 'signed') || activeSemester !== 2) ? '#cbd5e1' : 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
                                 fontWeight: 500,
                                 padding: '12px 20px',
-                                boxShadow: (!signature || (assignment?.status !== 'completed' && assignment?.status !== 'signed')) ? 'none' : '0 2px 8px rgba(59, 130, 246, 0.3)',
-                                cursor: (!signature || (assignment?.status !== 'completed' && assignment?.status !== 'signed')) ? 'not-allowed' : 'pointer'
+                                boxShadow: (!signature || (assignment?.status !== 'completed' && assignment?.status !== 'signed') || activeSemester !== 2) ? 'none' : '0 2px 8px rgba(59, 130, 246, 0.3)',
+                                cursor: (!signature || (assignment?.status !== 'completed' && assignment?.status !== 'signed') || activeSemester !== 2) ? 'not-allowed' : 'pointer'
                             }}
-                            title={!signature ? "Vous devez d'abord signer le carnet (signature standard)" : (assignment?.status !== 'completed' && assignment?.status !== 'signed') ? "L'enseignant n'a pas encore terminé ce carnet" : ""}
+                            title={activeSemester !== 2 ? "Le semestre 2 n'est pas encore actif" : !signature ? "Vous devez d'abord signer le carnet (signature standard)" : (assignment?.status !== 'completed' && assignment?.status !== 'signed') ? "L'enseignant n'a pas encore terminé ce carnet" : ""}
                             >
                                 {signingFinal ? '✍️ Signature...' : '✍️ Signer ce carnet fin années'}
                             </button>

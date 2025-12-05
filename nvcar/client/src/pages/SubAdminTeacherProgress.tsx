@@ -34,6 +34,25 @@ type ClassProgress = {
     byCategory: CategoryProgress[]
 }
 
+type StudentProgress = {
+    studentId: string
+    firstName: string
+    lastName: string
+    arabic: boolean
+    english: boolean
+    polyvalent: boolean
+    hasArabic: boolean
+    hasEnglish: boolean
+    hasPolyvalent: boolean
+}
+
+type ClassDetailedProgress = {
+    classId: string
+    className: string
+    level: string
+    students: StudentProgress[]
+}
+
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d'];
 
 const ProgressSection = ({ title, subtitle, progress, byCategory, color = '#fff' }: any) => (
@@ -129,7 +148,9 @@ const ProgressSection = ({ title, subtitle, progress, byCategory, color = '#fff'
 )
 
 export default function SubAdminTeacherProgress() {
+    const [viewMode, setViewMode] = useState<'summary' | 'detailed'>('summary')
     const [classes, setClasses] = useState<ClassProgress[]>([])
+    const [detailedClasses, setDetailedClasses] = useState<ClassDetailedProgress[]>([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState('')
 
@@ -137,8 +158,13 @@ export default function SubAdminTeacherProgress() {
         const loadData = async () => {
             try {
                 setLoading(true)
-                const res = await api.get('/subadmin-assignments/teacher-progress')
-                setClasses(res.data)
+                if (viewMode === 'summary') {
+                    const res = await api.get('/subadmin-assignments/teacher-progress')
+                    setClasses(res.data)
+                } else {
+                    const res = await api.get('/subadmin-assignments/teacher-progress-detailed')
+                    setDetailedClasses(res.data)
+                }
             } catch (e: any) {
                 setError('Impossible de charger les données')
                 console.error(e)
@@ -147,7 +173,7 @@ export default function SubAdminTeacherProgress() {
             }
         }
         loadData()
-    }, [])
+    }, [viewMode])
 
     const groupedByLevel = classes.reduce((acc, cls) => {
         if (!acc[cls.level]) acc[cls.level] = []
@@ -156,6 +182,14 @@ export default function SubAdminTeacherProgress() {
     }, {} as Record<string, ClassProgress[]>)
 
     const sortedLevels = Object.keys(groupedByLevel).sort()
+
+    const detailedGroupedByLevel = detailedClasses.reduce((acc, cls) => {
+        if (!acc[cls.level]) acc[cls.level] = []
+        acc[cls.level].push(cls)
+        return acc
+    }, {} as Record<string, ClassDetailedProgress[]>)
+    
+    const detailedSortedLevels = Object.keys(detailedGroupedByLevel).sort()
 
     const getLevelStats = (levelClasses: ClassProgress[]) => {
         const stats = {
@@ -192,21 +226,90 @@ export default function SubAdminTeacherProgress() {
 
     return (
         <div className="container">
-            <div className="card" style={{ maxWidth: 1200, margin: '0 auto' }}>
-                <h2 className="title" style={{ fontSize: 28, marginBottom: 20, color: '#1e293b' }}>
-                    📈 Suivi des Enseignants
-                </h2>
+            <div className="card" style={{ maxWidth: 1200, margin: '0 auto', background: 'transparent', boxShadow: 'none', padding: 0 }}>
+                <div style={{ 
+                    display: 'flex', 
+                    justifyContent: 'space-between', 
+                    alignItems: 'center', 
+                    marginBottom: 32,
+                    background: '#fff',
+                    padding: '24px',
+                    borderRadius: '16px',
+                    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+                    border: '1px solid #e2e8f0'
+                }}>
+                    <div>
+                        <h2 className="title" style={{ fontSize: 24, margin: '0 0 8px 0', color: '#0f172a', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <span style={{ fontSize: '28px' }}>📈</span> Suivi des Enseignants
+                        </h2>
+                        <p style={{ margin: 0, color: '#64748b', fontSize: 15 }}>
+                            Suivez la progression du remplissage des livrets par classe et par enseignant
+                        </p>
+                    </div>
+                    
+                    <div style={{ 
+                        background: '#f1f5f9', 
+                        padding: '6px', 
+                        borderRadius: '12px', 
+                        display: 'flex', 
+                        gap: '6px',
+                        border: '1px solid #e2e8f0'
+                    }}>
+                        <button
+                            onClick={() => setViewMode('summary')}
+                            style={{
+                                padding: '10px 20px',
+                                borderRadius: '8px',
+                                border: 'none',
+                                background: viewMode === 'summary' ? '#fff' : 'transparent',
+                                color: viewMode === 'summary' ? '#0f172a' : '#64748b',
+                                fontWeight: viewMode === 'summary' ? 600 : 500,
+                                boxShadow: viewMode === 'summary' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                                cursor: 'pointer',
+                                transition: 'all 0.2s ease',
+                                fontSize: '16px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                outline: 'none'
+                            }}
+                        >
+                            <span>📊</span> Vue Globale
+                        </button>
+                        <button
+                            onClick={() => setViewMode('detailed')}
+                            style={{
+                                padding: '10px 20px',
+                                borderRadius: '8px',
+                                border: 'none',
+                                background: viewMode === 'detailed' ? '#fff' : 'transparent',
+                                color: viewMode === 'detailed' ? '#0f172a' : '#64748b',
+                                fontWeight: viewMode === 'detailed' ? 600 : 500,
+                                boxShadow: viewMode === 'detailed' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                                cursor: 'pointer',
+                                transition: 'all 0.2s ease',
+                                fontSize: '16px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                outline: 'none'
+                            }}
+                        >
+                            <span>📋</span> Vue Détaillée
+                        </button>
+                    </div>
+                </div>
 
                 {loading && <div className="note" style={{ textAlign: 'center', padding: 24 }}>Chargement...</div>}
                 {error && <div className="note" style={{ color: '#dc2626', background: '#fef2f2', padding: 12, borderRadius: 8, border: '1px solid #fecaca' }}>{error}</div>}
 
-                {!loading && !error && classes.length === 0 && (
+                {!loading && !error && viewMode === 'summary' && classes.length === 0 && (
                     <div className="note" style={{ textAlign: 'center', padding: 24 }}>
                         Aucune classe trouvée pour vos niveaux assignés.
                     </div>
                 )}
 
-                {!loading && !error && classes.length > 0 && (
+                {!loading && !error && viewMode === 'summary' && classes.length > 0 && (
                     <div>
                         {sortedLevels.map(level => {
                             const levelClasses = groupedByLevel[level]
@@ -255,6 +358,77 @@ export default function SubAdminTeacherProgress() {
                                 </div>
                             )
                         })}
+                    </div>
+                )}
+
+                {!loading && !error && viewMode === 'detailed' && detailedClasses.length === 0 && (
+                    <div className="note" style={{ textAlign: 'center', padding: 24 }}>
+                        Aucune classe trouvée pour vos niveaux assignés.
+                    </div>
+                )}
+
+                {!loading && !error && viewMode === 'detailed' && detailedClasses.length > 0 && (
+                    <div>
+                        {detailedSortedLevels.map(level => (
+                            <div key={level} style={{ marginBottom: 40 }}>
+                                <h3 style={{ 
+                                    fontSize: 20, 
+                                    color: '#334155', 
+                                    marginBottom: 20, 
+                                    borderBottom: '2px solid #e2e8f0', 
+                                    paddingBottom: 8,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 12
+                                }}>
+                                    <span style={{ background: '#64748b', color: 'white', padding: '4px 12px', borderRadius: 6, fontSize: 14 }}>
+                                        {level}
+                                    </span>
+                                </h3>
+                                
+                                {detailedGroupedByLevel[level].map(cls => (
+                                    <div key={cls.classId} style={{ marginBottom: 30 }}>
+                                        <h4 style={{ fontSize: 18, fontWeight: 600, color: '#475569', marginBottom: 12 }}>{cls.className}</h4>
+                                        <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: 8, background: '#fff' }}>
+                                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+                                                <thead>
+                                                    <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                                                        <th style={{ padding: '12px 16px', textAlign: 'left', color: '#64748b' }}>Élève</th>
+                                                        <th style={{ padding: '12px 16px', textAlign: 'center', color: '#64748b' }}>Prof. Polyvalent</th>
+                                                        <th style={{ padding: '12px 16px', textAlign: 'center', color: '#64748b' }}>Arabe</th>
+                                                        <th style={{ padding: '12px 16px', textAlign: 'center', color: '#64748b' }}>Anglais</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {cls.students.map((student, idx) => (
+                                                        <tr key={student.studentId} style={{ borderBottom: idx < cls.students.length - 1 ? '1px solid #f1f5f9' : 'none' }}>
+                                                            <td style={{ padding: '12px 16px', fontWeight: 500, color: '#334155' }}>
+                                                                {student.lastName} {student.firstName}
+                                                            </td>
+                                                            <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                                                                {student.hasPolyvalent ? (
+                                                                    student.polyvalent ? <span style={{ color: '#22c55e', fontSize: 18 }}>✔</span> : <span style={{ color: '#ef4444', fontSize: 18 }}>✘</span>
+                                                                ) : <span style={{ color: '#cbd5e1', fontSize: 12 }}>N/A</span>}
+                                                            </td>
+                                                            <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                                                                {student.hasArabic ? (
+                                                                    student.arabic ? <span style={{ color: '#22c55e', fontSize: 18 }}>✔</span> : <span style={{ color: '#ef4444', fontSize: 18 }}>✘</span>
+                                                                ) : <span style={{ color: '#cbd5e1', fontSize: 12 }}>N/A</span>}
+                                                            </td>
+                                                            <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                                                                {student.hasEnglish ? (
+                                                                    student.english ? <span style={{ color: '#22c55e', fontSize: 18 }}>✔</span> : <span style={{ color: '#ef4444', fontSize: 18 }}>✘</span>
+                                                                ) : <span style={{ color: '#cbd5e1', fontSize: 12 }}>N/A</span>}
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        ))}
                     </div>
                 )}
             </div>

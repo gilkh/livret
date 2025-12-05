@@ -1,18 +1,41 @@
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useSchoolYear } from '../context/SchoolYearContext'
+import { useState, useEffect } from 'react'
+import api from '../api'
 
 export default function NavBar() {
   const role = typeof window !== 'undefined' ? localStorage.getItem('role') : null
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
   const displayName = typeof window !== 'undefined' ? localStorage.getItem('displayName') : null
   const navigate = useNavigate()
+  const location = useLocation()
   const { activeYear, years, activeYearId, setActiveYearId } = useSchoolYear()
+  const [navPermissions, setNavPermissions] = useState<any>({})
+
+  useEffect(() => {
+    api.get('/settings/public').then(res => {
+      setNavPermissions(res.data.nav_permissions || {})
+    }).catch(err => console.error(err))
+  }, [])
+
+  const canShow = (role: string, key: string) => {
+    return navPermissions[role]?.[key] !== false
+  }
 
   const logout = () => {
     localStorage.removeItem('token')
     localStorage.removeItem('role')
     localStorage.removeItem('displayName')
     navigate('/login')
+  }
+
+  const isActive = (path: string) => {
+    if (path === location.pathname) return true
+    // Handle root paths that are prefixes of other paths
+    if (['/admin', '/subadmin/dashboard', '/aefe/dashboard'].includes(path)) {
+      return location.pathname === path
+    }
+    return location.pathname.startsWith(path)
   }
 
   return (
@@ -31,33 +54,34 @@ export default function NavBar() {
       <div className="nav-center">
         {role === 'ADMIN' && (
           <>
-            <Link to="/admin" className="nav-link">Accueil</Link>
-            <Link to="/admin/ressource" className="nav-link">Structure Scolaire</Link>
-            <Link to="/admin/users" className="nav-link">Utilisateurs</Link>
-            <Link to="/admin/assignments" className="nav-link">Assignations</Link>
-            <Link to="/admin/template-builder" className="nav-link">Templates</Link>
+            <Link to="/admin" className={`nav-link ${isActive('/admin') ? 'active' : ''}`}>Accueil</Link>
+            <Link to="/admin/ressource" className={`nav-link ${isActive('/admin/ressource') ? 'active' : ''}`}>Structure Scolaire</Link>
+            <Link to="/admin/users" className={`nav-link ${isActive('/admin/users') ? 'active' : ''}`}>Utilisateurs</Link>
+            <Link to="/admin/assignments" className={`nav-link ${isActive('/admin/assignments') ? 'active' : ''}`}>Assignations</Link>
+            <Link to="/admin/template-builder" className={`nav-link ${isActive('/admin/template-builder') ? 'active' : ''}`}>Templates</Link>
           </>
         )}
         {role === 'SUBADMIN' && (
           <>
-            <Link to="/subadmin/dashboard" className="nav-link">Tableau de bord</Link>
-            <Link to="/subadmin/progress" className="nav-link">Progression</Link>
-            <Link to="/subadmin/teacher-progress" className="nav-link">Suivi Enseignants</Link>
-            <Link to="/subadmin/gradebooks" className="nav-link">Carnet</Link>
-            <Link to="/subadmin/signature" className="nav-link">Ma signature</Link>
+            {canShow('SUBADMIN', 'dashboard') && <Link to="/subadmin/dashboard" className={`nav-link ${isActive('/subadmin/dashboard') ? 'active' : ''}`}>Tableau de bord</Link>}
+            {canShow('SUBADMIN', 'progress') && <Link to="/subadmin/progress" className={`nav-link ${isActive('/subadmin/progress') ? 'active' : ''}`}>Progression</Link>}
+            {canShow('SUBADMIN', 'teacher-progress') && <Link to="/subadmin/teacher-progress" className={`nav-link ${isActive('/subadmin/teacher-progress') ? 'active' : ''}`}>Suivi Enseignants</Link>}
+            {canShow('SUBADMIN', 'gradebooks') && <Link to="/subadmin/gradebooks" className={`nav-link ${isActive('/subadmin/gradebooks') ? 'active' : ''}`}>Carnet</Link>}
+            {canShow('SUBADMIN', 'eleves') && <Link to="/subadmin/eleves" className={`nav-link ${isActive('/subadmin/eleves') ? 'active' : ''}`}>Élèves</Link>}
+            {canShow('SUBADMIN', 'signature') && <Link to="/subadmin/signature" className={`nav-link ${isActive('/subadmin/signature') ? 'active' : ''}`}>Ma signature</Link>}
           </>
         )}
         {role === 'AEFE' && (
           <>
-            <Link to="/aefe/dashboard" className="nav-link">Tableau de bord</Link>
-            <Link to="/aefe/progress" className="nav-link">Progression</Link>
-            <Link to="/aefe/teacher-progress" className="nav-link">Suivi Enseignants</Link>
-            <Link to="/aefe/gradebooks" className="nav-link">Carnet</Link>
+            {canShow('AEFE', 'dashboard') && <Link to="/aefe/dashboard" className={`nav-link ${isActive('/aefe/dashboard') ? 'active' : ''}`}>Tableau de bord</Link>}
+            {canShow('AEFE', 'progress') && <Link to="/aefe/progress" className={`nav-link ${isActive('/aefe/progress') ? 'active' : ''}`}>Progression</Link>}
+            {canShow('AEFE', 'teacher-progress') && <Link to="/aefe/teacher-progress" className={`nav-link ${isActive('/aefe/teacher-progress') ? 'active' : ''}`}>Suivi Enseignants</Link>}
+            {canShow('AEFE', 'gradebooks') && <Link to="/aefe/gradebooks" className={`nav-link ${isActive('/aefe/gradebooks') ? 'active' : ''}`}>Carnet</Link>}
           </>
         )}
         {role === 'TEACHER' && token && (
           <>
-            <Link to="/teacher/classes" className="nav-link">Mes Classes</Link>
+            {canShow('TEACHER', 'classes') && <Link to="/teacher/classes" className={`nav-link ${isActive('/teacher/classes') ? 'active' : ''}`}>Mes Classes</Link>}
           </>
         )}
       </div>
@@ -115,7 +139,7 @@ export default function NavBar() {
 
             {role === 'ADMIN' && (
               <>
-                <Link to="/admin/settings" className="nav-link" title="Paramètres" style={{ marginRight: '16px', display: 'inline-flex', alignItems: 'center' }}>
+                <Link to="/admin/settings" className={`nav-link ${isActive('/admin/settings') ? 'active' : ''}`} title="Paramètres" style={{ marginRight: '16px', display: 'inline-flex', alignItems: 'center' }}>
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <circle cx="12" cy="12" r="3"></circle>
                     <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>

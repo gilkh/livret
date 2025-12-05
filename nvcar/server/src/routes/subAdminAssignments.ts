@@ -388,6 +388,147 @@ subAdminAssignmentsRouter.get('/', requireAuth(['ADMIN']), async (req, res) => {
 })
 
 // SubAdmin: Get teacher progress overview
+// SubAdmin: Get detailed student progress
+subAdminAssignmentsRouter.get('/teacher-progress-detailed', requireAuth(['SUBADMIN', 'AEFE']), async (req, res) => {
+    try {
+        const subAdminId = (req as any).user.userId
+        
+        // Get assigned levels
+        const scope = await RoleScope.findOne({ userId: subAdminId }).lean()
+        if (!scope || !scope.levels || scope.levels.length === 0) {
+            return res.json([])
+        }
+        
+        const levels = scope.levels
+
+        // Get active school year
+        const activeYear = await SchoolYear.findOne({ active: true }).lean()
+        if (!activeYear) {
+            return res.status(400).json({ error: 'no_active_year' })
+        }
+
+        // Find classes
+        const classes = await ClassModel.find({ 
+            level: { $in: levels },
+            schoolYearId: String(activeYear._id)
+        }).lean()
+        
+        if (classes.length === 0) return res.json([])
+        
+        const classIds = classes.map(c => String(c._id))
+
+        // Find enrollments
+        const enrollments = await Enrollment.find({
+            classId: { $in: classIds },
+            schoolYearId: String(activeYear._id)
+        }).lean()
+        
+        const studentIds = enrollments.map(e => e.studentId)
+        const students = await Student.find({ _id: { $in: studentIds } }).lean()
+        const studentMap = new Map(students.map(s => [String(s._id), s]))
+
+        // Find assignments
+        const assignments = await TemplateAssignment.find({
+            studentId: { $in: studentIds }
+        }).lean()
+
+        // Get Templates
+        const templateIds = [...new Set(assignments.map(a => a.templateId))]
+        const templates = await GradebookTemplate.find({ _id: { $in: templateIds } }).lean()
+        const templateMap = new Map(templates.map(t => [String(t._id), t]))
+
+        // Build result
+        const result = classes.map(cls => {
+            const clsId = String(cls._id)
+            const clsEnrollments = enrollments.filter(e => e.classId === clsId)
+            
+            const clsStudents = clsEnrollments.map(enrollment => {
+                const student = studentMap.get(enrollment.studentId)
+                if (!student) return null
+
+                const studentAssignments = assignments.filter(a => a.studentId === enrollment.studentId)
+                
+                let arabicTotal = 0, arabicFilled = 0
+                let englishTotal = 0, englishFilled = 0
+                let polyvalentTotal = 0, polyvalentFilled = 0
+
+                studentAssignments.forEach(assignment => {
+                    const template = templateMap.get(assignment.templateId)
+                    if (!template) return
+
+                    const assignmentData = assignment.data || {}
+                    const level = cls.level ? cls.level.trim() : ''
+
+                    template.pages.forEach((page: any, pageIdx: number) => {
+                        (page.blocks || []).forEach((block: any, blockIdx: number) => {
+                            if (block.type === 'language_toggle') {
+                                const key = `language_toggle_${pageIdx}_${blockIdx}`
+                                const overrideItems = assignmentData[key]
+                                const items = overrideItems || block.props.items || []
+                                
+                                items.forEach((item: any) => {
+                                    // Check level
+                                    let isAssigned = true
+                                    if (item.levels && Array.isArray(item.levels) && item.levels.length > 0) {
+                                        if (!level || !item.levels.some((l: string) => l.trim() === level)) {
+                                            isAssigned = false
+                                        }
+                                    }
+                                    
+                                    if (isAssigned) {
+                                        const lang = (item.type || item.label || 'Autre').toLowerCase()
+                                        const isActive = item.active === true || item.active === 'true'
+
+                                        if (lang.includes('arabe') || lang.includes('arabic') || lang.includes('العربية')) {
+                                            arabicTotal++
+                                            if (isActive) arabicFilled++
+                                        } else if (lang.includes('anglais') || lang.includes('english')) {
+                                            englishTotal++
+                                            if (isActive) englishFilled++
+                                        } else {
+                                            // Default to Polyvalent (usually French/General)
+                                            polyvalentTotal++
+                                            if (isActive) polyvalentFilled++
+                                        }
+                                    }
+                                })
+                            }
+                        })
+                    })
+                })
+
+                return {
+                    studentId: String(student._id),
+                    firstName: student.firstName,
+                    lastName: student.lastName,
+                    arabic: arabicTotal > 0 && arabicTotal === arabicFilled,
+                    english: englishTotal > 0 && englishTotal === englishFilled,
+                    polyvalent: polyvalentTotal > 0 && polyvalentTotal === polyvalentFilled,
+                    hasArabic: arabicTotal > 0,
+                    hasEnglish: englishTotal > 0,
+                    hasPolyvalent: polyvalentTotal > 0
+                }
+            }).filter(Boolean)
+
+            // Sort students by last name
+            clsStudents.sort((a: any, b: any) => a.lastName.localeCompare(b.lastName))
+
+            return {
+                classId: clsId,
+                className: cls.name,
+                level: cls.level,
+                students: clsStudents
+            }
+        })
+
+        res.json(result)
+
+    } catch (error) {
+        console.error(error)
+        res.status(500).json({ error: 'Failed to fetch detailed teacher progress' })
+    }
+})
+
 subAdminAssignmentsRouter.get('/teacher-progress', requireAuth(['SUBADMIN', 'AEFE']), async (req, res) => {
     try {
         const subAdminId = (req as any).user.userId

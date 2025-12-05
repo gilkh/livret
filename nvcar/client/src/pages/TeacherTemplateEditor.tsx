@@ -31,6 +31,19 @@ export default function TeacherTemplateEditor() {
 
     const socket = useSocket()
 
+    const fixUrl = (url: string) => {
+        if (!url) return url
+        if (typeof window === 'undefined') return url
+        // Replace localhost:4000 with current window hostname:4000
+        // This handles the case where images were saved with localhost but we are accessing via IP
+        if (url.includes('localhost:4000')) {
+            const host = window.location.hostname
+            const protocol = window.location.protocol
+            return url.replace(/http(s)?:\/\/localhost:4000/, `${protocol}//${host}:4000`)
+        }
+        return url
+    }
+
     useEffect(() => {
         if (assignmentId && socket) {
             const roomId = `assignment:${assignmentId}`
@@ -358,15 +371,16 @@ export default function TeacherTemplateEditor() {
                                 {page.blocks.map((b, idx) => (
                         <div key={idx} style={{ position: 'absolute', left: b.props.x || 0, top: b.props.y || 0, zIndex: b.props.z ?? idx, padding: 6 }}>
                             {b.type === 'text' && <div style={{ color: b.props.color, fontSize: b.props.fontSize }}>{b.props.text}</div>}
-                            {b.type === 'image' && <img src={b.props.url} style={{ width: b.props.width || 120, height: b.props.height || 120, borderRadius: 8 }} alt="" />}
+                            {b.type === 'image' && <img src={fixUrl(b.props.url)} style={{ width: b.props.width || 120, height: b.props.height || 120, borderRadius: 8 }} alt="" />}
                             {b.type === 'rect' && <div style={{ width: b.props.width, height: b.props.height, background: b.props.color, borderRadius: b.props.radius || 8 }} />}
                             {b.type === 'circle' && <div style={{ width: (b.props.radius || 60) * 2, height: (b.props.radius || 60) * 2, background: b.props.color, borderRadius: '50%' }} />}
                             {b.type === 'language_toggle' && (
                                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: b.props.spacing || 12 }}>
                                     {(b.props.items || []).map((it: any, i: number) => {
                                         // Check level and language
-                                        const isLevelAllowed = !(it.levels && it.levels.length > 0 && student?.level && !it.levels.includes(student.level));
-                                        const isLanguageAllowed = allowedLanguages.length === 0 || (it.code && allowedLanguages.includes(it.code));
+                                        // Strict check: If levels are defined on the item, student MUST have a matching level
+                                        const isLevelAllowed = !it.levels || it.levels.length === 0 || (student?.level && it.levels.includes(student.level));
+                                        const isLanguageAllowed = allowedLanguages.length === 0 || (it.code && allowedLanguages.includes(it.code)) || (isProfPolyvalent && it.code === 'fr');
                                         const isAllowed = isLevelAllowed && isLanguageAllowed;
                                         
                                         const r = b.props.radius || 40
@@ -394,7 +408,7 @@ export default function TeacherTemplateEditor() {
                                                     updateLanguageToggle(actualPageIndex, idx, newItems)
                                                 }}
                                             >
-                                                {it.logo ? <img src={it.logo} style={{ width: '100%', height: '100%', objectFit: 'cover', filter: it.active ? 'brightness(1.1)' : 'brightness(0.6)' }} alt="" /> : <div style={{ width: '100%', height: '100%', background: '#ddd' }} />}
+                                                {it.logo ? <img src={fixUrl(it.logo)} style={{ width: '100%', height: '100%', objectFit: 'cover', filter: it.active ? 'brightness(1.1)' : 'brightness(0.6)' }} alt="" /> : <div style={{ width: '100%', height: '100%', background: '#ddd' }} />}
                                                 <div style={{ position: 'absolute', bottom: 2, left: 0, right: 0, textAlign: 'center', fontSize: 10, color: '#fff', textShadow: '0 1px 2px rgba(0,0,0,0.6)' }}>{it.label || it.code}</div>
                                             </div>
                                         )
@@ -421,7 +435,8 @@ export default function TeacherTemplateEditor() {
                                 {b.type === 'signature' && <div style={{ fontSize: b.props.fontSize }}>{(b.props.labels || []).join(' / ')}</div>}
                                 {b.type === 'dropdown' && (() => {
                                     // Check if dropdown is allowed for current level
-                                    const isLevelAllowed = !(b.props.levels && b.props.levels.length > 0 && student?.level && !b.props.levels.includes(student.level))
+                                    // Strict check: If levels are defined on the dropdown, student MUST have a matching level
+                                    const isLevelAllowed = !b.props.levels || b.props.levels.length === 0 || (student?.level && b.props.levels.includes(student.level))
                                     // Check if dropdown is allowed for current semester (default to both semesters if not specified)
                                     const dropdownSemesters = b.props.semesters || [1, 2]
                                     const isSemesterAllowed = dropdownSemesters.includes(activeSemester)

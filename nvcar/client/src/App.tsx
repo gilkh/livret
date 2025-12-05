@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
 import Login from './pages/Login'
+import AdminLogin from './pages/AdminLogin'
 import AdminDashboard from './pages/AdminDashboard'
 import AdminGradebooks from './pages/AdminGradebooks'
 import TeacherDashboard from './pages/TeacherDashboard'
@@ -18,6 +19,7 @@ import SubAdminDashboard from './pages/SubAdminDashboard'
 import SubAdminTeacherView from './pages/SubAdminTeacherView'
 import SubAdminTemplateReview from './pages/SubAdminTemplateReview'
 import SubAdminSignature from './pages/SubAdminSignature'
+import SubAdminStudents from './pages/SubAdminStudents'
 import SubAdminProgress from './pages/SubAdminProgress'
 import SubAdminTeacherProgress from './pages/SubAdminTeacherProgress'
 import SubAdminGradebooks from './pages/SubAdminGradebooks'
@@ -54,7 +56,7 @@ export default function App() {
   const location = useLocation()
 
   // Hide navbar on login and print pages
-  const showNavBar = location.pathname !== '/login' && !location.pathname.startsWith('/print/')
+  const showNavBar = location.pathname !== '/login' && location.pathname !== '/admin/login' && !location.pathname.startsWith('/print/')
 
   return (
     <>
@@ -67,6 +69,7 @@ export default function App() {
       )}
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/admin/login" element={<AdminLogin />} />
         {/* Print route without auth/navbar for PDF generation */}
         <Route path="/print/carnet/:assignmentId" element={<CarnetPrint />} />
         <Route path="/print/saved/:savedId" element={<CarnetPrint mode="saved" />} />
@@ -267,6 +270,14 @@ export default function App() {
           element={
             <RequireAuth>
               <SubAdminSignature />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/subadmin/eleves"
+          element={
+            <RequireAuth>
+              <SubAdminStudents />
             </RequireAuth>
           }
         />

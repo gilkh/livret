@@ -41,6 +41,7 @@ export default function AdminResources() {
   const [lastName, setLastName] = useState('')
   const [editingStudentId, setEditingStudentId] = useState<string | null>(null)
   const [showImportModal, setShowImportModal] = useState(false)
+  const [showBulkAssignModal, setShowBulkAssignModal] = useState(false)
 
   const promotedStudents = useMemo(() => {
       return unassignedStudents.filter(s => s.promotion && s.promotion.from !== s.promotion.to)
@@ -206,6 +207,22 @@ export default function AdminResources() {
       if(selectedClassId) await loadStudents(selectedClassId)
   }
 
+  const downloadUnassignedCsv = async () => {
+      if (!selectedYear) return
+      try {
+          const response = await api.get(`/students/unassigned/export/${selectedYear._id}`, { responseType: 'blob' })
+          const url = window.URL.createObjectURL(new Blob([response.data]));
+          const link = document.createElement('a');
+          link.href = url;
+          link.setAttribute('download', 'students_to_assign.csv');
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+      } catch (e) {
+          alert('Erreur lors du téléchargement')
+      }
+  }
+
   return (
     <div className="container">
       <div style={{ marginBottom: 32, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -368,6 +385,15 @@ export default function AdminResources() {
                     <h4 style={{ margin: '0 0 12px 0', fontSize: '0.9rem', color: '#8c8c8c' }}>Import CSV</h4>
                     <button className="btn secondary" style={{ width: '100%' }} onClick={() => setShowImportModal(true)}>Importer des élèves (CSV)</button>
                     {selectedYear && <ImportStudentsModal isOpen={showImportModal} onClose={() => setShowImportModal(false)} schoolYearId={selectedYear._id} />}
+                    {selectedYear && <BulkAssignModal 
+                        isOpen={showBulkAssignModal} 
+                        onClose={() => setShowBulkAssignModal(false)} 
+                        schoolYearId={selectedYear._id} 
+                        onSuccess={() => {
+                            loadUnassignedStudents(selectedYear._id)
+                            loadClasses(selectedYear._id)
+                        }}
+                    />}
                 </div>
             </div>
           )}
@@ -434,6 +460,10 @@ export default function AdminResources() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 24, flex: 1 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span className="note">Total: {unassignedStudents.length}</span>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                        <button className="btn secondary" onClick={downloadUnassignedCsv} style={{ padding: '4px 8px', fontSize: '0.85rem' }}>⬇ CSV</button>
+                        <button className="btn secondary" onClick={() => setShowBulkAssignModal(true)} style={{ padding: '4px 8px', fontSize: '0.85rem' }}>⬆ CSV</button>
+                    </div>
                 </div>
 
                 {unassignedStudents.length === 0 ? (
@@ -655,6 +685,104 @@ function ImportStudentsModal({ isOpen, onClose, schoolYearId }: { isOpen: boolea
                 <button className="btn secondary" onClick={onClose}>Fermer</button>
                 <button className="btn" onClick={submit} disabled={loading || !csv.trim()}>
                     {loading ? 'Importation...' : 'Importer les élèves'}
+                </button>
+            </div>
+        </div>
+    </div>
+  )
+}
+
+function BulkAssignModal({ isOpen, onClose, schoolYearId, onSuccess }: { isOpen: boolean; onClose: () => void; schoolYearId: string; onSuccess: () => void }) {
+  const [csv, setCsv] = useState('')
+  const [report, setReport] = useState<any>(null)
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+      if (isOpen) {
+          setCsv('')
+          setReport(null)
+          setLoading(false)
+      }
+  }, [isOpen])
+
+  const onFile = async (e: any) => {
+    const f = e.target.files?.[0]
+    if (!f) return
+    const txt = await f.text()
+    setCsv(txt)
+  }
+
+  const submit = async () => {
+    setLoading(true)
+    setReport(null)
+    try {
+        const r = await api.post('/students/bulk-assign-section', { csv, schoolYearId })
+        setReport(r.data)
+        if (r.data.success > 0) {
+            onSuccess()
+        }
+    } catch (e) {
+        alert('Erreur lors de l\'import')
+    } finally {
+        setLoading(false)
+    }
+  }
+
+  if (!isOpen) return null
+
+  return (
+    <div style={{
+        position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+        background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000
+    }} onClick={onClose}>
+        <div style={{
+            background: 'white', padding: 24, borderRadius: 12, width: '600px', maxWidth: '90%',
+            maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
+        }} onClick={e => e.stopPropagation()}>
+            
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+                <h3 style={{ margin: 0, fontSize: '1.5rem' }}>Affectation en masse</h3>
+                <button onClick={onClose} style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: '1.5rem', color: '#999' }}>✕</button>
+            </div>
+
+            <div style={{ marginBottom: 20 }}>
+                <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Fichier CSV</label>
+                <div style={{ border: '2px dashed #ddd', padding: 20, borderRadius: 8, textAlign: 'center', background: '#fafafa', marginBottom: 12 }}>
+                    <input type="file" accept=".csv" onChange={onFile} style={{ display: 'none' }} id="bulk-csv-upload" />
+                    <label htmlFor="bulk-csv-upload" style={{ cursor: 'pointer', color: '#1890ff', fontWeight: 500 }}>
+                        Cliquez pour sélectionner un fichier
+                    </label>
+                </div>
+                
+                <textarea 
+                    value={csv} 
+                    onChange={e => setCsv(e.target.value)} 
+                    rows={6} 
+                    style={{ width: '100%', padding: 12, borderRadius: 8, border: '1px solid #ddd', fontFamily: 'monospace', fontSize: '0.9rem' }} 
+                    placeholder="StudentId,FirstName,LastName,PreviousClass,TargetLevel,NextClass..."
+                />
+                <div className="note" style={{ marginTop: 4 }}>Colonnes requises: <code>StudentId, NextClass</code> (ex: "MS A")</div>
+            </div>
+
+            {report && (
+                <div style={{ marginBottom: 20, padding: 16, background: report.success > 0 ? '#f6ffed' : '#fffbe6', border: `1px solid ${report.success > 0 ? '#b7eb8f' : '#ffe58f'}`, borderRadius: 8 }}>
+                    <h4 style={{ margin: '0 0 8px 0' }}>Résultat</h4>
+                    <ul style={{ margin: 0, paddingLeft: 20 }}>
+                        <li>Affectés: <b>{report.success}</b></li>
+                        <li>Erreurs: <b>{report.errors?.length || 0}</b></li>
+                    </ul>
+                    {report.errors && report.errors.length > 0 && (
+                        <div style={{ marginTop: 8, maxHeight: 100, overflowY: 'auto', fontSize: '0.85rem', color: 'red' }}>
+                            {report.errors.map((e: any, i: number) => <div key={i}>{JSON.stringify(e)}</div>)}
+                        </div>
+                    )}
+                </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
+                <button className="btn secondary" onClick={onClose}>Fermer</button>
+                <button className="btn" onClick={submit} disabled={loading || !csv.trim()}>
+                    {loading ? 'Traitement...' : 'Lancer l\'affectation'}
                 </button>
             </div>
         </div>

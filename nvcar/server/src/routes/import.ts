@@ -5,6 +5,7 @@ import { Student } from '../models/Student'
 import { Enrollment } from '../models/Enrollment'
 import { CsvImportJob } from '../models/CsvImportJob'
 import { parse } from 'csv-parse/sync'
+import { checkAndAssignTemplates } from '../utils/templateUtils'
 
 export const importRouter = Router()
 
@@ -38,7 +39,12 @@ importRouter.post('/students', requireAuth(['ADMIN','SUBADMIN']), async (req, re
         cls = await ClassModel.create({ name: className, schoolYearId })
       }
       const enrollmentExists = await Enrollment.findOne({ studentId: String(student!._id), classId: String(cls!._id), schoolYearId })
-      if (!enrollmentExists) await Enrollment.create({ studentId: String(student!._id), classId: String(cls!._id), schoolYearId })
+      if (!enrollmentExists) {
+        await Enrollment.create({ studentId: String(student!._id), classId: String(cls!._id), schoolYearId })
+        if (cls && cls.level) {
+          await checkAndAssignTemplates(String(student!._id), cls.level, schoolYearId, String(cls._id), (req as any).user.userId)
+        }
+      }
       report.push({ status: existing ? 'updated' : 'added', studentId: String(student!._id), classId: String(cls!._id) })
     } catch (e: any) {
       errorCount++

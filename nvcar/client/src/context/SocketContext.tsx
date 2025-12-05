@@ -12,7 +12,12 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
 
   useEffect(() => {
     // Adjust the URL if your server is running on a different port/host
-    const newSocket = io(import.meta.env.VITE_API_URL || 'http://localhost:4000', {
+    const host = window.location.hostname
+    const protocol = window.location.protocol
+    const defaultUrl = `${protocol}//${host}:4000`
+    const url = import.meta.env.VITE_API_URL || defaultUrl
+    
+    const newSocket = io(url, {
       withCredentials: true,
     })
 

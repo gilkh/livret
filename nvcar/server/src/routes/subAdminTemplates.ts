@@ -17,6 +17,7 @@ import { Level } from '../models/Level'
 import { SavedGradebook } from '../models/SavedGradebook'
 import { StudentCompetencyStatus } from '../models/StudentCompetencyStatus'
 import { logAudit } from '../utils/auditLogger'
+import { checkAndAssignTemplates } from '../utils/templateUtils'
 import multer from 'multer'
 import path from 'path'
 import fs from 'fs'
@@ -790,6 +791,14 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', requireAut
             return res.status(400).json({ error: 'already_signed' })
         }
 
+        // Check for Semester 2 requirement for end_of_year signature
+        if (type === 'end_of_year') {
+            const activeSchoolYear = await SchoolYear.findOne({ active: true }).lean()
+            if (!activeSchoolYear || activeSchoolYear.activeSemester !== 2) {
+                return res.status(400).json({ error: 'semester_2_required', message: 'Semester 2 must be active to sign end of year' })
+            }
+        }
+
         // Create signature
         const signature = await TemplateSignature.create({
             templateAssignmentId,
@@ -1361,5 +1370,138 @@ subAdminTemplatesRouter.patch('/templates/:assignmentId/data', requireAuth(['SUB
 
     } catch (e: any) {
         res.status(500).json({ error: 'update_failed', message: e.message })
+    }
+})
+
+// Sub-admin: Get students in assigned levels
+subAdminTemplatesRouter.get('/students', requireAuth(['SUBADMIN']), async (req, res) => {
+    try {
+        const subAdminId = (req as any).user.userId
+        
+        // Get active school year
+        const activeSchoolYear = await SchoolYear.findOne({ active: true }).lean()
+        if (!activeSchoolYear) return res.json([])
+
+        // Get RoleScope for levels
+        const roleScope = await RoleScope.findOne({ userId: subAdminId }).lean()
+        const levels = roleScope?.levels || []
+        
+        if (levels.length === 0) {
+            return res.json([])
+        }
+
+        // Get classes in these levels
+        const classes = await ClassModel.find({ 
+            level: { $in: levels },
+            schoolYearId: activeSchoolYear._id 
+        }).lean()
+        const classIds = classes.map(c => String(c._id))
+        const classMap = new Map(classes.map(c => [String(c._id), c]))
+
+        // Get enrollments in these classes
+        const enrollments = await Enrollment.find({ 
+            classId: { $in: classIds },
+            schoolYearId: activeSchoolYear._id
+        }).lean()
+        const enrolledStudentIds = enrollments.map(e => e.studentId)
+        const enrollmentMap = new Map(enrollments.map(e => [e.studentId, e]))
+
+        // Get students by level OR by enrollment
+        const studentsByLevel = await Student.find({ level: { $in: levels } }).lean()
+        const studentsByEnrollment = await Student.find({ _id: { $in: enrolledStudentIds } }).lean()
+        
+        // Merge and deduplicate
+        const allStudents = [...studentsByLevel, ...studentsByEnrollment]
+        const uniqueStudents = Array.from(new Map(allStudents.map(s => [String(s._id), s])).values())
+
+        // Attach class info
+        const result = uniqueStudents.map(s => {
+            const enrollment = enrollmentMap.get(String(s._id))
+            const cls = (enrollment && enrollment.classId) ? classMap.get(enrollment.classId) : null
+            
+            return {
+                ...s,
+                classId: cls ? String(cls._id) : undefined,
+                className: cls ? cls.name : undefined,
+                level: cls ? cls.level : s.level
+            }
+        })
+
+        res.json(result)
+
+    } catch (e: any) {
+        res.status(500).json({ error: 'fetch_failed', message: e.message })
+    }
+})
+
+// Sub-admin: Assign student to class
+subAdminTemplatesRouter.post('/assign-student', requireAuth(['SUBADMIN']), async (req, res) => {
+    try {
+        const subAdminId = (req as any).user.userId
+        const { studentId, classId } = req.body
+
+        if (!studentId || !classId) return res.status(400).json({ error: 'missing_params' })
+
+        // Verify class is allowed
+        const cls = await ClassModel.findById(classId).lean()
+        if (!cls) return res.status(404).json({ error: 'class_not_found' })
+
+        const roleScope = await RoleScope.findOne({ userId: subAdminId }).lean()
+        const levels = roleScope?.levels || []
+
+        if (!cls.level || !levels.includes(cls.level)) {
+            return res.status(403).json({ error: 'not_authorized_for_level' })
+        }
+
+        // Get active school year
+        const activeSchoolYear = await SchoolYear.findOne({ active: true }).lean()
+        if (!activeSchoolYear) return res.status(400).json({ error: 'no_active_year' })
+
+        if (String(cls.schoolYearId) !== String(activeSchoolYear._id)) {
+             return res.status(400).json({ error: 'class_wrong_year' })
+        }
+
+        // Update/Create enrollment
+        const existing = await Enrollment.findOne({ 
+            studentId, 
+            schoolYearId: activeSchoolYear._id 
+        })
+
+        if (existing) {
+            existing.classId = classId
+            await existing.save()
+            if (cls && cls.level) {
+                await checkAndAssignTemplates(studentId, cls.level, String(activeSchoolYear._id), classId, (req as any).user.userId)
+            }
+        } else {
+            await Enrollment.create({
+                studentId,
+                classId,
+                schoolYearId: activeSchoolYear._id
+            })
+            if (cls && cls.level) {
+                await checkAndAssignTemplates(studentId, cls.level, String(activeSchoolYear._id), classId, (req as any).user.userId)
+            }
+        }
+
+        // Update student level to match class level
+        await Student.findByIdAndUpdate(studentId, { level: cls.level })
+
+        // Update template assignments
+        const teacherAssignments = await TeacherClassAssignment.find({ classId }).lean()
+        const teacherIds = teacherAssignments.map(t => t.teacherId)
+
+        await TemplateAssignment.updateMany(
+            { 
+                studentId, 
+                status: { $in: ['draft', 'in_progress'] } 
+            },
+            { $set: { assignedTeachers: teacherIds } }
+        )
+
+        res.json({ success: true })
+
+    } catch (e: any) {
+        res.status(500).json({ error: 'assign_failed', message: e.message })
     }
 })

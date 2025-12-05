@@ -1,4 +1,5 @@
 import { Router } from 'express'
+import { parse } from 'csv-parse/sync'
 import { Student } from '../models/Student'
 import { Enrollment } from '../models/Enrollment'
 import { ClassModel } from '../models/Class'
@@ -6,7 +7,11 @@ import { SchoolYear } from '../models/SchoolYear'
 import { StudentCompetencyStatus } from '../models/StudentCompetencyStatus'
 import { TemplateAssignment } from '../models/TemplateAssignment'
 import { TeacherClassAssignment } from '../models/TeacherClassAssignment'
+import { GradebookTemplate } from '../models/GradebookTemplate'
+import { Level } from '../models/Level'
+import { logAudit } from '../utils/auditLogger'
 import { requireAuth } from '../auth'
+import { checkAndAssignTemplates } from '../utils/templateUtils'
 
 export const studentsRouter = Router()
 
@@ -44,99 +49,101 @@ studentsRouter.get('/', requireAuth(['ADMIN','SUBADMIN','TEACHER']), async (req,
   res.json(out)
 })
 
+studentsRouter.get('/unassigned/export/:schoolYearId', requireAuth(['ADMIN','SUBADMIN']), async (req, res) => {
+  const { schoolYearId } = req.params
+  const result = await fetchUnassignedStudents(schoolYearId)
+  
+  const headers = ['StudentId', 'FirstName', 'LastName', 'PreviousClass', 'TargetLevel', 'NextClass']
+  const rows = result.map(s => [
+    s._id,
+    s.firstName,
+    s.lastName,
+    s.previousClassName || '',
+    s.level || '',
+    ''
+  ])
+  
+  const csvContent = [
+    headers.join(','),
+    ...rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(','))
+  ].join('\n')
+  
+  res.setHeader('Content-Type', 'text/csv')
+  res.setHeader('Content-Disposition', `attachment; filename="students_to_assign.csv"`)
+  res.send(csvContent)
+})
+
+studentsRouter.post('/bulk-assign-section', requireAuth(['ADMIN','SUBADMIN']), async (req, res) => {
+  const { csv, schoolYearId } = req.body
+  if (!csv || !schoolYearId) return res.status(400).json({ error: 'missing_params' })
+  
+  try {
+    const records = parse(csv, {
+      columns: true,
+      skip_empty_lines: true,
+      trim: true
+    })
+    
+    const results = {
+      success: 0,
+      errors: [] as any[]
+    }
+    
+    for (const record of records) {
+      const studentId = record.StudentId
+      const nextClass = record.NextClass
+      
+      if (!studentId || !nextClass) {
+        results.errors.push({ studentId, error: 'missing_id_or_class' })
+        continue
+      }
+      
+      const parts = nextClass.trim().split(' ')
+      let level, section
+      
+      if (parts.length >= 2) {
+          level = parts[0]
+          section = parts.slice(1).join(' ')
+      } else {
+          if (record.TargetLevel) {
+              level = record.TargetLevel
+              section = nextClass
+          } else {
+               results.errors.push({ studentId, error: 'invalid_class_format' })
+               continue
+          }
+      }
+      
+      try {
+          const className = `${level} ${section}`
+          let cls = await ClassModel.findOne({ schoolYearId, name: className }).lean()
+          if (!cls) {
+            cls = await ClassModel.create({ name: className, level, schoolYearId })
+          }
+          
+          const existing = await Enrollment.findOne({ studentId, schoolYearId })
+          if (existing) {
+            existing.classId = String(cls._id)
+            await existing.save()
+          } else {
+            await Enrollment.create({ studentId, classId: String(cls._id), schoolYearId })
+          }
+
+          await checkAndAssignTemplates(studentId, level, schoolYearId, String(cls._id), (req as any).user.userId)
+          results.success++
+      } catch (e: any) {
+          results.errors.push({ studentId, error: e.message })
+      }
+    }
+    res.json(results)
+  } catch (e: any) {
+      res.status(400).json({ error: 'csv_parse_error', details: e.message })
+  }
+})
+
 studentsRouter.get('/unassigned/:schoolYearId', requireAuth(['ADMIN','SUBADMIN']), async (req, res) => {
   const { schoolYearId } = req.params
-  
-  // 1. Get all enrollments for this year
-  const yearEnrollments = await Enrollment.find({ schoolYearId }).lean()
-  
-  // 2. Identify students assigned to a class
-  const assignedStudentIds = new Set(
-    yearEnrollments.filter(e => e.classId).map(e => e.studentId)
-  )
-
-  // 3. Identify students enrolled but NOT assigned (e.g. promoted)
-  const enrolledUnassignedIds = yearEnrollments
-    .filter(e => !e.classId)
-    .map(e => e.studentId)
-
-  // 4. Get students tagged with this schoolYearId (Legacy/Import)
-  const taggedStudents = await Student.find({ schoolYearId }).lean()
-  
-  // 5. Filter tagged students: Exclude those who are already assigned to a class
-  const validTaggedStudents = taggedStudents.filter(s => !assignedStudentIds.has(String(s._id)))
-  
-  // 6. Fetch students from step 3 who were not in step 4
-  const taggedIds = new Set(validTaggedStudents.map(s => String(s._id)))
-  const missingIds = enrolledUnassignedIds.filter(id => !taggedIds.has(id))
-  
-  let extraStudents: any[] = []
-  if (missingIds.length > 0) {
-      extraStudents = await Student.find({ _id: { $in: missingIds } }).lean()
-  }
-
-  const unassigned = [...validTaggedStudents, ...extraStudents]
-  
-  // Find assignments with promotions for these students
-  const unassignedIds = unassigned.map(s => String(s._id))
-  
-  // Find previous school year to get previous class
-  const allYears = await SchoolYear.find({}).sort({ startDate: 1 }).lean()
-  const currentIndex = allYears.findIndex(y => String(y._id) === schoolYearId)
-  let previousYearId: string | null = null
-  if (currentIndex > 0) {
-      previousYearId = String(allYears[currentIndex - 1]._id)
-  }
-
-  const previousClassMap: Record<string, string> = {}
-  if (previousYearId) {
-      const prevEnrollments = await Enrollment.find({
-          studentId: { $in: unassignedIds },
-          schoolYearId: previousYearId
-      }).lean()
-      
-      const prevClassIds = prevEnrollments.map(e => e.classId).filter(Boolean)
-      const prevClasses = await ClassModel.find({ _id: { $in: prevClassIds } }).lean()
-      const prevClassIdToName: Record<string, string> = {}
-      for (const c of prevClasses) prevClassIdToName[String(c._id)] = c.name
-      
-      for (const e of prevEnrollments) {
-          if (e.classId && prevClassIdToName[e.classId]) {
-              previousClassMap[e.studentId] = prevClassIdToName[e.classId]
-          }
-      }
-  }
-
-  const assignments = await TemplateAssignment.find({ 
-    studentId: { $in: unassignedIds },
-    'data.promotions': { $exists: true, $not: { $size: 0 } }
-  }).lean()
-
-  const promotionMap: Record<string, any> = {}
-  
-  for (const a of assignments) {
-      if (a.data && Array.isArray(a.data.promotions)) {
-          const lastPromo = a.data.promotions[a.data.promotions.length - 1]
-          const existing = promotionMap[a.studentId]
-          if (!existing || new Date(lastPromo.date) > new Date(existing.date)) {
-              promotionMap[a.studentId] = lastPromo
-          }
-      }
-  }
-
-  const result = unassigned.map(s => {
-      const promo = promotionMap[String(s._id)]
-      // Use nextLevel if available (staging), otherwise try promo.to (history), otherwise fallback to current level
-      const effectiveLevel = s.nextLevel || (promo ? promo.to : s.level)
-      
-      return {
-        ...s,
-        level: effectiveLevel,
-        promotion: promo,
-        previousClassName: previousClassMap[String(s._id)]
-      }
-  })
-  
+  const result = await fetchUnassignedStudents(schoolYearId)
   res.json(result)
 })
 
@@ -171,17 +178,8 @@ studentsRouter.post('/:id/assign-section', requireAuth(['ADMIN','SUBADMIN']), as
     })
   }
 
-  // Update template assignments with new class teachers
-  const teacherAssignments = await TeacherClassAssignment.find({ classId: String(cls._id) }).lean()
-  const teacherIds = teacherAssignments.map(t => t.teacherId)
-
-  await TemplateAssignment.updateMany(
-    { 
-      studentId: id, 
-      status: { $in: ['draft', 'in_progress'] } 
-    },
-    { $set: { assignedTeachers: teacherIds } }
-  )
+  // Check and assign templates if needed (this also updates teachers and resets status if needed)
+  await checkAndAssignTemplates(id, level, schoolYearId, String(cls._id), (req as any).user.userId)
   
   res.json({ ok: true })
 })
@@ -267,6 +265,9 @@ studentsRouter.post('/', requireAuth(['ADMIN','SUBADMIN']), async (req, res) => 
   if (!existsEnroll) {
     const clsDoc = await ClassModel.findById(classId).lean()
     await Enrollment.create({ studentId: String(student!._id), classId, schoolYearId: clsDoc ? clsDoc.schoolYearId : '' })
+    if (clsDoc && clsDoc.level) {
+      await checkAndAssignTemplates(String(student!._id), clsDoc.level, clsDoc.schoolYearId, classId, (req as any).user.userId)
+    }
   }
   res.json(student)
 })
@@ -285,10 +286,244 @@ studentsRouter.patch('/:id', requireAuth(['ADMIN','SUBADMIN']), async (req, res)
         enr.classId = classId
         enr.schoolYearId = clsDoc ? clsDoc.schoolYearId : enr.schoolYearId
         await enr.save()
+        if (clsDoc && clsDoc.level) {
+          await checkAndAssignTemplates(id, clsDoc.level, clsDoc.schoolYearId, classId, (req as any).user.userId)
+        }
       }
     } else {
       await Enrollment.create({ studentId: id, classId, schoolYearId: clsDoc ? clsDoc.schoolYearId : '' })
+      if (clsDoc && clsDoc.level) {
+        await checkAndAssignTemplates(id, clsDoc.level, clsDoc.schoolYearId, classId, (req as any).user.userId)
+      }
     }
   }
   res.json(updated)
 })
+
+// Admin: Promote student
+studentsRouter.post('/:studentId/promote', requireAuth(['ADMIN']), async (req, res) => {
+    try {
+        const adminId = (req as any).user.userId
+        const { studentId } = req.params
+        const { nextLevel } = req.body
+
+        const student = await Student.findById(studentId)
+        if (!student) return res.status(404).json({ error: 'student_not_found' })
+
+        // Get current enrollment to find school year
+        const enrollment = await Enrollment.findOne({ 
+            studentId, 
+            $or: [{ status: 'active' }, { status: { $exists: false } }] 
+        }).lean()
+
+        let currentLevel = student.level || ''
+        let currentSchoolYearId = ''
+        let currentSchoolYearSequence = 0
+
+        if (enrollment) {
+            if (enrollment.classId) {
+                const cls = await ClassModel.findById(enrollment.classId).lean()
+                if (cls) {
+                    currentLevel = cls.level || ''
+                    currentSchoolYearId = cls.schoolYearId
+                }
+            }
+            
+            if (!currentSchoolYearId && enrollment.schoolYearId) {
+                currentSchoolYearId = enrollment.schoolYearId
+            }
+
+            if (currentSchoolYearId) {
+                const sy = await SchoolYear.findById(currentSchoolYearId).lean()
+                if (sy) {
+                    currentSchoolYearSequence = sy.sequence || 0
+                }
+            }
+        }
+
+        // Check if already promoted in current school year
+        if (currentSchoolYearId) {
+            const alreadyPromoted = student.promotions?.some((p: any) => p.schoolYearId === currentSchoolYearId)
+            if (alreadyPromoted) {
+                return res.status(400).json({ error: 'already_promoted', message: 'Student already promoted this year' })
+            }
+        }
+
+        // Calculate Next Level dynamically if not provided
+        let calculatedNextLevel = nextLevel
+        if (!calculatedNextLevel) {
+            const currentLevelDoc = await Level.findOne({ name: currentLevel }).lean()
+            if (currentLevelDoc) {
+                const nextLevelDoc = await Level.findOne({ order: currentLevelDoc.order + 1 }).lean()
+                if (nextLevelDoc) {
+                    calculatedNextLevel = nextLevelDoc.name
+                }
+            }
+        }
+        
+        if (!calculatedNextLevel) return res.status(400).json({ error: 'cannot_determine_next_level' })
+
+        // Find next school year by sequence
+        let nextSchoolYearId = ''
+        if (currentSchoolYearSequence > 0) {
+             const nextSy = await SchoolYear.findOne({ sequence: currentSchoolYearSequence + 1 }).lean()
+             if (nextSy) {
+                 nextSchoolYearId = String(nextSy._id)
+             }
+        }
+        
+        if (!nextSchoolYearId && currentSchoolYearId) {
+             // Fallback to old logic if sequence is missing
+             const currentSy = await SchoolYear.findById(currentSchoolYearId).lean()
+             if (currentSy && currentSy.name) {
+                 const match = currentSy.name.match(/(\d{4})([-/.])(\d{4})/)
+                 if (match) {
+                     const startYear = parseInt(match[1])
+                     const separator = match[2]
+                     const endYear = parseInt(match[3])
+                     const nextName = `${startYear + 1}${separator}${endYear + 1}`
+                     const nextSy = await SchoolYear.findOne({ name: nextName }).lean()
+                     if (nextSy) nextSchoolYearId = String(nextSy._id)
+                 }
+             }
+        }
+
+        if (!nextSchoolYearId) {
+             return res.status(400).json({ error: 'no_next_year', message: 'Next school year not found' })
+        }
+
+        const promotion = {
+            schoolYearId: currentSchoolYearId,
+            fromLevel: currentLevel,
+            toLevel: calculatedNextLevel,
+            date: new Date(),
+            promotedBy: adminId,
+            decision: 'promoted'
+        }
+
+        // Update Student: add promotion and set nextLevel
+        await Student.findByIdAndUpdate(studentId, {
+            $push: { promotions: promotion },
+            nextLevel: calculatedNextLevel
+        })
+
+        // Update current enrollment
+        if (enrollment) {
+             await Enrollment.findByIdAndUpdate(enrollment._id, { promotionStatus: 'promoted', status: 'promoted' })
+        }
+
+        // Create new Enrollment for next year
+        await Enrollment.create({
+            studentId: studentId,
+            schoolYearId: nextSchoolYearId,
+            status: 'active',
+            // classId is optional, will be assigned later
+        })
+
+        await logAudit({
+            userId: adminId,
+            action: 'PROMOTE_STUDENT',
+            details: { studentId, from: currentLevel, to: calculatedNextLevel },
+            req
+        })
+        
+        res.json({ success: true, promotion })
+    } catch (error) {
+        console.error(error)
+        res.status(500).json({ error: 'internal_error' })
+    }
+})
+
+async function fetchUnassignedStudents(schoolYearId: string) {
+  // 1. Get all enrollments for this year
+  const yearEnrollments = await Enrollment.find({ schoolYearId }).lean()
+  
+  // 2. Identify students assigned to a class
+  const assignedStudentIds = new Set(
+    yearEnrollments.filter(e => e.classId).map(e => e.studentId)
+  )
+
+  // 3. Identify students enrolled but NOT assigned (e.g. promoted)
+  const enrolledUnassignedIds = yearEnrollments
+    .filter(e => !e.classId)
+    .map(e => e.studentId)
+
+  // 4. Get students tagged with this schoolYearId (Legacy/Import)
+  const taggedStudents = await Student.find({ schoolYearId }).lean()
+  
+  // 5. Filter tagged students: Exclude those who are already assigned to a class
+  const validTaggedStudents = taggedStudents.filter(s => !assignedStudentIds.has(String(s._id)))
+  
+  // 6. Fetch students from step 3 who were not in step 4
+  const taggedIds = new Set(validTaggedStudents.map(s => String(s._id)))
+  const missingIds = enrolledUnassignedIds.filter(id => !taggedIds.has(id))
+  
+  let extraStudents: any[] = []
+  if (missingIds.length > 0) {
+      extraStudents = await Student.find({ _id: { $in: missingIds } }).lean()
+  }
+
+  const unassigned = [...validTaggedStudents, ...extraStudents]
+  
+  // Find assignments with promotions for these students
+  const unassignedIds = unassigned.map(s => String(s._id))
+  
+  // Find previous school year to get previous class
+  const allYears = await SchoolYear.find({}).sort({ startDate: 1 }).lean()
+  const currentIndex = allYears.findIndex(y => String(y._id) === schoolYearId)
+  let previousYearId: string | null = null
+  if (currentIndex > 0) {
+      previousYearId = String(allYears[currentIndex - 1]._id)
+  }
+
+  const previousClassMap: Record<string, string> = {}
+  if (previousYearId) {
+      const prevEnrollments = await Enrollment.find({
+          studentId: { $in: unassignedIds },
+          schoolYearId: previousYearId
+      }).lean()
+      
+      const prevClassIds = prevEnrollments.map(e => e.classId).filter(Boolean)
+      const prevClasses = await ClassModel.find({ _id: { $in: prevClassIds } }).lean()
+      const prevClassIdToName: Record<string, string> = {}
+      for (const c of prevClasses) prevClassIdToName[String(c._id)] = c.name
+      
+      for (const e of prevEnrollments) {
+          if (e.classId && prevClassIdToName[e.classId]) {
+              previousClassMap[e.studentId] = prevClassIdToName[e.classId]
+          }
+      }
+  }
+
+  const assignments = await TemplateAssignment.find({ 
+    studentId: { $in: unassignedIds },
+    'data.promotions': { $exists: true, $not: { $size: 0 } }
+  }).lean()
+
+  const promotionMap: Record<string, any> = {}
+  
+  for (const a of assignments) {
+      if (a.data && Array.isArray(a.data.promotions)) {
+          const lastPromo = a.data.promotions[a.data.promotions.length - 1]
+          const existing = promotionMap[a.studentId]
+          if (!existing || new Date(lastPromo.date) > new Date(existing.date)) {
+              promotionMap[a.studentId] = lastPromo
+          }
+      }
+  }
+
+  return unassigned.map(s => {
+      const promo = promotionMap[String(s._id)]
+      // Use nextLevel if available (staging), otherwise try promo.to (history), otherwise fallback to current level
+      const effectiveLevel = s.nextLevel || (promo ? promo.to : s.level)
+      
+      return {
+        ...s,
+        level: effectiveLevel,
+        promotion: promo,
+        previousClassName: previousClassMap[String(s._id)]
+      }
+  })
+}
+
+

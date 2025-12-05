@@ -288,7 +288,7 @@ export default function AdminAssignments() {
                         <div>
                             <label className="note" style={{ display: 'block', marginBottom: 6 }}>Langues autorisées</label>
                             <div style={{ display: 'flex', gap: 12 }}>
-                                {['fr', 'ar', 'en'].map(lang => (
+                                {['ar', 'en'].map(lang => (
                                     <label key={lang} style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
                                         <input 
                                             type="checkbox" 
