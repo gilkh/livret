@@ -179,7 +179,7 @@ subAdminAssignmentsRouter.get('/progress', requireAuth(['SUBADMIN', 'AEFE']), as
 // Admin: Assign sub-admin to all teachers in a level
 subAdminAssignmentsRouter.post('/bulk-level', requireAuth(['ADMIN']), async (req, res) => {
     try {
-        const { subAdminId, level } = req.body
+        const { subAdminId, level, schoolYearId } = req.body
         if (!subAdminId || !level) return res.status(400).json({ error: 'missing_payload' })
 
         // Verify sub-admin exists
@@ -192,12 +192,16 @@ subAdminAssignmentsRouter.post('/bulk-level', requireAuth(['ADMIN']), async (req
             return res.status(400).json({ error: 'invalid_subadmin' })
         }
 
-        // Find the active school year
-        const activeYear = await SchoolYear.findOne({ active: true }).lean()
-        if (!activeYear) return res.status(400).json({ error: 'no_active_year' })
+        let targetYearId = schoolYearId;
+        if (!targetYearId) {
+            // Find the active school year
+            const activeYear = await SchoolYear.findOne({ active: true }).lean()
+            if (!activeYear) return res.status(400).json({ error: 'no_active_year' })
+            targetYearId = String(activeYear._id)
+        }
 
-        // Find all classes in this level for the active school year
-        const classes = await ClassModel.find({ level, schoolYearId: String(activeYear._id) }).lean()
+        // Find all classes in this level for the target school year
+        const classes = await ClassModel.find({ level, schoolYearId: targetYearId }).lean()
         const classIds = classes.map(c => String(c._id))
 
         if (classIds.length === 0) {

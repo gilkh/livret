@@ -11,14 +11,12 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
   const [socket, setSocket] = useState<Socket | null>(null)
 
   useEffect(() => {
-    // Adjust the URL if your server is running on a different port/host
-    const host = window.location.hostname
-    const protocol = window.location.protocol
-    const defaultUrl = `${protocol}//${host}:4000`
-    const url = import.meta.env.VITE_API_URL || defaultUrl
+    // Use relative URL to leverage Vite proxy
+    const url = import.meta.env.VITE_API_URL || '/'
     
     const newSocket = io(url, {
       withCredentials: true,
+      transports: ['websocket', 'polling']
     })
 
     setSocket(newSocket)

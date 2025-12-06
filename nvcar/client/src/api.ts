@@ -3,7 +3,9 @@ import axios from 'axios'
 const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost'
 const protocol = typeof window !== 'undefined' ? window.location.protocol : 'http:'
 const envBase = (import.meta as any)?.env?.VITE_API_URL as string | undefined
-const baseURL = envBase || `${protocol}//${host}:4000`
+// Use relative path by default to leverage Vite proxy in development
+// This avoids CORS issues and certificate trust issues across different ports
+const baseURL = envBase || '/' 
 const api = axios.create({ baseURL })
 
 api.interceptors.request.use(config => {

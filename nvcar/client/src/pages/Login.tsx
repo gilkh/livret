@@ -58,7 +58,8 @@ export default function Login() {
     setError(null)
     try {
       console.log('Microsoft callback - exchanging code for token...')
-      const r = await api.post('/microsoft/callback', { code })
+      const redirectUri = window.location.origin
+      const r = await api.post('/microsoft/callback', { code, redirect_uri: redirectUri })
       console.log('Microsoft login successful:', r.data)
       
       localStorage.setItem('token', r.data.token)
@@ -109,7 +110,8 @@ export default function Login() {
     setError(null)
     setIsLoadingMicrosoft(true)
     try {
-      const r = await api.get('/microsoft/auth-url')
+      const redirectUri = window.location.origin
+      const r = await api.get(`/microsoft/auth-url?redirect_uri=${encodeURIComponent(redirectUri)}`)
       window.location.href = r.data.authUrl
     } catch (e: any) {
       setError('Impossible de se connecter avec Microsoft')

@@ -812,6 +812,62 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', requireAut
         // Let's keep it simple: if any signature is added, we can consider it signed, 
         // but usually the standard one is the main one. 
         // If we sign 'end_of_year', we probably also want to mark it as signed if not already.
+        
+        // If this is a final signature, promote the student if not already promoted
+        if (type === 'end_of_year') {
+            const student = await Student.findById(assignment.studentId)
+            if (student && student.level) {
+                const getNextLevel = (current: string) => {
+                    const c = current.toUpperCase()
+                    if (c === 'TPS') return 'PS'
+                    if (c === 'PS') return 'MS'
+                    if (c === 'MS') return 'GS'
+                    if (c === 'GS') return 'EB1'
+                    if (c === 'KG1') return 'KG2'
+                    if (c === 'KG2') return 'KG3'
+                    if (c === 'KG3') return 'EB1'
+                    return null
+                }
+                
+                const nextLevel = getNextLevel(student.level)
+                const activeSchoolYear = await SchoolYear.findOne({ active: true }).lean()
+                
+                if (nextLevel && activeSchoolYear) {
+                    // Check if already promoted this year
+                    const alreadyPromoted = student.promotions?.some((p: any) => p.schoolYearId === String(activeSchoolYear._id))
+                    
+                    if (!alreadyPromoted) {
+                        // Create promotion data
+                        const promotionData = {
+                            fromLevel: student.level,
+                            toLevel: nextLevel,
+                            date: new Date(),
+                            schoolYearId: String(activeSchoolYear._id),
+                            promotedBy: subAdminId
+                        }
+                        
+                        // Update student
+                        await Student.findByIdAndUpdate(student._id, {
+                            $push: { promotions: promotionData }
+                        })
+                        
+                        // Also save promotion info in the assignment data so it persists
+                        await TemplateAssignment.findByIdAndUpdate(templateAssignmentId, {
+                            $push: { 
+                                'data.promotions': {
+                                    from: student.level,
+                                    to: nextLevel,
+                                    year: new Date().getFullYear(), // or academic year name
+                                    date: new Date(),
+                                    by: subAdminId
+                                }
+                            }
+                        })
+                    }
+                }
+            }
+        }
+
         await TemplateAssignment.findByIdAndUpdate(templateAssignmentId, { status: 'signed' })
 
         // Log audit
@@ -908,6 +964,64 @@ subAdminTemplatesRouter.delete('/templates/:templateAssignmentId/sign', requireA
         if (remaining === 0) {
             // Update assignment status back to completed
             await TemplateAssignment.findByIdAndUpdate(templateAssignmentId, { status: 'completed' })
+        }
+
+        // If removing end_of_year signature, we should also remove the promotion data from the assignment
+        // Note: We don't revert the student level promotion itself because that might have other side effects,
+        // but we remove the display data from the gradebook.
+        if (type === 'end_of_year') {
+             await TemplateAssignment.findByIdAndUpdate(templateAssignmentId, {
+                $pull: { 
+                    'data.promotions': {
+                        // We can match by date or just remove the last one? 
+                        // Safest is to remove where 'by' is this subAdmin or just pull by structure
+                        // Since we pushed a specific object structure, let's try to pull it
+                        // However, $pull needs to match.
+                        // A simpler way is to filter the array.
+                    }
+                }
+            })
+            
+            // Actually, simpler: fetch, filter, save.
+            const currentAssignment = await TemplateAssignment.findById(templateAssignmentId)
+            if (currentAssignment && currentAssignment.data && currentAssignment.data.promotions) {
+                const newPromotions = currentAssignment.data.promotions.filter((p: any) => p.to !== 'REMOVED_LEVEL') 
+                // Since we don't know the exact level easily here without fetching student, 
+                // and we might have multiple promotions (rare but possible in testing),
+                // let's just remove the one corresponding to this year/action if possible.
+                // For now, let's just say we remove the promotion entry that matches the current active year if we can find it.
+                // OR, maybe we don't remove it? The user asked "data inserted should stay ... if a un-sign was not clicked".
+                // Wait, the user said: "once the signature was clicked the data inserted should stay ... and NOT removed IF a un-sign was NOT clicked"
+                // This implies: IF un-sign IS clicked, it SHOULD be removed.
+                // So yes, we should remove it here.
+                
+                // Let's just remove the last promotion added by this user?
+                // For simplicity and safety, let's remove the promotion data that corresponds to the student's current next level potential.
+                // But we don't have student here easily without fetching.
+                // Let's fetch student.
+                const s = await Student.findById(assignment.studentId)
+                if (s) {
+                     // We can try to remove the promotion from assignment data
+                     // We'll filter out promotions where 'by' is this user and date is recent?
+                     // Or just leave it. The prompt says "not removed if un-sign was NOT clicked". 
+                     // Meaning: It IS removed if un-sign IS clicked.
+                     
+                     // Let's clean up the assignment data
+                     if (currentAssignment.data.promotions) {
+                         // Remove the promotion entry for this year/action
+                         // We can't easily identify it without an ID. 
+                         // Let's just pop the last one? Or filter by 'by' field if we added it.
+                         const updatedPromotions = currentAssignment.data.promotions.filter((p: any) => p.by !== subAdminId)
+                         await TemplateAssignment.findByIdAndUpdate(templateAssignmentId, {
+                             $set: { 'data.promotions': updatedPromotions }
+                         })
+                     }
+                     
+                     // We also optionally revert the student profile promotion?
+                     // That might be dangerous if they did other things. 
+                     // Let's stick to removing the gradebook display data.
+                }
+            }
         }
 
         // Log audit

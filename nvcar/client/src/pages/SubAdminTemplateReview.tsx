@@ -672,6 +672,39 @@ export default function SubAdminTemplateReview() {
                                         opacity: isDropdownAllowed ? 1 : 0.5,
                                         pointerEvents: isDropdownAllowed ? 'auto' : 'none'
                                     }}>
+                                        {editMode && canEdit && (
+                                            <div 
+                                                onClick={(e) => {
+                                                    e.stopPropagation()
+                                                    setSuggestionModal({
+                                                        pageIndex: actualPageIndex,
+                                                        blockIndex: idx,
+                                                        originalText: (b.props.options || []).join('\n'),
+                                                        isOpen: true
+                                                    })
+                                                }}
+                                                style={{
+                                                    position: 'absolute',
+                                                    top: -10,
+                                                    right: -10,
+                                                    background: '#f59e0b',
+                                                    color: 'white',
+                                                    borderRadius: '50%',
+                                                    width: 20,
+                                                    height: 20,
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    cursor: 'pointer',
+                                                    fontSize: 12,
+                                                    boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+                                                    zIndex: 10
+                                                }}
+                                                title="Suggérer une modification des options"
+                                            >
+                                                ✎
+                                            </div>
+                                        )}
                                         <div style={{ fontSize: 10, fontWeight: 'bold', color: '#6c5ce7', marginBottom: 2 }}>Dropdown #{b.props.dropdownNumber || '?'}</div>
                                         {b.props.label && <div style={{ fontSize: 10, color: '#666', marginBottom: 2 }}>{b.props.label}</div>}
                                         <div
@@ -757,7 +790,11 @@ export default function SubAdminTemplateReview() {
                                                             fontSize: b.props.fontSize || 12,
                                                             wordWrap: 'break-word',
                                                             whiteSpace: 'pre-wrap',
-                                                            borderBottom: i < (b.props.options || []).length - 1 ? '1px solid #eee' : 'none'
+                                                            borderBottom: i < (b.props.options || []).length - 1 ? '1px solid #eee' : 'none',
+                                                            display: 'flex',
+                                                            justifyContent: 'space-between',
+                                                            alignItems: 'center',
+                                                            gap: 8
                                                         }}
                                                         onClick={async (e) => {
                                                             e.stopPropagation()
@@ -779,7 +816,38 @@ export default function SubAdminTemplateReview() {
                                                         onMouseEnter={(e) => e.currentTarget.style.background = '#f0f4ff'}
                                                         onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}
                                                     >
-                                                        {opt}
+                                                        <span>{opt}</span>
+                                                        {editMode && canEdit && (
+                                                            <div
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation()
+                                                                    setSuggestionModal({
+                                                                        pageIndex: actualPageIndex,
+                                                                        blockIndex: idx,
+                                                                        originalText: opt,
+                                                                        isOpen: true
+                                                                    })
+                                                                    setOpenDropdown(null)
+                                                                }}
+                                                                style={{
+                                                                    background: '#f59e0b',
+                                                                    color: 'white',
+                                                                    borderRadius: '50%',
+                                                                    width: 20,
+                                                                    height: 20,
+                                                                    display: 'flex',
+                                                                    alignItems: 'center',
+                                                                    justifyContent: 'center',
+                                                                    cursor: 'pointer',
+                                                                    fontSize: 12,
+                                                                    boxShadow: '0 1px 2px rgba(0,0,0,0.2)',
+                                                                    flexShrink: 0
+                                                                }}
+                                                                title="Suggérer une modification pour cette option"
+                                                            >
+                                                                ✎
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 ))}
                                             </div>

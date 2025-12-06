@@ -14,19 +14,23 @@ export const templateAssignmentsRouter = Router()
 // Admin: Assign template to all students in a level
 templateAssignmentsRouter.post('/bulk-level', requireAuth(['ADMIN']), async (req, res) => {
     try {
-        const { templateId, level } = req.body
+        const { templateId, level, schoolYearId } = req.body
         if (!templateId || !level) return res.status(400).json({ error: 'missing_payload' })
 
         // Verify template exists
         const template = await GradebookTemplate.findById(templateId).lean()
         if (!template) return res.status(404).json({ error: 'template_not_found' })
 
-        // Find the active school year
-        const activeYear = await SchoolYear.findOne({ active: true }).lean()
-        if (!activeYear) return res.status(400).json({ error: 'no_active_year' })
+        let targetYearId = schoolYearId;
+        if (!targetYearId) {
+            // Find the active school year
+            const activeYear = await SchoolYear.findOne({ active: true }).lean()
+            if (!activeYear) return res.status(400).json({ error: 'no_active_year' })
+            targetYearId = String(activeYear._id)
+        }
 
         // Find all classes in this level for the active school year
-        const classes = await ClassModel.find({ level, schoolYearId: String(activeYear._id) }).lean()
+        const classes = await ClassModel.find({ level, schoolYearId: targetYearId }).lean()
         const classIds = classes.map(c => String(c._id))
 
         if (classIds.length === 0) {
@@ -77,6 +81,41 @@ templateAssignmentsRouter.post('/bulk-level', requireAuth(['ADMIN']), async (req
         res.json({ count, message: `Assigned template to ${count} students` })
     } catch (e: any) {
         res.status(500).json({ error: 'bulk_assign_failed', message: e.message })
+    }
+})
+
+// Admin: Delete bulk level assignments
+templateAssignmentsRouter.delete('/bulk-level/:templateId/:level', requireAuth(['ADMIN']), async (req, res) => {
+    try {
+        const { templateId, level } = req.params
+        const { schoolYearId } = req.query
+        
+        let targetYearId = schoolYearId as string;
+        if (!targetYearId) {
+            // Find students in this level for active year
+            const activeYear = await SchoolYear.findOne({ active: true }).lean()
+            if (!activeYear) return res.status(400).json({ error: 'no_active_year' })
+            targetYearId = String(activeYear._id)
+        }
+
+        const classes = await ClassModel.find({ level, schoolYearId: targetYearId }).lean()
+        const classIds = classes.map(c => String(c._id))
+        
+        if (classIds.length === 0) return res.json({ ok: true, count: 0 })
+
+        const enrollments = await Enrollment.find({ classId: { $in: classIds } }).lean()
+        const studentIds = enrollments.map(e => e.studentId)
+
+        if (studentIds.length === 0) return res.json({ ok: true, count: 0 })
+
+        const result = await TemplateAssignment.deleteMany({
+            templateId,
+            studentId: { $in: studentIds }
+        })
+
+        res.json({ ok: true, count: result.deletedCount })
+    } catch (e: any) {
+        res.status(500).json({ error: 'delete_failed', message: e.message })
     }
 })
 
@@ -237,6 +276,8 @@ templateAssignmentsRouter.get('/', requireAuth(['ADMIN']), async (req, res) => {
         let enrollments: any[] = []
         
         if (schoolYearId) {
+            // We don't filter by date because assignments might be created before the school year starts (during setup)
+            /*
             const sy = await SchoolYear.findById(schoolYearId).lean()
             if (sy) {
                 dateFilter = {
@@ -246,6 +287,7 @@ templateAssignmentsRouter.get('/', requireAuth(['ADMIN']), async (req, res) => {
                     }
                 }
             }
+            */
             
             enrollments = await Enrollment.find({ schoolYearId }).lean()
             studentIds = enrollments.map(e => e.studentId)

@@ -38,14 +38,13 @@ import { adminExtrasRouter } from './routes/adminExtras'
 
 export const createApp = () => {
   const app = express()
+  
+  // Allow all origins with credentials
   app.use(cors({
-    origin: (origin, cb) => {
-      if (!origin) return cb(null, true)
-      if (origin.startsWith('http://localhost:5173') || origin.startsWith('http://localhost:5174')) return cb(null, true)
-      return cb(null, true)
-    },
-    credentials: true,
+    origin: true,
+    credentials: true
   }))
+  
   app.use(bodyParser.json({ limit: '50mb' }))
   app.use(bodyParser.urlencoded({ limit: '50mb', extended: true }))
 

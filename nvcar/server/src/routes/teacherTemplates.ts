@@ -150,7 +150,24 @@ teacherTemplatesRouter.get('/template-assignments/:assignmentId', requireAuth(['
         let level = ''
         let className = ''
         let allowedLanguages: string[] = []
-        const enrollment = await Enrollment.findOne({ studentId: assignment.studentId }).lean()
+        
+        // Try to find enrollment in active year first
+        const activeYear = await SchoolYear.findOne({ active: true }).lean()
+        let enrollment = null
+        
+        if (activeYear) {
+            enrollment = await Enrollment.findOne({ 
+                studentId: assignment.studentId, 
+                schoolYearId: String(activeYear._id) 
+            }).lean()
+        }
+
+        // Fallback to most recent enrollment if not found in active year
+        if (!enrollment) {
+            enrollment = await Enrollment.findOne({ studentId: assignment.studentId })
+                .sort({ _id: -1 })
+                .lean()
+        }
         
         if (!enrollment) {
              return res.status(403).json({ error: 'student_not_enrolled' })
@@ -188,7 +205,6 @@ teacherTemplatesRouter.get('/template-assignments/:assignmentId', requireAuth(['
         const isMyWorkCompleted = !!myCompletion?.completed
 
         // Get active semester from the active school year
-        const activeYear = await SchoolYear.findOne({ active: true }).lean()
         const activeSemester = (activeYear as any)?.activeSemester || 1
 
         res.json({

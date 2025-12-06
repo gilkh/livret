@@ -7,6 +7,7 @@ import { SchoolYear } from '../models/SchoolYear'
 import { StudentCompetencyStatus } from '../models/StudentCompetencyStatus'
 import { TemplateAssignment } from '../models/TemplateAssignment'
 import { TeacherClassAssignment } from '../models/TeacherClassAssignment'
+import { SavedGradebook } from '../models/SavedGradebook'
 import { GradebookTemplate } from '../models/GradebookTemplate'
 import { Level } from '../models/Level'
 import { logAudit } from '../utils/auditLogger'
@@ -319,6 +320,7 @@ studentsRouter.post('/:studentId/promote', requireAuth(['ADMIN']), async (req, r
         let currentLevel = student.level || ''
         let currentSchoolYearId = ''
         let currentSchoolYearSequence = 0
+        let yearName = new Date().getFullYear().toString()
 
         if (enrollment) {
             if (enrollment.classId) {
@@ -336,6 +338,7 @@ studentsRouter.post('/:studentId/promote', requireAuth(['ADMIN']), async (req, r
             if (currentSchoolYearId) {
                 const sy = await SchoolYear.findById(currentSchoolYearId).lean()
                 if (sy) {
+                    yearName = sy.name
                     currentSchoolYearSequence = sy.sequence || 0
                 }
             }
@@ -392,6 +395,33 @@ studentsRouter.post('/:studentId/promote', requireAuth(['ADMIN']), async (req, r
              return res.status(400).json({ error: 'no_next_year', message: 'Next school year not found' })
         }
 
+        // Find assignment for snapshot
+        const assignment = await TemplateAssignment.findOne({ 
+            studentId: student._id, 
+            schoolYearId: currentSchoolYearId 
+        })
+
+        // Create Gradebook Snapshot if assignment exists
+        if (currentSchoolYearId && enrollment && assignment) {
+            const statuses = await StudentCompetencyStatus.find({ studentId: student._id }).lean()
+            
+            const snapshotData = {
+                student: student.toObject ? student.toObject() : student,
+                enrollment: enrollment,
+                statuses: statuses,
+                assignment: assignment.toObject ? assignment.toObject() : assignment
+            }
+
+            await SavedGradebook.create({
+                studentId: student._id,
+                schoolYearId: currentSchoolYearId,
+                level: currentLevel || 'Sans niveau',
+                classId: enrollment.classId,
+                templateId: assignment.templateId,
+                data: snapshotData
+            })
+        }
+
         const promotion = {
             schoolYearId: currentSchoolYearId,
             fromLevel: currentLevel,
@@ -412,13 +442,41 @@ studentsRouter.post('/:studentId/promote', requireAuth(['ADMIN']), async (req, r
              await Enrollment.findByIdAndUpdate(enrollment._id, { promotionStatus: 'promoted', status: 'promoted' })
         }
 
-        // Create new Enrollment for next year
-        await Enrollment.create({
-            studentId: studentId,
-            schoolYearId: nextSchoolYearId,
-            status: 'active',
-            // classId is optional, will be assigned later
-        })
+        // Create new Enrollment for next year ONLY if not leaving the system (EB1)
+        if (calculatedNextLevel.toLowerCase() !== 'eb1') {
+            await Enrollment.create({
+                studentId: studentId,
+                schoolYearId: nextSchoolYearId,
+                status: 'active',
+                // classId is optional, will be assigned later
+            })
+        }
+
+        // Record promotion in assignment data
+        if (assignment) {
+            let className = ''
+            if (enrollment && enrollment.classId) {
+                const cls = await ClassModel.findById(enrollment.classId)
+                if (cls) className = cls.name
+            }
+
+            const promotionData = {
+                from: currentLevel,
+                to: calculatedNextLevel,
+                date: new Date(),
+                year: yearName,
+                class: className
+            }
+
+            const data = assignment.data || {}
+            const promotions = Array.isArray(data.promotions) ? data.promotions : []
+            promotions.push(promotionData)
+            data.promotions = promotions
+            
+            assignment.data = data
+            assignment.markModified('data')
+            await assignment.save()
+        }
 
         await logAudit({
             userId: adminId,
@@ -523,6 +581,10 @@ async function fetchUnassignedStudents(schoolYearId: string) {
         promotion: promo,
         previousClassName: previousClassMap[String(s._id)]
       }
+  }).filter(s => {
+      // Filter out students promoted to EB1 as they leave the system
+      const lvl = s.level ? s.level.toLowerCase() : ''
+      return lvl !== 'eb1'
   })
 }
 

@@ -9,7 +9,13 @@ export const microsoftRouter = Router()
 
 const CLIENT_ID = process.env.MICROSOFT_CLIENT_ID || ''
 const CLIENT_SECRET = process.env.MICROSOFT_CLIENT_SECRET || ''
-const REDIRECT_URI = process.env.MICROSOFT_REDIRECT_URI || 'http://localhost:5173'
+const DEFAULT_REDIRECT_URI = process.env.MICROSOFT_REDIRECT_URI || 'http://localhost:5173'
+const ALLOWED_REDIRECT_URIS = [
+  DEFAULT_REDIRECT_URI,
+  'https://192.168.1.74:5173',
+  'https://192.168.17.10:5173',
+  'https://localhost:5173'
+]
 const TENANT = process.env.MICROSOFT_TENANT || 'common' // 'common' allows any Microsoft account
 
 // Generate authorization URL
@@ -18,10 +24,15 @@ microsoftRouter.get('/auth-url', (req, res) => {
     return res.status(500).json({ error: 'Microsoft OAuth not configured' })
   }
 
+  let redirectUri = req.query.redirect_uri as string
+  if (!redirectUri || !ALLOWED_REDIRECT_URIS.includes(redirectUri)) {
+    redirectUri = DEFAULT_REDIRECT_URI
+  }
+
   const authUrl = `https://login.microsoftonline.com/${TENANT}/oauth2/v2.0/authorize?` +
     `client_id=${CLIENT_ID}` +
     `&response_type=code` +
-    `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
+    `&redirect_uri=${encodeURIComponent(redirectUri)}` +
     `&response_mode=query` +
     `&scope=${encodeURIComponent('openid email profile User.Read')}` +
     `&prompt=select_account` +
@@ -33,7 +44,7 @@ microsoftRouter.get('/auth-url', (req, res) => {
 // Handle OAuth callback
 microsoftRouter.post('/callback', async (req, res) => {
   try {
-    const { code } = req.body
+    const { code, redirect_uri } = req.body
 
     if (!code) {
       return res.status(400).json({ error: 'Authorization code is required' })
@@ -43,6 +54,11 @@ microsoftRouter.post('/callback', async (req, res) => {
       return res.status(500).json({ error: 'Microsoft OAuth not configured' })
     }
 
+    let redirectUri = redirect_uri
+    if (!redirectUri || !ALLOWED_REDIRECT_URIS.includes(redirectUri)) {
+      redirectUri = DEFAULT_REDIRECT_URI
+    }
+
     // Exchange code for token
     const tokenResponse = await axios.post(
       `https://login.microsoftonline.com/${TENANT}/oauth2/v2.0/token`,
@@ -50,7 +66,7 @@ microsoftRouter.post('/callback', async (req, res) => {
         client_id: CLIENT_ID,
         client_secret: CLIENT_SECRET,
         code,
-        redirect_uri: REDIRECT_URI,
+        redirect_uri: redirectUri,
         grant_type: 'authorization_code',
         scope: 'openid email profile User.Read'
       }),

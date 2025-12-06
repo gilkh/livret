@@ -90,7 +90,8 @@ export default function TemplateBuilder() {
     { type: 'category_title', props: { categoryId: '', fontSize: 16, color: '#6c5ce7' } },
     { type: 'competency_list', props: { fontSize: 12, color: '#2d3436' } },
     { type: 'signature', props: { labels: ['Directeur', 'Enseignant', 'Parent'], fontSize: 12 } },
-    { type: 'signature_box', props: { width: 200, height: 80, label: 'Signature Sous-Admin' } },
+    { type: 'signature_box', props: { width: 200, height: 80, label: 'Signature Mi-Année', period: 'mid-year' } },
+    { type: 'signature_box', props: { width: 200, height: 80, label: 'Signature Fin d\'Année', period: 'end-year' } },
     
     // PS -> MS
     { type: 'promotion_info', props: { field: 'year', targetLevel: 'MS', fontSize: 12, color: '#2d3436', width: 150, height: 30, label: 'Année (PS->MS)' } },
@@ -1234,7 +1235,7 @@ export default function TemplateBuilder() {
             ))}
           </div>
 
-          {/* Competencies & Signatures */}
+          {/* Competencies */}
           <div style={{ marginBottom: 24 }}>
             <div style={{ 
               fontSize: 11, 
@@ -1244,13 +1245,11 @@ export default function TemplateBuilder() {
               textTransform: 'uppercase',
               letterSpacing: '0.5px'
             }}>
-              Compétences & Signatures
+              Compétences
             </div>
             {[
               blocksPalette.find(b => b.type === 'category_title'),
               blocksPalette.find(b => b.type === 'competency_list'),
-              blocksPalette.find(b => b.type === 'signature'),
-              blocksPalette.find(b => b.type === 'signature_box'),
             ].filter(Boolean).map((b, i) => (
               <div 
                 key={i}
@@ -1282,14 +1281,10 @@ export default function TemplateBuilder() {
                   <span style={{ fontSize: 20 }}>
                     {b!.type === 'category_title' && '📑'}
                     {b!.type === 'competency_list' && '✅'}
-                    {b!.type === 'signature' && '✍️'}
-                    {b!.type === 'signature_box' && '📝'}
                   </span>
                   <span style={{ fontSize: 13, fontWeight: 500 }}>
                     {b!.type === 'category_title' && 'Catégorie'}
                     {b!.type === 'competency_list' && 'Compétences'}
-                    {b!.type === 'signature' && 'Signatures'}
-                    {b!.type === 'signature_box' && 'Zone signature'}
                   </span>
                 </div>
                 <span style={{ fontSize: 18, color: '#667eea' }}>+</span>
@@ -1297,7 +1292,394 @@ export default function TemplateBuilder() {
             ))}
           </div>
 
-          {/* Interactive */}
+          {/* Signatures */}
+          <div style={{ marginBottom: 24 }}>
+            <div style={{ 
+              fontSize: 11, 
+              fontWeight: 700, 
+              color: '#6c757d', 
+              marginBottom: 10,
+              textTransform: 'uppercase',
+              letterSpacing: '0.5px'
+            }}>
+              Signatures
+            </div>
+            {[
+              blocksPalette.find(b => b.type === 'signature'),
+            ].filter(Boolean).map((b, i) => (
+              <div 
+                key={i}
+                onClick={() => addBlock(b!)}
+                style={{ 
+                  padding: '12px 14px',
+                  marginBottom: 8,
+                  background: '#f8f9fa',
+                  border: '2px solid #e9ecef',
+                  borderRadius: 10,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = '#e7f5ff'
+                  e.currentTarget.style.borderColor = '#667eea'
+                  e.currentTarget.style.transform = 'translateX(4px)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = '#f8f9fa'
+                  e.currentTarget.style.borderColor = '#e9ecef'
+                  e.currentTarget.style.transform = 'translateX(0)'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: 20 }}>
+                    {b!.type === 'signature' && '✍️'}
+                  </span>
+                  <span style={{ fontSize: 13, fontWeight: 500 }}>
+                    {b!.type === 'signature' && 'Signatures'}
+                  </span>
+                </div>
+                <span style={{ fontSize: 18, color: '#667eea' }}>+</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Mi-Année PS */}
+          <div style={{ marginBottom: 24 }}>
+            <div style={{ 
+              fontSize: 11, 
+              fontWeight: 700, 
+              color: '#6c757d', 
+              marginBottom: 10,
+              textTransform: 'uppercase',
+              letterSpacing: '0.5px'
+            }}>
+              Mi-Année PS
+            </div>
+            {[
+              { ...blocksPalette.find(b => b.type === 'signature_box' && b.props.period === 'mid-year'), props: { ...blocksPalette.find(b => b.type === 'signature_box' && b.props.period === 'mid-year')?.props, level: 'PS' } },
+            ].filter(b => b.type).map((b, i) => (
+              <div 
+                key={i}
+                onClick={() => addBlock(b as Block)}
+                style={{ 
+                  padding: '12px 14px',
+                  marginBottom: 8,
+                  background: '#f8f9fa',
+                  border: '2px solid #e9ecef',
+                  borderRadius: 10,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = '#e7f5ff'
+                  e.currentTarget.style.borderColor = '#667eea'
+                  e.currentTarget.style.transform = 'translateX(4px)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = '#f8f9fa'
+                  e.currentTarget.style.borderColor = '#e9ecef'
+                  e.currentTarget.style.transform = 'translateX(0)'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: 20 }}>
+                    {b!.type === 'signature_box' && '📝'}
+                  </span>
+                  <span style={{ fontSize: 13, fontWeight: 500 }}>
+                    {b!.type === 'signature_box' && (b!.props.label || 'Signature Mi-Année')}
+                  </span>
+                </div>
+                <span style={{ fontSize: 18, color: '#667eea' }}>+</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Mi-Année MS */}
+          <div style={{ marginBottom: 24 }}>
+            <div style={{ 
+              fontSize: 11, 
+              fontWeight: 700, 
+              color: '#6c757d', 
+              marginBottom: 10,
+              textTransform: 'uppercase',
+              letterSpacing: '0.5px'
+            }}>
+              Mi-Année MS
+            </div>
+            {[
+              { ...blocksPalette.find(b => b.type === 'signature_box' && b.props.period === 'mid-year'), props: { ...blocksPalette.find(b => b.type === 'signature_box' && b.props.period === 'mid-year')?.props, level: 'MS' } },
+            ].filter(b => b.type).map((b, i) => (
+              <div 
+                key={i}
+                onClick={() => addBlock(b as Block)}
+                style={{ 
+                  padding: '12px 14px',
+                  marginBottom: 8,
+                  background: '#f8f9fa',
+                  border: '2px solid #e9ecef',
+                  borderRadius: 10,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = '#e7f5ff'
+                  e.currentTarget.style.borderColor = '#667eea'
+                  e.currentTarget.style.transform = 'translateX(4px)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = '#f8f9fa'
+                  e.currentTarget.style.borderColor = '#e9ecef'
+                  e.currentTarget.style.transform = 'translateX(0)'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: 20 }}>
+                    {b!.type === 'signature_box' && '📝'}
+                  </span>
+                  <span style={{ fontSize: 13, fontWeight: 500 }}>
+                    {b!.type === 'signature_box' && (b!.props.label || 'Signature Mi-Année')}
+                  </span>
+                </div>
+                <span style={{ fontSize: 18, color: '#667eea' }}>+</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Mi-Année GS */}
+          <div style={{ marginBottom: 24 }}>
+            <div style={{ 
+              fontSize: 11, 
+              fontWeight: 700, 
+              color: '#6c757d', 
+              marginBottom: 10,
+              textTransform: 'uppercase',
+              letterSpacing: '0.5px'
+            }}>
+              Mi-Année GS
+            </div>
+            {[
+              { ...blocksPalette.find(b => b.type === 'signature_box' && b.props.period === 'mid-year'), props: { ...blocksPalette.find(b => b.type === 'signature_box' && b.props.period === 'mid-year')?.props, level: 'GS' } },
+            ].filter(b => b.type).map((b, i) => (
+              <div 
+                key={i}
+                onClick={() => addBlock(b as Block)}
+                style={{ 
+                  padding: '12px 14px',
+                  marginBottom: 8,
+                  background: '#f8f9fa',
+                  border: '2px solid #e9ecef',
+                  borderRadius: 10,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = '#e7f5ff'
+                  e.currentTarget.style.borderColor = '#667eea'
+                  e.currentTarget.style.transform = 'translateX(4px)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = '#f8f9fa'
+                  e.currentTarget.style.borderColor = '#e9ecef'
+                  e.currentTarget.style.transform = 'translateX(0)'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: 20 }}>
+                    {b!.type === 'signature_box' && '📝'}
+                  </span>
+                  <span style={{ fontSize: 13, fontWeight: 500 }}>
+                    {b!.type === 'signature_box' && (b!.props.label || 'Signature Mi-Année')}
+                  </span>
+                </div>
+                <span style={{ fontSize: 18, color: '#667eea' }}>+</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Fin d'Année PS (Vers MS) */}
+          <div style={{ marginBottom: 24 }}>
+            <div style={{ 
+              fontSize: 11, 
+              fontWeight: 700, 
+              color: '#6c757d', 
+              marginBottom: 10,
+              textTransform: 'uppercase',
+              letterSpacing: '0.5px'
+            }}>
+              Fin d'Année PS (Vers MS)
+            </div>
+            {[
+              { ...blocksPalette.find(b => b.type === 'signature_box' && b.props.period === 'end-year'), props: { ...blocksPalette.find(b => b.type === 'signature_box' && b.props.period === 'end-year')?.props, level: 'PS' } },
+              ...blocksPalette.filter(b => b.type === 'promotion_info' && b.props.targetLevel === 'MS').map(b => ({ ...b, props: { ...b.props, level: 'PS' } })),
+            ].filter(b => b.type).map((b, i) => (
+              <div 
+                key={i}
+                onClick={() => addBlock(b as Block)}
+                style={{ 
+                  padding: '12px 14px',
+                  marginBottom: 8,
+                  background: '#f8f9fa',
+                  border: '2px solid #e9ecef',
+                  borderRadius: 10,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = '#e7f5ff'
+                  e.currentTarget.style.borderColor = '#667eea'
+                  e.currentTarget.style.transform = 'translateX(4px)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = '#f8f9fa'
+                  e.currentTarget.style.borderColor = '#e9ecef'
+                  e.currentTarget.style.transform = 'translateX(0)'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: 20 }}>
+                    {b!.type === 'signature_box' && '📝'}
+                    {b!.type === 'promotion_info' && '🎓'}
+                  </span>
+                  <span style={{ fontSize: 13, fontWeight: 500 }}>
+                    {b!.type === 'signature_box' && (b!.props.label || 'Signature Fin Année')}
+                    {b!.type === 'promotion_info' && (b!.props.label || 'Info Passage')}
+                  </span>
+                </div>
+                <span style={{ fontSize: 18, color: '#667eea' }}>+</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Fin d'Année MS (Vers GS) */}
+          <div style={{ marginBottom: 24 }}>
+            <div style={{ 
+              fontSize: 11, 
+              fontWeight: 700, 
+              color: '#6c757d', 
+              marginBottom: 10,
+              textTransform: 'uppercase',
+              letterSpacing: '0.5px'
+            }}>
+              Fin d'Année MS (Vers GS)
+            </div>
+            {[
+              { ...blocksPalette.find(b => b.type === 'signature_box' && b.props.period === 'end-year'), props: { ...blocksPalette.find(b => b.type === 'signature_box' && b.props.period === 'end-year')?.props, level: 'MS' } },
+              ...blocksPalette.filter(b => b.type === 'promotion_info' && b.props.targetLevel === 'GS').map(b => ({ ...b, props: { ...b.props, level: 'MS' } })),
+            ].filter(b => b.type).map((b, i) => (
+              <div 
+                key={i}
+                onClick={() => addBlock(b as Block)}
+                style={{ 
+                  padding: '12px 14px',
+                  marginBottom: 8,
+                  background: '#f8f9fa',
+                  border: '2px solid #e9ecef',
+                  borderRadius: 10,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = '#e7f5ff'
+                  e.currentTarget.style.borderColor = '#667eea'
+                  e.currentTarget.style.transform = 'translateX(4px)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = '#f8f9fa'
+                  e.currentTarget.style.borderColor = '#e9ecef'
+                  e.currentTarget.style.transform = 'translateX(0)'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: 20 }}>
+                    {b!.type === 'signature_box' && '📝'}
+                    {b!.type === 'promotion_info' && '🎓'}
+                  </span>
+                  <span style={{ fontSize: 13, fontWeight: 500 }}>
+                    {b!.type === 'signature_box' && (b!.props.label || 'Signature Fin Année')}
+                    {b!.type === 'promotion_info' && (b!.props.label || 'Info Passage')}
+                  </span>
+                </div>
+                <span style={{ fontSize: 18, color: '#667eea' }}>+</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Fin d'Année GS (Vers EB1) */}
+          <div style={{ marginBottom: 24 }}>
+            <div style={{ 
+              fontSize: 11, 
+              fontWeight: 700, 
+              color: '#6c757d', 
+              marginBottom: 10,
+              textTransform: 'uppercase',
+              letterSpacing: '0.5px'
+            }}>
+              Fin d'Année GS (Vers EB1)
+            </div>
+            {[
+              { ...blocksPalette.find(b => b.type === 'signature_box' && b.props.period === 'end-year'), props: { ...blocksPalette.find(b => b.type === 'signature_box' && b.props.period === 'end-year')?.props, level: 'GS' } },
+              ...blocksPalette.filter(b => b.type === 'promotion_info' && b.props.targetLevel === 'EB1').map(b => ({ ...b, props: { ...b.props, level: 'GS' } })),
+            ].filter(b => b.type).map((b, i) => (
+              <div 
+                key={i}
+                onClick={() => addBlock(b as Block)}
+                style={{ 
+                  padding: '12px 14px',
+                  marginBottom: 8,
+                  background: '#f8f9fa',
+                  border: '2px solid #e9ecef',
+                  borderRadius: 10,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = '#e7f5ff'
+                  e.currentTarget.style.borderColor = '#667eea'
+                  e.currentTarget.style.transform = 'translateX(4px)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = '#f8f9fa'
+                  e.currentTarget.style.borderColor = '#e9ecef'
+                  e.currentTarget.style.transform = 'translateX(0)'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: 20 }}>
+                    {b!.type === 'signature_box' && '📝'}
+                    {b!.type === 'promotion_info' && '🎓'}
+                  </span>
+                  <span style={{ fontSize: 13, fontWeight: 500 }}>
+                    {b!.type === 'signature_box' && (b!.props.label || 'Signature Fin Année')}
+                    {b!.type === 'promotion_info' && (b!.props.label || 'Info Passage')}
+                  </span>
+                </div>
+                <span style={{ fontSize: 18, color: '#667eea' }}>+</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Interactif */}
           <div>
             <div style={{ 
               fontSize: 11, 
@@ -1313,7 +1695,6 @@ export default function TemplateBuilder() {
               blocksPalette.find(b => b.type === 'dropdown'),
               blocksPalette.find(b => b.type === 'dropdown_reference'),
               blocksPalette.find(b => b.type === 'language_toggle'),
-              ...blocksPalette.filter(b => b.type === 'promotion_info'),
             ].filter(Boolean).map((b, i) => (
               <div 
                 key={i}
@@ -1346,13 +1727,11 @@ export default function TemplateBuilder() {
                     {b!.type === 'dropdown' && '📋'}
                     {b!.type === 'dropdown_reference' && '🔗'}
                     {b!.type === 'language_toggle' && '🌐'}
-                    {b!.type === 'promotion_info' && '🎓'}
                   </span>
                   <span style={{ fontSize: 13, fontWeight: 500 }}>
                     {b!.type === 'dropdown' && 'Menu déroulant'}
                     {b!.type === 'dropdown_reference' && 'Réf. dropdown'}
                     {b!.type === 'language_toggle' && 'Langues'}
-                    {b!.type === 'promotion_info' && (b!.props.label || 'Info Passage')}
                   </span>
                 </div>
                 <span style={{ fontSize: 18, color: '#667eea' }}>+</span>

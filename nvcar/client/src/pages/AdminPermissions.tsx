@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo } from 'react'
+import { Link } from 'react-router-dom'
 import api from '../api'
 
 type BypassScope = {
@@ -477,6 +478,11 @@ export default function AdminPermissions() {
                 <p className="note" style={{ fontSize: 16, color: '#64748b' }}>
                     Gérez les permissions globales et les accès spécifiques.
                 </p>
+                <div style={{ marginTop: 16 }}>
+                    <Link to="/admin/all-gradebooks" className="btn primary" style={{ textDecoration: 'none', display: 'inline-block' }}>
+                        Voir tous les carnets (Admin)
+                    </Link>
+                </div>
             </div>
 
             {/* Nav Permissions Section */}

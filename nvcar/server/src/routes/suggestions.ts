@@ -79,8 +79,9 @@ suggestionsRouter.patch('/:id', requireAuth(['ADMIN']), async (req, res) => {
                     
                     const block = template.pages[suggestion.pageIndex].blocks[suggestion.blockIndex]
                     
-                    // Check block type or props structure
-                    if (block.props && typeof block.props.content === 'string') {
+                    if (block.type === 'dropdown') {
+                        block.props.options = suggestion.suggestedText.split('\n').map(s => s.trim()).filter(s => s)
+                    } else if (block.props && typeof block.props.content === 'string') {
                         block.props.content = suggestion.suggestedText
                     } else if (block.props && typeof block.props.text === 'string') {
                         block.props.text = suggestion.suggestedText

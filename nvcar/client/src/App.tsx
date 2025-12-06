@@ -36,6 +36,8 @@ import CarnetPrint from './pages/CarnetPrint'
 import AdminProgress from './pages/AdminProgress'
 import AdminPermissions from './pages/AdminPermissions'
 import AdminOnlineUsers from './pages/AdminOnlineUsers'
+import AdminAllGradebooks from './pages/AdminAllGradebooks'
+import AdminGradebookReview from './pages/AdminGradebookReview'
 import SystemAlertBanner from './components/SystemAlertBanner'
 
 const RequireAuth = ({ children }: { children: JSX.Element }) => {
@@ -374,6 +376,22 @@ export default function App() {
           element={
             <RequireAuth>
               <AdminPermissions />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/admin/all-gradebooks"
+          element={
+            <RequireAuth>
+              <AdminAllGradebooks />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/admin/gradebooks/:assignmentId/review"
+          element={
+            <RequireAuth>
+              <AdminGradebookReview />
             </RequireAuth>
           }
         />

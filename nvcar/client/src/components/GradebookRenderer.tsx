@@ -173,6 +173,11 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                     textAlign: 'center'
                                 }}>
                                     {(() => {
+                                        // Level filtering: if block has a specific level, check if it matches student's level
+                                        if (b.props.level && student?.level && b.props.level !== student.level) {
+                                            return null
+                                        }
+
                                         const targetLevel = b.props.targetLevel
                                         const promotions = assignment?.data?.promotions || []
                                         const promo = promotions.find((p: any) => p.to === targetLevel)
@@ -250,7 +255,9 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                     alignItems: 'center',
                                     justifyContent: 'center',
                                     fontSize: 10,
-                                    color: '#999'
+                                    color: '#999',
+                                    // Hide if level doesn't match
+                                    ...((b.props.level && student?.level && b.props.level !== student.level) ? { display: 'none' } : {})
                                 }}>
                                     {finalSignature ? '✓ Signé Fin Année' : (b.props.label || 'Signature Fin Année')}
                                 </div>
@@ -298,7 +305,9 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                     alignItems: 'center',
                                     justifyContent: 'center',
                                     fontSize: 10,
-                                    color: '#999'
+                                    color: '#999',
+                                    // Hide if level doesn't match
+                                    ...((b.props.level && student?.level && b.props.level !== student.level) ? { display: 'none' } : {})
                                 }}>
                                     {signature ? '✓ Signé' : (b.props.label || 'Signature')}
                                 </div>

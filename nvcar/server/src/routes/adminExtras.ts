@@ -10,6 +10,8 @@ import { GradebookTemplate } from '../models/GradebookTemplate'
 import { SystemAlert } from '../models/SystemAlert'
 import { RoleScope } from '../models/RoleScope'
 import { SubAdminAssignment } from '../models/SubAdminAssignment'
+import { TemplateSignature } from '../models/TemplateSignature'
+import { Student } from '../models/Student'
 
 export const adminExtrasRouter = Router()
 
@@ -275,5 +277,228 @@ adminExtrasRouter.post('/permissions', requireAuth(['ADMIN']), async (req, res) 
         res.json({ success: true })
     } catch (e) {
         res.status(500).json({ error: 'failed' })
+    }
+})
+
+// Admin: Get ALL gradebooks for active year
+adminExtrasRouter.get('/all-gradebooks', requireAuth(['ADMIN']), async (req, res) => {
+    try {
+        // Get active school year
+        const activeSchoolYear = await SchoolYear.findOne({ active: true }).lean()
+        if (!activeSchoolYear) {
+            return res.json([])
+        }
+
+        // Get ALL classes for active year
+        const classes = await ClassModel.find({ schoolYearId: activeSchoolYear._id }).lean()
+        const classIds = classes.map(c => String(c._id))
+        const classMap = new Map(classes.map(c => [String(c._id), c]))
+
+        // Get ALL enrollments
+        const enrollments = await Enrollment.find({ classId: { $in: classIds } }).lean()
+        const studentIds = enrollments.map(e => e.studentId)
+        const studentClassMap = new Map(enrollments.map(e => [String(e.studentId), String(e.classId)]))
+
+        // Get ALL template assignments
+        const templateAssignments = await TemplateAssignment.find({
+            studentId: { $in: studentIds },
+        }).lean()
+
+        // Get signature information
+        const assignmentIds = templateAssignments.map(a => String(a._id))
+        const signatures = await TemplateSignature.find({ templateAssignmentId: { $in: assignmentIds } }).lean()
+        const signatureMap = new Map()
+        signatures.forEach(s => {
+            if (!signatureMap.has(s.templateAssignmentId)) {
+                signatureMap.set(s.templateAssignmentId, [])
+            }
+            signatureMap.get(s.templateAssignmentId).push(s)
+        })
+
+        // Enrich
+        const enrichedAssignments = await Promise.all(templateAssignments.map(async (assignment) => {
+            const template = await GradebookTemplate.findById(assignment.templateId).lean()
+            const student = await Student.findById(assignment.studentId).lean()
+            const assignmentSignatures = signatureMap.get(String(assignment._id)) || []
+            const signature = assignmentSignatures.length > 0 ? assignmentSignatures[0] : null
+            
+            const classId = studentClassMap.get(String(assignment.studentId))
+            const classInfo = classId ? classMap.get(classId) : null
+
+            return {
+                ...assignment,
+                template,
+                student,
+                signature,
+                signatures: assignmentSignatures,
+                className: classInfo?.name,
+                level: classInfo?.level,
+            }
+        }))
+
+        res.json(enrichedAssignments)
+    } catch (e: any) {
+        res.status(500).json({ error: 'fetch_failed', message: e.message })
+    }
+})
+
+// Admin: Sign gradebook (Unrestricted)
+adminExtrasRouter.post('/templates/:templateAssignmentId/sign', requireAuth(['ADMIN']), async (req, res) => {
+    try {
+        const adminId = (req as any).user.userId
+        const { templateAssignmentId } = req.params
+        const { type = 'standard' } = req.body
+
+        // Get the template assignment
+        const assignment = await TemplateAssignment.findById(templateAssignmentId)
+        if (!assignment) return res.status(404).json({ error: 'not_found' })
+
+        // Check if already signed
+        const existing = await TemplateSignature.findOne({ templateAssignmentId, type }).lean()
+        if (existing) {
+            return res.status(400).json({ error: 'already_signed' })
+        }
+
+        // Create signature
+        const signature = await TemplateSignature.create({
+            templateAssignmentId,
+            subAdminId: adminId,
+            signedAt: new Date(),
+            type
+        })
+
+        // Update assignment status if needed
+        if (assignment.status !== 'signed') {
+            assignment.status = 'signed'
+            await assignment.save()
+        }
+
+        res.json(signature)
+    } catch (e: any) {
+        res.status(500).json({ error: 'sign_failed', message: e.message })
+    }
+})
+
+// Admin: Unsign gradebook
+adminExtrasRouter.delete('/templates/:templateAssignmentId/sign', requireAuth(['ADMIN']), async (req, res) => {
+    try {
+        const { templateAssignmentId } = req.params
+        const { type } = req.body
+
+        const query: any = { templateAssignmentId }
+        if (type) query.type = type
+
+        await TemplateSignature.deleteMany(query)
+
+        // Check if any signatures remain
+        const remaining = await TemplateSignature.countDocuments({ templateAssignmentId })
+        if (remaining === 0) {
+            await TemplateAssignment.findByIdAndUpdate(templateAssignmentId, { status: 'completed' })
+        }
+
+        res.json({ success: true })
+    } catch (e: any) {
+        res.status(500).json({ error: 'unsign_failed', message: e.message })
+    }
+})
+
+// Admin: Update assignment data (Unrestricted)
+adminExtrasRouter.patch('/templates/:assignmentId/data', requireAuth(['ADMIN']), async (req, res) => {
+    try {
+        const { assignmentId } = req.params
+        const { type, pageIndex, blockIndex, items, data } = req.body
+
+        // Get assignment
+        const assignment = await TemplateAssignment.findById(assignmentId)
+        if (!assignment) return res.status(404).json({ error: 'not_found' })
+
+        if (type === 'language_toggle') {
+            if (pageIndex === undefined || blockIndex === undefined || !items) {
+                return res.status(400).json({ error: 'missing_payload' })
+            }
+
+            const key = `language_toggle_${pageIndex}_${blockIndex}`
+            
+            // Update assignment data
+            if (!assignment.data) assignment.data = {}
+            assignment.data[key] = items
+            assignment.markModified('data')
+            await assignment.save()
+            
+            return res.json({ success: true })
+        } else if (data) {
+            // Generic data update (for dropdowns etc)
+            if (!assignment.data) assignment.data = {}
+            for (const key in data) {
+                assignment.data[key] = data[key]
+            }
+            assignment.markModified('data')
+            await assignment.save()
+            
+            return res.json({ success: true })
+        }
+
+        res.status(400).json({ error: 'unknown_update_type' })
+    } catch (e: any) {
+        res.status(500).json({ error: 'update_failed', message: e.message })
+    }
+})
+
+// Admin: Get gradebook review data (Unrestricted)
+adminExtrasRouter.get('/templates/:templateAssignmentId/review', requireAuth(['ADMIN']), async (req, res) => {
+    try {
+        const adminId = (req as any).user.userId
+        const { templateAssignmentId } = req.params
+
+        // Get the template assignment
+        const assignment = await TemplateAssignment.findById(templateAssignmentId).lean()
+        if (!assignment) return res.status(404).json({ error: 'not_found' })
+
+        const template = await GradebookTemplate.findById(assignment.templateId).lean()
+        const student = await Student.findById(assignment.studentId).lean()
+        
+        const signature = await TemplateSignature.findOne({ templateAssignmentId, type: { $ne: 'end_of_year' } }).sort({ signedAt: -1 }).lean()
+        const finalSignature = await TemplateSignature.findOne({ templateAssignmentId, type: 'end_of_year' }).lean()
+
+        // Apply language toggles from assignment data
+        const versionedTemplate = JSON.parse(JSON.stringify(template))
+        if (assignment.data) {
+            for (const [key, value] of Object.entries(assignment.data)) {
+                if (key.startsWith('language_toggle_')) {
+                    const parts = key.split('_')
+                    if (parts.length >= 4) {
+                        const pageIndex = parseInt(parts[2])
+                        const blockIndex = parseInt(parts[3])
+                        if (versionedTemplate.pages?.[pageIndex]?.blocks?.[blockIndex]?.props?.items) {
+                            versionedTemplate.pages[pageIndex].blocks[blockIndex].props.items = value
+                        }
+                    }
+                }
+            }
+        }
+
+        // Check if signed by ME
+        const isSignedByMe = !!(signature && String(signature.subAdminId) === String(adminId))
+
+        // Get active semester
+        const activeSchoolYear = await SchoolYear.findOne({ active: true }).lean()
+        const activeSemester = activeSchoolYear?.activeSemester || 1
+
+        // Check if promoted
+        const isPromoted = student?.promotions?.some((p: any) => p.schoolYearId === String(activeSchoolYear?._id))
+
+        res.json({
+            template: versionedTemplate,
+            student,
+            assignment,
+            signature,
+            finalSignature,
+            canEdit: true,
+            isPromoted,
+            isSignedByMe,
+            activeSemester
+        })
+    } catch (e: any) {
+        res.status(500).json({ error: 'fetch_failed', message: e.message })
     }
 })

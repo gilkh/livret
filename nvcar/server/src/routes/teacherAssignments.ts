@@ -124,7 +124,11 @@ teacherAssignmentsRouter.delete('/:id', requireAuth(['ADMIN']), async (req, res)
 // Admin: Get all assignments
 teacherAssignmentsRouter.get('/', requireAuth(['ADMIN']), async (req, res) => {
     try {
-        const assignments = await TeacherClassAssignment.find({}).lean()
+        const filter: any = {}
+        if (req.query.schoolYearId) {
+            filter.schoolYearId = req.query.schoolYearId
+        }
+        const assignments = await TeacherClassAssignment.find(filter).lean()
         const teacherIds = assignments.map(a => a.teacherId)
         const classIds = assignments.map(a => a.classId)
         
@@ -148,5 +152,58 @@ teacherAssignmentsRouter.get('/', requireAuth(['ADMIN']), async (req, res) => {
         res.json(result)
     } catch (e: any) {
         res.status(500).json({ error: 'fetch_failed', message: e.message })
+    }
+})
+
+// Admin: Import assignments from previous year
+teacherAssignmentsRouter.post('/import', requireAuth(['ADMIN']), async (req, res) => {
+    try {
+        const { sourceAssignments, targetYearId } = req.body
+        
+        if (!sourceAssignments || !Array.isArray(sourceAssignments) || !targetYearId) {
+            return res.status(400).json({ error: 'missing_payload' })
+        }
+
+        // Get all classes for target year to lookup by name
+        const targetClasses = await ClassModel.find({ schoolYearId: targetYearId }).lean()
+        const classMap = new Map(targetClasses.map(c => [c.name, String(c._id)]))
+
+        let importedCount = 0
+        const errors = []
+
+        for (const assignment of sourceAssignments) {
+            // Skip if no class name provided
+            if (!assignment.className) continue
+
+            const targetClassId = classMap.get(assignment.className)
+            if (!targetClassId) {
+                errors.push(`Classe '${assignment.className}' introuvable dans l'année sélectionnée`)
+                continue
+            }
+            
+            // Create assignment
+            try {
+                await TeacherClassAssignment.findOneAndUpdate(
+                    { teacherId: assignment.teacherId, classId: targetClassId },
+                    {
+                        teacherId: assignment.teacherId,
+                        classId: targetClassId,
+                        schoolYearId: targetYearId,
+                        languages: assignment.languages || [],
+                        isProfPolyvalent: !!assignment.isProfPolyvalent,
+                        assignedBy: (req as any).user.userId,
+                        assignedAt: new Date(),
+                    },
+                    { upsert: true, new: true }
+                )
+                importedCount++
+            } catch (err) {
+                console.error('Error importing assignment', err)
+            }
+        }
+        
+        res.json({ importedCount, errors })
+    } catch (e: any) {
+        res.status(500).json({ error: 'import_failed', message: e.message })
     }
 })

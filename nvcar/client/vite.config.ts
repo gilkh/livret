@@ -16,5 +16,23 @@ export default defineConfig({
     },
     host: true, // Listen on all addresses
     port: 5173,
+    proxy: {
+      '/socket.io': {
+        target: 'https://localhost:4000',
+        secure: false,
+        ws: true,
+        changeOrigin: true
+      },
+      '^/(auth|categories|students|levels|import|pdf-v2|reports-v2|files-v2|pdf|reports|files|templates|users|signatures|school-years|classes|media|teacher-assignments|template-assignments|subadmin-assignments|teacher|subadmin|aefe|audit-logs|impersonation|suggestions|settings|admin-extras|microsoft|outlook-users|analytics|backup|saved-gradebooks|uploads)': {
+        target: 'https://localhost:4000',
+        secure: false,
+        changeOrigin: true,
+        bypass: (req) => {
+          if (req.headers.accept && req.headers.accept.includes('text/html')) {
+            return req.url
+          }
+        }
+      }
+    }
   }
 })

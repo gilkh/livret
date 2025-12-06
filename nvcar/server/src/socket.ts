@@ -4,12 +4,7 @@ import { Server as HttpServer } from 'http'
 export const initSocket = (httpServer: HttpServer) => {
   const io = new Server(httpServer, {
     cors: {
-      origin: (origin, callback) => {
-        // Allow all origins for now, or match your app.ts CORS policy
-        if (!origin) return callback(null, true)
-        if (origin.startsWith('http://localhost:5173') || origin.startsWith('http://localhost:5174')) return callback(null, true)
-        return callback(null, true)
-      },
+      origin: true,
       methods: ['GET', 'POST'],
       credentials: true
     }
