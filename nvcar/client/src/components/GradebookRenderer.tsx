@@ -3,7 +3,7 @@ import React from 'react'
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
 type Template = { _id?: string; name: string; pages: Page[] }
-type Student = { _id: string; firstName: string; lastName: string; level?: string; dateOfBirth: Date }
+type Student = { _id: string; firstName: string; lastName: string; level?: string; dateOfBirth: Date; className?: string }
 type Assignment = { _id: string; status: string; data?: any }
 
 const pageWidth = 800
@@ -15,9 +15,35 @@ interface GradebookRendererProps {
     assignment: Assignment
     signature?: any
     finalSignature?: any
+    visiblePages?: number[]
 }
 
-export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, student, assignment, signature, finalSignature }) => {
+export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, student, assignment, signature, finalSignature, visiblePages }) => {
+    const getNextLevel = (current: string) => {
+        const c = (current || '').toUpperCase()
+        if (c === 'TPS') return 'PS'
+        if (c === 'PS') return 'MS'
+        if (c === 'MS') return 'GS'
+        if (c === 'GS') return 'EB1'
+        if (c === 'KG1') return 'KG2'
+        if (c === 'KG2') return 'KG3'
+        if (c === 'KG3') return 'EB1'
+        return ''
+    }
+
+    const getBlockLevel = (b: Block) => {
+        if (b.props.level) return b.props.level
+        const label = (b.props.label || '').toUpperCase()
+        if (/\bPS\b/.test(label)) return 'PS'
+        if (/\bMS\b/.test(label)) return 'MS'
+        if (/\bGS\b/.test(label)) return 'GS'
+        if (/\bEB1\b/.test(label)) return 'EB1'
+        if (/\bKG1\b/.test(label)) return 'KG1'
+        if (/\bKG2\b/.test(label)) return 'KG2'
+        if (/\bKG3\b/.test(label)) return 'KG3'
+        return null
+    }
+
     return (
         <div style={{ margin: 0, padding: 0 }}>
             <style>{`
@@ -37,7 +63,10 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                 }
             `}</style>
             {template.pages.map((page, originalPageIdx) => ({ page, originalPageIdx }))
-                .filter(({ page }) => !page.excludeFromPdf)
+                .filter(({ page, originalPageIdx }) => 
+                    !page.excludeFromPdf && 
+                    (!visiblePages || visiblePages.includes(originalPageIdx))
+                )
                 .map(({ page, originalPageIdx }, pageIdx) => (
                 <div 
                     key={pageIdx}
@@ -178,32 +207,81 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                             return null
                                         }
 
-                                        const targetLevel = b.props.targetLevel
+                                        // Period filtering
+                                        if (b.props.period === 'mid-year' && !signature && !b.props.field?.includes('signature')) {
+                                            // If marked for mid-year but no mid-year signature, hide it
+                                            return null
+                                        }
+                                        if (b.props.period === 'end-year' && !finalSignature && !b.props.field?.includes('signature')) {
+                                            // If marked for end-year but no end-year signature, hide it
+                                            return null
+                                        }
+
+                                        // Target Level filtering: only show if student is in the level preceding targetLevel
+                                        if (b.props.targetLevel && student?.level) {
+                                            const next = getNextLevel(student.level)
+                                            if (next !== b.props.targetLevel) return null
+                                        }
+
+                                        // Simple fields that don't need promotion data
+                                        if (b.props.field === 'student') return <div>{student?.firstName} {student?.lastName}</div>
+                                        if (b.props.field === 'currentLevel') return <div>{student?.level}</div>
+
+                                        const targetLevel = b.props.targetLevel || getNextLevel(student?.level || '')
                                         const promotions = assignment?.data?.promotions || []
-                                        const promo = promotions.find((p: any) => p.to === targetLevel)
+                                        let promoData = promotions.find((p: any) => p.to === targetLevel)
+                                        let promo = promoData ? { ...promoData } : null
+
+                                        // Fallback: If no promo record, show predictive info
+                                        if (!promo) {
+                                            const currentYear = new Date().getFullYear()
+                                            const month = new Date().getMonth()
+                                            const startYear = month >= 8 ? currentYear : currentYear - 1
+                                            
+                                            // For Mid-Year, "Year" usually refers to Current School Year
+                                            // For End-Year, "Year" usually refers to Next School Year (for promotion)
+                                            // Default to Next Year for promotion context, unless period is mid-year
+                                            const isMidYearContext = b.props.period === 'mid-year'
+                                            const displayYear = isMidYearContext ? `${startYear}/${startYear + 1}` : `${startYear + 1}/${startYear + 2}`
+
+                                            promo = {
+                                                year: displayYear,
+                                                from: student?.level || '',
+                                                to: targetLevel || '?',
+                                                class: student?.className || ''
+                                            }
+                                        } else {
+                                            // Enrich existing promo with current data if missing
+                                            if (!promo.class && student?.className) promo.class = student.className
+                                            if (!promo.from && student?.level) promo.from = student.level
+                                        }
                                         
                                         if (promo) {
                                             if (!b.props.field) {
                                                 return (
                                                     <>
-                                                        <div style={{ fontWeight: 'bold', marginBottom: 8 }}>Passage en {targetLevel}</div>
+                                                        <div style={{ fontWeight: 'bold', marginBottom: 8 }}>Passage en {promo.to}</div>
                                                         <div>{student?.firstName} {student?.lastName}</div>
                                                         <div style={{ fontSize: (b.props.fontSize || 12) * 0.8, color: '#666', marginTop: 8 }}>Année {promo.year}</div>
                                                     </>
                                                 )
                                             } else if (b.props.field === 'level') {
-                                                return <div style={{ fontWeight: 'bold' }}>Passage en {targetLevel}</div>
+                                                // If it's purely informational (e.g. "Passage en MS"), show it
+                                                return <div style={{ fontWeight: 'bold' }}>Passage en {promo.to}</div>
                                             } else if (b.props.field === 'student') {
                                                 return <div>{student?.firstName} {student?.lastName}</div>
                                             } else if (b.props.field === 'year') {
-                                                return <div>Année {promo.year}</div>
+                                                return <div>{promo.year}</div>
                                             } else if (b.props.field === 'class') {
-                                                return <div>{promo.class || ''}</div>
+                                                const raw = promo.class || ''
+                                                const parts = raw.split(/\s*[-\s]\s*/)
+                                                const section = parts.length ? parts[parts.length - 1] : raw
+                                                return <div>{section}</div>
                                             } else if (b.props.field === 'currentLevel') {
                                                 return <div>{promo.from || ''}</div>
                                             }
                                         }
-                                        return <div style={{ color: '#999' }}>Pas de promotion</div>
+                                        return null
                                     })()}
                                 </div>
                             )}
@@ -245,60 +323,6 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                 />
                             )}
                             
-                            {b.type === 'final_signature_box' && (
-                                <div style={{ 
-                                    width: b.props.width || 200, 
-                                    height: b.props.height || 80, 
-                                    border: '1px solid #000', 
-                                    background: '#fff',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    fontSize: 10,
-                                    color: '#999',
-                                    // Hide if level doesn't match
-                                    ...((b.props.level && student?.level && b.props.level !== student.level) ? { display: 'none' } : {})
-                                }}>
-                                    {finalSignature?.signatureUrl ? (
-                                        <img src={finalSignature.signatureUrl} alt="Signature Fin Année" style={{ maxWidth: '100%', maxHeight: '100%' }} />
-                                    ) : (
-                                        finalSignature ? '✓ Signé Fin Année' : (b.props.label || 'Signature Fin Année')
-                                    )}
-                                </div>
-                            )}
-                            
-                            {b.type === 'final_signature_info' && (
-                                <div style={{ 
-                                    width: b.props.width || 150,
-                                    height: b.props.height || 30,
-                                    fontSize: b.props.fontSize || 12,
-                                    color: b.props.color || '#333',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: b.props.align || 'flex-start'
-                                }}>
-                                    {finalSignature ? (
-                                        <>
-                                            {b.props.field === 'year' && <span>{new Date().getFullYear()}</span>}
-                                            {b.props.field === 'student' && <span>{student?.firstName} {student?.lastName}</span>}
-                                            {b.props.field === 'nextLevel' && <span>{(() => {
-                                                const c = (student?.level || '').toUpperCase()
-                                                if (c === 'TPS') return 'PS'
-                                                if (c === 'PS') return 'MS'
-                                                if (c === 'MS') return 'GS'
-                                                if (c === 'GS') return 'EB1'
-                                                if (c === 'KG1') return 'KG2'
-                                                if (c === 'KG2') return 'KG3'
-                                                if (c === 'KG3') return 'EB1'
-                                                return ''
-                                            })()}</span>}
-                                        </>
-                                    ) : (
-                                        <span style={{ color: '#ccc' }}>{b.props.placeholder || '...'}</span>
-                                    )}
-                                </div>
-                            )}
-
                             {b.type === 'signature_box' && (
                                 <div style={{ 
                                     width: b.props.width || 200, 
@@ -311,12 +335,20 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                     fontSize: 10,
                                     color: '#999',
                                     // Hide if level doesn't match
-                                    ...((b.props.level && student?.level && b.props.level !== student.level) ? { display: 'none' } : {})
+                                    ...((getBlockLevel(b) && student?.level && getBlockLevel(b) !== student.level) ? { display: 'none' } : {})
                                 }}>
-                                    {signature?.signatureUrl ? (
-                                        <img src={signature.signatureUrl} alt="Signature" style={{ maxWidth: '100%', maxHeight: '100%' }} />
+                                    {b.props.period === 'end-year' ? (
+                                        finalSignature?.signatureUrl ? (
+                                            <img src={finalSignature.signatureUrl} alt="Signature Fin Année" style={{ maxWidth: '100%', maxHeight: '100%' }} />
+                                        ) : (
+                                            finalSignature ? '✓ Signé Fin Année' : (b.props.label || 'Signature Fin Année')
+                                        )
                                     ) : (
-                                        signature ? '✓ Signé' : (b.props.label || 'Signature')
+                                        signature?.signatureUrl ? (
+                                            <img src={signature.signatureUrl} alt="Signature" style={{ maxWidth: '100%', maxHeight: '100%' }} />
+                                        ) : (
+                                            signature ? '✓ Signé' : (b.props.label || 'Signature')
+                                        )
                                     )}
                                 </div>
                             )}

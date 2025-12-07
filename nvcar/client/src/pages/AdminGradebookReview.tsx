@@ -2,11 +2,12 @@ import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import api from '../api'
 import { useSocket } from '../context/SocketContext'
+import { GradebookRenderer } from '../components/GradebookRenderer'
 
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
 type Template = { _id?: string; name: string; pages: Page[] }
-type Student = { _id: string; firstName: string; lastName: string; level?: string }
+type Student = { _id: string; firstName: string; lastName: string; level?: string; dateOfBirth: Date }
 type Assignment = { _id: string; status: string; data?: any }
 
 const pageWidth = 800
@@ -108,6 +109,20 @@ export default function AdminGradebookReview() {
                 setIsPromoted(r.data.isPromoted)
                 setIsSignedByMe(r.data.isSignedByMe)
                 setActiveSemester(r.data.activeSemester || 1)
+
+                // Fallback enrichment if className/level missing
+                try {
+                    const s = r.data.student
+                    if (!s?.className || !s?.level) {
+                        const all = await api.get('/admin-extras/all-gradebooks')
+                        const found = (all.data || []).find((a: any) => String(a._id) === String(assignmentId))
+                        if (found) {
+                            setStudent(prev => prev ? { ...prev, className: found.className || prev.className, level: found.level || prev.level } : prev)
+                        }
+                    }
+                } catch (err) {
+                    // ignore enrichment errors
+                }
             } catch (e: any) {
                 setError('Impossible de charger le carnet')
                 console.error(e)
@@ -463,64 +478,16 @@ export default function AdminGradebookReview() {
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 24, alignItems: 'center' }}>
-                    {(continuousScroll ? template.pages : [template.pages[selectedPage]]).map((page, pageIdx) => {
-                        const actualPageIndex = continuousScroll ? pageIdx : selectedPage
-                        return (
-                            <div 
-                                key={actualPageIndex} 
-                                id={`page-${actualPageIndex}`}
-                                className="card page-canvas" 
-                                style={{ height: pageHeight, width: pageWidth, background: page.bgColor || '#fff', overflow: 'hidden', position: 'relative' }}
-                            >
-                                {continuousScroll && <div style={{ position: 'absolute', top: -30, left: 0, color: '#888', fontSize: 14, fontWeight: 600 }}>Page {actualPageIndex + 1}</div>}
-                                <div className="page-margins" />
-                                {page.blocks.map((b, idx) => (
-                                    <div key={idx} style={{ position: 'absolute', left: b.props.x || 0, top: b.props.y || 0, zIndex: b.props.z ?? idx, padding: 6 }}>
-                                        {b.type === 'text' && <div style={{ color: b.props.color, fontSize: b.props.fontSize }}>{b.props.text}</div>}
-                                        {b.type === 'image' && <img src={b.props.url} style={{ width: b.props.width || 120, height: b.props.height || 120, borderRadius: 8 }} alt="" />}
-                                        {b.type === 'rect' && <div style={{ width: b.props.width, height: b.props.height, background: b.props.color, borderRadius: b.props.radius || 8 }} />}
-                                        {b.type === 'circle' && <div style={{ width: (b.props.radius || 60) * 2, height: (b.props.radius || 60) * 2, background: b.props.color, borderRadius: '50%' }} />}
-                                        {b.type === 'line' && <div style={{ width: b.props.x2 || 100, height: b.props.strokeWidth || 2, background: b.props.stroke || '#b2bec3' }} />}
-                                        {b.type === 'arrow' && <div style={{ width: b.props.x2 || 100, height: b.props.strokeWidth || 2, background: b.props.stroke || '#6c5ce7', position: 'relative' }}><div style={{ position: 'absolute', right: 0, top: -6, width: 0, height: 0, borderTop: '8px solid transparent', borderBottom: '8px solid transparent', borderLeft: `12px solid ${b.props.stroke || '#6c5ce7'}` }} /></div>}
-                                        {b.type === 'dynamic_text' && <div style={{ color: b.props.color, fontSize: b.props.fontSize }}>{b.props.text}</div>}
-                                        {b.type === 'student_info' && <div style={{ color: b.props.color, fontSize: b.props.fontSize }}>Nom, Classe, Naissance</div>}
-                                        {b.type === 'category_title' && <div style={{ color: b.props.color, fontSize: b.props.fontSize }}>Titre catégorie</div>}
-                                        {b.type === 'competency_list' && <div style={{ color: b.props.color, fontSize: b.props.fontSize }}>Liste des compétences</div>}
-                                        {b.type === 'signature_box' && (
-                                            <div style={{ 
-                                                width: b.props.width || 200, 
-                                                height: b.props.height || 80, 
-                                                border: '1px solid #000', 
-                                                background: '#fff',
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                fontSize: 10,
-                                                color: '#999'
-                                            }}>
-                                                {signature ? '✓ Signé' : b.props.label || 'Signature'}
-                                            </div>
-                                        )}
-                                        {b.type === 'final_signature_box' && (
-                                            <div style={{ 
-                                                width: b.props.width || 200, 
-                                                height: b.props.height || 80, 
-                                                border: '1px solid #000', 
-                                                background: '#fff',
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                fontSize: 10,
-                                                color: '#999'
-                                            }}>
-                                                {finalSignature ? '✓ Signé Fin Année' : b.props.label || 'Signature Fin Année'}
-                                            </div>
-                                        )}
-                                    </div>
-                                ))}
-                            </div>
-                        )
-                    })}
+                    {template && student && assignment && (
+                        <GradebookRenderer
+                            template={template}
+                            student={student}
+                            assignment={assignment}
+                            signature={signature}
+                            finalSignature={finalSignature}
+                            visiblePages={continuousScroll ? undefined : [selectedPage]}
+                        />
+                    )}
                 </div>
             </div>
         </div>

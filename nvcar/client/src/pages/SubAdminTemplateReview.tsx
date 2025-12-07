@@ -8,7 +8,7 @@ import Toast, { ToastType } from '../components/Toast'
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
 type Template = { _id?: string; name: string; pages: Page[] }
-type Student = { _id: string; firstName: string; lastName: string; level?: string }
+type Student = { _id: string; firstName: string; lastName: string; level?: string; className?: string }
 type Assignment = { _id: string; status: string; data?: any }
 
 const pageWidth = 800
@@ -30,6 +30,19 @@ export default function SubAdminTemplateReview() {
     const [continuousScroll, setContinuousScroll] = useState(true)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState('')
+    
+    // Debug helper
+    useEffect(() => {
+        if (student) {
+            console.log('[SubAdminTemplateReview] Student data loaded:', {
+                firstName: student.firstName,
+                level: student.level,
+                className: student.className,
+                fullObject: student
+            })
+        }
+    }, [student])
+
     const [signing, setSigning] = useState(false)
     const [unsigning, setUnsigning] = useState(false)
     const [signingFinal, setSigningFinal] = useState(false)
@@ -194,15 +207,27 @@ export default function SubAdminTemplateReview() {
     }
 
     const getNextLevel = (current: string) => {
-        const c = current.toUpperCase()
+        const c = (current || '').toUpperCase()
         if (c === 'TPS') return 'PS'
         if (c === 'PS') return 'MS'
         if (c === 'MS') return 'GS'
         if (c === 'GS') return 'EB1'
-        
         if (c === 'KG1') return 'KG2'
         if (c === 'KG2') return 'KG3'
         if (c === 'KG3') return 'EB1'
+        return null
+    }
+
+    const getBlockLevel = (b: Block) => {
+        if (b.props.level) return b.props.level
+        const label = (b.props.label || '').toUpperCase()
+        if (/\bPS\b/.test(label)) return 'PS'
+        if (/\bMS\b/.test(label)) return 'MS'
+        if (/\bGS\b/.test(label)) return 'GS'
+        if (/\bEB1\b/.test(label)) return 'EB1'
+        if (/\bKG1\b/.test(label)) return 'KG1'
+        if (/\bKG2\b/.test(label)) return 'KG2'
+        if (/\bKG3\b/.test(label)) return 'KG3'
         return null
     }
 
@@ -938,29 +963,77 @@ export default function SubAdminTemplateReview() {
                                         textAlign: 'center'
                                     }}>
                                         {(() => {
-                                            const targetLevel = b.props.targetLevel
-                                            const promotions = assignment?.data?.promotions || []
-                                            const promo = promotions.find((p: any) => p.to === targetLevel)
+                                        // Level filtering: if block has a specific level, check if it matches student's level
+                                        if (b.props.level && student?.level && b.props.level !== student.level) {
+                                            return null
+                                        }
+
+                                        // Period filtering
+                                        if (b.props.period === 'mid-year' && !signature && !b.props.field?.includes('signature')) {
+                                            return null
+                                        }
+                                        if (b.props.period === 'end-year' && !finalSignature && !b.props.field?.includes('signature')) {
+                                            return null
+                                        }
+
+                                        // Target Level filtering: only show if student is in the level preceding targetLevel
+                                        if (b.props.targetLevel && student?.level) {
+                                            const next = getNextLevel(student.level)
+                                            if (next !== b.props.targetLevel) return null
+                                        }
+
+                                        const targetLevel = b.props.targetLevel || getNextLevel(student?.level || '')
+                                        const promotions = assignment?.data?.promotions || []
+                                        let promoData = promotions.find((p: any) => p.to === targetLevel)
+                                        let promo = promoData ? { ...promoData } : null
+                                        
+                                        // Fallback: If no promo record, show predictive info
+                                        if (!promo) {
+                                            const currentYear = new Date().getFullYear()
+                                            const month = new Date().getMonth()
+                                            const startYear = month >= 8 ? currentYear : currentYear - 1
                                             
-                                            if (promo) {
-                                                if (!b.props.field) {
-                                                    return (
-                                                        <>
-                                                            <div style={{ fontWeight: 'bold', marginBottom: 8 }}>Passage en {targetLevel}</div>
-                                                            <div>{student?.firstName} {student?.lastName}</div>
-                                                            <div style={{ fontSize: (b.props.fontSize || 12) * 0.8, color: '#666', marginTop: 8 }}>Année {promo.year}</div>
-                                                        </>
-                                                    )
-                                                } else if (b.props.field === 'level') {
-                                                    return <div style={{ fontWeight: 'bold' }}>Passage en {targetLevel}</div>
-                                                } else if (b.props.field === 'student') {
+                                            const isMidYearContext = b.props.period === 'mid-year'
+                                            const displayYear = isMidYearContext ? `${startYear}/${startYear + 1}` : `${startYear + 1}/${startYear + 2}`
+
+                                            promo = {
+                                                year: displayYear,
+                                                from: student?.level || '',
+                                                to: targetLevel || '?',
+                                                class: student?.className || ''
+                                            }
+                                        } else {
+                                            // Enrich existing promo with current data if missing
+                                            if (!promo.class && student?.className) promo.class = student.className
+                                            if (!promo.from && student?.level) promo.from = student.level
+                                        }
+
+                                        if (promo) {
+                                            if (!b.props.field) {
+                                                return (
+                                                    <>
+                                                        <div style={{ fontWeight: 'bold', marginBottom: 8 }}>Passage en {promo.to}</div>
+                                                        <div>{student?.firstName} {student?.lastName}</div>
+                                                        <div style={{ fontSize: (b.props.fontSize || 12) * 0.8, color: '#666', marginTop: 8 }}>Année {promo.year}</div>
+                                                    </>
+                                                )
+                                            } else if (b.props.field === 'level') {
+                                                return <div style={{ fontWeight: 'bold' }}>Passage en {promo.to}</div>
+                                            } else if (b.props.field === 'student') {
                                                     return <div>{student?.firstName} {student?.lastName}</div>
                                                 } else if (b.props.field === 'year') {
-                                                    return <div>Année {promo.year}</div>
-                                                }
+                                                    return <div>{promo.year}</div>
+                                            } else if (b.props.field === 'class') {
+                                                const raw = promo.class || ''
+                                                const parts = raw.split(/\s*[-\s]\s*/)
+                                                const section = parts.length ? parts[parts.length - 1] : raw
+                                                return <div>{section}</div>
+                                            } else if (b.props.field === 'currentLevel') {
+                                                return <div>{promo.from || ''}</div>
                                             }
-                                            return <div style={{ color: '#999' }}>Pas de promotion pour {targetLevel}</div>
-                                        })()}
+                                        }
+                                        return null
+                                    })()}
                                     </div>
                                 )}
                                 {b.type === 'table' && (
@@ -1015,7 +1088,9 @@ export default function SubAdminTemplateReview() {
                                         alignItems: 'center',
                                         justifyContent: 'center',
                                         fontSize: 10,
-                                        color: '#999'
+                                        color: '#999',
+                                        // Hide if level doesn't match
+                                        ...((getBlockLevel(b) && student?.level && getBlockLevel(b) !== student.level) ? { display: 'none' } : {})
                                     }}>
                                         {finalSignature ? '✓ Signé Fin Année' : b.props.label || 'Signature Fin Année'}
                                     </div>
@@ -1051,7 +1126,9 @@ export default function SubAdminTemplateReview() {
                                         alignItems: 'center',
                                         justifyContent: 'center',
                                         fontSize: 10,
-                                        color: '#999'
+                                        color: '#999',
+                                        // Hide if level doesn't match
+                                        ...((getBlockLevel(b) && student?.level && getBlockLevel(b) !== student.level) ? { display: 'none' } : {})
                                     }}>
                                         {signature ? '✓ Signé' : b.props.label || 'Signature'}
                                     </div>

@@ -5,7 +5,7 @@ import api from '../api'
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
 type Template = { _id?: string; name: string; pages: Page[] }
-type Student = { _id: string; firstName: string; lastName: string; level?: string; dateOfBirth: Date }
+type Student = { _id: string; firstName: string; lastName: string; level?: string; dateOfBirth: Date; className?: string }
 type Assignment = { _id: string; status: string; data?: any }
 
 const pageWidth = 800
@@ -22,6 +22,18 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' }) {
     const [signature, setSignature] = useState<any>(null)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState('')
+
+    const getNextLevel = (current: string) => {
+        const c = (current || '').toUpperCase()
+        if (c === 'TPS') return 'PS'
+        if (c === 'PS') return 'MS'
+        if (c === 'MS') return 'GS'
+        if (c === 'GS') return 'EB1'
+        if (c === 'KG1') return 'KG2'
+        if (c === 'KG2') return 'KG3'
+        if (c === 'KG3') return 'EB1'
+        return ''
+    }
 
     useEffect(() => {
         // Initialize as not ready
@@ -41,7 +53,10 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' }) {
                     const r = await api.get(`/saved-gradebooks/${savedId}`)
                     const savedData = r.data
                     
-                    setStudent(savedData.data.student)
+                    setStudent({
+                        ...savedData.data.student,
+                        className: savedData.data.className || savedData.data.student.className
+                    })
                     setAssignment(savedData.data.assignment)
                     setSignature(savedData.data.signature)
                     
@@ -257,28 +272,56 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' }) {
                                     textAlign: 'center'
                                 }}>
                                     {(() => {
-                                        const targetLevel = b.props.targetLevel
+                                        const targetLevel = b.props.targetLevel || getNextLevel(student?.level || '')
                                         const promotions = assignment?.data?.promotions || []
-                                        const promo = promotions.find((p: any) => p.to === targetLevel)
+                                        let promoData = promotions.find((p: any) => p.to === targetLevel)
+                                        let promo = promoData ? { ...promoData } : null
                                         
+                                        if (!promo) {
+                                            const currentYear = new Date().getFullYear()
+                                            const month = new Date().getMonth()
+                                            const startYear = month >= 8 ? currentYear : currentYear - 1
+                                            
+                                            const isMidYearContext = b.props.period === 'mid-year'
+                                            const displayYear = isMidYearContext ? `${startYear}/${startYear + 1}` : `${startYear + 1}/${startYear + 2}`
+
+                                            promo = {
+                                                year: displayYear,
+                                                from: student?.level || '',
+                                                to: targetLevel || '?',
+                                                class: student?.className || ''
+                                            }
+                                        } else {
+                                            // Enrich existing promo with current data if missing
+                                            if (!promo.class && student?.className) promo.class = student.className
+                                            if (!promo.from && student?.level) promo.from = student.level
+                                        }
+
                                         if (promo) {
                                             if (!b.props.field) {
                                                 return (
                                                     <>
-                                                        <div style={{ fontWeight: 'bold', marginBottom: 8 }}>Passage en {targetLevel}</div>
+                                                        <div style={{ fontWeight: 'bold', marginBottom: 8 }}>Passage en {promo.to}</div>
                                                         <div>{student?.firstName} {student?.lastName}</div>
                                                         <div style={{ fontSize: (b.props.fontSize || 12) * 0.8, color: '#666', marginTop: 8 }}>Année {promo.year}</div>
                                                     </>
                                                 )
                                             } else if (b.props.field === 'level') {
-                                                return <div style={{ fontWeight: 'bold' }}>Passage en {targetLevel}</div>
+                                                return <div style={{ fontWeight: 'bold' }}>Passage en {promo.to}</div>
                                             } else if (b.props.field === 'student') {
                                                 return <div>{student?.firstName} {student?.lastName}</div>
                                             } else if (b.props.field === 'year') {
-                                                return <div>Année {promo.year}</div>
+                                                return <div>{promo.year}</div>
+                                            } else if (b.props.field === 'class') {
+                                                const raw = promo.class || ''
+                                                const parts = raw.split(/\s*[-\s]\s*/)
+                                                const section = parts.length ? parts[parts.length - 1] : raw
+                                                return <div>{section}</div>
+                                            } else if (b.props.field === 'currentLevel') {
+                                                return <div>{promo.from || ''}</div>
                                             }
                                         }
-                                        return <div style={{ color: '#999' }}>Pas de promotion</div>
+                                        return null
                                     })()}
                                 </div>
                             )}

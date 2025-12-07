@@ -9,8 +9,8 @@ type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
 type Template = { _id?: string; name: string; pages: Page[]; updatedAt?: string }
 type Year = { _id: string; name: string }
-type ClassDoc = { _id: string; name: string; schoolYearId: string }
-type StudentDoc = { _id: string; firstName: string; lastName: string }
+type ClassDoc = { _id: string; name: string; schoolYearId: string; level?: string }
+type StudentDoc = { _id: string; firstName: string; lastName: string; level?: string; nextLevel?: string; className?: string }
 
 const pageWidth = 800
 const pageHeight = 1120
@@ -28,6 +28,7 @@ export default function TemplateBuilder() {
   const [yearId, setYearId] = useState('')
   const [selectedPage, setSelectedPage] = useState(0)
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
+  const [selectedIndices, setSelectedIndices] = useState<number[]>([])
   const [gallery, setGallery] = useState<{ name: string, path: string, type: string }[]>([])
   const [scale, setScale] = useState(1)
   const [snap, setSnap] = useState(true)
@@ -39,7 +40,7 @@ export default function TemplateBuilder() {
   const [rightPanelView, setRightPanelView] = useState<'properties' | 'slides'>('properties')
   const [deleteConfirmations, setDeleteConfirmations] = useState<{ [id: string]: number }>({})
   const [activeGuides, setActiveGuides] = useState<{ type: 'x' | 'y', pos: number }[]>([])
-  
+
   // Undo/Redo History State
   const [history, setHistory] = useState<Template[]>([])
   const [historyIndex, setHistoryIndex] = useState(-1)
@@ -52,10 +53,10 @@ export default function TemplateBuilder() {
     // If we are in the middle of history, remove future states
     const newHistory = history.slice(0, historyIndex + 1)
     newHistory.push(JSON.parse(JSON.stringify(tpl)))
-    
+
     // Limit history size to 50
     if (newHistory.length > 50) newHistory.shift()
-    
+
     setHistory(newHistory)
     setHistoryIndex(newHistory.length - 1)
   }
@@ -63,58 +64,58 @@ export default function TemplateBuilder() {
   const undo = () => {
     if (historyIndex >= 0) {
       isUndoRedoAction.current = true
-      
+
       // If this is the first undo from the latest state, save current state first
       if (historyIndex === history.length - 1) {
-          const currentHistory = [...history]
-          // Check if current tpl is different from last history
-          if (JSON.stringify(currentHistory[currentHistory.length-1]) !== JSON.stringify(tpl)) {
-              currentHistory.push(JSON.parse(JSON.stringify(tpl)))
-              setHistory(currentHistory)
-              setHistoryIndex(currentHistory.length - 2) // Go back one step from new latest
-              setTpl(currentHistory[currentHistory.length - 2])
-              isUndoRedoAction.current = false
-              return
-          }
+        const currentHistory = [...history]
+        // Check if current tpl is different from last history
+        if (JSON.stringify(currentHistory[currentHistory.length - 1]) !== JSON.stringify(tpl)) {
+          currentHistory.push(JSON.parse(JSON.stringify(tpl)))
+          setHistory(currentHistory)
+          setHistoryIndex(currentHistory.length - 2) // Go back one step from new latest
+          setTpl(currentHistory[currentHistory.length - 2])
+          isUndoRedoAction.current = false
+          return
+        }
       }
 
       const prevIndex = historyIndex - 1
       if (prevIndex >= -1) { // Allow going back to initial state if we pushed it? 
-          // Actually simpler: History contains past states. 
-          // If we are at index i, tpl is history[i]. 
-          // Wait, standard way: history has all states. tpl is active state.
-          // Let's adjust:
-          // 1. push current tpl to history
-          // 2. set tpl to prev
-          
-          // Better approach:
-          // history = [state1, state2, state3]
-          // historyIndex points to current state index in history
-          
-          // Implementation:
-          // When change happens: 
-          //   newHistory = history.slice(0, historyIndex + 1)
-          //   newHistory.push(newState)
-          //   index++
-          
-          // My saveHistory saves the *previous* state effectively if called before setTpl?
-          // No, usually you save the *new* state.
-          
-          // Let's refine:
-          // historyIndex points to the *currently displayed* state in history.
-          // Initial: history = [initialTpl], index = 0
-          // Change: history.push(newTpl), index++
-          
-          // So on mount, we should initialize history?
-          
+        // Actually simpler: History contains past states. 
+        // If we are at index i, tpl is history[i]. 
+        // Wait, standard way: history has all states. tpl is active state.
+        // Let's adjust:
+        // 1. push current tpl to history
+        // 2. set tpl to prev
+
+        // Better approach:
+        // history = [state1, state2, state3]
+        // historyIndex points to current state index in history
+
+        // Implementation:
+        // When change happens: 
+        //   newHistory = history.slice(0, historyIndex + 1)
+        //   newHistory.push(newState)
+        //   index++
+
+        // My saveHistory saves the *previous* state effectively if called before setTpl?
+        // No, usually you save the *new* state.
+
+        // Let's refine:
+        // historyIndex points to the *currently displayed* state in history.
+        // Initial: history = [initialTpl], index = 0
+        // Change: history.push(newTpl), index++
+
+        // So on mount, we should initialize history?
+
       }
-      
+
       // Revised Undo Logic:
       // We need to move index back
       if (historyIndex > 0) {
-          const newIndex = historyIndex - 1
-          setTpl(history[newIndex])
-          setHistoryIndex(newIndex)
+        const newIndex = historyIndex - 1
+        setTpl(history[newIndex])
+        setHistoryIndex(newIndex)
       }
       isUndoRedoAction.current = false
     }
@@ -129,25 +130,25 @@ export default function TemplateBuilder() {
       isUndoRedoAction.current = false
     }
   }
-  
+
   // Initialize history with initial tpl
   useEffect(() => {
-      if (history.length === 0 && tpl) {
-          setHistory([JSON.parse(JSON.stringify(tpl))])
-          setHistoryIndex(0)
-      }
+    if (history.length === 0 && tpl) {
+      setHistory([JSON.parse(JSON.stringify(tpl))])
+      setHistoryIndex(0)
+    }
   }, []) // Only on mount or if history empty
 
   // Wrapper for setTpl to auto-save history
   const updateTpl = (newTpl: Template, skipHistory = false) => {
-      if (!skipHistory && !isUndoRedoAction.current) {
-          const newHistory = history.slice(0, historyIndex + 1)
-          newHistory.push(JSON.parse(JSON.stringify(newTpl)))
-          if (newHistory.length > 50) newHistory.shift()
-          setHistory(newHistory)
-          setHistoryIndex(newHistory.length - 1)
-      }
-      setTpl(newTpl)
+    if (!skipHistory && !isUndoRedoAction.current) {
+      const newHistory = history.slice(0, historyIndex + 1)
+      newHistory.push(JSON.parse(JSON.stringify(newTpl)))
+      if (newHistory.length > 50) newHistory.shift()
+      setHistory(newHistory)
+      setHistoryIndex(newHistory.length - 1)
+    }
+    setTpl(newTpl)
   }
 
   const [error, setError] = useState('')
@@ -184,18 +185,18 @@ export default function TemplateBuilder() {
       // Server now saves to disk instead of returning blob
       const response = await api.get(`/templates/${id}/export-package`)
       console.log('Export response:', response)
-      
+
       if (response.data && response.data.success) {
         let successMsg = `Export réussi : ${response.data.fileName} (dans ${response.data.path})`
         if (response.data.existed) {
-            successMsg = `Export mis à jour (écrasé) : ${response.data.fileName}`
+          successMsg = `Export mis à jour (écrasé) : ${response.data.fileName}`
         }
         setSaveStatus(successMsg)
       } else {
         console.error('Export failed response:', response)
         throw new Error(response.data?.message || 'Export failed')
       }
-      
+
       setTimeout(() => setSaveStatus(''), 8000)
     } catch (e: any) {
       console.error('Export exception:', e)
@@ -208,7 +209,7 @@ export default function TemplateBuilder() {
   useEffect(() => {
     if (viewMode === 'edit' && tpl._id && socket) {
       socket.emit('join-template', tpl._id)
-      
+
       const handleUpdate = (newTpl: any) => {
         isRemoteUpdate.current = true
         setTpl(newTpl)
@@ -229,72 +230,84 @@ export default function TemplateBuilder() {
         isRemoteUpdate.current = false
         return
       }
-      
+
       const timer = setTimeout(() => {
         socket.emit('update-template', { templateId: tpl._id, template: tpl })
       }, 500)
-      
+
       return () => clearTimeout(timer)
     }
   }, [tpl, viewMode, socket])
 
   // Keyboard shortcuts
   useEffect(() => {
-      const handleKeyDown = (e: KeyboardEvent) => {
-          if (viewMode !== 'edit') return
-          
-          // Undo: Ctrl+Z
-          if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
-              e.preventDefault()
-              undo()
-          }
-          // Redo: Ctrl+Y or Ctrl+Shift+Z
-          if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.shiftKey && e.key === 'z'))) {
-              e.preventDefault()
-              redo()
-          }
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (viewMode !== 'edit') return
+
+      // Undo: Ctrl+Z
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault()
+        undo()
       }
-      window.addEventListener('keydown', handleKeyDown)
-      return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [historyIndex, history, viewMode, undo, redo])
+      // Redo: Ctrl+Y or Ctrl+Shift+Z
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.shiftKey && e.key === 'z'))) {
+        e.preventDefault()
+        redo()
+      }
+      // Delete
+      if ((e.key === 'Delete' || e.key === 'Backspace') && !['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName) && !(e.target as HTMLElement).isContentEditable) {
+        if (selectedIndex !== null || selectedIndices.length > 0) {
+          e.preventDefault()
+          const pages = [...tpl.pages]
+          const page = { ...pages[selectedPage] }
+          const indicesToDelete = new Set(selectedIndices)
+          if (selectedIndex !== null) indicesToDelete.add(selectedIndex)
+
+          const blocks = page.blocks.filter((_, idx) => !indicesToDelete.has(idx))
+          pages[selectedPage] = { ...page, blocks }
+          updateTpl({ ...tpl, pages })
+          setSelectedIndex(null)
+          setSelectedIndices([])
+        }
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [historyIndex, history, viewMode, undo, redo, tpl, selectedPage, selectedIndex, selectedIndices])
 
   // Modal state
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [newTemplateName, setNewTemplateName] = useState('')
-  
+
   // Custom dropdown state
   const [openDropdown, setOpenDropdown] = useState<string | null>(null)
 
   const blocksPalette: Block[] = useMemo(() => ([
+    // Basic Tools
     { type: 'text', props: { text: 'Titre', fontSize: 20, color: '#333' } },
     { type: 'image', props: { url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/16/Eo_circle_pink_blank.svg/120px-Eo_circle_pink_blank.svg.png', width: 120, height: 120 } },
-    { type: 'student_info', props: { fields: ['name', 'class', 'dob'], fontSize: 12, color: '#2d3436' } },
-    { type: 'category_title', props: { categoryId: '', fontSize: 16, color: '#6c5ce7' } },
-    { type: 'competency_list', props: { fontSize: 12, color: '#2d3436' } },
-    { type: 'signature', props: { labels: ['Directeur', 'Enseignant', 'Parent'], fontSize: 12 } },
-    { type: 'signature_box', props: { width: 200, height: 80, label: 'Signature Mi-Année', period: 'mid-year' } },
-    { type: 'signature_box', props: { width: 200, height: 80, label: 'Signature Fin d\'Année', period: 'end-year' } },
-    
-    // PS -> MS
-    { type: 'promotion_info', props: { field: 'year', targetLevel: 'MS', fontSize: 12, color: '#2d3436', width: 150, height: 30, label: 'Année (PS->MS)' } },
-    { type: 'promotion_info', props: { field: 'currentLevel', targetLevel: 'MS', fontSize: 12, color: '#2d3436', width: 150, height: 30, label: 'Niveau (PS)' } },
-    { type: 'promotion_info', props: { field: 'class', targetLevel: 'MS', fontSize: 12, color: '#2d3436', width: 150, height: 30, label: 'Classe (PS)' } },
-    { type: 'promotion_info', props: { field: 'level', targetLevel: 'MS', fontSize: 12, color: '#2d3436', width: 150, height: 30, label: 'Passage en MS' } },
-    
-    // MS -> GS
-    { type: 'promotion_info', props: { field: 'year', targetLevel: 'GS', fontSize: 12, color: '#2d3436', width: 150, height: 30, label: 'Année (MS->GS)' } },
-    { type: 'promotion_info', props: { field: 'currentLevel', targetLevel: 'GS', fontSize: 12, color: '#2d3436', width: 150, height: 30, label: 'Niveau (MS)' } },
-    { type: 'promotion_info', props: { field: 'class', targetLevel: 'GS', fontSize: 12, color: '#2d3436', width: 150, height: 30, label: 'Classe (MS)' } },
-    { type: 'promotion_info', props: { field: 'level', targetLevel: 'GS', fontSize: 12, color: '#2d3436', width: 150, height: 30, label: 'Passage en GS' } },
-
-    // GS -> EB1
-    { type: 'promotion_info', props: { field: 'year', targetLevel: 'EB1', fontSize: 12, color: '#2d3436', width: 150, height: 30, label: 'Année (GS->EB1)' } },
-    { type: 'promotion_info', props: { field: 'currentLevel', targetLevel: 'EB1', fontSize: 12, color: '#2d3436', width: 150, height: 30, label: 'Niveau (GS)' } },
-    { type: 'promotion_info', props: { field: 'class', targetLevel: 'EB1', fontSize: 12, color: '#2d3436', width: 150, height: 30, label: 'Classe (GS)' } },
-    { type: 'promotion_info', props: { field: 'level', targetLevel: 'EB1', fontSize: 12, color: '#2d3436', width: 150, height: 30, label: 'Passage en EB1' } },
-    
+    { type: 'table', props: { x: 100, y: 100, columnWidths: [120, 160], rowHeights: [40, 40], cells: [[{ text: 'A1', fontSize: 12, color: '#000', fill: '#fff', borders: { l: { color: '#000', width: 1 }, r: { color: '#000', width: 1 }, t: { color: '#000', width: 1 }, b: { color: '#000', width: 1 } } }, { text: 'B1', fontSize: 12, color: '#000', fill: '#fff', borders: { l: { color: '#000', width: 1 }, r: { color: '#000', width: 1 }, t: { color: '#000', width: 1 }, b: { color: '#000', width: 1 } } }], [{ text: 'A2', fontSize: 12, color: '#000', fill: '#fff', borders: { l: { color: '#000', width: 1 }, r: { color: '#000', width: 1 }, t: { color: '#000', width: 1 }, b: { color: '#000', width: 1 } } }, { text: 'B2', fontSize: 12, color: '#000', fill: '#fff', borders: { l: { color: '#000', width: 1 }, r: { color: '#000', width: 1 }, t: { color: '#000', width: 1 }, b: { color: '#000', width: 1 } } }]] } },
+    { type: 'qr', props: { url: 'https://example.com', width: 120, height: 120 } },
+    { type: 'line', props: { x2: 300, y2: 0, stroke: '#b2bec3', strokeWidth: 2 } },
+    { type: 'arrow', props: { x2: 120, y2: 0, stroke: '#6c5ce7', strokeWidth: 2 } },
     { type: 'rect', props: { width: 160, height: 80, color: '#eef1f7' } },
     { type: 'circle', props: { radius: 60, color: '#ffeaa7' } },
+
+    // Promotion / Student Info Components (The requested ones)
+    { type: 'promotion_info', props: { field: 'student', width: 200, height: 30, fontSize: 12, color: '#2d3436', label: 'Nom de l\'élève' } },
+    { type: 'promotion_info', props: { field: 'currentLevel', width: 100, height: 30, fontSize: 12, color: '#2d3436', label: 'Niveau Actuel' } },
+    { type: 'promotion_info', props: { field: 'class', width: 100, height: 30, fontSize: 12, color: '#2d3436', label: 'Classe' } },
+    { type: 'promotion_info', props: { field: 'level', width: 150, height: 30, fontSize: 12, color: '#2d3436', label: 'Niveau Suivant (Passage)' } },
+    { type: 'promotion_info', props: { field: 'year', width: 120, height: 30, fontSize: 12, color: '#2d3436', label: 'Année Suivante' } },
+    
+    // Legacy Final Signature Info (kept for compatibility but updated label)
+    { type: 'final_signature_info', props: { field: 'nextLevel', width: 150, height: 30, fontSize: 12, color: '#2d3436', label: 'Info (Legacy) - Niveau Suivant', placeholder: '...' } },
+
+    // Signatures
+    { type: 'signature_box', props: { width: 200, height: 80, label: 'Signature', period: 'mid-year' } },
+    { type: 'signature', props: { labels: ['Directeur', 'Enseignant', 'Parent'], fontSize: 12 } },
+
+    // Interactive
     {
       type: 'language_toggle', props: {
         radius: 40, spacing: 12, direction: 'column', items: [
@@ -306,11 +319,7 @@ export default function TemplateBuilder() {
     },
     { type: 'dropdown', props: { label: 'Menu déroulant', options: ['Option 1', 'Option 2'], variableName: 'var1', width: 200, height: 40, fontSize: 12, color: '#333', semesters: [1, 2] } },
     { type: 'dropdown_reference', props: { dropdownNumber: 1, text: 'Référence dropdown #{number}', fontSize: 12, color: '#2d3436' } },
-    { type: 'line', props: { x2: 300, y2: 0, stroke: '#b2bec3', strokeWidth: 2 } },
-    { type: 'arrow', props: { x2: 120, y2: 0, stroke: '#6c5ce7', strokeWidth: 2 } },
     { type: 'dynamic_text', props: { text: '{student.firstName} {student.lastName}', fontSize: 14, color: '#2d3436' } },
-    { type: 'qr', props: { url: 'https://example.com', width: 120, height: 120 } },
-    { type: 'table', props: { x: 100, y: 100, columnWidths: [120, 160], rowHeights: [40, 40], cells: [[{ text: 'A1', fontSize: 12, color: '#000', fill: '#fff', borders: { l: { color: '#000', width: 1 }, r: { color: '#000', width: 1 }, t: { color: '#000', width: 1 }, b: { color: '#000', width: 1 } } }, { text: 'B1', fontSize: 12, color: '#000', fill: '#fff', borders: { l: { color: '#000', width: 1 }, r: { color: '#000', width: 1 }, t: { color: '#000', width: 1 }, b: { color: '#000', width: 1 } } }], [{ text: 'A2', fontSize: 12, color: '#000', fill: '#fff', borders: { l: { color: '#000', width: 1 }, r: { color: '#000', width: 1 }, t: { color: '#000', width: 1 }, b: { color: '#000', width: 1 } } }, { text: 'B2', fontSize: 12, color: '#000', fill: '#fff', borders: { l: { color: '#000', width: 1 }, r: { color: '#000', width: 1 }, t: { color: '#000', width: 1 }, b: { color: '#000', width: 1 } } }]] } },
   ]), [])
 
   // Get all dropdowns across all pages to determine next dropdown number
@@ -331,7 +340,7 @@ export default function TemplateBuilder() {
     const page = { ...pages[selectedPage] }
     const zList = (page.blocks || []).map(bb => (bb.props?.z ?? 0))
     const nextZ = (zList.length ? Math.max(...zList) : 0) + 1
-    
+
     // If adding a dropdown, assign it the next available number
     let newProps = { ...b.props, x: 100, y: 100, z: nextZ }
     if (b.type === 'dropdown') {
@@ -339,7 +348,7 @@ export default function TemplateBuilder() {
       const maxNum = allDropdowns.reduce((max, d) => Math.max(max, d.block.props.dropdownNumber || 0), 0)
       newProps.dropdownNumber = maxNum + 1
     }
-    
+
     const blocks = [...page.blocks, { type: b.type, props: newProps }]
     pages[selectedPage] = { ...page, blocks }
     updateTpl({ ...tpl, pages })
@@ -352,14 +361,14 @@ export default function TemplateBuilder() {
     const pages = [...tpl.pages]
     const page = { ...pages[selectedPage] }
     const blockToDuplicate = page.blocks[selectedIndex]
-    
+
     // Create a deep copy of the block props
     const newProps = JSON.parse(JSON.stringify(blockToDuplicate.props))
-    
+
     // Offset the position slightly so it doesn't overlap exactly
     newProps.x = (newProps.x || 0) + 20
     newProps.y = (newProps.y || 0) + 20
-    
+
     // Handle z-index
     const zList = (page.blocks || []).map(bb => (bb.props?.z ?? 0))
     const nextZ = (zList.length ? Math.max(...zList) : 0) + 1
@@ -374,7 +383,7 @@ export default function TemplateBuilder() {
 
     const newBlock = { type: blockToDuplicate.type, props: newProps }
     const blocks = [...page.blocks, newBlock]
-    
+
     pages[selectedPage] = { ...page, blocks }
     updateTpl({ ...tpl, pages })
     setSelectedIndex(blocks.length - 1)
@@ -406,22 +415,41 @@ export default function TemplateBuilder() {
   const onDrag = (e: React.MouseEvent, pageIndex: number, idx: number) => {
     const startX = e.clientX
     const startY = e.clientY
-    const block = tpl.pages[pageIndex].blocks[idx]
-    const baseX = block.props.x || 0
-    const baseY = block.props.y || 0
-    const blockW = block.props.width || (block.type === 'text' ? 120 : (block.type === 'language_toggle' ? 80 : 120))
-    const blockH = block.props.height || (block.type === 'text' ? 60 : (block.type === 'language_toggle' ? 200 : 120))
 
-    const otherBlocks = tpl.pages[pageIndex].blocks.filter((_, i) => i !== idx).map(b => ({
-      x: b.props.x || 0,
-      y: b.props.y || 0,
-      w: b.props.width || (b.type === 'text' ? 120 : (b.type === 'language_toggle' ? 80 : 120)),
-      h: b.props.height || (b.type === 'text' ? 60 : (b.type === 'language_toggle' ? 200 : 120))
-    }))
-    
-    // Save history start of drag (well, actually we want the result to be undoable)
-    // We can just save history on MouseUp if position changed.
-    const initialTpl = JSON.parse(JSON.stringify(tpl))
+    // Determine which blocks are moving
+    const movingIndices = new Set<number>()
+    const isMultiSelect = selectedIndices.includes(idx) || selectedIndex === idx
+
+    if (isMultiSelect) {
+      selectedIndices.forEach(i => movingIndices.add(i))
+      if (selectedIndex !== null) movingIndices.add(selectedIndex)
+    } else {
+      movingIndices.add(idx)
+    }
+
+    // Capture initial positions
+    const initialPositions = new Map<number, { x: number, y: number }>()
+    movingIndices.forEach(i => {
+      const b = tpl.pages[pageIndex].blocks[i]
+      if (b) initialPositions.set(i, { x: b.props.x || 0, y: b.props.y || 0 })
+    })
+
+    const mainBlock = tpl.pages[pageIndex].blocks[idx]
+    const baseX = mainBlock.props.x || 0
+    const baseY = mainBlock.props.y || 0
+    const blockW = mainBlock.props.width || (mainBlock.type === 'text' ? 120 : (mainBlock.type === 'language_toggle' ? 80 : 120))
+    const blockH = mainBlock.props.height || (mainBlock.type === 'text' ? 60 : (mainBlock.type === 'language_toggle' ? 200 : 120))
+
+    const otherBlocks = tpl.pages[pageIndex].blocks
+      .map((b, i) => ({ b, i }))
+      .filter(item => !movingIndices.has(item.i))
+      .map(({ b }) => ({
+        x: b.props.x || 0,
+        y: b.props.y || 0,
+        w: b.props.width || (b.type === 'text' ? 120 : (b.type === 'language_toggle' ? 80 : 120)),
+        h: b.props.height || (b.type === 'text' ? 60 : (b.type === 'language_toggle' ? 200 : 120))
+      }))
+
     let hasMoved = false
 
     const onMove = (ev: MouseEvent) => {
@@ -431,61 +459,72 @@ export default function TemplateBuilder() {
       const pages = [...tpl.pages]
       const page = { ...pages[pageIndex] }
       const blocks = [...page.blocks]
-      let nx = Math.max(0, Math.min(pageWidth - 20, baseX + dx))
-      let ny = Math.max(0, Math.min(pageHeight - 20, baseY + dy))
-      
+
+      let proposedX = Math.max(0, Math.min(pageWidth - 20, baseX + dx))
+      let proposedY = Math.max(0, Math.min(pageHeight - 20, baseY + dy))
+
+      let nx = proposedX
+      let ny = proposedY
+
       // Smart Guides Logic
       const threshold = 5
       const guides: { type: 'x' | 'y', pos: number }[] = []
-      
+
       // Snap X
       let snappedX = false
-      // Center of moving block
       const cx = nx + blockW / 2
-      
+
       for (const ob of otherBlocks) {
-          const ocx = ob.x + ob.w / 2
-          
-          // Left align
-          if (Math.abs(nx - ob.x) < threshold) { nx = ob.x; guides.push({ type: 'x', pos: ob.x }); snappedX = true }
-          // Right align
-          else if (Math.abs((nx + blockW) - (ob.x + ob.w)) < threshold) { nx = (ob.x + ob.w) - blockW; guides.push({ type: 'x', pos: ob.x + ob.w }); snappedX = true }
-          // Left to Right
-          else if (Math.abs(nx - (ob.x + ob.w)) < threshold) { nx = ob.x + ob.w; guides.push({ type: 'x', pos: ob.x + ob.w }); snappedX = true }
-          // Right to Left
-          else if (Math.abs((nx + blockW) - ob.x) < threshold) { nx = ob.x - blockW; guides.push({ type: 'x', pos: ob.x }); snappedX = true }
-          // Center X
-          else if (Math.abs(cx - ocx) < threshold) { nx = ocx - blockW / 2; guides.push({ type: 'x', pos: ocx }); snappedX = true }
-          
-          if (snappedX) break
+        const ocx = ob.x + ob.w / 2
+
+        // Left align
+        if (Math.abs(nx - ob.x) < threshold) { nx = ob.x; guides.push({ type: 'x', pos: ob.x }); snappedX = true }
+        // Right align
+        else if (Math.abs((nx + blockW) - (ob.x + ob.w)) < threshold) { nx = (ob.x + ob.w) - blockW; guides.push({ type: 'x', pos: ob.x + ob.w }); snappedX = true }
+        // Left to Right
+        else if (Math.abs(nx - (ob.x + ob.w)) < threshold) { nx = ob.x + ob.w; guides.push({ type: 'x', pos: ob.x + ob.w }); snappedX = true }
+        // Right to Left
+        else if (Math.abs((nx + blockW) - ob.x) < threshold) { nx = ob.x - blockW; guides.push({ type: 'x', pos: ob.x }); snappedX = true }
+        // Center X
+        else if (Math.abs(cx - ocx) < threshold) { nx = ocx - blockW / 2; guides.push({ type: 'x', pos: ocx }); snappedX = true }
+
+        if (snappedX) break
       }
 
       // Snap Y
       let snappedY = false
       const cy = ny + blockH / 2
-      
+
       for (const ob of otherBlocks) {
-          const ocy = ob.y + ob.h / 2
-          
-          // Top align
-          if (Math.abs(ny - ob.y) < threshold) { ny = ob.y; guides.push({ type: 'y', pos: ob.y }); snappedY = true }
-          // Bottom align
-          else if (Math.abs((ny + blockH) - (ob.y + ob.h)) < threshold) { ny = (ob.y + ob.h) - blockH; guides.push({ type: 'y', pos: ob.y + ob.h }); snappedY = true }
-          // Top to Bottom
-          else if (Math.abs(ny - (ob.y + ob.h)) < threshold) { ny = ob.y + ob.h; guides.push({ type: 'y', pos: ob.y + ob.h }); snappedY = true }
-          // Bottom to Top
-          else if (Math.abs((ny + blockH) - ob.y) < threshold) { ny = ob.y - blockH; guides.push({ type: 'y', pos: ob.y }); snappedY = true }
-          // Center Y
-          else if (Math.abs(cy - ocy) < threshold) { ny = ocy - blockH / 2; guides.push({ type: 'y', pos: ocy }); snappedY = true }
-          
-          if (snappedY) break
+        const ocy = ob.y + ob.h / 2
+
+        // Top align
+        if (Math.abs(ny - ob.y) < threshold) { ny = ob.y; guides.push({ type: 'y', pos: ob.y }); snappedY = true }
+        // Bottom align
+        else if (Math.abs((ny + blockH) - (ob.y + ob.h)) < threshold) { ny = (ob.y + ob.h) - blockH; guides.push({ type: 'y', pos: ob.y + ob.h }); snappedY = true }
+        // Top to Bottom
+        else if (Math.abs(ny - (ob.y + ob.h)) < threshold) { ny = ob.y + ob.h; guides.push({ type: 'y', pos: ob.y + ob.h }); snappedY = true }
+        // Bottom to Top
+        else if (Math.abs((ny + blockH) - ob.y) < threshold) { ny = ob.y - blockH; guides.push({ type: 'y', pos: ob.y }); snappedY = true }
+        // Center Y
+        else if (Math.abs(cy - ocy) < threshold) { ny = ocy - blockH / 2; guides.push({ type: 'y', pos: ocy }); snappedY = true }
+
+        if (snappedY) break
       }
-      
+
       setActiveGuides(guides)
 
       const sx = snap && !snappedX ? Math.round(nx / 10) * 10 : nx
       const sy = snap && !snappedY ? Math.round(ny / 10) * 10 : ny
-      blocks[idx] = { ...blocks[idx], props: { ...blocks[idx].props, x: sx, y: sy } }
+
+      const finalDx = sx - baseX
+      const finalDy = sy - baseY
+
+      movingIndices.forEach(i => {
+        const init = initialPositions.get(i)!
+        blocks[i] = { ...blocks[i], props: { ...blocks[i].props, x: init.x + finalDx, y: init.y + finalDy } }
+      })
+
       pages[pageIndex] = { ...page, blocks }
       // Use setTpl here to avoid history spam, we save on Up
       setTpl({ ...tpl, pages })
@@ -495,127 +534,127 @@ export default function TemplateBuilder() {
       window.removeEventListener('mouseup', onUp)
       setActiveGuides([])
       if (hasMoved) {
-          // Manually push the *previous* state to history before confirming the move?
-          // No, updateTpl pushes the *new* state to history.
-          // But wait, updateTpl pushes newTpl to history.
-          // So if we just called setTpl during drag, history wasn't updated.
-          // Now we need to update history with the final state.
-          // BUT, we need to push the state BEFORE drag to history first?
-          // My updateTpl implementation: pushes `newTpl` to history.
-          // This means `history` contains [state1, state2, state3].
-          // If I am at state3, and I drag, I want state3 to be in history, and new state4 to be current.
-          
-          // Current logic:
-          // updateTpl(newTpl):
-          //   history.push(newTpl) -> history = [s1, s2, s3, s4]
-          //   setTpl(newTpl) -> tpl = s4
-          
-          // But during drag, I called setTpl(s4_draft) repeatedly without history.
-          // So tpl IS s4_draft.
-          // If I call updateTpl(tpl) now:
-          //   history.push(tpl) -> history = [s1, s2, s3, s4]
-          //   setTpl(tpl)
-          
-          // Correct? Yes.
-          // But wait, `history` currently has [s1, s2, s3].
-          // tpl is s4.
-          // If I call updateTpl(tpl), it pushes s4.
-          // So if I undo, I go to s3.
-          // s3 is the state before drag? Yes, because we haven't pushed anything since s3.
-          // So this is correct.
-          
-          // One catch: My `updateTpl` implementation pushes `newTpl` to history.
-          // So history becomes [s1, s2, s3, s4].
-          // Undo -> index at s3. tpl = s3. Correct.
-          
-          // Wait, if I am at s3. tpl is s3.
-          // Drag starts. tpl becomes s3_modified.
-          // Drag ends. I call updateTpl(s3_modified).
-          // history becomes [s1, s2, s3, s3_modified].
-          // Undo -> index at s3. tpl = s3.
-          // Correct.
-          
-          // HOWEVER, I need to pass the *final* tpl from the closure?
-          // No, `tpl` in `onUp` refers to the `tpl` when `onDrag` started (closure).
-          // So `tpl` inside `onUp` is the OLD tpl.
-          // `setTpl` updates the state but `onUp` doesn't see it?
-          // `onDrag` closes over `tpl`.
-          // Inside `onMove`, we calculate `pages` based on `tpl` (closure) + `dx/dy`.
-          // So `pages` in `onMove` is correct relative to start.
-          
-          // We need to capture the final pages in `onUp`.
-          // But `onMove` variables are local to `onMove`.
-          // We can use a mutable ref or variable in outer scope of `onDrag`.
+        // Manually push the *previous* state to history before confirming the move?
+        // No, updateTpl pushes the *new* state to history.
+        // But wait, updateTpl pushes newTpl to history.
+        // So if we just called setTpl during drag, history wasn't updated.
+        // Now we need to update history with the final state.
+        // BUT, we need to push the state BEFORE drag to history first?
+        // My updateTpl implementation: pushes `newTpl` to history.
+        // This means `history` contains [state1, state2, state3].
+        // If I am at state3, and I drag, I want state3 to be in history, and new state4 to be current.
+
+        // Current logic:
+        // updateTpl(newTpl):
+        //   history.push(newTpl) -> history = [s1, s2, s3, s4]
+        //   setTpl(newTpl) -> tpl = s4
+
+        // But during drag, I called setTpl(s4_draft) repeatedly without history.
+        // So tpl IS s4_draft.
+        // If I call updateTpl(tpl) now:
+        //   history.push(tpl) -> history = [s1, s2, s3, s4]
+        //   setTpl(tpl)
+
+        // Correct? Yes.
+        // But wait, `history` currently has [s1, s2, s3].
+        // tpl is s4.
+        // If I call updateTpl(tpl), it pushes s4.
+        // So if I undo, I go to s3.
+        // s3 is the state before drag? Yes, because we haven't pushed anything since s3.
+        // So this is correct.
+
+        // One catch: My `updateTpl` implementation pushes `newTpl` to history.
+        // So history becomes [s1, s2, s3, s4].
+        // Undo -> index at s3. tpl = s3. Correct.
+
+        // Wait, if I am at s3. tpl is s3.
+        // Drag starts. tpl becomes s3_modified.
+        // Drag ends. I call updateTpl(s3_modified).
+        // history becomes [s1, s2, s3, s3_modified].
+        // Undo -> index at s3. tpl = s3.
+        // Correct.
+
+        // HOWEVER, I need to pass the *final* tpl from the closure?
+        // No, `tpl` in `onUp` refers to the `tpl` when `onDrag` started (closure).
+        // So `tpl` inside `onUp` is the OLD tpl.
+        // `setTpl` updates the state but `onUp` doesn't see it?
+        // `onDrag` closes over `tpl`.
+        // Inside `onMove`, we calculate `pages` based on `tpl` (closure) + `dx/dy`.
+        // So `pages` in `onMove` is correct relative to start.
+
+        // We need to capture the final pages in `onUp`.
+        // But `onMove` variables are local to `onMove`.
+        // We can use a mutable ref or variable in outer scope of `onDrag`.
       }
     }
-    
+
     // We need to track the latest calculated state to save it on Up
     // Since we can't easily access the result of onMove from onUp without shared var
     // Re-implementing logic slightly
-    
+
     // ... Actually, I can just use `setTpl` with a callback in `onMove`?
     // No, `onMove` has the `nx, ny`.
     // Let's use a ref or variable.
-    
+
     // Better:
     // Just re-calculate final position in onUp? No, mouse position might be different.
-    
+
     // Let's use a temp variable in onDrag scope.
     let finalTpl = tpl
-    
-    const onMoveWithCapture = (ev: MouseEvent) => {
-        const dx = ev.clientX - startX
-        const dy = ev.clientY - startY
-        const pages = [...tpl.pages]
-        const page = { ...pages[pageIndex] }
-        const blocks = [...page.blocks]
-        let nx = Math.max(0, Math.min(pageWidth - 20, baseX + dx))
-        let ny = Math.max(0, Math.min(pageHeight - 20, baseY + dy))
-        
-        // Smart Guides (Copy-paste logic from above or refactor? Copying for safety/speed within tool)
-        const threshold = 5
-        const guides: { type: 'x' | 'y', pos: number }[] = []
-        let snappedX = false
-        const cx = nx + blockW / 2
-        for (const ob of otherBlocks) {
-            const ocx = ob.x + ob.w / 2
-            if (Math.abs(nx - ob.x) < threshold) { nx = ob.x; guides.push({ type: 'x', pos: ob.x }); snappedX = true }
-            else if (Math.abs((nx + blockW) - (ob.x + ob.w)) < threshold) { nx = (ob.x + ob.w) - blockW; guides.push({ type: 'x', pos: ob.x + ob.w }); snappedX = true }
-            else if (Math.abs(nx - (ob.x + ob.w)) < threshold) { nx = ob.x + ob.w; guides.push({ type: 'x', pos: ob.x + ob.w }); snappedX = true }
-            else if (Math.abs((nx + blockW) - ob.x) < threshold) { nx = ob.x - blockW; guides.push({ type: 'x', pos: ob.x }); snappedX = true }
-            else if (Math.abs(cx - ocx) < threshold) { nx = ocx - blockW / 2; guides.push({ type: 'x', pos: ocx }); snappedX = true }
-            if (snappedX) break
-        }
-        let snappedY = false
-        const cy = ny + blockH / 2
-        for (const ob of otherBlocks) {
-            const ocy = ob.y + ob.h / 2
-            if (Math.abs(ny - ob.y) < threshold) { ny = ob.y; guides.push({ type: 'y', pos: ob.y }); snappedY = true }
-            else if (Math.abs((ny + blockH) - (ob.y + ob.h)) < threshold) { ny = (ob.y + ob.h) - blockH; guides.push({ type: 'y', pos: ob.y + ob.h }); snappedY = true }
-            else if (Math.abs(ny - (ob.y + ob.h)) < threshold) { ny = ob.y + ob.h; guides.push({ type: 'y', pos: ob.y + ob.h }); snappedY = true }
-            else if (Math.abs((ny + blockH) - ob.y) < threshold) { ny = ob.y - blockH; guides.push({ type: 'y', pos: ob.y }); snappedY = true }
-            else if (Math.abs(cy - ocy) < threshold) { ny = ocy - blockH / 2; guides.push({ type: 'y', pos: ocy }); snappedY = true }
-            if (snappedY) break
-        }
-        setActiveGuides(guides)
 
-        const sx = snap && !snappedX ? Math.round(nx / 10) * 10 : nx
-        const sy = snap && !snappedY ? Math.round(ny / 10) * 10 : ny
-        
-        blocks[idx] = { ...blocks[idx], props: { ...blocks[idx].props, x: sx, y: sy } }
-        pages[pageIndex] = { ...page, blocks }
-        finalTpl = { ...tpl, pages }
-        hasMoved = true
-        setTpl(finalTpl)
+    const onMoveWithCapture = (ev: MouseEvent) => {
+      const dx = ev.clientX - startX
+      const dy = ev.clientY - startY
+      const pages = [...tpl.pages]
+      const page = { ...pages[pageIndex] }
+      const blocks = [...page.blocks]
+      let nx = Math.max(0, Math.min(pageWidth - 20, baseX + dx))
+      let ny = Math.max(0, Math.min(pageHeight - 20, baseY + dy))
+
+      // Smart Guides (Copy-paste logic from above or refactor? Copying for safety/speed within tool)
+      const threshold = 5
+      const guides: { type: 'x' | 'y', pos: number }[] = []
+      let snappedX = false
+      const cx = nx + blockW / 2
+      for (const ob of otherBlocks) {
+        const ocx = ob.x + ob.w / 2
+        if (Math.abs(nx - ob.x) < threshold) { nx = ob.x; guides.push({ type: 'x', pos: ob.x }); snappedX = true }
+        else if (Math.abs((nx + blockW) - (ob.x + ob.w)) < threshold) { nx = (ob.x + ob.w) - blockW; guides.push({ type: 'x', pos: ob.x + ob.w }); snappedX = true }
+        else if (Math.abs(nx - (ob.x + ob.w)) < threshold) { nx = ob.x + ob.w; guides.push({ type: 'x', pos: ob.x + ob.w }); snappedX = true }
+        else if (Math.abs((nx + blockW) - ob.x) < threshold) { nx = ob.x - blockW; guides.push({ type: 'x', pos: ob.x }); snappedX = true }
+        else if (Math.abs(cx - ocx) < threshold) { nx = ocx - blockW / 2; guides.push({ type: 'x', pos: ocx }); snappedX = true }
+        if (snappedX) break
+      }
+      let snappedY = false
+      const cy = ny + blockH / 2
+      for (const ob of otherBlocks) {
+        const ocy = ob.y + ob.h / 2
+        if (Math.abs(ny - ob.y) < threshold) { ny = ob.y; guides.push({ type: 'y', pos: ob.y }); snappedY = true }
+        else if (Math.abs((ny + blockH) - (ob.y + ob.h)) < threshold) { ny = (ob.y + ob.h) - blockH; guides.push({ type: 'y', pos: ob.y + ob.h }); snappedY = true }
+        else if (Math.abs(ny - (ob.y + ob.h)) < threshold) { ny = ob.y + ob.h; guides.push({ type: 'y', pos: ob.y + ob.h }); snappedY = true }
+        else if (Math.abs((ny + blockH) - ob.y) < threshold) { ny = ob.y - blockH; guides.push({ type: 'y', pos: ob.y }); snappedY = true }
+        else if (Math.abs(cy - ocy) < threshold) { ny = ocy - blockH / 2; guides.push({ type: 'y', pos: ocy }); snappedY = true }
+        if (snappedY) break
+      }
+      setActiveGuides(guides)
+
+      const sx = snap && !snappedX ? Math.round(nx / 10) * 10 : nx
+      const sy = snap && !snappedY ? Math.round(ny / 10) * 10 : ny
+
+      blocks[idx] = { ...blocks[idx], props: { ...blocks[idx].props, x: sx, y: sy } }
+      pages[pageIndex] = { ...page, blocks }
+      finalTpl = { ...tpl, pages }
+      hasMoved = true
+      setTpl(finalTpl)
     }
 
     const onUpWithCapture = () => {
-        window.removeEventListener('mousemove', onMoveWithCapture)
-        window.removeEventListener('mouseup', onUpWithCapture)
-        setActiveGuides([])
-        if (hasMoved) {
-            updateTpl(finalTpl)
-        }
+      window.removeEventListener('mousemove', onMoveWithCapture)
+      window.removeEventListener('mouseup', onUpWithCapture)
+      setActiveGuides([])
+      if (hasMoved) {
+        updateTpl(finalTpl)
+      }
     }
 
     window.addEventListener('mousemove', onMoveWithCapture)
@@ -652,7 +691,35 @@ export default function TemplateBuilder() {
   }
   const loadYears = async () => { try { const r = await api.get('/school-years'); setYears(r.data) } catch { } }
   const loadClasses = async (yr: string) => { try { const r = await api.get('/classes', { params: { schoolYearId: yr } }); setClasses(r.data) } catch { } }
-  const loadStudents = async (cls: string) => { try { const r = await api.get(`/students/by-class/${cls}`); setStudents(r.data) } catch { } }
+  const loadStudents = async (cls: string) => {
+    try {
+      // In builder we use the general students endpoint which now returns className
+      const r = await api.get('/students', { params: { schoolYearId: yearId } })
+      // Filter manually or use the endpoint response if it filters by query
+      // The previous code was using /students/by-class/:cls which might not exist or be different
+      // Let's stick to what was likely intended or correct it to use the main endpoint
+      // Actually line 690 says: api.get(`/students/by-class/${cls}`)
+      // But I want to ensure we get className.
+      // If /students/by-class returns className, we are good.
+      // If not, we might need to update the endpoint or use /students with filtering.
+      
+      // Let's assume /students/by-class/${cls} is the correct one for now but verify its response structure?
+      // No, I can't verify response structure without running it.
+      // But I updated /students endpoint in students.ts to return className.
+      // Does /students/by-class exist in students.ts?
+      // I checked students.ts content earlier and didn't see /by-class.
+      // I saw GET / and GET /unassigned/export/:schoolYearId and POST /bulk-assign-section.
+      // So /students/by-class/${cls} might be 404!
+      
+      // Let's switch to using the main /students endpoint and filter client side if needed,
+      // or check if there is a classId param.
+      
+      const response = await api.get('/students', { params: { schoolYearId: yearId } })
+      const allStudents = response.data
+      const classStudents = allStudents.filter((s: any) => s.classId === cls)
+      setStudents(classStudents)
+    } catch { } 
+  }
 
 
   const handlePptxImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -705,7 +772,7 @@ export default function TemplateBuilder() {
       const newState = { ...deleteConfirmations }
       delete newState[id]
       setDeleteConfirmations(newState)
-      
+
       await loadTemplates()
     } catch (e) {
       setError('Erreur lors de la suppression')
@@ -725,7 +792,7 @@ export default function TemplateBuilder() {
   useEffect(() => { refreshGallery(); loadTemplates(); loadYears() }, [])
   useEffect(() => { if (yearId) { loadClasses(yearId); setClassId(''); setStudents([]); setStudentId('') } }, [yearId])
   useEffect(() => { if (classId) { loadStudents(classId); setStudentId('') } }, [classId])
-  
+
   // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = () => setOpenDropdown(null)
@@ -746,12 +813,12 @@ export default function TemplateBuilder() {
             </div>
             <div>
               <input type="file" ref={packageInputRef} style={{ display: 'none' }} accept=".zip" onChange={handlePackageImport} />
-              <button 
-                className="btn" 
+              <button
+                className="btn"
                 onClick={() => packageInputRef.current?.click()}
-                style={{ 
-                  background: 'rgba(255,255,255,0.2)', 
-                  color: '#fff', 
+                style={{
+                  background: 'rgba(255,255,255,0.2)',
+                  color: '#fff',
                   padding: '14px 28px',
                   fontSize: 16,
                   fontWeight: 600,
@@ -762,12 +829,12 @@ export default function TemplateBuilder() {
               >
                 📥 Importer
               </button>
-              <button 
-                className="btn" 
+              <button
+                className="btn"
                 onClick={() => setShowCreateModal(true)}
-                style={{ 
-                  background: '#fff', 
-                  color: '#667eea', 
+                style={{
+                  background: '#fff',
+                  color: '#667eea',
                   padding: '14px 28px',
                   fontSize: 16,
                   fontWeight: 600,
@@ -780,13 +847,13 @@ export default function TemplateBuilder() {
             </div>
           </div>
         </div>
-        
+
         {error && (
-          <div style={{ 
-            padding: '16px 20px', 
-            background: '#fee', 
-            color: '#c33', 
-            borderRadius: 12, 
+          <div style={{
+            padding: '16px 20px',
+            background: '#fee',
+            color: '#c33',
+            borderRadius: 12,
             marginBottom: 24,
             border: '1px solid #fcc',
             fontWeight: 500
@@ -794,10 +861,10 @@ export default function TemplateBuilder() {
             ⚠️ {error}
           </div>
         )}
-        
+
         {list.length === 0 ? (
-          <div style={{ 
-            textAlign: 'center', 
+          <div style={{
+            textAlign: 'center',
             padding: '80px 40px',
             background: '#f8f9fa',
             borderRadius: 16,
@@ -811,18 +878,18 @@ export default function TemplateBuilder() {
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 24 }}>
             {list.map(item => (
-              <div 
-                key={item._id} 
-                className="card" 
-                onClick={() => { 
-                  setTpl(item); 
-                  setViewMode('edit'); 
-                  setSelectedPage(0); 
-                  setSelectedIndex(null) 
+              <div
+                key={item._id}
+                className="card"
+                onClick={() => {
+                  setTpl(item);
+                  setViewMode('edit');
+                  setSelectedPage(0);
+                  setSelectedIndex(null)
                 }}
-                style={{ 
-                  display: 'flex', 
-                  flexDirection: 'column', 
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
                   minHeight: 280,
                   transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
                   cursor: 'pointer',
@@ -845,8 +912,8 @@ export default function TemplateBuilder() {
                 }}
               >
                 {/* Header Preview */}
-                <div style={{ 
-                  height: 140, 
+                <div style={{
+                  height: 140,
                   background: 'linear-gradient(135deg, #e0c3fc 0%, #8ec5fc 100%)',
                   display: 'flex',
                   alignItems: 'center',
@@ -869,12 +936,12 @@ export default function TemplateBuilder() {
                     {item.pages.length} Pages
                   </div>
                 </div>
-                
+
                 {/* Content */}
                 <div style={{ flex: 1, padding: '20px 24px 12px' }}>
-                  <h3 style={{ 
-                    margin: '0 0 8px 0', 
-                    fontSize: 18, 
+                  <h3 style={{
+                    margin: '0 0 8px 0',
+                    fontSize: 18,
                     fontWeight: 700,
                     color: '#2d3748',
                     lineHeight: 1.4,
@@ -893,19 +960,19 @@ export default function TemplateBuilder() {
                 </div>
 
                 {/* Footer Actions */}
-                <div style={{ 
-                  padding: '12px 24px 20px', 
+                <div style={{
+                  padding: '12px 24px 20px',
                   display: 'flex',
                   justifyContent: 'space-between',
                   alignItems: 'center',
                   marginTop: 'auto'
                 }}>
                   <div style={{ display: 'flex', gap: 8 }}>
-                    <button 
-                      className="btn icon-btn" 
-                      onClick={(e) => { e.stopPropagation(); duplicateTemplate(item) }} 
+                    <button
+                      className="btn icon-btn"
+                      onClick={(e) => { e.stopPropagation(); duplicateTemplate(item) }}
                       title="Dupliquer"
-                      style={{ 
+                      style={{
                         padding: 8,
                         borderRadius: 8,
                         background: '#f7fafc',
@@ -919,11 +986,11 @@ export default function TemplateBuilder() {
                     >
                       📋
                     </button>
-                    <button 
-                      className="btn icon-btn" 
-                      onClick={(e) => { e.stopPropagation(); item._id && downloadPackage(item._id) }} 
+                    <button
+                      className="btn icon-btn"
+                      onClick={(e) => { e.stopPropagation(); item._id && downloadPackage(item._id) }}
                       title="Exporter"
-                      style={{ 
+                      style={{
                         padding: 8,
                         borderRadius: 8,
                         background: '#f7fafc',
@@ -937,11 +1004,11 @@ export default function TemplateBuilder() {
                     >
                       📦
                     </button>
-                    <button 
-                      className="btn icon-btn" 
-                      onClick={(e) => { e.stopPropagation(); item._id && deleteTemplate(item._id) }} 
-                      title="Supprimer" 
-                      style={{ 
+                    <button
+                      className="btn icon-btn"
+                      onClick={(e) => { e.stopPropagation(); item._id && deleteTemplate(item._id) }}
+                      title="Supprimer"
+                      style={{
                         padding: 8,
                         borderRadius: 8,
                         background: (deleteConfirmations[item._id!] || 0) > 0 ? '#e53e3e' : '#fff5f5',
@@ -961,9 +1028,9 @@ export default function TemplateBuilder() {
                       {(deleteConfirmations[item._id!] || 0) === 0 ? '🗑️' : `Confirmer (${3 - (deleteConfirmations[item._id!] || 0)})`}
                     </button>
                   </div>
-                  
-                  <button 
-                    style={{ 
+
+                  <button
+                    style={{
                       padding: '8px 16px',
                       fontSize: 14,
                       fontWeight: 600,
@@ -985,22 +1052,22 @@ export default function TemplateBuilder() {
         )}
 
         {showCreateModal && (
-          <div style={{ 
-            position: 'fixed', 
-            top: 0, 
-            left: 0, 
-            right: 0, 
-            bottom: 0, 
-            background: 'rgba(0,0,0,0.6)', 
-            display: 'flex', 
-            alignItems: 'center', 
-            justifyContent: 'center', 
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.6)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
             zIndex: 1000,
             backdropFilter: 'blur(4px)'
           }}>
-            <div 
-              className="card" 
-              style={{ 
+            <div
+              className="card"
+              style={{
                 width: 480,
                 maxWidth: '90vw',
                 boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
@@ -1008,43 +1075,43 @@ export default function TemplateBuilder() {
                 animation: 'slideUp 0.3s ease-out'
               }}
             >
-              <h3 style={{ 
-                margin: '0 0 20px 0', 
-                fontSize: 24, 
+              <h3 style={{
+                margin: '0 0 20px 0',
+                fontSize: 24,
                 fontWeight: 600,
                 color: '#2d3436'
               }}>
                 ✨ Créer un nouveau template
               </h3>
-              <input 
+              <input
                 autoFocus
-                placeholder="Nom du template (ex: Livret Scolaire 2024-2025)" 
-                value={newTemplateName} 
-                onChange={e => setNewTemplateName(e.target.value)} 
+                placeholder="Nom du template (ex: Livret Scolaire 2024-2025)"
+                value={newTemplateName}
+                onChange={e => setNewTemplateName(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && createTemplate()}
-                style={{ 
-                  width: '100%', 
-                  padding: '14px 16px', 
-                  borderRadius: 10, 
-                  border: '2px solid #e9ecef', 
-                  marginBottom: 24, 
+                style={{
+                  width: '100%',
+                  padding: '14px 16px',
+                  borderRadius: 10,
+                  border: '2px solid #e9ecef',
+                  marginBottom: 24,
                   boxSizing: 'border-box',
                   fontSize: 15,
                   transition: 'all 0.2s'
-                }} 
+                }}
                 onFocus={(e) => e.target.style.borderColor = '#667eea'}
                 onBlur={(e) => e.target.style.borderColor = '#e9ecef'}
               />
               <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
-                <button 
-                  className="btn secondary" 
+                <button
+                  className="btn secondary"
                   onClick={() => setShowCreateModal(false)}
                   style={{ padding: '12px 24px', fontSize: 15 }}
                 >
                   Annuler
                 </button>
-                <button 
-                  className="btn" 
+                <button
+                  className="btn"
                   onClick={createTemplate}
                   style={{ padding: '12px 28px', fontSize: 15, fontWeight: 600 }}
                 >
@@ -1057,16 +1124,16 @@ export default function TemplateBuilder() {
 
         {/* Portals for List View */}
         {saveStatus && createPortal(
-          <div style={{ 
+          <div style={{
             position: 'fixed',
             top: 24,
             right: 24,
             zIndex: 2147483647, // Max z-index
-            padding: '16px 24px', 
-            background: '#10b981', 
-            color: 'white', 
-            borderRadius: 8, 
-            fontWeight: 600, 
+            padding: '16px 24px',
+            background: '#10b981',
+            color: 'white',
+            borderRadius: 8,
+            fontWeight: 600,
             fontSize: 16,
             boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
             display: 'flex',
@@ -1076,22 +1143,22 @@ export default function TemplateBuilder() {
             border: '1px solid rgba(255,255,255,0.2)',
             pointerEvents: 'none', // Allow clicking through
           }}>
-            <span style={{ fontSize: 24 }}>✓</span> 
+            <span style={{ fontSize: 24 }}>✓</span>
             <span style={{ wordBreak: 'break-word', lineHeight: 1.4 }}>{saveStatus}</span>
           </div>,
           document.body
         )}
         {error && createPortal(
-          <div style={{ 
+          <div style={{
             position: 'fixed',
             top: 100, // Offset to avoid overlap
             right: 24,
             zIndex: 2147483647, // Max z-index
-            padding: '16px 24px', 
-            background: '#ef4444', 
-            color: 'white', 
-            borderRadius: 8, 
-            fontWeight: 600, 
+            padding: '16px 24px',
+            background: '#ef4444',
+            color: 'white',
+            borderRadius: 8,
+            fontWeight: 600,
             fontSize: 16,
             boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
             display: 'flex',
@@ -1101,7 +1168,7 @@ export default function TemplateBuilder() {
             border: '1px solid rgba(255,255,255,0.2)',
             pointerEvents: 'none',
           }}>
-            <span style={{ fontSize: 24 }}>✗</span> 
+            <span style={{ fontSize: 24 }}>✗</span>
             <span style={{ wordBreak: 'break-word', lineHeight: 1.4 }}>{error}</span>
           </div>,
           document.body
@@ -1113,9 +1180,9 @@ export default function TemplateBuilder() {
   return (
     <div style={{ background: '#f5f7fa', minHeight: '100vh', padding: 24 }}>
       {/* Top Navigation Bar */}
-      <div style={{ 
-        background: '#fff', 
-        borderRadius: 16, 
+      <div style={{
+        background: '#fff',
+        borderRadius: 16,
         padding: '20px 28px',
         marginBottom: 24,
         boxShadow: '0 2px 12px rgba(0,0,0,0.08)',
@@ -1124,10 +1191,10 @@ export default function TemplateBuilder() {
         justifyContent: 'space-between'
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-          <button 
-            className="btn secondary" 
+          <button
+            className="btn secondary"
             onClick={() => { setViewMode('list'); loadTemplates() }}
-            style={{ 
+            style={{
               padding: '10px 20px',
               display: 'flex',
               alignItems: 'center',
@@ -1137,31 +1204,31 @@ export default function TemplateBuilder() {
             <span>←</span> Retour
           </button>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button 
-                className="btn secondary" 
-                onClick={undo}
-                disabled={historyIndex <= 0}
-                title="Annuler (Ctrl+Z)"
-                style={{ 
-                    padding: '10px 14px',
-                    opacity: historyIndex <= 0 ? 0.5 : 1,
-                    cursor: historyIndex <= 0 ? 'not-allowed' : 'pointer'
-                }}
+            <button
+              className="btn secondary"
+              onClick={undo}
+              disabled={historyIndex <= 0}
+              title="Annuler (Ctrl+Z)"
+              style={{
+                padding: '10px 14px',
+                opacity: historyIndex <= 0 ? 0.5 : 1,
+                cursor: historyIndex <= 0 ? 'not-allowed' : 'pointer'
+              }}
             >
-                ↩️
+              ↩️
             </button>
-            <button 
-                className="btn secondary" 
-                onClick={redo}
-                disabled={historyIndex >= history.length - 1}
-                title="Rétablir (Ctrl+Y)"
-                style={{ 
-                    padding: '10px 14px',
-                    opacity: historyIndex >= history.length - 1 ? 0.5 : 1,
-                    cursor: historyIndex >= history.length - 1 ? 'not-allowed' : 'pointer'
-                }}
+            <button
+              className="btn secondary"
+              onClick={redo}
+              disabled={historyIndex >= history.length - 1}
+              title="Rétablir (Ctrl+Y)"
+              style={{
+                padding: '10px 14px',
+                opacity: historyIndex >= history.length - 1 ? 0.5 : 1,
+                cursor: historyIndex >= history.length - 1 ? 'not-allowed' : 'pointer'
+              }}
             >
-                ↪️
+              ↪️
             </button>
           </div>
           <div style={{ height: 32, width: 1, background: '#e0e0e0' }} />
@@ -1171,22 +1238,22 @@ export default function TemplateBuilder() {
             </h2>
           </div>
         </div>
-        <button 
-          className="btn" 
-          onClick={async () => { 
-            try { 
-              setError(''); 
-              setSaveStatus(''); 
-              await save(); 
-              setSaveStatus('Enregistré avec succès'); 
-              setTimeout(() => setSaveStatus(''), 3000); 
-              await loadTemplates() 
-            } catch (e: any) { 
-              setError('Échec de l\'enregistrement'); 
-              setTimeout(() => setError(''), 3000) 
-            } 
+        <button
+          className="btn"
+          onClick={async () => {
+            try {
+              setError('');
+              setSaveStatus('');
+              await save();
+              setSaveStatus('Enregistré avec succès');
+              setTimeout(() => setSaveStatus(''), 3000);
+              await loadTemplates()
+            } catch (e: any) {
+              setError('Échec de l\'enregistrement');
+              setTimeout(() => setError(''), 3000)
+            }
           }}
-          style={{ 
+          style={{
             padding: '12px 32px',
             fontSize: 15,
             fontWeight: 600,
@@ -1201,16 +1268,16 @@ export default function TemplateBuilder() {
 
       {/* Status Messages - Toast Notifications */}
       {saveStatus && createPortal(
-        <div style={{ 
+        <div style={{
           position: 'fixed',
           top: 24,
           right: 24,
           zIndex: 2147483647, // Max z-index
-          padding: '16px 24px', 
-          background: '#10b981', 
-          color: 'white', 
-          borderRadius: 8, 
-          fontWeight: 600, 
+          padding: '16px 24px',
+          background: '#10b981',
+          color: 'white',
+          borderRadius: 8,
+          fontWeight: 600,
           fontSize: 16,
           boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
           display: 'flex',
@@ -1220,22 +1287,22 @@ export default function TemplateBuilder() {
           border: '1px solid rgba(255,255,255,0.2)',
           pointerEvents: 'none', // Allow clicking through
         }}>
-          <span style={{ fontSize: 24 }}>✓</span> 
+          <span style={{ fontSize: 24 }}>✓</span>
           <span style={{ wordBreak: 'break-word', lineHeight: 1.4 }}>{saveStatus}</span>
         </div>,
         document.body
       )}
       {error && createPortal(
-        <div style={{ 
+        <div style={{
           position: 'fixed',
           top: 100, // Offset to avoid overlap
           right: 24,
           zIndex: 2147483647, // Max z-index
-          padding: '16px 24px', 
-          background: '#ef4444', 
-          color: 'white', 
-          borderRadius: 8, 
-          fontWeight: 600, 
+          padding: '16px 24px',
+          background: '#ef4444',
+          color: 'white',
+          borderRadius: 8,
+          fontWeight: 600,
           fontSize: 16,
           boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
           display: 'flex',
@@ -1245,16 +1312,16 @@ export default function TemplateBuilder() {
           border: '1px solid rgba(255,255,255,0.2)',
           pointerEvents: 'none',
         }}>
-          <span style={{ fontSize: 24 }}>✗</span> 
+          <span style={{ fontSize: 24 }}>✗</span>
           <span style={{ wordBreak: 'break-word', lineHeight: 1.4 }}>{error}</span>
         </div>,
         document.body
       )}
 
       {/* Main Controls */}
-      <div style={{ 
-        background: '#fff', 
-        borderRadius: 16, 
+      <div style={{
+        background: '#fff',
+        borderRadius: 16,
         padding: '24px 28px',
         marginBottom: 24,
         boxShadow: '0 2px 12px rgba(0,0,0,0.08)'
@@ -1265,14 +1332,14 @@ export default function TemplateBuilder() {
             <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#6c757d', marginBottom: 6 }}>
               NOM DU TEMPLATE
             </label>
-            <input 
-              placeholder="Nom du template" 
-              value={tpl.name} 
-              onChange={e => setTpl({ ...tpl, name: e.target.value })} 
-              style={{ 
+            <input
+              placeholder="Nom du template"
+              value={tpl.name}
+              onChange={e => setTpl({ ...tpl, name: e.target.value })}
+              style={{
                 width: '100%',
-                padding: '10px 14px', 
-                borderRadius: 8, 
+                padding: '10px 14px',
+                borderRadius: 8,
                 border: '2px solid #e9ecef',
                 fontSize: 15,
                 transition: 'all 0.2s'
@@ -1287,12 +1354,12 @@ export default function TemplateBuilder() {
             <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#6c757d', marginBottom: 6 }}>
               PAGE ACTIVE
             </label>
-            <select 
-              value={selectedPage} 
-              onChange={e => setSelectedPage(Number(e.target.value))} 
-              style={{ 
-                padding: '10px 14px', 
-                borderRadius: 8, 
+            <select
+              value={selectedPage}
+              onChange={e => setSelectedPage(Number(e.target.value))}
+              style={{
+                padding: '10px 14px',
+                borderRadius: 8,
                 border: '2px solid #e9ecef',
                 fontSize: 15,
                 minWidth: 180,
@@ -1309,15 +1376,15 @@ export default function TemplateBuilder() {
 
           {/* Add Page Button */}
           <div style={{ flex: '0 0 auto', paddingTop: 22 }}>
-            <button 
-              className="btn secondary" 
-              onClick={() => { 
-                const pages = [...tpl.pages, { title: `Page ${tpl.pages.length + 1}`, blocks: [] }]; 
-                setTpl({ ...tpl, pages }); 
-                setSelectedPage(pages.length - 1); 
-                setSelectedIndex(null) 
+            <button
+              className="btn secondary"
+              onClick={() => {
+                const pages = [...tpl.pages, { title: `Page ${tpl.pages.length + 1}`, blocks: [] }];
+                setTpl({ ...tpl, pages });
+                setSelectedPage(pages.length - 1);
+                setSelectedIndex(null)
               }}
-              style={{ 
+              style={{
                 padding: '10px 20px',
                 display: 'flex',
                 alignItems: 'center',
@@ -1334,19 +1401,19 @@ export default function TemplateBuilder() {
             <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#6c757d', marginBottom: 6 }}>
               FOND PAGE
             </label>
-            <input 
+            <input
               type="color"
-              value={tpl.pages[selectedPage].bgColor || '#ffffff'} 
-              onChange={e => { 
-                const pages = [...tpl.pages]; 
-                pages[selectedPage] = { ...pages[selectedPage], bgColor: e.target.value }; 
-                setTpl({ ...tpl, pages }) 
-              }} 
-              style={{ 
+              value={tpl.pages[selectedPage].bgColor || '#ffffff'}
+              onChange={e => {
+                const pages = [...tpl.pages];
+                pages[selectedPage] = { ...pages[selectedPage], bgColor: e.target.value };
+                setTpl({ ...tpl, pages })
+              }}
+              style={{
                 width: 60,
                 height: 40,
-                padding: 4, 
-                borderRadius: 8, 
+                padding: 4,
+                borderRadius: 8,
                 border: '2px solid #e9ecef',
                 cursor: 'pointer'
               }}
@@ -1355,18 +1422,18 @@ export default function TemplateBuilder() {
         </div>
 
         {/* Secondary Controls */}
-        <div style={{ 
-          marginTop: 20, 
-          paddingTop: 20, 
+        <div style={{
+          marginTop: 20,
+          paddingTop: 20,
           borderTop: '1px solid #e9ecef',
           display: 'flex',
           gap: 12,
           flexWrap: 'wrap',
           alignItems: 'center'
         }}>
-          <label style={{ 
-            display: 'flex', 
-            alignItems: 'center', 
+          <label style={{
+            display: 'flex',
+            alignItems: 'center',
             gap: 8,
             padding: '8px 14px',
             background: '#f8f9fa',
@@ -1374,19 +1441,19 @@ export default function TemplateBuilder() {
             cursor: 'pointer',
             fontSize: 14
           }}>
-            <input 
-              type="checkbox" 
-              checked={snap} 
+            <input
+              type="checkbox"
+              checked={snap}
               onChange={e => setSnap(e.target.checked)}
               style={{ width: 18, height: 18, cursor: 'pointer' }}
             />
             <span>Magnétisme</span>
           </label>
 
-          <button 
-            className="btn secondary" 
+          <button
+            className="btn secondary"
             onClick={() => setContinuousScroll(!continuousScroll)}
-            style={{ 
+            style={{
               padding: '8px 16px',
               fontSize: 14
             }}
@@ -1394,9 +1461,9 @@ export default function TemplateBuilder() {
             {continuousScroll ? '📄 Vue page par page' : '📜 Vue continue'}
           </button>
 
-          <label style={{ 
-            display: 'flex', 
-            alignItems: 'center', 
+          <label style={{
+            display: 'flex',
+            alignItems: 'center',
             gap: 10,
             padding: '8px 14px',
             background: '#f8f9fa',
@@ -1405,12 +1472,12 @@ export default function TemplateBuilder() {
             minWidth: 200
           }}>
             <span>🔍 Zoom</span>
-            <input 
-              type="range" 
-              min={0.5} 
-              max={2} 
-              step={0.1} 
-              value={scale} 
+            <input
+              type="range"
+              min={0.5}
+              max={2}
+              step={0.1}
+              value={scale}
               onChange={e => setScale(parseFloat(e.target.value))}
               style={{ flex: 1 }}
             />
@@ -1420,12 +1487,12 @@ export default function TemplateBuilder() {
           <div style={{ flex: 1 }} />
 
           {/* Preview Controls */}
-          <select 
-            value={yearId} 
-            onChange={e => setYearId(e.target.value)} 
-            style={{ 
-              padding: '8px 12px', 
-              borderRadius: 8, 
+          <select
+            value={yearId}
+            onChange={e => setYearId(e.target.value)}
+            style={{
+              padding: '8px 12px',
+              borderRadius: 8,
               border: '2px solid #e9ecef',
               fontSize: 13
             }}
@@ -1434,12 +1501,12 @@ export default function TemplateBuilder() {
             {years.map(y => <option key={y._id} value={y._id}>{y.name}</option>)}
           </select>
 
-          <select 
-            value={classId} 
-            onChange={e => setClassId(e.target.value)} 
-            style={{ 
-              padding: '8px 12px', 
-              borderRadius: 8, 
+          <select
+            value={classId}
+            onChange={e => setClassId(e.target.value)}
+            style={{
+              padding: '8px 12px',
+              borderRadius: 8,
               border: '2px solid #e9ecef',
               fontSize: 13
             }}
@@ -1448,12 +1515,12 @@ export default function TemplateBuilder() {
             {classes.map(c => <option key={c._id} value={c._id}>{c.name}</option>)}
           </select>
 
-          <select 
-            value={studentId} 
-            onChange={e => setStudentId(e.target.value)} 
-            style={{ 
-              padding: '8px 12px', 
-              borderRadius: 8, 
+          <select
+            value={studentId}
+            onChange={e => setStudentId(e.target.value)}
+            style={{
+              padding: '8px 12px',
+              borderRadius: 8,
               border: '2px solid #e9ecef',
               fontSize: 13
             }}
@@ -1463,11 +1530,11 @@ export default function TemplateBuilder() {
           </select>
 
           {previewUrl && (
-            <a 
-              className="btn secondary" 
-              href={previewUrl} 
+            <a
+              className="btn secondary"
+              href={previewUrl}
               target="_blank"
-              style={{ 
+              style={{
                 padding: '8px 16px',
                 fontSize: 14,
                 textDecoration: 'none'
@@ -1478,11 +1545,11 @@ export default function TemplateBuilder() {
           )}
 
           {bulkUrl && (
-            <a 
-              className="btn secondary" 
-              href={bulkUrl} 
+            <a
+              className="btn secondary"
+              href={bulkUrl}
               target="_blank"
-              style={{ 
+              style={{
                 padding: '8px 16px',
                 fontSize: 14,
                 textDecoration: 'none'
@@ -1495,8 +1562,8 @@ export default function TemplateBuilder() {
 
         {/* Advanced Actions */}
         <details style={{ marginTop: 20 }}>
-          <summary style={{ 
-            cursor: 'pointer', 
+          <summary style={{
+            cursor: 'pointer',
             padding: '12px 16px',
             background: '#f8f9fa',
             borderRadius: 8,
@@ -1507,7 +1574,7 @@ export default function TemplateBuilder() {
           }}>
             ⚙️ Actions avancées
           </summary>
-          <div style={{ 
+          <div style={{
             marginTop: 12,
             display: 'flex',
             gap: 10,
@@ -1516,8 +1583,8 @@ export default function TemplateBuilder() {
             background: '#f8f9fa',
             borderRadius: 8
           }}>
-            <button 
-              className="btn secondary" 
+            <button
+              className="btn secondary"
               onClick={async () => {
                 const blob = new Blob([JSON.stringify(tpl)], { type: 'application/json' })
                 const fd = new FormData()
@@ -1530,9 +1597,9 @@ export default function TemplateBuilder() {
             >
               📂 Enregistrer dans médias
             </button>
-            
-            <button 
-              className="btn secondary" 
+
+            <button
+              className="btn secondary"
               onClick={() => {
                 const blob = new Blob([JSON.stringify(tpl)], { type: 'application/json' })
                 const url = URL.createObjectURL(blob)
@@ -1548,20 +1615,20 @@ export default function TemplateBuilder() {
             >
               💾 Télécharger JSON
             </button>
-            
-            <button 
-              className="btn secondary" 
+
+            <button
+              className="btn secondary"
               onClick={() => pptxInputRef.current?.click()}
               style={{ fontSize: 13, padding: '8px 14px' }}
             >
               📊 Importer PPTX
             </button>
-            <input 
-              type="file" 
-              ref={pptxInputRef} 
-              style={{ display: 'none' }} 
-              accept=".pptx" 
-              onChange={handlePptxImport} 
+            <input
+              type="file"
+              ref={pptxInputRef}
+              style={{ display: 'none' }}
+              accept=".pptx"
+              onChange={handlePptxImport}
             />
           </div>
         </details>
@@ -1570,11 +1637,11 @@ export default function TemplateBuilder() {
       {/* Main Editor Grid */}
       <div style={{ display: 'grid', gridTemplateColumns: '240px minmax(0, 1fr) 300px', gap: 16, alignItems: 'start' }}>
         {/* Left Panel - Blocks Palette */}
-        <div 
-          style={{ 
-            position: 'sticky', 
-            top: 24, 
-            maxHeight: 'calc(100vh - 48px)', 
+        <div
+          style={{
+            position: 'sticky',
+            top: 24,
+            maxHeight: 'calc(100vh - 48px)',
             overflowY: 'auto',
             background: '#fff',
             borderRadius: 16,
@@ -1582,9 +1649,9 @@ export default function TemplateBuilder() {
             boxShadow: '0 2px 12px rgba(0,0,0,0.08)'
           }}
         >
-          <h3 style={{ 
-            margin: '0 0 20px 0', 
-            fontSize: 18, 
+          <h3 style={{
+            margin: '0 0 20px 0',
+            fontSize: 18,
             fontWeight: 600,
             color: '#2d3436',
             display: 'flex',
@@ -1594,692 +1661,121 @@ export default function TemplateBuilder() {
             🧩 Composants
           </h3>
 
-          {/* Text & Content */}
-          <div style={{ marginBottom: 24 }}>
-            <div style={{ 
-              fontSize: 11, 
-              fontWeight: 700, 
-              color: '#6c757d', 
-              marginBottom: 10,
-              textTransform: 'uppercase',
-              letterSpacing: '0.5px'
-            }}>
-              Texte & Contenu
-            </div>
-            {[
-              blocksPalette.find(b => b.type === 'text'),
-              blocksPalette.find(b => b.type === 'dynamic_text'),
-              blocksPalette.find(b => b.type === 'student_info'),
-            ].filter(Boolean).map((b, i) => (
-              <div 
-                key={i}
-                onClick={() => addBlock(b!)}
-                style={{ 
-                  padding: '12px 14px',
-                  marginBottom: 8,
-                  background: '#f8f9fa',
-                  border: '2px solid #e9ecef',
-                  borderRadius: 10,
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = '#e7f5ff'
-                  e.currentTarget.style.borderColor = '#667eea'
-                  e.currentTarget.style.transform = 'translateX(4px)'
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = '#f8f9fa'
-                  e.currentTarget.style.borderColor = '#e9ecef'
-                  e.currentTarget.style.transform = 'translateX(0)'
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span style={{ fontSize: 20 }}>
-                    {b!.type === 'text' && '📝'}
-                    {b!.type === 'dynamic_text' && '🔤'}
-                    {b!.type === 'student_info' && '👤'}
-                  </span>
-                  <span style={{ fontSize: 13, fontWeight: 500 }}>
-                    {b!.type === 'text' && 'Texte'}
-                    {b!.type === 'dynamic_text' && 'Texte dynamique'}
-                    {b!.type === 'student_info' && 'Info élève'}
-                  </span>
-                </div>
-                <span style={{ fontSize: 18, color: '#667eea' }}>+</span>
+          {/* Blocks Palette Groups */}
+          {[
+            {
+              title: 'Général',
+              items: [
+                ...blocksPalette.filter(b => ['text', 'image', 'table', 'qr', 'line', 'arrow', 'rect', 'circle'].includes(b.type))
+              ]
+            },
+            {
+              title: 'Promotion & Signatures',
+              items: [
+                ...blocksPalette.filter(b => ['promotion_info', 'signature_box', 'signature'].includes(b.type))
+              ]
+            },
+            {
+              title: 'Interactif',
+              items: [
+                ...blocksPalette.filter(b => ['language_toggle', 'dropdown', 'dropdown_reference', 'dynamic_text'].includes(b.type))
+              ]
+            }
+          ].map((group, groupIndex) => (
+            <div key={groupIndex} style={{ marginBottom: 24 }}>
+              <div style={{
+                fontSize: 11,
+                fontWeight: 700,
+                color: '#6c757d',
+                marginBottom: 10,
+                textTransform: 'uppercase',
+                letterSpacing: '0.5px'
+              }}>
+                {group.title}
               </div>
-            ))}
-          </div>
+              {group.items.map((b, i) => (
+                <div
+                  key={i}
+                  onClick={() => addBlock(b)}
+                  style={{
+                    padding: '12px 14px',
+                    marginBottom: 8,
+                    background: '#f8f9fa',
+                    border: '2px solid #e9ecef',
+                    borderRadius: 10,
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = '#e7f5ff'
+                    e.currentTarget.style.borderColor = '#667eea'
+                    e.currentTarget.style.transform = 'translateX(4px)'
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = '#f8f9fa'
+                    e.currentTarget.style.borderColor = '#e9ecef'
+                    e.currentTarget.style.transform = 'translateX(0)'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{ fontSize: 20 }}>
+                      {b.type === 'text' && '📝'}
+                      {b.type === 'image' && '🖼️'}
+                      {b.type === 'table' && '📊'}
+                      {b.type === 'qr' && '📱'}
+                      {b.type === 'line' && '➖'}
+                      {b.type === 'arrow' && '➡️'}
+                      {b.type === 'rect' && '▭'}
+                      {b.type === 'circle' && '⬤'}
+                      {b.type === 'promotion_info' && '🎓'}
+                      {b.type === 'signature_box' && '✍️'}
+                      {b.type === 'signature' && '👥'}
+                      {b.type === 'language_toggle' && '🌐'}
+                      {b.type === 'dropdown' && '🔽'}
+                      {b.type === 'dropdown_reference' && '🔗'}
+                      {b.type === 'dynamic_text' && '🔤'}
+                    </span>
+                    <span style={{ fontSize: 13, fontWeight: 500 }}>
+                      {b.props.label || (
+                        b.type === 'text' ? 'Texte' :
+                          b.type === 'image' ? 'Image' :
+                            b.type === 'table' ? 'Tableau' :
+                              b.type === 'qr' ? 'QR Code' :
+                                b.type === 'line' ? 'Ligne' :
+                                  b.type === 'arrow' ? 'Flèche' :
+                                    b.type === 'rect' ? 'Rectangle' :
+                                      b.type === 'circle' ? 'Cercle' :
+                                        b.type === 'promotion_info' ? 'Info Passage' :
+                                          b.type === 'signature_box' ? 'Signature Box' :
+                                            b.type === 'signature' ? 'Signatures (Noms)' :
+                                              b.type === 'language_toggle' ? 'Langues' :
+                                                b.type === 'dropdown' ? 'Menu déroulant' :
+                                                  b.type === 'dropdown_reference' ? 'Référence Dropdown' :
+                                                    b.type === 'dynamic_text' ? 'Texte Dynamique' :
+                                                      b.type
+                      )}
+                    </span>
+                  </div>
+                  <span style={{ fontSize: 18, color: '#667eea' }}>+</span>
+                </div>
+              ))}
+            </div>
+          ))}
 
-          {/* Shapes */}
-          <div style={{ marginBottom: 24 }}>
-            <div style={{ 
-              fontSize: 11, 
-              fontWeight: 700, 
-              color: '#6c757d', 
-              marginBottom: 10,
-              textTransform: 'uppercase',
-              letterSpacing: '0.5px'
-            }}>
-              Formes
-            </div>
-            {[
-              blocksPalette.find(b => b.type === 'rect'),
-              blocksPalette.find(b => b.type === 'circle'),
-              blocksPalette.find(b => b.type === 'line'),
-              blocksPalette.find(b => b.type === 'arrow'),
-            ].filter(Boolean).map((b, i) => (
-              <div 
-                key={i}
-                onClick={() => addBlock(b!)}
-                style={{ 
-                  padding: '12px 14px',
-                  marginBottom: 8,
-                  background: '#f8f9fa',
-                  border: '2px solid #e9ecef',
-                  borderRadius: 10,
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = '#e7f5ff'
-                  e.currentTarget.style.borderColor = '#667eea'
-                  e.currentTarget.style.transform = 'translateX(4px)'
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = '#f8f9fa'
-                  e.currentTarget.style.borderColor = '#e9ecef'
-                  e.currentTarget.style.transform = 'translateX(0)'
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span style={{ fontSize: 20 }}>
-                    {b!.type === 'rect' && '▭'}
-                    {b!.type === 'circle' && '⬤'}
-                    {b!.type === 'line' && '━'}
-                    {b!.type === 'arrow' && '➜'}
-                  </span>
-                  <span style={{ fontSize: 13, fontWeight: 500 }}>
-                    {b!.type === 'rect' && 'Rectangle'}
-                    {b!.type === 'circle' && 'Cercle'}
-                    {b!.type === 'line' && 'Ligne'}
-                    {b!.type === 'arrow' && 'Flèche'}
-                  </span>
-                </div>
-                <span style={{ fontSize: 18, color: '#667eea' }}>+</span>
-              </div>
-            ))}
-          </div>
 
-          {/* Media & Advanced */}
-          <div style={{ marginBottom: 24 }}>
-            <div style={{ 
-              fontSize: 11, 
-              fontWeight: 700, 
-              color: '#6c757d', 
-              marginBottom: 10,
-              textTransform: 'uppercase',
-              letterSpacing: '0.5px'
-            }}>
-              Média & Avancé
-            </div>
-            {[
-              blocksPalette.find(b => b.type === 'image'),
-              blocksPalette.find(b => b.type === 'qr'),
-              blocksPalette.find(b => b.type === 'table'),
-            ].filter(Boolean).map((b, i) => (
-              <div 
-                key={i}
-                onClick={() => addBlock(b!)}
-                style={{ 
-                  padding: '12px 14px',
-                  marginBottom: 8,
-                  background: '#f8f9fa',
-                  border: '2px solid #e9ecef',
-                  borderRadius: 10,
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = '#e7f5ff'
-                  e.currentTarget.style.borderColor = '#667eea'
-                  e.currentTarget.style.transform = 'translateX(4px)'
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = '#f8f9fa'
-                  e.currentTarget.style.borderColor = '#e9ecef'
-                  e.currentTarget.style.transform = 'translateX(0)'
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span style={{ fontSize: 20 }}>
-                    {b!.type === 'image' && '🖼️'}
-                    {b!.type === 'qr' && '📱'}
-                    {b!.type === 'table' && '📊'}
-                  </span>
-                  <span style={{ fontSize: 13, fontWeight: 500 }}>
-                    {b!.type === 'image' && 'Image'}
-                    {b!.type === 'qr' && 'QR Code'}
-                    {b!.type === 'table' && 'Tableau'}
-                  </span>
-                </div>
-                <span style={{ fontSize: 18, color: '#667eea' }}>+</span>
-              </div>
-            ))}
-          </div>
 
-          {/* Competencies */}
-          <div style={{ marginBottom: 24 }}>
-            <div style={{ 
-              fontSize: 11, 
-              fontWeight: 700, 
-              color: '#6c757d', 
-              marginBottom: 10,
-              textTransform: 'uppercase',
-              letterSpacing: '0.5px'
-            }}>
-              Compétences
-            </div>
-            {[
-              blocksPalette.find(b => b.type === 'category_title'),
-              blocksPalette.find(b => b.type === 'competency_list'),
-            ].filter(Boolean).map((b, i) => (
-              <div 
-                key={i}
-                onClick={() => addBlock(b!)}
-                style={{ 
-                  padding: '12px 14px',
-                  marginBottom: 8,
-                  background: '#f8f9fa',
-                  border: '2px solid #e9ecef',
-                  borderRadius: 10,
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = '#e7f5ff'
-                  e.currentTarget.style.borderColor = '#667eea'
-                  e.currentTarget.style.transform = 'translateX(4px)'
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = '#f8f9fa'
-                  e.currentTarget.style.borderColor = '#e9ecef'
-                  e.currentTarget.style.transform = 'translateX(0)'
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span style={{ fontSize: 20 }}>
-                    {b!.type === 'category_title' && '📑'}
-                    {b!.type === 'competency_list' && '✅'}
-                  </span>
-                  <span style={{ fontSize: 13, fontWeight: 500 }}>
-                    {b!.type === 'category_title' && 'Catégorie'}
-                    {b!.type === 'competency_list' && 'Compétences'}
-                  </span>
-                </div>
-                <span style={{ fontSize: 18, color: '#667eea' }}>+</span>
-              </div>
-            ))}
-          </div>
 
-          {/* Signatures */}
-          <div style={{ marginBottom: 24 }}>
-            <div style={{ 
-              fontSize: 11, 
-              fontWeight: 700, 
-              color: '#6c757d', 
-              marginBottom: 10,
-              textTransform: 'uppercase',
-              letterSpacing: '0.5px'
-            }}>
-              Signatures
-            </div>
-            {[
-              blocksPalette.find(b => b.type === 'signature'),
-            ].filter(Boolean).map((b, i) => (
-              <div 
-                key={i}
-                onClick={() => addBlock(b!)}
-                style={{ 
-                  padding: '12px 14px',
-                  marginBottom: 8,
-                  background: '#f8f9fa',
-                  border: '2px solid #e9ecef',
-                  borderRadius: 10,
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = '#e7f5ff'
-                  e.currentTarget.style.borderColor = '#667eea'
-                  e.currentTarget.style.transform = 'translateX(4px)'
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = '#f8f9fa'
-                  e.currentTarget.style.borderColor = '#e9ecef'
-                  e.currentTarget.style.transform = 'translateX(0)'
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span style={{ fontSize: 20 }}>
-                    {b!.type === 'signature' && '✍️'}
-                  </span>
-                  <span style={{ fontSize: 13, fontWeight: 500 }}>
-                    {b!.type === 'signature' && 'Signatures'}
-                  </span>
-                </div>
-                <span style={{ fontSize: 18, color: '#667eea' }}>+</span>
-              </div>
-            ))}
-          </div>
 
-          {/* Mi-Année PS */}
-          <div style={{ marginBottom: 24 }}>
-            <div style={{ 
-              fontSize: 11, 
-              fontWeight: 700, 
-              color: '#6c757d', 
-              marginBottom: 10,
-              textTransform: 'uppercase',
-              letterSpacing: '0.5px'
-            }}>
-              Mi-Année PS
-            </div>
-            {[
-              { ...blocksPalette.find(b => b.type === 'signature_box' && b.props.period === 'mid-year'), props: { ...blocksPalette.find(b => b.type === 'signature_box' && b.props.period === 'mid-year')?.props, level: 'PS' } },
-            ].filter(b => b.type).map((b, i) => (
-              <div 
-                key={i}
-                onClick={() => addBlock(b as Block)}
-                style={{ 
-                  padding: '12px 14px',
-                  marginBottom: 8,
-                  background: '#f8f9fa',
-                  border: '2px solid #e9ecef',
-                  borderRadius: 10,
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = '#e7f5ff'
-                  e.currentTarget.style.borderColor = '#667eea'
-                  e.currentTarget.style.transform = 'translateX(4px)'
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = '#f8f9fa'
-                  e.currentTarget.style.borderColor = '#e9ecef'
-                  e.currentTarget.style.transform = 'translateX(0)'
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span style={{ fontSize: 20 }}>
-                    {b!.type === 'signature_box' && '📝'}
-                  </span>
-                  <span style={{ fontSize: 13, fontWeight: 500 }}>
-                    {b!.type === 'signature_box' && (b!.props.label || 'Signature Mi-Année')}
-                  </span>
-                </div>
-                <span style={{ fontSize: 18, color: '#667eea' }}>+</span>
-              </div>
-            ))}
-          </div>
 
-          {/* Mi-Année MS */}
-          <div style={{ marginBottom: 24 }}>
-            <div style={{ 
-              fontSize: 11, 
-              fontWeight: 700, 
-              color: '#6c757d', 
-              marginBottom: 10,
-              textTransform: 'uppercase',
-              letterSpacing: '0.5px'
-            }}>
-              Mi-Année MS
-            </div>
-            {[
-              { ...blocksPalette.find(b => b.type === 'signature_box' && b.props.period === 'mid-year'), props: { ...blocksPalette.find(b => b.type === 'signature_box' && b.props.period === 'mid-year')?.props, level: 'MS' } },
-            ].filter(b => b.type).map((b, i) => (
-              <div 
-                key={i}
-                onClick={() => addBlock(b as Block)}
-                style={{ 
-                  padding: '12px 14px',
-                  marginBottom: 8,
-                  background: '#f8f9fa',
-                  border: '2px solid #e9ecef',
-                  borderRadius: 10,
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = '#e7f5ff'
-                  e.currentTarget.style.borderColor = '#667eea'
-                  e.currentTarget.style.transform = 'translateX(4px)'
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = '#f8f9fa'
-                  e.currentTarget.style.borderColor = '#e9ecef'
-                  e.currentTarget.style.transform = 'translateX(0)'
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span style={{ fontSize: 20 }}>
-                    {b!.type === 'signature_box' && '📝'}
-                  </span>
-                  <span style={{ fontSize: 13, fontWeight: 500 }}>
-                    {b!.type === 'signature_box' && (b!.props.label || 'Signature Mi-Année')}
-                  </span>
-                </div>
-                <span style={{ fontSize: 18, color: '#667eea' }}>+</span>
-              </div>
-            ))}
-          </div>
 
-          {/* Mi-Année GS */}
-          <div style={{ marginBottom: 24 }}>
-            <div style={{ 
-              fontSize: 11, 
-              fontWeight: 700, 
-              color: '#6c757d', 
-              marginBottom: 10,
-              textTransform: 'uppercase',
-              letterSpacing: '0.5px'
-            }}>
-              Mi-Année GS
-            </div>
-            {[
-              { ...blocksPalette.find(b => b.type === 'signature_box' && b.props.period === 'mid-year'), props: { ...blocksPalette.find(b => b.type === 'signature_box' && b.props.period === 'mid-year')?.props, level: 'GS' } },
-            ].filter(b => b.type).map((b, i) => (
-              <div 
-                key={i}
-                onClick={() => addBlock(b as Block)}
-                style={{ 
-                  padding: '12px 14px',
-                  marginBottom: 8,
-                  background: '#f8f9fa',
-                  border: '2px solid #e9ecef',
-                  borderRadius: 10,
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = '#e7f5ff'
-                  e.currentTarget.style.borderColor = '#667eea'
-                  e.currentTarget.style.transform = 'translateX(4px)'
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = '#f8f9fa'
-                  e.currentTarget.style.borderColor = '#e9ecef'
-                  e.currentTarget.style.transform = 'translateX(0)'
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span style={{ fontSize: 20 }}>
-                    {b!.type === 'signature_box' && '📝'}
-                  </span>
-                  <span style={{ fontSize: 13, fontWeight: 500 }}>
-                    {b!.type === 'signature_box' && (b!.props.label || 'Signature Mi-Année')}
-                  </span>
-                </div>
-                <span style={{ fontSize: 18, color: '#667eea' }}>+</span>
-              </div>
-            ))}
-          </div>
 
-          {/* Fin d'Année PS (Vers MS) */}
-          <div style={{ marginBottom: 24 }}>
-            <div style={{ 
-              fontSize: 11, 
-              fontWeight: 700, 
-              color: '#6c757d', 
-              marginBottom: 10,
-              textTransform: 'uppercase',
-              letterSpacing: '0.5px'
-            }}>
-              Fin d'Année PS (Vers MS)
-            </div>
-            {[
-              { ...blocksPalette.find(b => b.type === 'signature_box' && b.props.period === 'end-year'), props: { ...blocksPalette.find(b => b.type === 'signature_box' && b.props.period === 'end-year')?.props, level: 'PS' } },
-              ...blocksPalette.filter(b => b.type === 'promotion_info' && b.props.targetLevel === 'MS').map(b => ({ ...b, props: { ...b.props, level: 'PS' } })),
-            ].filter(b => b.type).map((b, i) => (
-              <div 
-                key={i}
-                onClick={() => addBlock(b as Block)}
-                style={{ 
-                  padding: '12px 14px',
-                  marginBottom: 8,
-                  background: '#f8f9fa',
-                  border: '2px solid #e9ecef',
-                  borderRadius: 10,
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = '#e7f5ff'
-                  e.currentTarget.style.borderColor = '#667eea'
-                  e.currentTarget.style.transform = 'translateX(4px)'
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = '#f8f9fa'
-                  e.currentTarget.style.borderColor = '#e9ecef'
-                  e.currentTarget.style.transform = 'translateX(0)'
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span style={{ fontSize: 20 }}>
-                    {b!.type === 'signature_box' && '📝'}
-                    {b!.type === 'promotion_info' && '🎓'}
-                  </span>
-                  <span style={{ fontSize: 13, fontWeight: 500 }}>
-                    {b!.type === 'signature_box' && (b!.props.label || 'Signature Fin Année')}
-                    {b!.type === 'promotion_info' && (b!.props.label || 'Info Passage')}
-                  </span>
-                </div>
-                <span style={{ fontSize: 18, color: '#667eea' }}>+</span>
-              </div>
-            ))}
-          </div>
 
-          {/* Fin d'Année MS (Vers GS) */}
-          <div style={{ marginBottom: 24 }}>
-            <div style={{ 
-              fontSize: 11, 
-              fontWeight: 700, 
-              color: '#6c757d', 
-              marginBottom: 10,
-              textTransform: 'uppercase',
-              letterSpacing: '0.5px'
-            }}>
-              Fin d'Année MS (Vers GS)
-            </div>
-            {[
-              { ...blocksPalette.find(b => b.type === 'signature_box' && b.props.period === 'end-year'), props: { ...blocksPalette.find(b => b.type === 'signature_box' && b.props.period === 'end-year')?.props, level: 'MS' } },
-              ...blocksPalette.filter(b => b.type === 'promotion_info' && b.props.targetLevel === 'GS').map(b => ({ ...b, props: { ...b.props, level: 'MS' } })),
-            ].filter(b => b.type).map((b, i) => (
-              <div 
-                key={i}
-                onClick={() => addBlock(b as Block)}
-                style={{ 
-                  padding: '12px 14px',
-                  marginBottom: 8,
-                  background: '#f8f9fa',
-                  border: '2px solid #e9ecef',
-                  borderRadius: 10,
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = '#e7f5ff'
-                  e.currentTarget.style.borderColor = '#667eea'
-                  e.currentTarget.style.transform = 'translateX(4px)'
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = '#f8f9fa'
-                  e.currentTarget.style.borderColor = '#e9ecef'
-                  e.currentTarget.style.transform = 'translateX(0)'
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span style={{ fontSize: 20 }}>
-                    {b!.type === 'signature_box' && '📝'}
-                    {b!.type === 'promotion_info' && '🎓'}
-                  </span>
-                  <span style={{ fontSize: 13, fontWeight: 500 }}>
-                    {b!.type === 'signature_box' && (b!.props.label || 'Signature Fin Année')}
-                    {b!.type === 'promotion_info' && (b!.props.label || 'Info Passage')}
-                  </span>
-                </div>
-                <span style={{ fontSize: 18, color: '#667eea' }}>+</span>
-              </div>
-            ))}
-          </div>
 
-          {/* Fin d'Année GS (Vers EB1) */}
-          <div style={{ marginBottom: 24 }}>
-            <div style={{ 
-              fontSize: 11, 
-              fontWeight: 700, 
-              color: '#6c757d', 
-              marginBottom: 10,
-              textTransform: 'uppercase',
-              letterSpacing: '0.5px'
-            }}>
-              Fin d'Année GS (Vers EB1)
-            </div>
-            {[
-              { ...blocksPalette.find(b => b.type === 'signature_box' && b.props.period === 'end-year'), props: { ...blocksPalette.find(b => b.type === 'signature_box' && b.props.period === 'end-year')?.props, level: 'GS' } },
-              ...blocksPalette.filter(b => b.type === 'promotion_info' && b.props.targetLevel === 'EB1').map(b => ({ ...b, props: { ...b.props, level: 'GS' } })),
-            ].filter(b => b.type).map((b, i) => (
-              <div 
-                key={i}
-                onClick={() => addBlock(b as Block)}
-                style={{ 
-                  padding: '12px 14px',
-                  marginBottom: 8,
-                  background: '#f8f9fa',
-                  border: '2px solid #e9ecef',
-                  borderRadius: 10,
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = '#e7f5ff'
-                  e.currentTarget.style.borderColor = '#667eea'
-                  e.currentTarget.style.transform = 'translateX(4px)'
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = '#f8f9fa'
-                  e.currentTarget.style.borderColor = '#e9ecef'
-                  e.currentTarget.style.transform = 'translateX(0)'
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span style={{ fontSize: 20 }}>
-                    {b!.type === 'signature_box' && '📝'}
-                    {b!.type === 'promotion_info' && '🎓'}
-                  </span>
-                  <span style={{ fontSize: 13, fontWeight: 500 }}>
-                    {b!.type === 'signature_box' && (b!.props.label || 'Signature Fin Année')}
-                    {b!.type === 'promotion_info' && (b!.props.label || 'Info Passage')}
-                  </span>
-                </div>
-                <span style={{ fontSize: 18, color: '#667eea' }}>+</span>
-              </div>
-            ))}
-          </div>
 
-          {/* Interactif */}
-          <div>
-            <div style={{ 
-              fontSize: 11, 
-              fontWeight: 700, 
-              color: '#6c757d', 
-              marginBottom: 10,
-              textTransform: 'uppercase',
-              letterSpacing: '0.5px'
-            }}>
-              Interactif
-            </div>
-            {[
-              blocksPalette.find(b => b.type === 'dropdown'),
-              blocksPalette.find(b => b.type === 'dropdown_reference'),
-              blocksPalette.find(b => b.type === 'language_toggle'),
-            ].filter(Boolean).map((b, i) => (
-              <div 
-                key={i}
-                onClick={() => addBlock(b!)}
-                style={{ 
-                  padding: '12px 14px',
-                  marginBottom: 8,
-                  background: '#f8f9fa',
-                  border: '2px solid #e9ecef',
-                  borderRadius: 10,
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = '#e7f5ff'
-                  e.currentTarget.style.borderColor = '#667eea'
-                  e.currentTarget.style.transform = 'translateX(4px)'
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = '#f8f9fa'
-                  e.currentTarget.style.borderColor = '#e9ecef'
-                  e.currentTarget.style.transform = 'translateX(0)'
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span style={{ fontSize: 20 }}>
-                    {b!.type === 'dropdown' && '📋'}
-                    {b!.type === 'dropdown_reference' && '🔗'}
-                    {b!.type === 'language_toggle' && '🌐'}
-                  </span>
-                  <span style={{ fontSize: 13, fontWeight: 500 }}>
-                    {b!.type === 'dropdown' && 'Menu déroulant'}
-                    {b!.type === 'dropdown_reference' && 'Réf. dropdown'}
-                    {b!.type === 'language_toggle' && 'Langues'}
-                  </span>
-                </div>
-                <span style={{ fontSize: 18, color: '#667eea' }}>+</span>
-              </div>
-            ))}
-          </div>
+
         </div>
 
         {/* Center Panel - Canvas */}
@@ -2287,9 +1783,9 @@ export default function TemplateBuilder() {
           {(continuousScroll ? tpl.pages : [tpl.pages[selectedPage]]).map((page, i) => {
             const pageIndex = continuousScroll ? i : selectedPage
             return (
-              <div 
+              <div
                 key={pageIndex}
-                style={{ 
+                style={{
                   display: 'flex',
                   flexDirection: 'column',
                   alignItems: 'center',
@@ -2298,7 +1794,7 @@ export default function TemplateBuilder() {
                 }}
               >
                 {continuousScroll && (
-                  <div style={{ 
+                  <div style={{
                     marginBottom: 12,
                     padding: '8px 16px',
                     background: '#667eea',
@@ -2310,10 +1806,10 @@ export default function TemplateBuilder() {
                     Page {pageIndex + 1} / {tpl.pages.length}
                   </div>
                 )}
-                
-                <div 
-                  style={{ 
-                    transform: `scale(${scale})`, 
+
+                <div
+                  style={{
+                    transform: `scale(${scale})`,
                     transformOrigin: 'top center',
                     boxShadow: '0 10px 40px rgba(0,0,0,0.15)',
                     borderRadius: 8,
@@ -2322,426 +1818,472 @@ export default function TemplateBuilder() {
                     transition: 'all 0.3s ease'
                   }}
                 >
-                  <div 
-                    className="card page-canvas" 
-                    style={{ 
-                      height: pageHeight, 
-                      width: pageWidth, 
-                      background: page.bgColor || '#fff', 
+                  <div
+                    className="card page-canvas"
+                    style={{
+                      height: pageHeight,
+                      width: pageWidth,
+                      background: page.bgColor || '#fff',
                       position: 'relative',
                       margin: 0
-                    }} 
+                    }}
                     onClick={() => setSelectedPage(pageIndex)}
                   >
                     <div className="page-margins" />
-                  {/* Guides */}
-                  {activeGuides.map((g, i) => (
-                      <div 
-                          key={i}
-                          style={{
-                              position: 'absolute',
-                              left: g.type === 'x' ? g.pos : 0,
-                              top: g.type === 'y' ? g.pos : 0,
-                              width: g.type === 'x' ? 1 : '100%',
-                              height: g.type === 'y' ? 1 : '100%',
-                              background: '#ff0055',
-                              zIndex: 1000,
-                              pointerEvents: 'none'
-                          }}
-                      />
-                  ))}
-                  {page.blocks.map((b, idx) => {
-                    const isSelected = selectedIndex === idx && selectedPage === pageIndex
-                    return (
-                      <div 
-                        key={idx} 
-                        style={{ 
-                          position: 'absolute', 
-                          left: b.props.x || 0, 
-                          top: b.props.y || 0, 
-                          zIndex: (b.props.z ?? idx), 
-                          border: isSelected ? '3px solid #667eea' : '1px dashed rgba(0,0,0,0.2)', 
-                          padding: 6, 
-                          borderRadius: 8,
-                          background: isSelected ? 'rgba(102, 126, 234, 0.05)' : 'transparent',
-                          boxShadow: isSelected ? '0 0 0 1px rgba(102, 126, 234, 0.2)' : 'none',
-                          cursor: 'move',
-                          transition: 'all 0.15s ease'
-                        }} 
-                        onMouseDown={(e) => onDrag(e, pageIndex, idx)} 
-                        onClick={(e) => { e.stopPropagation(); setSelectedPage(pageIndex); setSelectedIndex(idx) }}
-                        onMouseEnter={(e) => {
-                          if (!isSelected) {
-                            e.currentTarget.style.borderColor = 'rgba(102, 126, 234, 0.5)'
-                            e.currentTarget.style.background = 'rgba(102, 126, 234, 0.02)'
-                          }
-                        }}
-                        onMouseLeave={(e) => {
-                          if (!isSelected) {
-                            e.currentTarget.style.borderColor = 'rgba(0,0,0,0.2)'
-                            e.currentTarget.style.background = 'transparent'
-                          }
-                        }}
-                      >
-                {b.type === 'text' && <div style={{ color: b.props.color, fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden', whiteSpace: 'pre-wrap' }}>{b.props.text}</div>}
-                {b.type === 'image' && <img src={b.props.url} style={{ width: b.props.width || 120, height: b.props.height || 120, borderRadius: 8 }} />}
-                {b.type === 'rect' && <div style={{ width: b.props.width, height: b.props.height, background: b.props.color, borderRadius: b.props.radius || 8, border: b.props.stroke ? `${b.props.strokeWidth || 1}px solid ${b.props.stroke}` : 'none' }} />}
-                {b.type === 'circle' && <div style={{ width: (b.props.radius || 60) * 2, height: (b.props.radius || 60) * 2, background: b.props.color, borderRadius: '50%', border: b.props.stroke ? `${b.props.strokeWidth || 1}px solid ${b.props.stroke}` : 'none' }} />}
-                {b.type === 'language_toggle' && (
-                  <div style={{ display: 'flex', flexDirection: (b.props.direction as any) || 'column', alignItems: 'center', gap: b.props.spacing || 12 }}>
-                    {(b.props.items || []).map((it: any, i: number) => {
-                      const r = b.props.radius || 40
-                      const size = r * 2
-                      return (
-                        <div key={i} style={{ width: size, height: size, borderRadius: '50%', overflow: 'hidden', position: 'relative', cursor: 'pointer', boxShadow: it.active ? '0 0 0 2px #6c5ce7' : 'none' }}
-                          onClick={(ev) => { ev.stopPropagation(); const pages = [...tpl.pages]; const page = { ...pages[selectedPage] }; const blocks = [...page.blocks]; const items = [...(blocks[idx].props.items || [])]; items[i] = { ...items[i], active: !items[i].active }; blocks[idx] = { ...blocks[idx], props: { ...blocks[idx].props, items } }; pages[selectedPage] = { ...page, blocks }; setTpl({ ...tpl, pages }) }}>
-                          {it.logo ? <img src={it.logo} style={{ width: '100%', height: '100%', objectFit: 'cover', filter: it.active ? 'brightness(1.1)' : 'brightness(0.6)' }} /> : <div style={{ width: '100%', height: '100%', background: '#ddd' }} />}
-                          <div style={{ position: 'absolute', bottom: 2, left: 0, right: 0, textAlign: 'center', fontSize: b.props.fontSize || 10, color: '#fff', textShadow: '0 1px 2px rgba(0,0,0,0.6)' }}>{it.label || it.code}</div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
-                {b.type === 'line' && <div style={{ width: b.props.x2 || 100, height: b.props.strokeWidth || 2, background: b.props.stroke || '#b2bec3' }} />}
-                {b.type === 'arrow' && <div style={{ width: b.props.x2 || 100, height: b.props.strokeWidth || 2, background: b.props.stroke || '#6c5ce7', position: 'relative' }}><div style={{ position: 'absolute', right: 0, top: -6, width: 0, height: 0, borderTop: '8px solid transparent', borderBottom: '8px solid transparent', borderLeft: `12px solid ${b.props.stroke || '#6c5ce7'}` }} /></div>}
-                {b.type === 'dynamic_text' && <div style={{ color: b.props.color, fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden', whiteSpace: 'pre-wrap' }}>{(() => {
-                  let text = b.props.text || ''
-                  if (studentId) {
-                    const s = students.find(st => st._id === studentId)
-                    if (s) {
-                      text = text.replace(/{student.firstName}/g, s.firstName).replace(/{student.lastName}/g, s.lastName)
-                    }
-                  }
-                  Object.entries(previewData).forEach(([k, v]) => {
-                    text = text.replace(new RegExp(`{${k}}`, 'g'), v)
-                  })
-                  return text
-                })()}</div>}
-                {b.type === 'student_info' && <div style={{ color: b.props.color, fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden' }}>{(() => {
-                  if (studentId) {
-                    const s = students.find(st => st._id === studentId) as any
-                    if (s) return `${s.firstName} ${s.lastName}, ${s.className || 'Classe'}, ${s.dateOfBirth ? new Date(s.dateOfBirth).toLocaleDateString() : 'Date'}`
-                  }
-                  return 'Nom, Classe, Naissance'
-                })()}</div>}
-                {b.type === 'category_title' && <div style={{ color: b.props.color, fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden' }}>Titre catégorie</div>}
-                {b.type === 'competency_list' && <div style={{ color: b.props.color, fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden' }}>Liste des compétences</div>}
-                {b.type === 'signature' && <div style={{ fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden' }}>{(b.props.labels || []).join(' / ')}</div>}
-                {b.type === 'signature_box' && (
-                  <div style={{ 
-                    width: b.props.width || 200, 
-                    height: b.props.height || 80, 
-                    border: '1px solid #000', 
-                    background: '#fff',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: 10,
-                    color: '#999'
-                  }}>
-                    {b.props.label || 'Signature'}
-                  </div>
-                )}
-                {b.type === 'promotion_info' && (
-                  <div style={{ 
-                    width: b.props.width || (b.props.field ? 150 : 300), 
-                    height: b.props.height || (b.props.field ? 30 : 100), 
-                    border: '1px dashed #6c5ce7', 
-                    background: '#f0f4ff',
-                    padding: 8,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                    fontSize: b.props.fontSize || 12,
-                    color: b.props.color || '#2d3436',
-                    textAlign: 'center'
-                  }}>
-                    {!b.props.field && (
-                      <>
-                        <div style={{ fontWeight: 'bold', marginBottom: 4 }}>🎓 Passage en {b.props.targetLevel || '...'}</div>
-                        <div>{studentId ? 'Nom Prénom' : '{Nom Prénom}'}</div>
-                        <div style={{ fontSize: '0.9em', opacity: 0.7 }}>Année {new Date().getFullYear()}-{new Date().getFullYear()+1}</div>
-                      </>
-                    )}
-                    {b.props.field === 'level' && (
-                      <div style={{ fontWeight: 'bold' }}>Passage en {b.props.targetLevel || '...'}</div>
-                    )}
-                    {b.props.field === 'student' && (
-                      <div>{studentId ? 'Nom Prénom' : '{Nom Prénom}'}</div>
-                    )}
-                    {b.props.field === 'year' && (
-                      <div>Année {new Date().getFullYear()}-{new Date().getFullYear()+1}</div>
-                    )}
-                    {b.props.field === 'class' && (
-                      <div>{studentId ? 'Classe' : '{Classe}'}</div>
-                    )}
-                    {b.props.field === 'currentLevel' && (
-                      <div>{studentId ? 'Niveau' : '{Niveau}'}</div>
-                    )}
-                  </div>
-                )}
-                {b.type === 'dropdown' && (
-                  <div style={{ width: b.props.width || 200, position: 'relative' }}>
-                    <div style={{ fontSize: 10, fontWeight: 'bold', color: '#6c5ce7', marginBottom: 2 }}>Dropdown #{b.props.dropdownNumber || '?'}</div>
-                    {b.props.label && <div style={{ fontSize: 10, color: '#666', marginBottom: 2 }}>{b.props.label}</div>}
-                    <div
-                      style={{ 
-                        width: '100%', 
-                        minHeight: b.props.height || 32, 
-                        fontSize: b.props.fontSize || 12, 
-                        color: b.props.color || '#333', 
-                        padding: '4px 24px 4px 8px', 
-                        borderRadius: 4, 
-                        border: '1px solid #ccc',
-                        background: '#fff',
-                        cursor: 'pointer',
-                        position: 'relative',
-                        display: 'flex',
-                        alignItems: 'center',
-                        wordWrap: 'break-word',
-                        whiteSpace: 'pre-wrap'
-                      }}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        const key = `dropdown_${selectedPage}_${idx}`
-                        setOpenDropdown(openDropdown === key ? null : key)
-                      }}
-                      onMouseDown={(e) => e.stopPropagation()}
-                    >
-                      {(() => {
-                        const currentValue = b.props.dropdownNumber 
-                          ? previewData[`dropdown_${b.props.dropdownNumber}`]
-                          : b.props.variableName ? previewData[b.props.variableName] : ''
-                        return currentValue || 'Sélectionner...'
-                      })()}
-                      <div style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>▼</div>
-                    </div>
-                    {openDropdown === `dropdown_${selectedPage}_${idx}` && (
-                      <div 
-                        style={{ 
-                          position: 'absolute', 
-                          top: '100%', 
-                          left: 0, 
-                          right: 0, 
-                          maxHeight: 300, 
-                          overflowY: 'auto', 
-                          background: '#fff', 
-                          border: '1px solid #ccc', 
-                          borderRadius: 4, 
-                          marginTop: 2, 
+                    {/* Guides */}
+                    {activeGuides.map((g, i) => (
+                      <div
+                        key={i}
+                        style={{
+                          position: 'absolute',
+                          left: g.type === 'x' ? g.pos : 0,
+                          top: g.type === 'y' ? g.pos : 0,
+                          width: g.type === 'x' ? 1 : '100%',
+                          height: g.type === 'y' ? 1 : '100%',
+                          background: '#ff0055',
                           zIndex: 1000,
-                          boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
+                          pointerEvents: 'none'
                         }}
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <div 
-                          style={{ padding: '8px 12px', cursor: 'pointer', fontSize: b.props.fontSize || 12, color: '#999', borderBottom: '1px solid #eee' }}
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            if (b.props.variableName) {
-                              setPreviewData({ ...previewData, [b.props.variableName]: '' })
-                            }
-                            if (b.props.dropdownNumber) {
-                              setPreviewData({ ...previewData, [`dropdown_${b.props.dropdownNumber}`]: '' })
-                            }
-                            setOpenDropdown(null)
+                      />
+                    ))}
+                    {page.blocks.map((b, idx) => {
+                      const isSelected = (selectedIndex === idx || selectedIndices.includes(idx)) && selectedPage === pageIndex
+                      return (
+                        <div
+                          key={idx}
+                          style={{
+                            position: 'absolute',
+                            left: b.props.x || 0,
+                            top: b.props.y || 0,
+                            zIndex: (b.props.z ?? idx),
+                            border: isSelected ? '3px solid #667eea' : '1px dashed rgba(0,0,0,0.2)',
+                            padding: 6,
+                            borderRadius: 8,
+                            background: isSelected ? 'rgba(102, 126, 234, 0.05)' : 'transparent',
+                            boxShadow: isSelected ? '0 0 0 1px rgba(102, 126, 234, 0.2)' : 'none',
+                            cursor: 'move',
+                            transition: 'all 0.15s ease'
                           }}
-                          onMouseEnter={(e) => e.currentTarget.style.background = '#f5f5f5'}
-                          onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}
+                          onMouseDown={(e) => onDrag(e, pageIndex, idx)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedPage(pageIndex);
+
+                            if (e.shiftKey || e.ctrlKey || e.metaKey) {
+                              const newIndices = new Set(selectedIndices)
+                              if (selectedIndex !== null) newIndices.add(selectedIndex)
+
+                              if (newIndices.has(idx)) {
+                                newIndices.delete(idx)
+                                if (selectedIndex === idx) setSelectedIndex(null)
+                              } else {
+                                newIndices.add(idx)
+                                setSelectedIndex(idx)
+                              }
+                              setSelectedIndices(Array.from(newIndices))
+                            } else {
+                              setSelectedIndex(idx);
+                              setSelectedIndices([]);
+                            }
+                          }}
+                          onMouseEnter={(e) => {
+                            if (!isSelected) {
+                              e.currentTarget.style.borderColor = 'rgba(102, 126, 234, 0.5)'
+                              e.currentTarget.style.background = 'rgba(102, 126, 234, 0.02)'
+                            }
+                          }}
+                          onMouseLeave={(e) => {
+                            if (!isSelected) {
+                              e.currentTarget.style.borderColor = 'rgba(0,0,0,0.2)'
+                              e.currentTarget.style.background = 'transparent'
+                            }
+                          }}
                         >
-                          Sélectionner...
-                        </div>
-                        {(b.props.options || []).map((opt: string, i: number) => (
-                          <div 
-                            key={i}
-                            style={{ 
-                              padding: '8px 12px', 
-                              cursor: 'pointer', 
+                          {b.type === 'text' && <div style={{ color: b.props.color, fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden', whiteSpace: 'pre-wrap' }}>{b.props.text}</div>}
+                          {b.type === 'image' && <img src={b.props.url} style={{ width: b.props.width || 120, height: b.props.height || 120, borderRadius: 8 }} />}
+                          {b.type === 'rect' && <div style={{ width: b.props.width, height: b.props.height, background: b.props.color, borderRadius: b.props.radius || 8, border: b.props.stroke ? `${b.props.strokeWidth || 1}px solid ${b.props.stroke}` : 'none' }} />}
+                          {b.type === 'circle' && <div style={{ width: (b.props.radius || 60) * 2, height: (b.props.radius || 60) * 2, background: b.props.color, borderRadius: '50%', border: b.props.stroke ? `${b.props.strokeWidth || 1}px solid ${b.props.stroke}` : 'none' }} />}
+                          {b.type === 'language_toggle' && (
+                            <div style={{ display: 'flex', flexDirection: (b.props.direction as any) || 'column', alignItems: 'center', gap: b.props.spacing || 12 }}>
+                              {(b.props.items || []).map((it: any, i: number) => {
+                                const r = b.props.radius || 40
+                                const size = r * 2
+                                return (
+                                  <div key={i} style={{ width: size, height: size, borderRadius: '50%', overflow: 'hidden', position: 'relative', cursor: 'pointer', boxShadow: it.active ? '0 0 0 2px #6c5ce7' : 'none' }}
+                                    onClick={(ev) => { ev.stopPropagation(); const pages = [...tpl.pages]; const page = { ...pages[selectedPage] }; const blocks = [...page.blocks]; const items = [...(blocks[idx].props.items || [])]; items[i] = { ...items[i], active: !items[i].active }; blocks[idx] = { ...blocks[idx], props: { ...blocks[idx].props, items } }; pages[selectedPage] = { ...page, blocks }; setTpl({ ...tpl, pages }) }}>
+                                    {it.logo ? <img src={it.logo} style={{ width: '100%', height: '100%', objectFit: 'cover', filter: it.active ? 'brightness(1.1)' : 'brightness(0.6)' }} /> : <div style={{ width: '100%', height: '100%', background: '#ddd' }} />}
+                                    <div style={{ position: 'absolute', bottom: 2, left: 0, right: 0, textAlign: 'center', fontSize: b.props.fontSize || 10, color: '#fff', textShadow: '0 1px 2px rgba(0,0,0,0.6)' }}>{it.label || it.code}</div>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          )}
+                          {b.type === 'line' && <div style={{ width: b.props.x2 || 100, height: b.props.strokeWidth || 2, background: b.props.stroke || '#b2bec3' }} />}
+                          {b.type === 'arrow' && <div style={{ width: b.props.x2 || 100, height: b.props.strokeWidth || 2, background: b.props.stroke || '#6c5ce7', position: 'relative' }}><div style={{ position: 'absolute', right: 0, top: -6, width: 0, height: 0, borderTop: '8px solid transparent', borderBottom: '8px solid transparent', borderLeft: `12px solid ${b.props.stroke || '#6c5ce7'}` }} /></div>}
+                          {b.type === 'dynamic_text' && <div style={{ color: b.props.color, fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden', whiteSpace: 'pre-wrap' }}>{(() => {
+                            let text = b.props.text || ''
+                            if (studentId) {
+                              const s = students.find(st => st._id === studentId)
+                              if (s) {
+                                text = text.replace(/{student.firstName}/g, s.firstName).replace(/{student.lastName}/g, s.lastName)
+                              }
+                            }
+                            Object.entries(previewData).forEach(([k, v]) => {
+                              text = text.replace(new RegExp(`{${k}}`, 'g'), v)
+                            })
+                            return text
+                          })()}</div>}
+                          {b.type === 'student_info' && <div style={{ color: b.props.color, fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden' }}>{(() => {
+                            if (studentId) {
+                              const s = students.find(st => st._id === studentId) as any
+                              if (s) return `${s.firstName} ${s.lastName}, ${s.className || 'Classe'}, ${s.dateOfBirth ? new Date(s.dateOfBirth).toLocaleDateString() : 'Date'}`
+                            }
+                            return 'Nom, Classe, Naissance'
+                          })()}</div>}
+                          {b.type === 'category_title' && <div style={{ color: b.props.color, fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden' }}>Titre catégorie</div>}
+                          {b.type === 'competency_list' && <div style={{ color: b.props.color, fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden' }}>Liste des compétences</div>}
+                          {b.type === 'signature' && <div style={{ fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden' }}>{(b.props.labels || []).join(' / ')}</div>}
+                          {b.type === 'signature_box' && (
+                            <div style={{
+                              width: b.props.width || 200,
+                              height: b.props.height || 80,
+                              border: '1px solid #000',
+                              background: '#fff',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontSize: 10,
+                              color: '#999'
+                            }}>
+                              {b.props.label || 'Signature'}
+                            </div>
+                          )}
+                          {b.type === 'promotion_info' && (
+                            <div style={{
+                              width: b.props.width || (b.props.field ? 150 : 300),
+                              height: b.props.height || (b.props.field ? 30 : 100),
+                              border: '1px dashed #6c5ce7',
+                              background: '#f0f4ff',
+                              padding: 8,
+                              display: 'flex',
+                              flexDirection: 'column',
+                              justifyContent: 'center',
+                              alignItems: 'center',
                               fontSize: b.props.fontSize || 12,
+                              color: b.props.color || '#2d3436',
+                              textAlign: 'center'
+                            }}>
+                              {(() => {
+                                const s = studentId ? (students.find(st => st._id === studentId)) : null
+                                const c = classId ? (classes.find(cl => cl._id === classId)) : null
+
+                                // Debug logs to verify data
+                                // console.log('PromotionInfo render:', { field: b.props.field, studentId, classId, s, c })
+
+                                const currentLevel = c?.level || s?.level
+                                let nextLevel = s?.nextLevel
+
+                                // If no explicit next level, try to calculate from current level order
+                                if (!nextLevel && currentLevel && levels && levels.length > 0) {
+                                  // Ensure levels are sorted by order
+                                  const sortedLevels = [...levels].sort((a, b) => a.order - b.order)
+                                  const currIdx = sortedLevels.findIndex(l => l.name === currentLevel)
+
+                                  // If found and not the last level (e.g. EB9 has no next)
+                                  if (currIdx !== -1 && currIdx < sortedLevels.length - 1) {
+                                    nextLevel = sortedLevels[currIdx + 1].name
+                                  }
+                                }
+                                const className = c?.name || s?.className
+                                const studentName = s ? `${s.firstName} ${s.lastName}` : '(Nom de l\'élève)'
+                                const currentYear = new Date().getFullYear()
+                                const yearStr = `Année ${currentYear}-${currentYear + 1}`
+
+                                if (!b.props.field) {
+                                  return (
+                                    <>
+                                      <div style={{ fontWeight: 'bold', marginBottom: 4 }}>
+                                        {nextLevel ? `Passage en ${nextLevel}` : '(Passage)'}
+                                      </div>
+                                      <div>{studentName}</div>
+                                      <div style={{ fontSize: '0.9em', opacity: 0.7 }}>{yearStr}</div>
+                                    </>
+                                  )
+                                }
+
+                                if (b.props.field === 'level') {
+                                  return <div style={{ fontWeight: 'bold' }}>{nextLevel ? `Passage en ${nextLevel}` : '(Passage)'}</div>
+                                }
+                                if (b.props.field === 'student') return <div>{studentName}</div>
+                                if (b.props.field === 'year') return <div>{yearStr}</div>
+                                if (b.props.field === 'class') return <div>{className || (studentId ? '' : '(Classe)')}</div>
+                                if (b.props.field === 'currentLevel') return <div>{currentLevel || '(Niveau)'}</div>
+
+                                return <div>Variable inconnue: {b.props.field}</div>
+                              })()}
+                            </div>
+                          )}
+                          {b.type === 'dropdown' && (
+                            <div style={{ width: b.props.width || 200, position: 'relative' }}>
+                              <div style={{ fontSize: 10, fontWeight: 'bold', color: '#6c5ce7', marginBottom: 2 }}>Dropdown #{b.props.dropdownNumber || '?'}</div>
+                              {b.props.label && <div style={{ fontSize: 10, color: '#666', marginBottom: 2 }}>{b.props.label}</div>}
+                              <div
+                                style={{
+                                  width: '100%',
+                                  minHeight: b.props.height || 32,
+                                  fontSize: b.props.fontSize || 12,
+                                  color: b.props.color || '#333',
+                                  padding: '4px 24px 4px 8px',
+                                  borderRadius: 4,
+                                  border: '1px solid #ccc',
+                                  background: '#fff',
+                                  cursor: 'pointer',
+                                  position: 'relative',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  wordWrap: 'break-word',
+                                  whiteSpace: 'pre-wrap'
+                                }}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  const key = `dropdown_${selectedPage}_${idx}`
+                                  setOpenDropdown(openDropdown === key ? null : key)
+                                }}
+                                onMouseDown={(e) => e.stopPropagation()}
+                              >
+                                {(() => {
+                                  const currentValue = b.props.dropdownNumber
+                                    ? previewData[`dropdown_${b.props.dropdownNumber}`]
+                                    : b.props.variableName ? previewData[b.props.variableName] : ''
+                                  return currentValue || 'Sélectionner...'
+                                })()}
+                                <div style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>▼</div>
+                              </div>
+                              {openDropdown === `dropdown_${selectedPage}_${idx}` && (
+                                <div
+                                  style={{
+                                    position: 'absolute',
+                                    top: '100%',
+                                    left: 0,
+                                    right: 0,
+                                    maxHeight: 300,
+                                    overflowY: 'auto',
+                                    background: '#fff',
+                                    border: '1px solid #ccc',
+                                    borderRadius: 4,
+                                    marginTop: 2,
+                                    zIndex: 1000,
+                                    boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
+                                  }}
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <div
+                                    style={{ padding: '8px 12px', cursor: 'pointer', fontSize: b.props.fontSize || 12, color: '#999', borderBottom: '1px solid #eee' }}
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      if (b.props.variableName) {
+                                        setPreviewData({ ...previewData, [b.props.variableName]: '' })
+                                      }
+                                      if (b.props.dropdownNumber) {
+                                        setPreviewData({ ...previewData, [`dropdown_${b.props.dropdownNumber}`]: '' })
+                                      }
+                                      setOpenDropdown(null)
+                                    }}
+                                    onMouseEnter={(e) => e.currentTarget.style.background = '#f5f5f5'}
+                                    onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}
+                                  >
+                                    Sélectionner...
+                                  </div>
+                                  {(b.props.options || []).map((opt: string, i: number) => (
+                                    <div
+                                      key={i}
+                                      style={{
+                                        padding: '8px 12px',
+                                        cursor: 'pointer',
+                                        fontSize: b.props.fontSize || 12,
+                                        wordWrap: 'break-word',
+                                        whiteSpace: 'pre-wrap',
+                                        borderBottom: i < (b.props.options || []).length - 1 ? '1px solid #eee' : 'none'
+                                      }}
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        if (b.props.variableName) {
+                                          setPreviewData({ ...previewData, [b.props.variableName]: opt })
+                                        }
+                                        if (b.props.dropdownNumber) {
+                                          setPreviewData({ ...previewData, [`dropdown_${b.props.dropdownNumber}`]: opt })
+                                        }
+                                        setOpenDropdown(null)
+                                      }}
+                                      onMouseEnter={(e) => e.currentTarget.style.background = '#f0f4ff'}
+                                      onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}
+                                    >
+                                      {opt}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          {b.type === 'dropdown_reference' && (
+                            <div style={{
+                              width: b.props.width || 200,
+                              minHeight: b.props.height || 'auto',
+                              color: b.props.color || '#2d3436',
+                              fontSize: b.props.fontSize || 12,
+                              padding: '8px',
+                              background: '#f0f4ff',
+                              border: '1px dashed #6c5ce7',
+                              borderRadius: 4,
                               wordWrap: 'break-word',
                               whiteSpace: 'pre-wrap',
-                              borderBottom: i < (b.props.options || []).length - 1 ? '1px solid #eee' : 'none'
-                            }}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              if (b.props.variableName) {
-                                setPreviewData({ ...previewData, [b.props.variableName]: opt })
-                              }
-                              if (b.props.dropdownNumber) {
-                                setPreviewData({ ...previewData, [`dropdown_${b.props.dropdownNumber}`]: opt })
-                              }
-                              setOpenDropdown(null)
-                            }}
-                            onMouseEnter={(e) => e.currentTarget.style.background = '#f0f4ff'}
-                            onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}
-                          >
-                            {opt}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-                {b.type === 'dropdown_reference' && (
-                  <div style={{ 
-                    width: b.props.width || 200,
-                    minHeight: b.props.height || 'auto',
-                    color: b.props.color || '#2d3436', 
-                    fontSize: b.props.fontSize || 12, 
-                    padding: '8px', 
-                    background: '#f0f4ff', 
-                    border: '1px dashed #6c5ce7', 
-                    borderRadius: 4,
-                    wordWrap: 'break-word',
-                    whiteSpace: 'pre-wrap',
-                    overflow: 'hidden'
-                  }}>
-                    {(() => {
-                      const dropdownNum = b.props.dropdownNumber || 1
-                      const value = previewData[`dropdown_${dropdownNum}`] || ''
-                      const displayText = value || `[Dropdown #${dropdownNum}]`
-                      return displayText
-                    })()}
-                  </div>
-                )}
-                {b.type === 'table' && (
-                  (() => {
-                    const cols: number[] = b.props.columnWidths || []
-                    const rows: number[] = b.props.rowHeights || []
-                    const cells: any[][] = b.props.cells || []
-                    const width = cols.reduce((a, c) => a + (c || 0), 0)
-                    const height = rows.reduce((a, r) => a + (r || 0), 0)
-                    const colOffsets: number[] = [0]
-                    for (let i = 0; i < cols.length; i++) colOffsets[i + 1] = colOffsets[i] + (cols[i] || 0)
-                    const rowOffsets: number[] = [0]
-                    for (let i = 0; i < rows.length; i++) rowOffsets[i + 1] = rowOffsets[i] + (rows[i] || 0)
-                    return (
-                      <div style={{ position: 'relative', width, height, display: 'grid', gridTemplateColumns: cols.map(w => `${Math.max(1, Math.round(w))}px`).join(' '), gridTemplateRows: rows.map(h => `${Math.max(1, Math.round(h))}px`).join(' ') }}>
-                        {cells.flatMap((row, ri) => row.map((cell, ci) => {
-                          const bl = cell?.borders?.l; const br = cell?.borders?.r; const bt = cell?.borders?.t; const bb = cell?.borders?.b
-                          const style: React.CSSProperties = {
-                            background: cell?.fill || 'transparent',
-                            borderLeft: bl?.width ? `${bl.width}px solid ${bl.color || '#000'}` : 'none',
-                            borderRight: br?.width ? `${br.width}px solid ${br.color || '#000'}` : 'none',
-                            borderTop: bt?.width ? `${bt.width}px solid ${bt.color || '#000'}` : 'none',
-                            borderBottom: bb?.width ? `${bb.width}px solid ${bb.color || '#000'}` : 'none',
-                            padding: 4, boxSizing: 'border-box'
-                          }
-                          const isSel = selectedIndex === idx && selectedCell && selectedCell.ri === ri && selectedCell.ci === ci
-                          return (
-                            <div key={`${ri}-${ci}`} style={{ ...style, outline: isSel ? '2px solid #6c5ce7' : 'none' }}
-                              onMouseDown={(ev) => { ev.stopPropagation() }}
-                              onClick={(ev) => { ev.stopPropagation(); setSelectedIndex(idx); setSelectedCell({ ri, ci }) }}
-                            >
-                              {cell?.text && <div style={{ fontSize: cell.fontSize || 12, color: cell.color || '#000', whiteSpace: 'pre-wrap' }}>{cell.text}</div>}
+                              overflow: 'hidden'
+                            }}>
+                              {(() => {
+                                const dropdownNum = b.props.dropdownNumber || 1
+                                const value = previewData[`dropdown_${dropdownNum}`] || ''
+                                const displayText = value || `[Dropdown #${dropdownNum}]`
+                                return displayText
+                              })()}
                             </div>
-                          )
-                        }))}
-                        {cols.map((_, i) => (
-                          <div key={`col-h-${i}`} style={{ position: 'absolute', left: Math.max(0, (colOffsets[i + 1] || 0) - 3), top: 0, width: 6, height, cursor: 'col-resize' }}
-                            onMouseDown={(ev) => {
-                              ev.stopPropagation()
-                              const startX = ev.clientX
-                              const start = cols[i] || 0
-                              const onMove = (mv: MouseEvent) => {
-                                const dx = (mv.clientX - startX) / scale
-                                const next = [...cols]
-                                next[i] = Math.max(10, Math.round(start + dx))
-                                updateSelectedTable(p => ({ ...p, columnWidths: next }))
-                              }
-                              const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
-                              window.addEventListener('mousemove', onMove)
-                              window.addEventListener('mouseup', onUp)
-                            }}
-                          />
-                        ))}
-                        {rows.map((_, i) => (
-                          <div key={`row-h-${i}`} style={{ position: 'absolute', left: 0, top: Math.max(0, (rowOffsets[i + 1] || 0) - 3), width, height: 6, cursor: 'row-resize' }}
-                            onMouseDown={(ev) => {
-                              ev.stopPropagation()
-                              const startY = ev.clientY
-                              const start = rows[i] || 0
-                              const onMove = (mv: MouseEvent) => {
-                                const dy = (mv.clientY - startY) / scale
-                                const next = [...rows]
-                                next[i] = Math.max(10, Math.round(start + dy))
-                                updateSelectedTable(p => ({ ...p, rowHeights: next }))
-                              }
-                              const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
-                              window.addEventListener('mousemove', onMove)
-                              window.addEventListener('mouseup', onUp)
-                            }}
-                          />
-                        ))}
-                      </div>
-                    )
-                  })()
-                )}
-                {['image', 'text', 'dynamic_text', 'student_info', 'category_title', 'competency_list', 'signature', 'signature_box', 'promotion_info', 'language_toggle'].includes(b.type) && selectedIndex === idx && selectedPage === pageIndex && (
-                  <>
-                    {['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'].map((dir) => {
-                      const style: React.CSSProperties = {
-                        position: 'absolute', width: 10, height: 10, background: '#fff', border: '1px solid #6c5ce7', borderRadius: '50%', zIndex: 10,
-                        cursor: `${dir}-resize`
-                      }
-                      if (dir.includes('n')) style.top = -5
-                      if (dir.includes('s')) style.bottom = -5
-                      if (dir.includes('w')) style.left = -5
-                      if (dir.includes('e')) style.right = -5
-                      if (dir === 'n' || dir === 's') style.left = 'calc(50% - 5px)'
-                      if (dir === 'e' || dir === 'w') style.top = 'calc(50% - 5px)'
+                          )}
+                          {b.type === 'table' && (
+                            (() => {
+                              const cols: number[] = b.props.columnWidths || []
+                              const rows: number[] = b.props.rowHeights || []
+                              const cells: any[][] = b.props.cells || []
+                              const width = cols.reduce((a, c) => a + (c || 0), 0)
+                              const height = rows.reduce((a, r) => a + (r || 0), 0)
+                              const colOffsets: number[] = [0]
+                              for (let i = 0; i < cols.length; i++) colOffsets[i + 1] = colOffsets[i] + (cols[i] || 0)
+                              const rowOffsets: number[] = [0]
+                              for (let i = 0; i < rows.length; i++) rowOffsets[i + 1] = rowOffsets[i] + (rows[i] || 0)
+                              return (
+                                <div style={{ position: 'relative', width, height, display: 'grid', gridTemplateColumns: cols.map(w => `${Math.max(1, Math.round(w))}px`).join(' '), gridTemplateRows: rows.map(h => `${Math.max(1, Math.round(h))}px`).join(' ') }}>
+                                  {cells.flatMap((row, ri) => row.map((cell, ci) => {
+                                    const bl = cell?.borders?.l; const br = cell?.borders?.r; const bt = cell?.borders?.t; const bb = cell?.borders?.b
+                                    const style: React.CSSProperties = {
+                                      background: cell?.fill || 'transparent',
+                                      borderLeft: bl?.width ? `${bl.width}px solid ${bl.color || '#000'}` : 'none',
+                                      borderRight: br?.width ? `${br.width}px solid ${br.color || '#000'}` : 'none',
+                                      borderTop: bt?.width ? `${bt.width}px solid ${bt.color || '#000'}` : 'none',
+                                      borderBottom: bb?.width ? `${bb.width}px solid ${bb.color || '#000'}` : 'none',
+                                      padding: 4, boxSizing: 'border-box'
+                                    }
+                                    const isSel = selectedIndex === idx && selectedCell && selectedCell.ri === ri && selectedCell.ci === ci
+                                    return (
+                                      <div key={`${ri}-${ci}`} style={{ ...style, outline: isSel ? '2px solid #6c5ce7' : 'none' }}
+                                        onMouseDown={(ev) => { ev.stopPropagation() }}
+                                        onClick={(ev) => { ev.stopPropagation(); setSelectedIndex(idx); setSelectedCell({ ri, ci }) }}
+                                      >
+                                        {cell?.text && <div style={{ fontSize: cell.fontSize || 12, color: cell.color || '#000', whiteSpace: 'pre-wrap' }}>{cell.text}</div>}
+                                      </div>
+                                    )
+                                  }))}
+                                  {cols.map((_, i) => (
+                                    <div key={`col-h-${i}`} style={{ position: 'absolute', left: Math.max(0, (colOffsets[i + 1] || 0) - 3), top: 0, width: 6, height, cursor: 'col-resize' }}
+                                      onMouseDown={(ev) => {
+                                        ev.stopPropagation()
+                                        const startX = ev.clientX
+                                        const start = cols[i] || 0
+                                        const onMove = (mv: MouseEvent) => {
+                                          const dx = (mv.clientX - startX) / scale
+                                          const next = [...cols]
+                                          next[i] = Math.max(10, Math.round(start + dx))
+                                          updateSelectedTable(p => ({ ...p, columnWidths: next }))
+                                        }
+                                        const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
+                                        window.addEventListener('mousemove', onMove)
+                                        window.addEventListener('mouseup', onUp)
+                                      }}
+                                    />
+                                  ))}
+                                  {rows.map((_, i) => (
+                                    <div key={`row-h-${i}`} style={{ position: 'absolute', left: 0, top: Math.max(0, (rowOffsets[i + 1] || 0) - 3), width, height: 6, cursor: 'row-resize' }}
+                                      onMouseDown={(ev) => {
+                                        ev.stopPropagation()
+                                        const startY = ev.clientY
+                                        const start = rows[i] || 0
+                                        const onMove = (mv: MouseEvent) => {
+                                          const dy = (mv.clientY - startY) / scale
+                                          const next = [...rows]
+                                          next[i] = Math.max(10, Math.round(start + dy))
+                                          updateSelectedTable(p => ({ ...p, rowHeights: next }))
+                                        }
+                                        const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
+                                        window.addEventListener('mousemove', onMove)
+                                        window.addEventListener('mouseup', onUp)
+                                      }}
+                                    />
+                                  ))}
+                                </div>
+                              )
+                            })()
+                          )}
+                          {['image', 'text', 'dynamic_text', 'student_info', 'category_title', 'competency_list', 'signature', 'signature_box', 'promotion_info', 'language_toggle'].includes(b.type) && selectedIndex === idx && selectedPage === pageIndex && (
+                            <>
+                              {['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'].map((dir) => {
+                                const style: React.CSSProperties = {
+                                  position: 'absolute', width: 10, height: 10, background: '#fff', border: '1px solid #6c5ce7', borderRadius: '50%', zIndex: 10,
+                                  cursor: `${dir}-resize`
+                                }
+                                if (dir.includes('n')) style.top = -5
+                                if (dir.includes('s')) style.bottom = -5
+                                if (dir.includes('w')) style.left = -5
+                                if (dir.includes('e')) style.right = -5
+                                if (dir === 'n' || dir === 's') style.left = 'calc(50% - 5px)'
+                                if (dir === 'e' || dir === 'w') style.top = 'calc(50% - 5px)'
 
-                      return (
-                        <div key={dir} style={style}
-                          onMouseDown={(ev) => {
-                            ev.stopPropagation()
-                            const startX = ev.clientX
-                            const startY = ev.clientY
-                            const startW = b.props.width || (b.type === 'text' ? 120 : (b.type === 'language_toggle' ? 80 : 120))
-                            const startH = b.props.height || (b.type === 'text' ? 60 : (b.type === 'language_toggle' ? 200 : 120))
-                            const startXPos = b.props.x || 0
-                            const startYPos = b.props.y || 0
+                                return (
+                                  <div key={dir} style={style}
+                                    onMouseDown={(ev) => {
+                                      ev.stopPropagation()
+                                      const startX = ev.clientX
+                                      const startY = ev.clientY
+                                      const startW = b.props.width || (b.type === 'text' ? 120 : (b.type === 'language_toggle' ? 80 : 120))
+                                      const startH = b.props.height || (b.type === 'text' ? 60 : (b.type === 'language_toggle' ? 200 : 120))
+                                      const startXPos = b.props.x || 0
+                                      const startYPos = b.props.y || 0
 
-                            const onMove = (mv: MouseEvent) => {
-                              const dx = mv.clientX - startX
-                              const dy = mv.clientY - startY
-                              let newW = startW
-                              let newH = startH
-                              let newX = startXPos
-                              let newY = startYPos
+                                      const onMove = (mv: MouseEvent) => {
+                                        const dx = mv.clientX - startX
+                                        const dy = mv.clientY - startY
+                                        let newW = startW
+                                        let newH = startH
+                                        let newX = startXPos
+                                        let newY = startYPos
 
-                              if (dir.includes('e')) newW = Math.max(20, startW + dx)
-                              if (dir.includes('s')) newH = Math.max(20, startH + dy)
-                              if (dir.includes('w')) {
-                                newW = Math.max(20, startW - dx)
-                                newX = startXPos + (startW - newW)
-                              }
-                              if (dir.includes('n')) {
-                                newH = Math.max(20, startH - dy)
-                                newY = startYPos + (startH - newH)
-                              }
+                                        if (dir.includes('e')) newW = Math.max(20, startW + dx)
+                                        if (dir.includes('s')) newH = Math.max(20, startH + dy)
+                                        if (dir.includes('w')) {
+                                          newW = Math.max(20, startW - dx)
+                                          newX = startXPos + (startW - newW)
+                                        }
+                                        if (dir.includes('n')) {
+                                          newH = Math.max(20, startH - dy)
+                                          newY = startYPos + (startH - newH)
+                                        }
 
-                              const patch: any = { width: newW, height: newH, x: newX, y: newY }
-                              if (b.type === 'language_toggle') {
-                                const isVertical = (b.props.direction || 'column') === 'column'
-                                patch.radius = isVertical ? newW / 2 : newH / 2
-                              }
-                              updateSelected(patch)
-                            }
-                            const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
-                            window.addEventListener('mousemove', onMove)
-                            window.addEventListener('mouseup', onUp)
-                          }}
-                        />
+                                        const patch: any = { width: newW, height: newH, x: newX, y: newY }
+                                        if (b.type === 'language_toggle') {
+                                          const isVertical = (b.props.direction || 'column') === 'column'
+                                          patch.radius = isVertical ? newW / 2 : newH / 2
+                                        }
+                                        updateSelected(patch)
+                                      }
+                                      const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
+                                      window.addEventListener('mousemove', onMove)
+                                      window.addEventListener('mouseup', onUp)
+                                    }}
+                                  />
+                                )
+                              })}
+                            </>
+                          )}
+                        </div>
                       )
                     })}
-                  </>
-                )}
-                    </div>
-                  )
-                })}
-                </div>
+                  </div>
                 </div>
               </div>
             )
@@ -2749,11 +2291,11 @@ export default function TemplateBuilder() {
         </div>
 
         {/* Right Panel - Properties & Pages */}
-        <div 
-          style={{ 
-            position: 'sticky', 
-            top: 24, 
-            maxHeight: 'calc(100vh - 48px)', 
+        <div
+          style={{
+            position: 'sticky',
+            top: 24,
+            maxHeight: 'calc(100vh - 48px)',
             overflowY: 'auto',
             background: '#fff',
             borderRadius: 16,
@@ -2762,10 +2304,10 @@ export default function TemplateBuilder() {
           }}
         >
           <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
-            <button 
-              className={rightPanelView === 'properties' ? 'btn' : 'btn secondary'} 
+            <button
+              className={rightPanelView === 'properties' ? 'btn' : 'btn secondary'}
               onClick={() => setRightPanelView('properties')}
-              style={{ 
+              style={{
                 flex: 1,
                 padding: '10px 16px',
                 fontSize: 14,
@@ -2774,10 +2316,10 @@ export default function TemplateBuilder() {
             >
               ⚙️ Propriétés
             </button>
-            <button 
-              className={rightPanelView === 'slides' ? 'btn' : 'btn secondary'} 
+            <button
+              className={rightPanelView === 'slides' ? 'btn' : 'btn secondary'}
               onClick={() => setRightPanelView('slides')}
-              style={{ 
+              style={{
                 flex: 1,
                 padding: '10px 16px',
                 fontSize: 14,
@@ -2787,811 +2329,914 @@ export default function TemplateBuilder() {
               📄 Pages
             </button>
           </div>
-            
-            {rightPanelView === 'slides' ? (
-              <div style={{ display: 'grid', gap: 12 }}>
-                <h3>Pages ({tpl.pages.length})</h3>
-                {tpl.pages.map((page, idx) => (
-                  <div key={idx} className="card" style={{ padding: 8, background: selectedPage === idx ? '#f0f4ff' : '#fff', border: selectedPage === idx ? '2px solid var(--accent)' : '1px solid #ddd' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                      <div style={{ fontWeight: 600, fontSize: 14 }} onClick={() => setSelectedPage(idx)}>{page.title || `Page ${idx + 1}`}</div>
-                      <div style={{ display: 'flex', gap: 4 }}>
-                        <button className="btn secondary" style={{ padding: '4px 8px', fontSize: 11 }} onClick={() => {
-                          if (idx === 0) return
-                          const pages = [...tpl.pages]
-                          const temp = pages[idx]
-                          pages[idx] = pages[idx - 1]
-                          pages[idx - 1] = temp
-                          setTpl({ ...tpl, pages })
-                          setSelectedPage(idx - 1)
-                        }} disabled={idx === 0}>↑</button>
-                        <button className="btn secondary" style={{ padding: '4px 8px', fontSize: 11 }} onClick={() => {
-                          if (idx === tpl.pages.length - 1) return
-                          const pages = [...tpl.pages]
-                          const temp = pages[idx]
-                          pages[idx] = pages[idx + 1]
-                          pages[idx + 1] = temp
-                          setTpl({ ...tpl, pages })
-                          setSelectedPage(idx + 1)
-                        }} disabled={idx === tpl.pages.length - 1}>↓</button>
-                        <button className="btn secondary" style={{ padding: '4px 8px', fontSize: 11, background: '#ef4444', color: '#fff' }} onClick={() => {
-                          if (tpl.pages.length <= 1) return
-                          if (!confirm(`Supprimer "${page.title || `Page ${idx + 1}`}" ?`)) return
-                          const pages = tpl.pages.filter((_, i) => i !== idx)
-                          setTpl({ ...tpl, pages })
-                          if (selectedPage >= pages.length) setSelectedPage(pages.length - 1)
-                        }}>✕</button>
-                      </div>
-                    </div>
-                    <div style={{ width: '100%', aspectRatio: `${pageWidth}/${pageHeight}`, background: page.bgColor || '#fff', border: '1px solid #ccc', borderRadius: 4, overflow: 'hidden', position: 'relative', cursor: 'pointer', transform: 'scale(0.95)' }} onClick={() => setSelectedPage(idx)}>
-                      {page.blocks.map((b, bidx) => (
-                        <div key={bidx} style={{ position: 'absolute', left: `${((b.props.x || 0) / pageWidth) * 100}%`, top: `${((b.props.y || 0) / pageHeight) * 100}%`, fontSize: 6, opacity: 0.7 }}>
-                          {b.type === 'text' && <div style={{ color: b.props.color, fontSize: (b.props.fontSize || 12) * 0.3 }}>{(b.props.text || '').slice(0, 20)}</div>}
-                          {b.type === 'image' && <img src={b.props.url} style={{ width: (b.props.width || 120) * 0.3, height: (b.props.height || 120) * 0.3, borderRadius: 2 }} />}
-                          {b.type === 'rect' && <div style={{ width: (b.props.width || 80) * 0.3, height: (b.props.height || 80) * 0.3, background: b.props.color, borderRadius: 2 }} />}
-                          {b.type === 'signature_box' && <div style={{ width: (b.props.width || 200) * 0.3, height: (b.props.height || 80) * 0.3, border: '0.5px solid #000', background: '#fff' }} />}
-                        </div>
-                      ))}
-                    </div>
-                    <div style={{ marginTop: 8, display: 'flex', justifyContent: 'center' }}>
-                      <button className="btn secondary" style={{ padding: '4px 12px', fontSize: 11 }} onClick={() => {
+
+          {rightPanelView === 'slides' ? (
+            <div style={{ display: 'grid', gap: 12 }}>
+              <h3>Pages ({tpl.pages.length})</h3>
+              {tpl.pages.map((page, idx) => (
+                <div key={idx} className="card" style={{ padding: 8, background: selectedPage === idx ? '#f0f4ff' : '#fff', border: selectedPage === idx ? '2px solid var(--accent)' : '1px solid #ddd' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <div style={{ fontWeight: 600, fontSize: 14 }} onClick={() => setSelectedPage(idx)}>{page.title || `Page ${idx + 1}`}</div>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      <button className="btn secondary" style={{ padding: '4px 8px', fontSize: 11 }} onClick={() => {
+                        if (idx === 0) return
                         const pages = [...tpl.pages]
-                        const newPage = { title: `Page ${pages.length + 1}`, blocks: [] }
-                        pages.splice(idx + 1, 0, newPage)
+                        const temp = pages[idx]
+                        pages[idx] = pages[idx - 1]
+                        pages[idx - 1] = temp
+                        setTpl({ ...tpl, pages })
+                        setSelectedPage(idx - 1)
+                      }} disabled={idx === 0}>↑</button>
+                      <button className="btn secondary" style={{ padding: '4px 8px', fontSize: 11 }} onClick={() => {
+                        if (idx === tpl.pages.length - 1) return
+                        const pages = [...tpl.pages]
+                        const temp = pages[idx]
+                        pages[idx] = pages[idx + 1]
+                        pages[idx + 1] = temp
                         setTpl({ ...tpl, pages })
                         setSelectedPage(idx + 1)
-                      }}>+ Ajouter après</button>
-                    </div>
-                    <div style={{ marginTop: 8, borderTop: '1px solid #eee', paddingTop: 8 }}>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, cursor: 'pointer' }}>
-                        <input 
-                          type="checkbox" 
-                          checked={page.excludeFromPdf || false} 
-                          onChange={(e) => {
-                            const pages = [...tpl.pages]
-                            pages[idx] = { ...pages[idx], excludeFromPdf: e.target.checked }
-                            setTpl({ ...tpl, pages })
-                          }}
-                        />
-                        Exclure du PDF
-                      </label>
+                      }} disabled={idx === tpl.pages.length - 1}>↓</button>
+                      <button className="btn secondary" style={{ padding: '4px 8px', fontSize: 11, background: '#ef4444', color: '#fff' }} onClick={() => {
+                        if (tpl.pages.length <= 1) return
+                        if (!confirm(`Supprimer "${page.title || `Page ${idx + 1}`}" ?`)) return
+                        const pages = tpl.pages.filter((_, i) => i !== idx)
+                        setTpl({ ...tpl, pages })
+                        if (selectedPage >= pages.length) setSelectedPage(pages.length - 1)
+                      }}>✕</button>
                     </div>
                   </div>
-                ))}
+                  <div style={{ width: '100%', aspectRatio: `${pageWidth}/${pageHeight}`, background: page.bgColor || '#fff', border: '1px solid #ccc', borderRadius: 4, overflow: 'hidden', position: 'relative', cursor: 'pointer', transform: 'scale(0.95)' }} onClick={() => setSelectedPage(idx)}>
+                    {page.blocks.map((b, bidx) => (
+                      <div key={bidx} style={{ position: 'absolute', left: `${((b.props.x || 0) / pageWidth) * 100}%`, top: `${((b.props.y || 0) / pageHeight) * 100}%`, fontSize: 6, opacity: 0.7 }}>
+                        {b.type === 'text' && <div style={{ color: b.props.color, fontSize: (b.props.fontSize || 12) * 0.3 }}>{(b.props.text || '').slice(0, 20)}</div>}
+                        {b.type === 'image' && <img src={b.props.url} style={{ width: (b.props.width || 120) * 0.3, height: (b.props.height || 120) * 0.3, borderRadius: 2 }} />}
+                        {b.type === 'rect' && <div style={{ width: (b.props.width || 80) * 0.3, height: (b.props.height || 80) * 0.3, background: b.props.color, borderRadius: 2 }} />}
+                        {b.type === 'signature_box' && <div style={{ width: (b.props.width || 200) * 0.3, height: (b.props.height || 80) * 0.3, border: '0.5px solid #000', background: '#fff' }} />}
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ marginTop: 8, display: 'flex', justifyContent: 'center' }}>
+                    <button className="btn secondary" style={{ padding: '4px 12px', fontSize: 11 }} onClick={() => {
+                      const pages = [...tpl.pages]
+                      const newPage = { title: `Page ${pages.length + 1}`, blocks: [] }
+                      pages.splice(idx + 1, 0, newPage)
+                      setTpl({ ...tpl, pages })
+                      setSelectedPage(idx + 1)
+                    }}>+ Ajouter après</button>
+                  </div>
+                  <div style={{ marginTop: 8, borderTop: '1px solid #eee', paddingTop: 8 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={page.excludeFromPdf || false}
+                        onChange={(e) => {
+                          const pages = [...tpl.pages]
+                          pages[idx] = { ...pages[idx], excludeFromPdf: e.target.checked }
+                          setTpl({ ...tpl, pages })
+                        }}
+                      />
+                      Exclure du PDF
+                    </label>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ display: 'contents' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+                <h3 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: '#2d3436' }}>
+                  {(selectedIndices.length > 1) ? `${selectedIndices.length} blocs sélectionnés` : 'Propriétés du bloc'}
+                </h3>
+                {(selectedIndices.length > 0 || selectedIndex !== null) && (
+                  <button
+                    className="btn secondary"
+                    style={{ padding: '6px 12px', fontSize: 12, color: '#e74c3c', borderColor: '#e74c3c', background: '#fff', display: 'flex', alignItems: 'center', gap: 6 }}
+                    onClick={() => {
+                      if (!confirm('Supprimer la sélection ?')) return
+                      const pages = [...tpl.pages]
+                      const page = { ...pages[selectedPage] }
+                      const indicesToDelete = new Set(selectedIndices)
+                      if (selectedIndex !== null) indicesToDelete.add(selectedIndex)
+
+                      const blocks = page.blocks.filter((_, idx) => !indicesToDelete.has(idx))
+                      pages[selectedPage] = { ...page, blocks }
+                      updateTpl({ ...tpl, pages })
+                      setSelectedIndex(null)
+                      setSelectedIndices([])
+                    }}
+                    title="Supprimer la sélection"
+                  >
+                    <span>🗑️</span> Supprimer
+                  </button>
+                )}
               </div>
-            ) : (
-              <div style={{ display: 'contents' }}>
-            <h3 style={{ 
-              margin: '0 0 20px 0', 
-              fontSize: 18, 
-              fontWeight: 600,
-              color: '#2d3436'
-            }}>
-              Propriétés du bloc
-            </h3>
-            {selectedIndex != null ? (
-              <div style={{ display: 'grid', gap: 12 }}>
-                <div style={{ 
-                  padding: '10px 14px', 
-                  background: '#f0f4ff', 
-                  borderRadius: 8,
-                  fontSize: 13,
-                  fontWeight: 600,
-                  color: '#667eea',
-                  textAlign: 'center'
-                }}>
-                  {tpl.pages[selectedPage].blocks[selectedIndex].type.toUpperCase()}
-                </div>
-
-                {/* Position Section */}
-                <div style={{ 
-                  padding: '14px', 
-                  background: '#f8f9fa', 
-                  borderRadius: 10,
-                  marginBottom: 8
-                }}>
-                  <div style={{ 
-                    fontSize: 11, 
-                    fontWeight: 700, 
-                    color: '#6c757d', 
-                    marginBottom: 10,
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.5px'
+              {selectedIndex != null ? (
+                <div style={{ display: 'grid', gap: 12 }}>
+                  <div style={{
+                    padding: '10px 14px',
+                    background: '#f0f4ff',
+                    borderRadius: 8,
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: '#667eea',
+                    textAlign: 'center'
                   }}>
-                    Position
+                    {tpl.pages[selectedPage].blocks[selectedIndex].type.toUpperCase()}
                   </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                    <div>
-                      <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>X</label>
-                      <input 
-                        type="number" 
-                        value={tpl.pages[selectedPage].blocks[selectedIndex].props.x || 0} 
-                        onChange={e => updateSelected({ x: Number(e.target.value) })} 
-                        style={{ 
-                          width: '100%',
-                          padding: '8px 10px', 
-                          borderRadius: 6, 
-                          border: '2px solid #e9ecef',
-                          fontSize: 13
-                        }} 
-                      />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Y</label>
-                      <input 
-                        type="number" 
-                        value={tpl.pages[selectedPage].blocks[selectedIndex].props.y || 0} 
-                        onChange={e => updateSelected({ y: Number(e.target.value) })} 
-                        style={{ 
-                          width: '100%',
-                          padding: '8px 10px', 
-                          borderRadius: 6, 
-                          border: '2px solid #e9ecef',
-                          fontSize: 13
-                        }} 
-                      />
-                    </div>
-                  </div>
-                </div>
 
-                {/* Z-Index Section */}
-                <div style={{ 
-                  padding: '14px', 
-                  background: '#f8f9fa', 
-                  borderRadius: 10,
-                  marginBottom: 8
-                }}>
-                  <div style={{ 
-                    fontSize: 11, 
-                    fontWeight: 700, 
-                    color: '#6c757d', 
-                    marginBottom: 10,
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.5px'
-                  }}>
-                    Ordre d'affichage
-                  </div>
-                  <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-                    <input 
-                      placeholder="Z-index" 
-                      type="number" 
-                      value={tpl.pages[selectedPage].blocks[selectedIndex].props.z ?? selectedIndex} 
-                      onChange={e => updateSelected({ z: Number(e.target.value) })} 
-                      style={{ 
-                        flex: 1,
-                        padding: '8px 10px', 
-                        borderRadius: 6, 
-                        border: '2px solid #e9ecef',
-                        fontSize: 13
-                      }} 
-                    />
-                  </div>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <button 
-                      className="btn secondary" 
-                      onClick={() => {
-                        const zs = tpl.pages[selectedPage].blocks.map(b => (b.props?.z ?? 0))
-                        const maxZ = zs.length ? Math.max(...zs) : 0
-                        updateSelected({ z: maxZ + 1 })
-                      }}
-                      style={{ flex: 1, padding: '8px 12px', fontSize: 12 }}
-                    >
-                      ⬆️ Devant
-                    </button>
-                    <button 
-                      className="btn secondary" 
-                      onClick={() => {
-                        const zs = tpl.pages[selectedPage].blocks.map(b => (b.props?.z ?? 0))
-                        const minZ = zs.length ? Math.min(...zs) : 0
-                        updateSelected({ z: minZ - 1 })
-                      }}
-                      style={{ flex: 1, padding: '8px 12px', fontSize: 12 }}
-                    >
-                      ⬇️ Derrière
-                    </button>
-                  </div>
-                </div>
-
-                {/* Style Section */}
-                <div style={{ 
-                  padding: '14px', 
-                  background: '#f8f9fa', 
-                  borderRadius: 10,
-                  marginBottom: 8
-                }}>
-                  <div style={{ 
-                    fontSize: 11, 
-                    fontWeight: 700, 
-                    color: '#6c757d', 
-                    marginBottom: 10,
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.5px'
-                  }}>
-                    Style
-                  </div>
-                  <div style={{ marginBottom: 8 }}>
-                    <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Couleur</label>
-                    <input 
-                      type="color"
-                      value={tpl.pages[selectedPage].blocks[selectedIndex].props.color || '#000000'} 
-                      onChange={e => updateSelected({ color: e.target.value })} 
-                      style={{ 
-                        width: '100%',
-                        height: 40,
-                        padding: 4, 
-                        borderRadius: 6, 
-                        border: '2px solid #e9ecef',
-                        cursor: 'pointer'
-                      }} 
-                    />
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Taille police</label>
-                    <input 
-                      placeholder="Taille" 
-                      type="number" 
-                      value={tpl.pages[selectedPage].blocks[selectedIndex].props.fontSize || tpl.pages[selectedPage].blocks[selectedIndex].props.size || 12} 
-                      onChange={e => updateSelected({ fontSize: Number(e.target.value), size: Number(e.target.value) })} 
-                      style={{ 
-                        width: '100%',
-                        padding: '8px 10px', 
-                        borderRadius: 6, 
-                        border: '2px solid #e9ecef',
-                        fontSize: 13
-                      }} 
-                    />
-                  </div>
-                </div>
-
-                {/* Type-specific properties */}
-                {tpl.pages[selectedPage].blocks[selectedIndex].type === 'text' && (
-                  <div style={{ 
-                    padding: '14px', 
-                    background: '#f8f9fa', 
+                  {/* Position Section */}
+                  <div style={{
+                    padding: '14px',
+                    background: '#f8f9fa',
                     borderRadius: 10,
                     marginBottom: 8
                   }}>
-                    <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 8, fontWeight: 600 }}>CONTENU</label>
-                    <textarea 
-                      placeholder="Texte" 
-                      rows={4} 
-                      value={tpl.pages[selectedPage].blocks[selectedIndex].props.text || ''} 
-                      onChange={e => updateSelected({ text: e.target.value })} 
-                      style={{ 
-                        width: '100%', 
-                        padding: '10px 12px', 
-                        borderRadius: 6, 
-                        border: '2px solid #e9ecef',
-                        fontSize: 13,
-                        fontFamily: 'inherit',
-                        resize: 'vertical'
-                      }} 
-                    />
+                    <div style={{
+                      fontSize: 11,
+                      fontWeight: 700,
+                      color: '#6c757d',
+                      marginBottom: 10,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.5px'
+                    }}>
+                      Position
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                      <div>
+                        <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>X</label>
+                        <input
+                          type="number"
+                          value={tpl.pages[selectedPage].blocks[selectedIndex].props.x || 0}
+                          onChange={e => updateSelected({ x: Number(e.target.value) })}
+                          style={{
+                            width: '100%',
+                            padding: '8px 10px',
+                            borderRadius: 6,
+                            border: '2px solid #e9ecef',
+                            fontSize: 13
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Y</label>
+                        <input
+                          type="number"
+                          value={tpl.pages[selectedPage].blocks[selectedIndex].props.y || 0}
+                          onChange={e => updateSelected({ y: Number(e.target.value) })}
+                          style={{
+                            width: '100%',
+                            padding: '8px 10px',
+                            borderRadius: 6,
+                            border: '2px solid #e9ecef',
+                            fontSize: 13
+                          }}
+                        />
+                      </div>
+                    </div>
                   </div>
-                )}
-                {tpl.pages[selectedPage].blocks[selectedIndex].type === 'image' && (
-                  <>
-                    <div style={{ 
-                      padding: '14px', 
-                      background: '#f8f9fa', 
+
+                  {/* Z-Index Section */}
+                  <div style={{
+                    padding: '14px',
+                    background: '#f8f9fa',
+                    borderRadius: 10,
+                    marginBottom: 8
+                  }}>
+                    <div style={{
+                      fontSize: 11,
+                      fontWeight: 700,
+                      color: '#6c757d',
+                      marginBottom: 10,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.5px'
+                    }}>
+                      Ordre d'affichage
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                      <input
+                        placeholder="Z-index"
+                        type="number"
+                        value={tpl.pages[selectedPage].blocks[selectedIndex].props.z ?? selectedIndex}
+                        onChange={e => updateSelected({ z: Number(e.target.value) })}
+                        style={{
+                          flex: 1,
+                          padding: '8px 10px',
+                          borderRadius: 6,
+                          border: '2px solid #e9ecef',
+                          fontSize: 13
+                        }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button
+                        className="btn secondary"
+                        onClick={() => {
+                          const zs = tpl.pages[selectedPage].blocks.map(b => (b.props?.z ?? 0))
+                          const maxZ = zs.length ? Math.max(...zs) : 0
+                          updateSelected({ z: maxZ + 1 })
+                        }}
+                        style={{ flex: 1, padding: '8px 12px', fontSize: 12 }}
+                      >
+                        ⬆️ Devant
+                      </button>
+                      <button
+                        className="btn secondary"
+                        onClick={() => {
+                          const zs = tpl.pages[selectedPage].blocks.map(b => (b.props?.z ?? 0))
+                          const minZ = zs.length ? Math.min(...zs) : 0
+                          updateSelected({ z: minZ - 1 })
+                        }}
+                        style={{ flex: 1, padding: '8px 12px', fontSize: 12 }}
+                      >
+                        ⬇️ Derrière
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Style Section */}
+                  <div style={{
+                    padding: '14px',
+                    background: '#f8f9fa',
+                    borderRadius: 10,
+                    marginBottom: 8
+                  }}>
+                    <div style={{
+                      fontSize: 11,
+                      fontWeight: 700,
+                      color: '#6c757d',
+                      marginBottom: 10,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.5px'
+                    }}>
+                      Style
+                    </div>
+                    <div style={{ marginBottom: 8 }}>
+                      <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Couleur</label>
+                      <input
+                        type="color"
+                        value={tpl.pages[selectedPage].blocks[selectedIndex].props.color || '#000000'}
+                        onChange={e => updateSelected({ color: e.target.value })}
+                        style={{
+                          width: '100%',
+                          height: 40,
+                          padding: 4,
+                          borderRadius: 6,
+                          border: '2px solid #e9ecef',
+                          cursor: 'pointer'
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Taille police</label>
+                      <input
+                        placeholder="Taille"
+                        type="number"
+                        value={tpl.pages[selectedPage].blocks[selectedIndex].props.fontSize || tpl.pages[selectedPage].blocks[selectedIndex].props.size || 12}
+                        onChange={e => updateSelected({ fontSize: Number(e.target.value), size: Number(e.target.value) })}
+                        style={{
+                          width: '100%',
+                          padding: '8px 10px',
+                          borderRadius: 6,
+                          border: '2px solid #e9ecef',
+                          fontSize: 13
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Type-specific properties */}
+                  {tpl.pages[selectedPage].blocks[selectedIndex].type === 'text' && (
+                    <div style={{
+                      padding: '14px',
+                      background: '#f8f9fa',
                       borderRadius: 10,
                       marginBottom: 8
                     }}>
-                      <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 8, fontWeight: 600 }}>URL IMAGE</label>
-                      <input 
-                        placeholder="URL image" 
-                        value={tpl.pages[selectedPage].blocks[selectedIndex].props.url || ''} 
-                        onChange={e => updateSelected({ url: e.target.value })} 
-                        style={{ 
+                      <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 8, fontWeight: 600 }}>CONTENU</label>
+                      <textarea
+                        placeholder="Texte"
+                        rows={4}
+                        value={tpl.pages[selectedPage].blocks[selectedIndex].props.text || ''}
+                        onChange={e => updateSelected({ text: e.target.value })}
+                        style={{
                           width: '100%',
-                          padding: '8px 10px', 
-                          borderRadius: 6, 
+                          padding: '10px 12px',
+                          borderRadius: 6,
                           border: '2px solid #e9ecef',
                           fontSize: 13,
-                          marginBottom: 8
-                        }} 
-                      />
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
-                        <div>
-                          <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Largeur</label>
-                          <input 
-                            type="number" 
-                            value={tpl.pages[selectedPage].blocks[selectedIndex].props.width || 120} 
-                            onChange={e => updateSelected({ width: Number(e.target.value) })} 
-                            style={{ 
-                              width: '100%',
-                              padding: '8px 10px', 
-                              borderRadius: 6, 
-                              border: '2px solid #e9ecef',
-                              fontSize: 13
-                            }} 
-                          />
-                        </div>
-                        <div>
-                          <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Hauteur</label>
-                          <input 
-                            type="number" 
-                            value={tpl.pages[selectedPage].blocks[selectedIndex].props.height || 120} 
-                            onChange={e => updateSelected({ height: Number(e.target.value) })} 
-                            style={{ 
-                              width: '100%',
-                              padding: '8px 10px', 
-                              borderRadius: 6, 
-                              border: '2px solid #e9ecef',
-                              fontSize: 13
-                            }} 
-                          />
-                        </div>
-                      </div>
-                      <label 
-                        style={{ 
-                          display: 'block',
-                          padding: '10px 14px',
-                          background: '#667eea',
-                          color: '#fff',
-                          borderRadius: 6,
-                          textAlign: 'center',
-                          cursor: 'pointer',
-                          fontSize: 13,
-                          fontWeight: 600
+                          fontFamily: 'inherit',
+                          resize: 'vertical'
                         }}
-                      >
-                        📁 Télécharger une image
-                        <input 
-                          type="file" 
-                          accept="image/*" 
-                          style={{ display: 'none' }}
-                          onChange={async e => {
-                            const f = e.target.files?.[0]
-                            if (!f) return
-                            const fd = new FormData()
-                            fd.append('file', f)
-                            const r = await fetch('http://localhost:4000/media/upload', { method: 'POST', headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` }, body: fd })
-                            const data = await r.json()
-                            if (data?.url) { updateSelected({ url: data.url }); await refreshGallery() }
-                          }} 
+                      />
+                    </div>
+                  )}
+                  {tpl.pages[selectedPage].blocks[selectedIndex].type === 'image' && (
+                    <>
+                      <div style={{
+                        padding: '14px',
+                        background: '#f8f9fa',
+                        borderRadius: 10,
+                        marginBottom: 8
+                      }}>
+                        <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 8, fontWeight: 600 }}>URL IMAGE</label>
+                        <input
+                          placeholder="URL image"
+                          value={tpl.pages[selectedPage].blocks[selectedIndex].props.url || ''}
+                          onChange={e => updateSelected({ url: e.target.value })}
+                          style={{
+                            width: '100%',
+                            padding: '8px 10px',
+                            borderRadius: 6,
+                            border: '2px solid #e9ecef',
+                            fontSize: 13,
+                            marginBottom: 8
+                          }}
                         />
-                      </label>
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
-                      {gallery.filter(u => u.type === 'file').map(u => (
-                        <div key={u.path} className="card" style={{ padding: 4, cursor: 'pointer' }} onClick={() => updateSelected({ url: `/uploads${u.path}` })}>
-                          <img src={`/uploads${u.path}`} style={{ width: '100%', height: 80, objectFit: 'cover', borderRadius: 6 }} />
-                          <div className="note" style={{ fontSize: 10, marginTop: 4 }}>{u.name}</div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+                          <div>
+                            <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Largeur</label>
+                            <input
+                              type="number"
+                              value={tpl.pages[selectedPage].blocks[selectedIndex].props.width || 120}
+                              onChange={e => updateSelected({ width: Number(e.target.value) })}
+                              style={{
+                                width: '100%',
+                                padding: '8px 10px',
+                                borderRadius: 6,
+                                border: '2px solid #e9ecef',
+                                fontSize: 13
+                              }}
+                            />
+                          </div>
+                          <div>
+                            <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Hauteur</label>
+                            <input
+                              type="number"
+                              value={tpl.pages[selectedPage].blocks[selectedIndex].props.height || 120}
+                              onChange={e => updateSelected({ height: Number(e.target.value) })}
+                              style={{
+                                width: '100%',
+                                padding: '8px 10px',
+                                borderRadius: 6,
+                                border: '2px solid #e9ecef',
+                                fontSize: 13
+                              }}
+                            />
+                          </div>
                         </div>
-                      ))}
-                    </div>
-                  </>
-                )}
-                {tpl.pages[selectedPage].blocks[selectedIndex].type === 'table' && (
-                  <div style={{ display: 'grid', gap: 8 }}>
-                    <div style={{ padding: '12px', background: '#f8f9fa', borderRadius: 8, marginBottom: 4 }}>
+                        <label
+                          style={{
+                            display: 'block',
+                            padding: '10px 14px',
+                            background: '#667eea',
+                            color: '#fff',
+                            borderRadius: 6,
+                            textAlign: 'center',
+                            cursor: 'pointer',
+                            fontSize: 13,
+                            fontWeight: 600
+                          }}
+                        >
+                          📁 Télécharger une image
+                          <input
+                            type="file"
+                            accept="image/*"
+                            style={{ display: 'none' }}
+                            onChange={async e => {
+                              const f = e.target.files?.[0]
+                              if (!f) return
+                              const fd = new FormData()
+                              fd.append('file', f)
+                              const r = await fetch('http://localhost:4000/media/upload', { method: 'POST', headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` }, body: fd })
+                              const data = await r.json()
+                              if (data?.url) { updateSelected({ url: data.url }); await refreshGallery() }
+                            }}
+                          />
+                        </label>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+                        {gallery.filter(u => u.type === 'file').map(u => (
+                          <div key={u.path} className="card" style={{ padding: 4, cursor: 'pointer' }} onClick={() => updateSelected({ url: `/uploads${u.path}` })}>
+                            <img src={`/uploads${u.path}`} style={{ width: '100%', height: 80, objectFit: 'cover', borderRadius: 6 }} />
+                            <div className="note" style={{ fontSize: 10, marginTop: 4 }}>{u.name}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                  {tpl.pages[selectedPage].blocks[selectedIndex].type === 'table' && (
+                    <div style={{ display: 'grid', gap: 8 }}>
+                      <div style={{ padding: '12px', background: '#f8f9fa', borderRadius: 8, marginBottom: 4 }}>
                         <div style={{ fontSize: 11, fontWeight: 700, color: '#6c757d', marginBottom: 8, textTransform: 'uppercase' }}>
-                            Style Global
+                          Style Global
                         </div>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                             <div>
-                                <label style={{ fontSize: 11, display: 'block', marginBottom: 4, fontWeight: 600, color: '#6c757d' }}>Taille Police</label>
-                                <input 
-                                    type="number" 
-                                    placeholder="Ex: 12"
-                                    onChange={(e) => {
-                                        const newSize = Number(e.target.value);
-                                        if (newSize > 0) {
-                                            updateSelectedTable(p => ({
-                                                ...p,
-                                                cells: (p.cells || []).map((row: any[]) => 
-                                                    row.map((cell: any) => ({ ...cell, fontSize: newSize }))
-                                                )
-                                            }))
-                                        }
-                                    }}
-                                    style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '2px solid #e9ecef', fontSize: 13 }}
-                                />
-                             </div>
-                             <div>
-                                <label style={{ fontSize: 11, display: 'block', marginBottom: 4, fontWeight: 600, color: '#6c757d' }}>Couleur</label>
-                                <input 
-                                    type="color" 
-                                    onChange={(e) => {
-                                        updateSelectedTable(p => ({
-                                            ...p,
-                                            cells: (p.cells || []).map((row: any[]) => 
-                                                row.map((cell: any) => ({ ...cell, color: e.target.value }))
-                                            )
-                                        }))
-                                    }}
-                                    style={{ width: '100%', height: 38, padding: 4, borderRadius: 6, border: '2px solid #e9ecef', cursor: 'pointer' }}
-                                />
-                             </div>
+                          <div>
+                            <label style={{ fontSize: 11, display: 'block', marginBottom: 4, fontWeight: 600, color: '#6c757d' }}>Taille Police</label>
+                            <input
+                              type="number"
+                              placeholder="Ex: 12"
+                              onChange={(e) => {
+                                const newSize = Number(e.target.value);
+                                if (newSize > 0) {
+                                  updateSelectedTable(p => ({
+                                    ...p,
+                                    cells: (p.cells || []).map((row: any[]) =>
+                                      row.map((cell: any) => ({ ...cell, fontSize: newSize }))
+                                    )
+                                  }))
+                                }
+                              }}
+                              style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '2px solid #e9ecef', fontSize: 13 }}
+                            />
+                          </div>
+                          <div>
+                            <label style={{ fontSize: 11, display: 'block', marginBottom: 4, fontWeight: 600, color: '#6c757d' }}>Couleur</label>
+                            <input
+                              type="color"
+                              onChange={(e) => {
+                                updateSelectedTable(p => ({
+                                  ...p,
+                                  cells: (p.cells || []).map((row: any[]) =>
+                                    row.map((cell: any) => ({ ...cell, color: e.target.value }))
+                                  )
+                                }))
+                              }}
+                              style={{ width: '100%', height: 38, padding: 4, borderRadius: 6, border: '2px solid #e9ecef', cursor: 'pointer' }}
+                            />
+                          </div>
                         </div>
-                    </div>
-                    <div>
-                    <div className="note">Colonnes</div>
-                      {(tpl.pages[selectedPage].blocks[selectedIndex].props.columnWidths || []).map((w: number, i: number) => (
-                        <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                          <div>#{i + 1}</div>
-                          <input type="number" value={Math.round(w)} onChange={e => {
-                            const cols = [...(tpl.pages[selectedPage].blocks[selectedIndex].props.columnWidths || [])]
-                            cols[i] = Number(e.target.value)
-                            updateSelectedTable(p => ({ ...p, columnWidths: cols }))
-                          }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', width: 120 }} />
+                      </div>
+                      <div>
+                        <div className="note">Colonnes</div>
+                        {(tpl.pages[selectedPage].blocks[selectedIndex].props.columnWidths || []).map((w: number, i: number) => (
+                          <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                            <div>#{i + 1}</div>
+                            <input type="number" value={Math.round(w)} onChange={e => {
+                              const cols = [...(tpl.pages[selectedPage].blocks[selectedIndex].props.columnWidths || [])]
+                              cols[i] = Number(e.target.value)
+                              updateSelectedTable(p => ({ ...p, columnWidths: cols }))
+                            }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', width: 120 }} />
+                            <button className="btn secondary" onClick={() => {
+                              const props = tpl.pages[selectedPage].blocks[selectedIndex].props
+                              const cols = [...(props.columnWidths || [])]
+                              if (!cols.length) return
+                              const cells = (props.cells || []).map((row: any[]) => row.filter((_: any, ci: number) => ci !== i))
+                              cols.splice(i, 1)
+                              updateSelectedTable(p => ({ ...p, columnWidths: cols, cells }))
+                              if (selectedCell) {
+                                if (selectedCell.ci === i) setSelectedCell(null)
+                                else if (selectedCell.ci > i) setSelectedCell({ ri: selectedCell.ri, ci: selectedCell.ci - 1 })
+                              }
+                            }}>Supprimer</button>
+                          </div>
+                        ))}
+                        <div className="toolbar" style={{ display: 'flex', gap: 8 }}>
+                          <button className="btn secondary" onClick={() => {
+                            const props = tpl.pages[selectedPage].blocks[selectedIndex].props
+                            const cols = [...(props.columnWidths || [])]
+                            const rows = [...(props.rowHeights || [])]
+                            const cells = (props.cells || []).map((row: any[]) => [...row, { text: '', fontSize: 12, color: '#000', fill: 'transparent', borders: { l: {}, r: {}, t: {}, b: {} } }])
+                            cols.push(120)
+                            updateSelectedTable(p => ({ ...p, columnWidths: cols, cells }))
+                          }}>Ajouter colonne</button>
                           <button className="btn secondary" onClick={() => {
                             const props = tpl.pages[selectedPage].blocks[selectedIndex].props
                             const cols = [...(props.columnWidths || [])]
                             if (!cols.length) return
-                            const cells = (props.cells || []).map((row: any[]) => row.filter((_: any, ci: number) => ci !== i))
-                            cols.splice(i, 1)
+                            cols.pop()
+                            const cells = (props.cells || []).map((row: any[]) => row.slice(0, cols.length))
                             updateSelectedTable(p => ({ ...p, columnWidths: cols, cells }))
-                            if (selectedCell) {
-                              if (selectedCell.ci === i) setSelectedCell(null)
-                              else if (selectedCell.ci > i) setSelectedCell({ ri: selectedCell.ri, ci: selectedCell.ci - 1 })
-                            }
-                          }}>Supprimer</button>
+                          }}>Supprimer colonne</button>
                         </div>
-                      ))}
-                      <div className="toolbar" style={{ display: 'flex', gap: 8 }}>
-                        <button className="btn secondary" onClick={() => {
-                          const props = tpl.pages[selectedPage].blocks[selectedIndex].props
-                          const cols = [...(props.columnWidths || [])]
-                          const rows = [...(props.rowHeights || [])]
-                          const cells = (props.cells || []).map((row: any[]) => [...row, { text: '', fontSize: 12, color: '#000', fill: 'transparent', borders: { l: {}, r: {}, t: {}, b: {} } }])
-                          cols.push(120)
-                          updateSelectedTable(p => ({ ...p, columnWidths: cols, cells }))
-                        }}>Ajouter colonne</button>
-                        <button className="btn secondary" onClick={() => {
-                          const props = tpl.pages[selectedPage].blocks[selectedIndex].props
-                          const cols = [...(props.columnWidths || [])]
-                          if (!cols.length) return
-                          cols.pop()
-                          const cells = (props.cells || []).map((row: any[]) => row.slice(0, cols.length))
-                          updateSelectedTable(p => ({ ...p, columnWidths: cols, cells }))
-                        }}>Supprimer colonne</button>
                       </div>
-                    </div>
-                    <div>
-                      <div className="note">Lignes</div>
-                      {(tpl.pages[selectedPage].blocks[selectedIndex].props.rowHeights || []).map((h: number, i: number) => (
-                        <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                          <div>#{i + 1}</div>
-                          <input type="number" value={Math.round(h)} onChange={e => {
-                            const rows = [...(tpl.pages[selectedPage].blocks[selectedIndex].props.rowHeights || [])]
-                            rows[i] = Number(e.target.value)
-                            updateSelectedTable(p => ({ ...p, rowHeights: rows }))
-                          }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', width: 120 }} />
+                      <div>
+                        <div className="note">Lignes</div>
+                        {(tpl.pages[selectedPage].blocks[selectedIndex].props.rowHeights || []).map((h: number, i: number) => (
+                          <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                            <div>#{i + 1}</div>
+                            <input type="number" value={Math.round(h)} onChange={e => {
+                              const rows = [...(tpl.pages[selectedPage].blocks[selectedIndex].props.rowHeights || [])]
+                              rows[i] = Number(e.target.value)
+                              updateSelectedTable(p => ({ ...p, rowHeights: rows }))
+                            }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', width: 120 }} />
+                            <button className="btn secondary" onClick={() => {
+                              const props = tpl.pages[selectedPage].blocks[selectedIndex].props
+                              const rows = [...(props.rowHeights || [])]
+                              if (!rows.length) return
+                              rows.splice(i, 1)
+                              const cells = (props.cells || []).filter((_: any, ri: number) => ri !== i)
+                              updateSelectedTable(p => ({ ...p, rowHeights: rows, cells }))
+                              if (selectedCell) {
+                                if (selectedCell.ri === i) setSelectedCell(null)
+                                else if (selectedCell.ri > i) setSelectedCell({ ri: selectedCell.ri - 1, ci: selectedCell.ci })
+                              }
+                            }}>Supprimer</button>
+                          </div>
+                        ))}
+                        <div className="toolbar" style={{ display: 'flex', gap: 8 }}>
+                          <button className="btn secondary" onClick={() => {
+                            const props = tpl.pages[selectedPage].blocks[selectedIndex].props
+                            const rows = [...(props.rowHeights || [])]
+                            const cols = [...(props.columnWidths || [])]
+                            const newRow = cols.map(() => ({ text: '', fontSize: 12, color: '#000', fill: 'transparent', borders: { l: {}, r: {}, t: {}, b: {} } }))
+                            const cells = [...(props.cells || [])]
+                            rows.push(40)
+                            cells.push(newRow)
+                            updateSelectedTable(p => ({ ...p, rowHeights: rows, cells }))
+                          }}>Ajouter ligne</button>
                           <button className="btn secondary" onClick={() => {
                             const props = tpl.pages[selectedPage].blocks[selectedIndex].props
                             const rows = [...(props.rowHeights || [])]
                             if (!rows.length) return
-                            rows.splice(i, 1)
-                            const cells = (props.cells || []).filter((_: any, ri: number) => ri !== i)
+                            rows.pop()
+                            const cells = (props.cells || []).slice(0, rows.length)
                             updateSelectedTable(p => ({ ...p, rowHeights: rows, cells }))
-                            if (selectedCell) {
-                              if (selectedCell.ri === i) setSelectedCell(null)
-                              else if (selectedCell.ri > i) setSelectedCell({ ri: selectedCell.ri - 1, ci: selectedCell.ci })
-                            }
-                          }}>Supprimer</button>
+                          }}>Supprimer ligne</button>
                         </div>
-                      ))}
-                      <div className="toolbar" style={{ display: 'flex', gap: 8 }}>
-                        <button className="btn secondary" onClick={() => {
-                          const props = tpl.pages[selectedPage].blocks[selectedIndex].props
-                          const rows = [...(props.rowHeights || [])]
-                          const cols = [...(props.columnWidths || [])]
-                          const newRow = cols.map(() => ({ text: '', fontSize: 12, color: '#000', fill: 'transparent', borders: { l: {}, r: {}, t: {}, b: {} } }))
-                          const cells = [...(props.cells || [])]
-                          rows.push(40)
-                          cells.push(newRow)
-                          updateSelectedTable(p => ({ ...p, rowHeights: rows, cells }))
-                        }}>Ajouter ligne</button>
-                        <button className="btn secondary" onClick={() => {
-                          const props = tpl.pages[selectedPage].blocks[selectedIndex].props
-                          const rows = [...(props.rowHeights || [])]
-                          if (!rows.length) return
-                          rows.pop()
-                          const cells = (props.cells || []).slice(0, rows.length)
-                          updateSelectedTable(p => ({ ...p, rowHeights: rows, cells }))
-                        }}>Supprimer ligne</button>
                       </div>
-                    </div>
-                    {selectedCell && (
-                      <div>
-                        <div className="note">Cellule: ligne {selectedCell.ri + 1}, colonne {selectedCell.ci + 1}</div>
-                        {(() => {
-                          const props = tpl.pages[selectedPage].blocks[selectedIndex].props
-                          const cell = props.cells?.[selectedCell.ri]?.[selectedCell.ci] || {}
-                          return (
-                            <div style={{ display: 'grid', gap: 8 }}>
-                              <textarea rows={3} placeholder="Texte" value={cell.text || ''} onChange={e => {
-                                updateSelectedTable(p => {
-                                  const cells = p.cells.map((row: any[], ri: number) => row.map((c: any, ci: number) => (ri === selectedCell.ri && ci === selectedCell.ci ? { ...c, text: e.target.value } : c)))
-                                  return { ...p, cells }
-                                })
-                              }} style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
-                              <input type="number" placeholder="Taille police" value={cell.fontSize || 12} onChange={e => {
-                                updateSelectedTable(p => {
-                                  const cells = p.cells.map((row: any[], ri: number) => row.map((c: any, ci: number) => (ri === selectedCell.ri && ci === selectedCell.ci ? { ...c, fontSize: Number(e.target.value) } : c)))
-                                  return { ...p, cells }
-                                })
-                              }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
-                              <input placeholder="Couleur texte" value={cell.color || ''} onChange={e => {
-                                updateSelectedTable(p => {
-                                  const cells = p.cells.map((row: any[], ri: number) => row.map((c: any, ci: number) => (ri === selectedCell.ri && ci === selectedCell.ci ? { ...c, color: e.target.value } : c)))
-                                  return { ...p, cells }
-                                })
-                              }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
-                              <input placeholder="Fond" value={cell.fill || ''} onChange={e => {
-                                updateSelectedTable(p => {
-                                  const cells = p.cells.map((row: any[], ri: number) => row.map((c: any, ci: number) => (ri === selectedCell.ri && ci === selectedCell.ci ? { ...c, fill: e.target.value } : c)))
-                                  return { ...p, cells }
-                                })
-                              }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
-                              <div className="toolbar" style={{ display: 'grid', gap: 8 }}>
-                                {(['l','r','t','b'] as const).map(side => (
-                                  <div key={side} style={{ display: 'flex', gap: 8 }}>
-                                    <input placeholder={`Bordure ${side} couleur`} value={(cell.borders?.[side]?.color || '')} onChange={e => {
-                                      updateSelectedTable(p => {
-                                        const cells = p.cells.map((row: any[], ri: number) => row.map((c: any, ci: number) => (ri === selectedCell.ri && ci === selectedCell.ci ? { ...c, borders: { ...c.borders, [side]: { ...(c.borders?.[side] || {}), color: e.target.value } } } : c)))
-                                        return { ...p, cells }
-                                      })
-                                    }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', flex: 1 }} />
-                                    <input placeholder={`Bordure ${side} largeur`} type="number" value={Number(cell.borders?.[side]?.width || 0)} onChange={e => {
-                                      updateSelectedTable(p => {
-                                        const cells = p.cells.map((row: any[], ri: number) => row.map((c: any, ci: number) => (ri === selectedCell.ri && ci === selectedCell.ci ? { ...c, borders: { ...c.borders, [side]: { ...(c.borders?.[side] || {}), width: Number(e.target.value) } } } : c)))
-                                        return { ...p, cells }
-                                      })
-                                    }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', width: 120 }} />
-                                  </div>
-                                ))}
+                      {selectedCell && (
+                        <div>
+                          <div className="note">Cellule: ligne {selectedCell.ri + 1}, colonne {selectedCell.ci + 1}</div>
+                          {(() => {
+                            const props = tpl.pages[selectedPage].blocks[selectedIndex].props
+                            const cell = props.cells?.[selectedCell.ri]?.[selectedCell.ci] || {}
+                            return (
+                              <div style={{ display: 'grid', gap: 8 }}>
+                                <textarea rows={3} placeholder="Texte" value={cell.text || ''} onChange={e => {
+                                  updateSelectedTable(p => {
+                                    const cells = p.cells.map((row: any[], ri: number) => row.map((c: any, ci: number) => (ri === selectedCell.ri && ci === selectedCell.ci ? { ...c, text: e.target.value } : c)))
+                                    return { ...p, cells }
+                                  })
+                                }} style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+                                <input type="number" placeholder="Taille police" value={cell.fontSize || 12} onChange={e => {
+                                  updateSelectedTable(p => {
+                                    const cells = p.cells.map((row: any[], ri: number) => row.map((c: any, ci: number) => (ri === selectedCell.ri && ci === selectedCell.ci ? { ...c, fontSize: Number(e.target.value) } : c)))
+                                    return { ...p, cells }
+                                  })
+                                }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+                                <input placeholder="Couleur texte" value={cell.color || ''} onChange={e => {
+                                  updateSelectedTable(p => {
+                                    const cells = p.cells.map((row: any[], ri: number) => row.map((c: any, ci: number) => (ri === selectedCell.ri && ci === selectedCell.ci ? { ...c, color: e.target.value } : c)))
+                                    return { ...p, cells }
+                                  })
+                                }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+                                <input placeholder="Fond" value={cell.fill || ''} onChange={e => {
+                                  updateSelectedTable(p => {
+                                    const cells = p.cells.map((row: any[], ri: number) => row.map((c: any, ci: number) => (ri === selectedCell.ri && ci === selectedCell.ci ? { ...c, fill: e.target.value } : c)))
+                                    return { ...p, cells }
+                                  })
+                                }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+                                <div className="toolbar" style={{ display: 'grid', gap: 8 }}>
+                                  {(['l', 'r', 't', 'b'] as const).map(side => (
+                                    <div key={side} style={{ display: 'flex', gap: 8 }}>
+                                      <input placeholder={`Bordure ${side} couleur`} value={(cell.borders?.[side]?.color || '')} onChange={e => {
+                                        updateSelectedTable(p => {
+                                          const cells = p.cells.map((row: any[], ri: number) => row.map((c: any, ci: number) => (ri === selectedCell.ri && ci === selectedCell.ci ? { ...c, borders: { ...c.borders, [side]: { ...(c.borders?.[side] || {}), color: e.target.value } } } : c)))
+                                          return { ...p, cells }
+                                        })
+                                      }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', flex: 1 }} />
+                                      <input placeholder={`Bordure ${side} largeur`} type="number" value={Number(cell.borders?.[side]?.width || 0)} onChange={e => {
+                                        updateSelectedTable(p => {
+                                          const cells = p.cells.map((row: any[], ri: number) => row.map((c: any, ci: number) => (ri === selectedCell.ri && ci === selectedCell.ci ? { ...c, borders: { ...c.borders, [side]: { ...(c.borders?.[side] || {}), width: Number(e.target.value) } } } : c)))
+                                          return { ...p, cells }
+                                        })
+                                      }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', width: 120 }} />
+                                    </div>
+                                  ))}
+                                </div>
                               </div>
-                            </div>
-                          )
-                        })()}
+                            )
+                          })()}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {tpl.pages[selectedPage].blocks[selectedIndex].type === 'category_title' && (
+                    <input placeholder="ID catégorie" value={tpl.pages[selectedPage].blocks[selectedIndex].props.categoryId || ''} onChange={e => updateSelected({ categoryId: e.target.value })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+                  )}
+                  {tpl.pages[selectedPage].blocks[selectedIndex].type === 'competency_list' && (
+                    <input placeholder="ID catégorie (optionnel)" value={tpl.pages[selectedPage].blocks[selectedIndex].props.categoryId || ''} onChange={e => updateSelected({ categoryId: e.target.value })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+                  )}
+                  {/* Signature Box Configuration */}
+                  {(tpl.pages[selectedPage].blocks[selectedIndex].type === 'signature_box' || tpl.pages[selectedPage].blocks[selectedIndex].type === 'final_signature_box') && (
+                    <div style={{ display: 'grid', gap: 8 }}>
+                      <div className="note">Configuration Signature</div>
+                      <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Type (Période)</label>
+                      <select
+                        value={tpl.pages[selectedPage].blocks[selectedIndex].props.period || 'mid-year'}
+                        onChange={e => updateSelected({ period: e.target.value })}
+                        style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', width: '100%' }}
+                      >
+                        <option value="mid-year">Mi-Année (Semestre 1)</option>
+                        <option value="end-year">Fin d'Année (Semestre 2)</option>
+                      </select>
+
+                      <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Label</label>
+                      <input
+                        placeholder="Label"
+                        value={tpl.pages[selectedPage].blocks[selectedIndex].props.label || ''}
+                        onChange={e => updateSelected({ label: e.target.value })}
+                        style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }}
+                      />
+
+                      <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Niveau spécifique (Optionnel)</label>
+                      <select
+                        value={tpl.pages[selectedPage].blocks[selectedIndex].props.level || ''}
+                        onChange={e => updateSelected({ level: e.target.value })}
+                        style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', width: '100%' }}
+                      >
+                        <option value="">Tous les niveaux</option>
+                        {levels.map(l => (
+                          <option key={l.name} value={l.name}>{l.name}</option>
+                        ))}
+                      </select>
+
+                      <input placeholder="Largeur" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.width || 200} onChange={e => updateSelected({ width: Number(e.target.value) })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+                      <input placeholder="Hauteur" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.height || 80} onChange={e => updateSelected({ height: Number(e.target.value) })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+                    </div>
+                  )}
+                  {tpl.pages[selectedPage].blocks[selectedIndex].type === 'promotion_info' && (
+                    <div style={{ display: 'grid', gap: 8 }}>
+                      <div className="note">
+                        Configuration Info Passage
                       </div>
-                    )}
-                  </div>
-                )}
-                {tpl.pages[selectedPage].blocks[selectedIndex].type === 'category_title' && (
-                  <input placeholder="ID catégorie" value={tpl.pages[selectedPage].blocks[selectedIndex].props.categoryId || ''} onChange={e => updateSelected({ categoryId: e.target.value })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
-                )}
-                {tpl.pages[selectedPage].blocks[selectedIndex].type === 'competency_list' && (
-                  <input placeholder="ID catégorie (optionnel)" value={tpl.pages[selectedPage].blocks[selectedIndex].props.categoryId || ''} onChange={e => updateSelected({ categoryId: e.target.value })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
-                )}
-                {tpl.pages[selectedPage].blocks[selectedIndex].type === 'signature' && (
-                  <textarea placeholder="Labels séparés par des virgules" rows={3} value={(tpl.pages[selectedPage].blocks[selectedIndex].props.labels || []).join(',')} onChange={e => updateSelected({ labels: e.target.value.split(',').map(s => s.trim()) })} style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
-                )}
-                {tpl.pages[selectedPage].blocks[selectedIndex].type === 'promotion_info' && (
-                  <div style={{ display: 'grid', gap: 8 }}>
-                    <div className="note">
-                      {tpl.pages[selectedPage].blocks[selectedIndex].props.field === 'level' && 'Info Passage (Niveau)'}
-                      {tpl.pages[selectedPage].blocks[selectedIndex].props.field === 'student' && 'Info Passage (Élève)'}
-                      {tpl.pages[selectedPage].blocks[selectedIndex].props.field === 'year' && 'Info Passage (Année)'}
-                      {!tpl.pages[selectedPage].blocks[selectedIndex].props.field && 'Info Passage (Complet)'}
+
+                      <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Type d'information</label>
+                      <select
+                        value={tpl.pages[selectedPage].blocks[selectedIndex].props.field || ''}
+                        onChange={e => updateSelected({ field: e.target.value })}
+                        style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', width: '100%' }}
+                      >
+                        <option value="">-- Complet (Bloc résumé) --</option>
+                        <option value="currentLevel">Niveau Actuel (ex: PS)</option>
+                        <option value="nextLevel">Niveau Suivant (ex: MS)</option>
+                        <option value="year">Année Scolaire (ex: 2025/2026)</option>
+                        <option value="class">Classe (ex: A)</option>
+                        <option value="student">Nom de l'élève</option>
+                        <option value="level">Label Passage (ex: "Passage en MS")</option>
+                      </select>
+
+                      <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Visibilité par Niveau (Optionnel)</label>
+                      <div className="note" style={{ marginBottom: 4 }}>
+                        Afficher ce bloc uniquement pour ce niveau.
+                      </div>
+                      <select
+                        value={tpl.pages[selectedPage].blocks[selectedIndex].props.level || ''}
+                        onChange={e => updateSelected({ level: e.target.value })}
+                        style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', width: '100%' }}
+                      >
+                        <option value="">Tous les niveaux</option>
+                        {levels.map(l => (
+                          <option key={l.name} value={l.name}>{l.name}</option>
+                        ))}
+                      </select>
+
+                      <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Visibilité par Période (Optionnel)</label>
+                      <div className="note" style={{ marginBottom: 4 }}>
+                        Lier ce bloc à une signature (Mi-Année ou Fin d'Année).
+                      </div>
+                      <select
+                        value={tpl.pages[selectedPage].blocks[selectedIndex].props.period || ''}
+                        onChange={e => updateSelected({ period: e.target.value })}
+                        style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', width: '100%' }}
+                      >
+                        <option value="">Toujours visible</option>
+                        <option value="mid-year">Mi-Année seulement</option>
+                        <option value="end-year">Fin d'Année seulement</option>
+                      </select>
+
+                      <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Niveau cible (Avancé)</label>
+                      <div className="note" style={{ marginBottom: 4 }}>
+                        Force le calcul de promotion vers ce niveau (ex: Vers MS). Utile si le niveau de l'élève est ambigu.
+                      </div>
+                      <select
+                        value={tpl.pages[selectedPage].blocks[selectedIndex].props.targetLevel || ''}
+                        onChange={e => updateSelected({ targetLevel: e.target.value })}
+                        style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', width: '100%' }}
+                      >
+                        <option value="">Automatique (Basé sur niveau actuel)</option>
+                        <option value="MS">Vers MS</option>
+                        <option value="GS">Vers GS</option>
+                        <option value="EB1">Vers EB1</option>
+                        <option value="KG2">Vers KG2</option>
+                        <option value="KG3">Vers KG3</option>
+                      </select>
+
+                      <input placeholder="Largeur" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.width || (tpl.pages[selectedPage].blocks[selectedIndex].props.field ? 150 : 300)} onChange={e => updateSelected({ width: Number(e.target.value) })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+                      <input placeholder="Hauteur" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.height || (tpl.pages[selectedPage].blocks[selectedIndex].props.field ? 30 : 100)} onChange={e => updateSelected({ height: Number(e.target.value) })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
                     </div>
-                    <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Niveau cible</label>
-                    <select 
-                      value={tpl.pages[selectedPage].blocks[selectedIndex].props.targetLevel || 'MS'} 
-                      onChange={e => updateSelected({ targetLevel: e.target.value })} 
-                      style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', width: '100%' }}
-                    >
-                      <option value="MS">MS</option>
-                      <option value="GS">GS</option>
-                      <option value="EB1">EB1</option>
-                    </select>
-                    <input placeholder="Largeur" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.width || (tpl.pages[selectedPage].blocks[selectedIndex].props.field ? 150 : 300)} onChange={e => updateSelected({ width: Number(e.target.value) })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
-                    <input placeholder="Hauteur" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.height || (tpl.pages[selectedPage].blocks[selectedIndex].props.field ? 30 : 100)} onChange={e => updateSelected({ height: Number(e.target.value) })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
-                  </div>
-                )}
-                {tpl.pages[selectedPage].blocks[selectedIndex].type === 'language_toggle' && (
-                  <div style={{ display: 'grid', gap: 8 }}>
-                    <div style={{ display: 'flex', gap: 8 }}>
+                  )}
+                  {tpl.pages[selectedPage].blocks[selectedIndex].type === 'language_toggle' && (
+                    <div style={{ display: 'grid', gap: 8 }}>
+                      <div style={{ display: 'flex', gap: 8 }}>
                         <div style={{ flex: 1 }}>
-                            <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Rayon</label>
-                            <input placeholder="Rayon" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.radius || 40} onChange={e => updateSelected({ radius: Number(e.target.value) })} style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+                          <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Rayon</label>
+                          <input placeholder="Rayon" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.radius || 40} onChange={e => updateSelected({ radius: Number(e.target.value) })} style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
                         </div>
                         <div style={{ flex: 1 }}>
-                            <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Espace</label>
-                            <input placeholder="Espacement" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.spacing || 12} onChange={e => updateSelected({ spacing: Number(e.target.value) })} style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+                          <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Espace</label>
+                          <input placeholder="Espacement" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.spacing || 12} onChange={e => updateSelected({ spacing: Number(e.target.value) })} style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
                         </div>
-                    </div>
-                    <div>
+                      </div>
+                      <div>
                         <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Taille Police</label>
                         <input placeholder="Taille" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.fontSize || 10} onChange={e => updateSelected({ fontSize: Number(e.target.value) })} style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
-                    </div>
-                    <div>
+                      </div>
+                      <div>
                         <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Direction</label>
-                        <select 
-                            value={tpl.pages[selectedPage].blocks[selectedIndex].props.direction || 'column'} 
-                            onChange={e => updateSelected({ direction: e.target.value })} 
-                            style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #ddd' }}
+                        <select
+                          value={tpl.pages[selectedPage].blocks[selectedIndex].props.direction || 'column'}
+                          onChange={e => updateSelected({ direction: e.target.value })}
+                          style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #ddd' }}
                         >
-                            <option value="column">Vertical</option>
-                            <option value="row">Horizontal</option>
+                          <option value="column">Vertical</option>
+                          <option value="row">Horizontal</option>
                         </select>
-                    </div>
-                    <div className="note">Langues ({(tpl.pages[selectedPage].blocks[selectedIndex].props.items || []).length})</div>
-                    {((tpl.pages[selectedPage].blocks[selectedIndex].props.items || []) as any[]).map((it: any, i: number) => (
-                      <div key={i} className="card" style={{ padding: 8, background: '#f9f9f9' }}>
-                        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
-                          <select value={it.code || 'en'} onChange={e => {
+                      </div>
+                      <div className="note">Langues ({(tpl.pages[selectedPage].blocks[selectedIndex].props.items || []).length})</div>
+                      {((tpl.pages[selectedPage].blocks[selectedIndex].props.items || []) as any[]).map((it: any, i: number) => (
+                        <div key={i} className="card" style={{ padding: 8, background: '#f9f9f9' }}>
+                          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                            <select value={it.code || 'en'} onChange={e => {
+                              const items = [...(tpl.pages[selectedPage].blocks[selectedIndex].props.items || [])]
+                              const langData: Record<string, any> = {
+                                'en': { code: 'en', label: 'English', logo: 'https://upload.wikimedia.org/wikipedia/commons/a/a4/Flag_of_the_United_States.svg' },
+                                'fr': { code: 'fr', label: 'Français', logo: 'https://upload.wikimedia.org/wikipedia/en/c/c3/Flag_of_France.svg' },
+                                'ar': { code: 'ar', label: 'العربية', logo: 'https://upload.wikimedia.org/wikipedia/commons/5/59/Flag_of_Lebanon.svg' }
+                              }
+                              items[i] = { ...items[i], ...langData[e.target.value] }
+                              updateSelected({ items })
+                            }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', flex: 1 }}>
+                              <option value="en">English</option>
+                              <option value="fr">Français</option>
+                              <option value="ar">العربية</option>
+                            </select>
+                            <button className="btn secondary" onClick={() => {
+                              const items = [...(tpl.pages[selectedPage].blocks[selectedIndex].props.items || [])]
+                              items[i] = { ...items[i], active: !items[i].active }
+                              updateSelected({ items })
+                            }} style={{ padding: '4px 12px' }}>{it.active ? 'Actif' : 'Inactif'}</button>
+                            <button className="btn secondary" onClick={() => {
+                              const items = (tpl.pages[selectedPage].blocks[selectedIndex].props.items || []).filter((_: any, idx: number) => idx !== i)
+                              updateSelected({ items })
+                            }} style={{ padding: '4px 8px', background: '#ef4444', color: '#fff' }}>✕</button>
+                          </div>
+                          <input placeholder="Label (optionnel)" value={it.label || ''} onChange={e => {
                             const items = [...(tpl.pages[selectedPage].blocks[selectedIndex].props.items || [])]
-                            const langData: Record<string, any> = {
-                              'en': { code: 'en', label: 'English', logo: 'https://upload.wikimedia.org/wikipedia/commons/a/a4/Flag_of_the_United_States.svg' },
-                              'fr': { code: 'fr', label: 'Français', logo: 'https://upload.wikimedia.org/wikipedia/en/c/c3/Flag_of_France.svg' },
-                              'ar': { code: 'ar', label: 'العربية', logo: 'https://upload.wikimedia.org/wikipedia/commons/5/59/Flag_of_Lebanon.svg' }
-                            }
-                            items[i] = { ...items[i], ...langData[e.target.value] }
+                            items[i] = { ...items[i], label: e.target.value }
                             updateSelected({ items })
-                          }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', flex: 1 }}>
-                            <option value="en">English</option>
-                            <option value="fr">Français</option>
-                            <option value="ar">العربية</option>
-                          </select>
-                          <button className="btn secondary" onClick={() => {
+                          }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', width: '100%', marginBottom: 8 }} />
+                          <input placeholder="Logo URL (optionnel)" value={it.logo || ''} onChange={e => {
                             const items = [...(tpl.pages[selectedPage].blocks[selectedIndex].props.items || [])]
-                            items[i] = { ...items[i], active: !items[i].active }
+                            items[i] = { ...items[i], logo: e.target.value }
                             updateSelected({ items })
-                          }} style={{ padding: '4px 12px' }}>{it.active ? 'Actif' : 'Inactif'}</button>
-                          <button className="btn secondary" onClick={() => {
-                            const items = (tpl.pages[selectedPage].blocks[selectedIndex].props.items || []).filter((_: any, idx: number) => idx !== i)
-                            updateSelected({ items })
-                          }} style={{ padding: '4px 8px', background: '#ef4444', color: '#fff' }}>✕</button>
-                        </div>
-                        <input placeholder="Label (optionnel)" value={it.label || ''} onChange={e => {
-                          const items = [...(tpl.pages[selectedPage].blocks[selectedIndex].props.items || [])]
-                          items[i] = { ...items[i], label: e.target.value }
-                          updateSelected({ items })
-                        }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', width: '100%', marginBottom: 8 }} />
-                        <input placeholder="Logo URL (optionnel)" value={it.logo || ''} onChange={e => {
-                          const items = [...(tpl.pages[selectedPage].blocks[selectedIndex].props.items || [])]
-                          items[i] = { ...items[i], logo: e.target.value }
-                          updateSelected({ items })
-                        }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', width: '100%' }} />
-                        <div style={{ marginTop: 8 }}>
-                          <div style={{ fontSize: 11, fontWeight: 600, color: '#6c757d', marginBottom: 4 }}>Niveaux assignés:</div>
-                          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                            {levels.map(l => (
-                              <label key={l.name} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, cursor: 'pointer' }}>
-                                <input 
-                                  type="checkbox" 
-                                  checked={(it.levels || []).includes(l.name)} 
-                                  onChange={e => {
-                                    const items = [...(tpl.pages[selectedPage].blocks[selectedIndex].props.items || [])]
-                                    const currentLevels = items[i].levels || []
-                                    if (e.target.checked) items[i] = { ...items[i], levels: [...currentLevels, l.name] }
-                                    else items[i] = { ...items[i], levels: currentLevels.filter((x: string) => x !== l.name) }
-                                    updateSelected({ items })
-                                  }} 
-                                />
-                                {l.name}
-                              </label>
-                            ))}
+                          }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', width: '100%' }} />
+                          <div style={{ marginTop: 8 }}>
+                            <div style={{ fontSize: 11, fontWeight: 600, color: '#6c757d', marginBottom: 4 }}>Niveaux assignés:</div>
+                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                              {levels.map(l => (
+                                <label key={l.name} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, cursor: 'pointer' }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={(it.levels || []).includes(l.name)}
+                                    onChange={e => {
+                                      const items = [...(tpl.pages[selectedPage].blocks[selectedIndex].props.items || [])]
+                                      const currentLevels = items[i].levels || []
+                                      if (e.target.checked) items[i] = { ...items[i], levels: [...currentLevels, l.name] }
+                                      else items[i] = { ...items[i], levels: currentLevels.filter((x: string) => x !== l.name) }
+                                      updateSelected({ items })
+                                    }}
+                                  />
+                                  {l.name}
+                                </label>
+                              ))}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
-                    <button className="btn secondary" onClick={() => {
-                      const items = [...(tpl.pages[selectedPage].blocks[selectedIndex].props.items || [])]
-                      items.push({ code: 'en', label: 'English', logo: 'https://upload.wikimedia.org/wikipedia/commons/a/a4/Flag_of_the_United_States.svg', active: false })
-                      updateSelected({ items })
-                    }}>+ Ajouter une langue</button>
-                  </div>
-                )}
-                {tpl.pages[selectedPage].blocks[selectedIndex].type === 'dropdown' && (
-                  <div style={{ display: 'grid', gap: 8 }}>
-                    <div style={{ padding: 8, background: '#f0f4ff', borderRadius: 8, fontWeight: 'bold', color: '#6c5ce7' }}>Dropdown #{tpl.pages[selectedPage].blocks[selectedIndex].props.dropdownNumber || '?'}</div>
-                    <input placeholder="Label" value={tpl.pages[selectedPage].blocks[selectedIndex].props.label || ''} onChange={e => updateSelected({ label: e.target.value })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
-                    <input placeholder="Nom variable (ex: obs1)" value={tpl.pages[selectedPage].blocks[selectedIndex].props.variableName || ''} onChange={e => updateSelected({ variableName: e.target.value })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
-                    
-                    <div style={{ marginTop: 8, marginBottom: 8 }}>
-                      <div style={{ fontSize: 11, fontWeight: 600, color: '#6c757d', marginBottom: 4 }}>Niveaux assignés:</div>
-                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                        {levels.map(l => (
-                          <label key={l.name} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, cursor: 'pointer' }}>
-                            <input 
-                              type="checkbox" 
-                              checked={(tpl.pages[selectedPage].blocks[selectedIndex].props.levels || []).includes(l.name)} 
-                              onChange={e => {
-                                const currentLevels = tpl.pages[selectedPage].blocks[selectedIndex].props.levels || []
-                                if (e.target.checked) updateSelected({ levels: [...currentLevels, l.name] })
-                                else updateSelected({ levels: currentLevels.filter((x: string) => x !== l.name) })
-                              }} 
-                            />
-                            {l.name}
-                          </label>
-                        ))}
-                      </div>
+                      ))}
+                      <button className="btn secondary" onClick={() => {
+                        const items = [...(tpl.pages[selectedPage].blocks[selectedIndex].props.items || [])]
+                        items.push({ code: 'en', label: 'English', logo: 'https://upload.wikimedia.org/wikipedia/commons/a/a4/Flag_of_the_United_States.svg', active: false })
+                        updateSelected({ items })
+                      }}>+ Ajouter une langue</button>
                     </div>
+                  )}
+                  {tpl.pages[selectedPage].blocks[selectedIndex].type === 'dropdown' && (
+                    <div style={{ display: 'grid', gap: 8 }}>
+                      <div style={{ padding: 8, background: '#f0f4ff', borderRadius: 8, fontWeight: 'bold', color: '#6c5ce7' }}>Dropdown #{tpl.pages[selectedPage].blocks[selectedIndex].props.dropdownNumber || '?'}</div>
+                      <input placeholder="Label" value={tpl.pages[selectedPage].blocks[selectedIndex].props.label || ''} onChange={e => updateSelected({ label: e.target.value })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+                      <input placeholder="Nom variable (ex: obs1)" value={tpl.pages[selectedPage].blocks[selectedIndex].props.variableName || ''} onChange={e => updateSelected({ variableName: e.target.value })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
 
-                    <div style={{ marginTop: 8, marginBottom: 8 }}>
-                      <div style={{ fontSize: 11, fontWeight: 600, color: '#6c757d', marginBottom: 4 }}>Semestres assignés:</div>
-                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                        {[1, 2].map(sem => (
-                          <label key={sem} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, cursor: 'pointer' }}>
-                            <input 
-                              type="checkbox" 
-                              checked={(tpl.pages[selectedPage].blocks[selectedIndex].props.semesters || [1, 2]).includes(sem)} 
-                              onChange={e => {
-                                const currentSemesters = tpl.pages[selectedPage].blocks[selectedIndex].props.semesters || [1, 2]
-                                if (e.target.checked) updateSelected({ semesters: [...currentSemesters, sem].sort() })
-                                else updateSelected({ semesters: currentSemesters.filter((x: number) => x !== sem) })
-                              }} 
-                            />
-                            Semestre {sem}
-                          </label>
-                        ))}
+                      <div style={{ marginTop: 8, marginBottom: 8 }}>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: '#6c757d', marginBottom: 4 }}>Niveaux assignés:</div>
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                          {levels.map(l => (
+                            <label key={l.name} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, cursor: 'pointer' }}>
+                              <input
+                                type="checkbox"
+                                checked={(tpl.pages[selectedPage].blocks[selectedIndex].props.levels || []).includes(l.name)}
+                                onChange={e => {
+                                  const currentLevels = tpl.pages[selectedPage].blocks[selectedIndex].props.levels || []
+                                  if (e.target.checked) updateSelected({ levels: [...currentLevels, l.name] })
+                                  else updateSelected({ levels: currentLevels.filter((x: string) => x !== l.name) })
+                                }}
+                              />
+                              {l.name}
+                            </label>
+                          ))}
+                        </div>
                       </div>
-                    </div>
 
-                    <div className="note">Options ({(tpl.pages[selectedPage].blocks[selectedIndex].props.options || []).length})</div>
-                    {(tpl.pages[selectedPage].blocks[selectedIndex].props.options || []).map((opt: string, i: number) => (
-                      <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                        <input 
-                          placeholder={`Option ${i + 1}`}
-                          value={opt} 
-                          onChange={e => {
-                            const options = [...(tpl.pages[selectedPage].blocks[selectedIndex].props.options || [])]
-                            options[i] = e.target.value
+                      <div style={{ marginTop: 8, marginBottom: 8 }}>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: '#6c757d', marginBottom: 4 }}>Semestres assignés:</div>
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                          {[1, 2].map(sem => (
+                            <label key={sem} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, cursor: 'pointer' }}>
+                              <input
+                                type="checkbox"
+                                checked={(tpl.pages[selectedPage].blocks[selectedIndex].props.semesters || [1, 2]).includes(sem)}
+                                onChange={e => {
+                                  const currentSemesters = tpl.pages[selectedPage].blocks[selectedIndex].props.semesters || [1, 2]
+                                  if (e.target.checked) updateSelected({ semesters: [...currentSemesters, sem].sort() })
+                                  else updateSelected({ semesters: currentSemesters.filter((x: number) => x !== sem) })
+                                }}
+                              />
+                              Semestre {sem}
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="note">Options ({(tpl.pages[selectedPage].blocks[selectedIndex].props.options || []).length})</div>
+                      {(tpl.pages[selectedPage].blocks[selectedIndex].props.options || []).map((opt: string, i: number) => (
+                        <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                          <input
+                            placeholder={`Option ${i + 1}`}
+                            value={opt}
+                            onChange={e => {
+                              const options = [...(tpl.pages[selectedPage].blocks[selectedIndex].props.options || [])]
+                              options[i] = e.target.value
+                              updateSelected({ options })
+                            }}
+                            style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', flex: 1 }}
+                          />
+                          <button className="btn secondary" onClick={() => {
+                            const options = (tpl.pages[selectedPage].blocks[selectedIndex].props.options || []).filter((_: string, idx: number) => idx !== i)
                             updateSelected({ options })
-                          }} 
-                          style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', flex: 1 }} 
-                        />
-                        <button className="btn secondary" onClick={() => {
-                          const options = (tpl.pages[selectedPage].blocks[selectedIndex].props.options || []).filter((_: string, idx: number) => idx !== i)
-                          updateSelected({ options })
-                        }} style={{ padding: '4px 8px', background: '#ef4444', color: '#fff' }}>✕</button>
-                      </div>
-                    ))}
-                    <button className="btn secondary" onClick={() => {
-                      const options = [...(tpl.pages[selectedPage].blocks[selectedIndex].props.options || []), '']
-                      updateSelected({ options })
-                    }}>+ Ajouter une option</button>
-                    <input placeholder="Largeur" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.width || 200} onChange={e => updateSelected({ width: Number(e.target.value) })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
-                    <input placeholder="Hauteur" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.height || 32} onChange={e => updateSelected({ height: Number(e.target.value) })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
-                  </div>
-                )}
-                {tpl.pages[selectedPage].blocks[selectedIndex].type === 'dropdown_reference' && (
-                  <div style={{ display: 'grid', gap: 8 }}>
-                    <div className="note">Référence à un dropdown</div>
-                    <input 
-                      placeholder="Numéro du dropdown" 
-                      type="number" 
-                      min="1"
-                      value={tpl.pages[selectedPage].blocks[selectedIndex].props.dropdownNumber || 1} 
-                      onChange={e => updateSelected({ dropdownNumber: Number(e.target.value) })} 
-                      style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} 
-                    />
-                    <input placeholder="Largeur" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.width || 200} onChange={e => updateSelected({ width: Number(e.target.value) })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
-                    <input placeholder="Hauteur minimale" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.height || 40} onChange={e => updateSelected({ height: Number(e.target.value) })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
-                    <div style={{ padding: 8, background: '#fff9e6', borderRadius: 8, fontSize: 12 }}>
-                      💡 Ce bloc affichera la valeur sélectionnée dans le Dropdown #{tpl.pages[selectedPage].blocks[selectedIndex].props.dropdownNumber || 1}
+                          }} style={{ padding: '4px 8px', background: '#ef4444', color: '#fff' }}>✕</button>
+                        </div>
+                      ))}
+                      <button className="btn secondary" onClick={() => {
+                        const options = [...(tpl.pages[selectedPage].blocks[selectedIndex].props.options || []), '']
+                        updateSelected({ options })
+                      }}>+ Ajouter une option</button>
+                      <input placeholder="Largeur" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.width || 200} onChange={e => updateSelected({ width: Number(e.target.value) })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+                      <input placeholder="Hauteur" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.height || 32} onChange={e => updateSelected({ height: Number(e.target.value) })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
                     </div>
+                  )}
+                  {tpl.pages[selectedPage].blocks[selectedIndex].type === 'dropdown_reference' && (
+                    <div style={{ display: 'grid', gap: 8 }}>
+                      <div className="note">Référence à un dropdown</div>
+                      <input
+                        placeholder="Numéro du dropdown"
+                        type="number"
+                        min="1"
+                        value={tpl.pages[selectedPage].blocks[selectedIndex].props.dropdownNumber || 1}
+                        onChange={e => updateSelected({ dropdownNumber: Number(e.target.value) })}
+                        style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }}
+                      />
+                      <input placeholder="Largeur" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.width || 200} onChange={e => updateSelected({ width: Number(e.target.value) })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+                      <input placeholder="Hauteur minimale" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.height || 40} onChange={e => updateSelected({ height: Number(e.target.value) })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+                      <div style={{ padding: 8, background: '#fff9e6', borderRadius: 8, fontSize: 12 }}>
+                        💡 Ce bloc affichera la valeur sélectionnée dans le Dropdown #{tpl.pages[selectedPage].blocks[selectedIndex].props.dropdownNumber || 1}
+                      </div>
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                    <button className="btn secondary" onClick={duplicateBlock} style={{ flex: 1 }}>Dupliquer le bloc</button>
+                    <button className="btn secondary" onClick={() => {
+                      const pages = [...tpl.pages]
+                      const page = { ...pages[selectedPage] }
+                      const blocks = page.blocks.filter((_, i) => i !== selectedIndex)
+                      pages[selectedPage] = { ...page, blocks }
+                      setTpl({ ...tpl, pages }); setSelectedIndex(null)
+                      setSelectedCell(null)
+                    }} style={{ flex: 1, color: '#dc3545', borderColor: '#ffcdd2', background: '#fff' }}>Supprimer</button>
                   </div>
-                )}
-                <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-                  <button className="btn secondary" onClick={duplicateBlock} style={{ flex: 1 }}>Dupliquer le bloc</button>
-                  <button className="btn secondary" onClick={() => {
-                    const pages = [...tpl.pages]
-                    const page = { ...pages[selectedPage] }
-                    const blocks = page.blocks.filter((_, i) => i !== selectedIndex)
-                    pages[selectedPage] = { ...page, blocks }
-                    setTpl({ ...tpl, pages }); setSelectedIndex(null)
-                    setSelectedCell(null)
-                  }} style={{ flex: 1, color: '#dc3545', borderColor: '#ffcdd2', background: '#fff' }}>Supprimer</button>
                 </div>
-              </div>
-            ) : (
-              <div style={{ 
-                textAlign: 'center', 
-                padding: '40px 20px',
-                color: '#6c757d'
-              }}>
-                <div style={{ fontSize: 48, marginBottom: 16, opacity: 0.3 }}>🎯</div>
-                <p style={{ margin: 0, fontSize: 14 }}>Sélectionnez un bloc sur le canevas pour modifier ses propriétés</p>
-              </div>
-            )}
-              </div>
-            )}
+              ) : (
+                <div style={{
+                  textAlign: 'center',
+                  padding: '40px 20px',
+                  color: '#6c757d'
+                }}>
+                  <div style={{ fontSize: 48, marginBottom: 16, opacity: 0.3 }}>🎯</div>
+                  <p style={{ margin: 0, fontSize: 14 }}>Sélectionnez un bloc sur le canevas pour modifier ses propriétés</p>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>
