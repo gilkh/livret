@@ -64,8 +64,8 @@ export default function Templates() {
     await load()
   }
 
-  const previewUrl = tpl._id && studentId ? `http://localhost:4000/pdf/student/${studentId}?templateId=${tpl._id}` : ''
-  const bulkUrl = tpl._id && classId ? `http://localhost:4000/pdf/class/${classId}/batch?templateId=${tpl._id}` : ''
+  const previewUrl = tpl._id && studentId ? `/pdf/student/${studentId}?templateId=${tpl._id}` : ''
+  const bulkUrl = tpl._id && classId ? `/pdf/class/${classId}/batch?templateId=${tpl._id}` : ''
 
   return (
     <div className="container">

@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import api, { impersonationApi } from '../api'
+import Modal from '../components/Modal'
+import Toast, { ToastType } from '../components/Toast'
 
 type User = { _id: string; email: string; role: 'ADMIN'|'SUBADMIN'|'TEACHER'|'AEFE'; displayName: string }
 type OutlookUser = { _id: string; email: string; role: 'ADMIN'|'SUBADMIN'|'TEACHER'|'AEFE'; displayName?: string; lastLogin?: string }
@@ -19,6 +21,17 @@ export default function Users() {
   const [outlookRole, setOutlookRole] = useState<'ADMIN'|'SUBADMIN'|'TEACHER'|'AEFE'>('TEACHER')
   const [outlookDisplayName, setOutlookDisplayName] = useState('')
   const [activeTab, setActiveTab] = useState<'local' | 'microsoft'>('local')
+  const [toast, setToast] = useState<{message: string, type: ToastType} | null>(null)
+  const [confirmModal, setConfirmModal] = useState<{
+      isOpen: boolean,
+      title: string,
+      content: React.ReactNode,
+      onConfirm: () => void
+  } | null>(null)
+
+  const showToast = (message: string, type: ToastType = 'info') => {
+      setToast({ message, type })
+  }
 
   const getRoleColor = (role: string) => {
     switch(role) {
@@ -189,10 +202,18 @@ export default function Users() {
     const next = { ...resetMap }; delete next[id]; setResetMap(next)
   }
 
-  const deleteUser = async (id: string) => {
-    if (!window.confirm('Êtes-vous sûr de vouloir supprimer cet utilisateur ?')) return
-    await api.delete(`/users/${id}`)
-    await load()
+  const deleteUser = (id: string) => {
+    setConfirmModal({
+        isOpen: true,
+        title: 'Confirmer la suppression',
+        content: 'Êtes-vous sûr de vouloir supprimer cet utilisateur ?',
+        onConfirm: async () => {
+            await api.delete(`/users/${id}`)
+            await load()
+            setConfirmModal(null)
+            showToast('Utilisateur supprimé', 'success')
+        }
+    })
   }
 
   const addOutlookUser = async () => {
@@ -207,27 +228,37 @@ export default function Users() {
       setOutlookDisplayName('')
       setOutlookRole('TEACHER')
       await loadOutlookUsers()
+      showToast('Utilisateur Outlook ajouté', 'success')
     } catch (e: any) {
-      alert(e.response?.data?.error || 'Erreur lors de l\'ajout')
+      showToast(e.response?.data?.error || 'Erreur lors de l\'ajout', 'error')
     }
   }
 
-  const deleteOutlookUser = async (id: string) => {
-    if (!confirm('Supprimer cet utilisateur Outlook ?')) return
-    try {
-      await api.delete(`/outlook-users/${id}`)
-      await loadOutlookUsers()
-    } catch (e) {
-      alert('Erreur lors de la suppression')
-    }
+  const deleteOutlookUser = (id: string) => {
+    setConfirmModal({
+        isOpen: true,
+        title: 'Supprimer utilisateur Outlook',
+        content: 'Supprimer cet utilisateur Outlook ?',
+        onConfirm: async () => {
+            try {
+                await api.delete(`/outlook-users/${id}`)
+                await loadOutlookUsers()
+                setConfirmModal(null)
+                showToast('Utilisateur supprimé', 'success')
+            } catch (e) {
+                showToast('Erreur lors de la suppression', 'error')
+            }
+        }
+    })
   }
 
   const updateOutlookUserRole = async (id: string, role: string) => {
     try {
       await api.patch(`/outlook-users/${id}`, { role })
       await loadOutlookUsers()
+      showToast('Rôle mis à jour', 'success')
     } catch (e) {
-      alert('Erreur lors de la mise à jour')
+      showToast('Erreur lors de la mise à jour', 'error')
     }
   }
 
@@ -239,14 +270,15 @@ export default function Users() {
       // Actually, reloading might reset the input if we use defaultValue.
       // Let's just reload to be safe and consistent.
       await loadOutlookUsers()
+      showToast('Nom mis à jour', 'success')
     } catch (e) {
-      alert('Erreur lors de la mise à jour du nom')
+      showToast('Erreur lors de la mise à jour du nom', 'error')
     }
   }
 
   const viewAsUser = async (user: User) => {
     if (user.role === 'ADMIN') {
-      alert('Cannot impersonate another admin')
+      showToast('Cannot impersonate another admin', 'error')
       return
     }
     
@@ -279,13 +311,27 @@ export default function Users() {
       setImpersonating(null)
     } catch (error) {
       console.error('Failed to impersonate:', error)
-      alert('Failed to impersonate user')
+      showToast('Failed to impersonate user', 'error')
       setImpersonating(null)
     }
   }
 
   return (
     <div className="container">
+      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+      <Modal 
+          isOpen={!!confirmModal}
+          onClose={() => setConfirmModal(null)}
+          title={confirmModal?.title || ''}
+          footer={
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                  <button className="btn secondary" onClick={() => setConfirmModal(null)}>Annuler</button>
+                  <button className="btn" onClick={confirmModal?.onConfirm}>Confirmer</button>
+              </div>
+          }
+      >
+          {confirmModal?.content}
+      </Modal>
       <div style={{ marginBottom: 32 }}>
         <h2 className="title" style={{ fontSize: '2rem', marginBottom: 8 }}>Gestion des utilisateurs</h2>
         <p className="note">Gérez les accès et les rôles des utilisateurs de la plateforme.</p>

@@ -12,6 +12,7 @@ import { RoleScope } from '../models/RoleScope'
 import { SubAdminAssignment } from '../models/SubAdminAssignment'
 import { TemplateSignature } from '../models/TemplateSignature'
 import { Student } from '../models/Student'
+import { AdminSignature } from '../models/AdminSignature'
 
 export const adminExtrasRouter = Router()
 
@@ -359,12 +360,16 @@ adminExtrasRouter.post('/templates/:templateAssignmentId/sign', requireAuth(['AD
             return res.status(400).json({ error: 'already_signed' })
         }
 
+        // Get active admin signature
+        const activeSig = await AdminSignature.findOne({ isActive: true }).lean()
+
         // Create signature
         const signature = await TemplateSignature.create({
             templateAssignmentId,
             subAdminId: adminId,
             signedAt: new Date(),
-            type
+            type,
+            signatureUrl: activeSig ? activeSig.dataUrl : undefined
         })
 
         // Update assignment status if needed

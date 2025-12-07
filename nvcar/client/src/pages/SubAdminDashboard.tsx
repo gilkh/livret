@@ -45,7 +45,6 @@ export default function SubAdminDashboard() {
     const [filter, setFilter] = useState<'all' | 'signed' | 'unsigned'>('all')
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState('')
-    const [signingClass, setSigningClass] = useState<string | null>(null)
     const [expandedClasses, setExpandedClasses] = useState<Record<string, boolean>>({})
 
     useEffect(() => {
@@ -78,26 +77,6 @@ export default function SubAdminDashboard() {
         if (filter === 'unsigned') return !p.signature
         return true
     })
-
-    const handleSignClass = async (classId: string) => {
-        try {
-            setSigningClass(classId)
-            setError('')
-            await api.post(`${apiPrefix}/templates/sign-class/${classId}`)
-            // Reload data
-            const [pendingRes, classesRes] = await Promise.all([
-                api.get(`${apiPrefix}/pending-signatures`),
-                api.get(`${apiPrefix}/classes`),
-            ])
-            setPending(pendingRes.data)
-            setClasses(classesRes.data)
-        } catch (e: any) {
-            setError('Échec de la signature de classe')
-            console.error(e)
-        } finally {
-            setSigningClass(null)
-        }
-    }
 
     const groupTemplates = (templates: PendingTemplate[]) => {
         const grouped: Record<string, Record<string, PendingTemplate[]>> = {}

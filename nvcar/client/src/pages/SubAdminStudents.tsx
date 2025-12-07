@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react'
 import api from '../api'
+import Modal from '../components/Modal'
+import Toast from '../components/Toast'
 
 type Student = {
     _id: string
@@ -153,9 +155,11 @@ export default function SubAdminStudents() {
                 <h2 className="title">Gestion des Élèves</h2>
                 
                 {message && (
-                    <div className={`alert ${message.type === 'error' ? 'alert-danger' : 'alert-success'}`} style={{ padding: 10, marginBottom: 20, borderRadius: 4, background: message.type === 'error' ? '#fee2e2' : '#dcfce7', color: message.type === 'error' ? '#991b1b' : '#166534' }}>
-                        {message.text}
-                    </div>
+                    <Toast 
+                        message={message.text}
+                        type={message.type}
+                        onClose={() => setMessage(null)}
+                    />
                 )}
 
                 <div style={{ marginBottom: 20 }}>
@@ -247,132 +251,128 @@ export default function SubAdminStudents() {
             </div>
 
             {/* Assign Modal */}
-            {showAssignModal && selectedStudent && (
-                <div style={{
-                    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-                    background: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000
-                }}>
-                    <div style={{ background: 'white', padding: 25, borderRadius: 12, width: 400, maxWidth: '90%' }}>
-                        <h3 style={{ marginBottom: 15 }}>Assigner {selectedStudent.firstName} {selectedStudent.lastName}</h3>
-                        
-                        <div style={{ marginBottom: 20 }}>
-                            <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Choisir une classe</label>
-                            <select 
-                                value={targetClassId} 
-                                onChange={e => setTargetClassId(e.target.value)}
-                                style={{ width: '100%', padding: 10, borderRadius: 6, border: '1px solid #cbd5e1' }}
-                            >
-                                <option value="">Sélectionner...</option>
-                                {classes
-                                    .filter(c => c.level === selectedStudent.level) // Only show classes of same level? Or allow changing level?
-                                    // User said "add a student to any class". But usually level restricts class.
-                                    // Let's show all classes but group by level in select
-                                    .sort((a, b) => a.level.localeCompare(b.level))
-                                    .map(c => (
-                                        <option key={c._id} value={c._id}>
-                                            {c.name} ({c.level})
-                                        </option>
-                                    ))
-                                }
-                            </select>
-                            <div style={{ marginTop: 5, fontSize: '0.85em', color: '#64748b' }}>
-                                Note: Changer de niveau mettra à jour le niveau de l'élève.
-                            </div>
-                        </div>
-
-                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-                            <button 
-                                className="btn secondary" 
-                                onClick={() => setShowAssignModal(false)}
-                                style={{ background: '#f1f5f9', color: '#475569' }}
-                            >
-                                Annuler
-                            </button>
-                            <button 
-                                className="btn" 
-                                onClick={handleAssign}
-                                disabled={!targetClassId || targetClassId === selectedStudent.classId}
-                            >
-                                Enregistrer
-                            </button>
-                        </div>
+            <Modal
+                isOpen={showAssignModal && !!selectedStudent}
+                onClose={() => setShowAssignModal(false)}
+                title={selectedStudent ? `Assigner ${selectedStudent.firstName} ${selectedStudent.lastName}` : 'Assigner'}
+                width={400}
+                footer={
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                        <button 
+                            className="btn secondary" 
+                            onClick={() => setShowAssignModal(false)}
+                            style={{ background: '#f1f5f9', color: '#475569' }}
+                        >
+                            Annuler
+                        </button>
+                        <button 
+                            className="btn" 
+                            onClick={handleAssign}
+                            disabled={!targetClassId || (selectedStudent && targetClassId === selectedStudent.classId)}
+                        >
+                            Enregistrer
+                        </button>
                     </div>
-                </div>
-            )}
-
-            {/* Add Student Modal */}
-            {showAddModal && (
-                <div style={{
-                    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-                    background: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000
-                }}>
-                    <div style={{ background: 'white', padding: 25, borderRadius: 12, width: 500, maxWidth: '90%', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}>
-                        <h3 style={{ marginBottom: 15 }}>Ajouter un élève à la classe</h3>
-                        
-                        <div style={{ marginBottom: 15 }}>
-                            <input 
-                                placeholder="Rechercher un élève (nom, prénom)..." 
-                                value={studentSearch} 
-                                onChange={e => setStudentSearch(e.target.value)} 
-                                style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid #ddd' }} 
-                                autoFocus
-                            />
-                        </div>
-
-                        <div style={{ flex: 1, overflowY: 'auto', border: '1px solid #eee', borderRadius: 8, marginBottom: 15 }}>
-                            {students
-                                .filter(s => 
-                                    s.classId !== targetClassId && // Exclude students already in this class
-                                    (s.firstName.toLowerCase().includes(studentSearch.toLowerCase()) || 
-                                     s.lastName.toLowerCase().includes(studentSearch.toLowerCase()))
-                                )
-                                .slice(0, 20) // Limit results
-                                .map(s => (
-                                    <div 
-                                        key={s._id}
-                                        onClick={() => setSelectedStudent(s)}
-                                        style={{ 
-                                            padding: 10, 
-                                            borderBottom: '1px solid #eee', 
-                                            cursor: 'pointer',
-                                            background: selectedStudent?._id === s._id ? '#f0f9ff' : 'white',
-                                            display: 'flex', justifyContent: 'space-between', alignItems: 'center'
-                                        }}
-                                    >
-                                        <div>
-                                            <div style={{ fontWeight: 500 }}>{s.firstName} {s.lastName}</div>
-                                            <div style={{ fontSize: '0.85em', color: '#64748b' }}>
-                                                {s.className ? `Actuellement en ${s.className}` : 'Non assigné'} ({s.level})
-                                            </div>
-                                        </div>
-                                        {selectedStudent?._id === s._id && <span style={{ color: '#0ea5e9' }}>✓</span>}
-                                    </div>
+                }
+            >
+                {selectedStudent && (
+                    <div style={{ marginBottom: 20 }}>
+                        <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Choisir une classe</label>
+                        <select 
+                            value={targetClassId} 
+                            onChange={e => setTargetClassId(e.target.value)}
+                            style={{ width: '100%', padding: 10, borderRadius: 6, border: '1px solid #cbd5e1' }}
+                        >
+                            <option value="">Sélectionner...</option>
+                            {classes
+                                .filter(c => c.level === selectedStudent.level)
+                                .sort((a, b) => a.level.localeCompare(b.level))
+                                .map(c => (
+                                    <option key={c._id} value={c._id}>
+                                        {c.name} ({c.level})
+                                    </option>
                                 ))
                             }
-                            {students.filter(s => s.classId !== targetClassId && (s.firstName.toLowerCase().includes(studentSearch.toLowerCase()) || s.lastName.toLowerCase().includes(studentSearch.toLowerCase()))).length === 0 && (
-                                <div style={{ padding: 20, textAlign: 'center', color: '#94a3b8' }}>Aucun élève trouvé</div>
-                            )}
-                        </div>
-
-                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-                            <button 
-                                className="btn secondary" 
-                                onClick={() => setShowAddModal(false)}
-                                style={{ background: '#f1f5f9', color: '#475569' }}
-                            >
-                                Annuler
-                            </button>
-                            <button 
-                                className="btn" 
-                                onClick={handleAddStudent}
-                                disabled={!selectedStudent}
-                            >
-                                Ajouter
-                            </button>
+                        </select>
+                        <div style={{ marginTop: 5, fontSize: '0.85em', color: '#64748b' }}>
+                            Note: Changer de niveau mettra à jour le niveau de l'élève.
                         </div>
                     </div>
+                )}
+            </Modal>
+
+            {/* Add Student Modal */}
+            <Modal
+                isOpen={showAddModal}
+                onClose={() => setShowAddModal(false)}
+                title="Ajouter un élève à la classe"
+                width={500}
+                footer={
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                        <button 
+                            className="btn secondary" 
+                            onClick={() => setShowAddModal(false)}
+                            style={{ background: '#f1f5f9', color: '#475569' }}
+                        >
+                            Annuler
+                        </button>
+                        <button 
+                            className="btn" 
+                            onClick={handleAddStudent}
+                            disabled={!selectedStudent}
+                        >
+                            Ajouter
+                        </button>
+                    </div>
+                }
+            >
+                <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                     <div style={{ marginBottom: 15 }}>
+                        <input 
+                            placeholder="Rechercher un élève (nom, prénom)..." 
+                            value={studentSearch} 
+                            onChange={e => setStudentSearch(e.target.value)} 
+                            style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid #ddd' }} 
+                            autoFocus
+                        />
+                    </div>
+
+                    <div style={{ maxHeight: '400px', overflowY: 'auto', border: '1px solid #eee', borderRadius: 8, marginBottom: 15 }}>
+                        {students
+                            .filter(s => 
+                                s.classId !== targetClassId && 
+                                (s.firstName.toLowerCase().includes(studentSearch.toLowerCase()) || 
+                                 s.lastName.toLowerCase().includes(studentSearch.toLowerCase()))
+                            )
+                            .slice(0, 20)
+                            .map(s => (
+                                <div 
+                                    key={s._id}
+                                    onClick={() => setSelectedStudent(s)}
+                                    style={{ 
+                                        padding: 10, 
+                                        borderBottom: '1px solid #eee', 
+                                        cursor: 'pointer',
+                                        background: selectedStudent?._id === s._id ? '#f0f9ff' : 'white',
+                                        display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+                                    }}
+                                >
+                                    <div>
+                                        <div style={{ fontWeight: 500 }}>{s.firstName} {s.lastName}</div>
+                                        <div style={{ fontSize: '0.85em', color: '#64748b' }}>
+                                            {s.className ? `Actuellement en ${s.className}` : 'Non assigné'} ({s.level})
+                                        </div>
+                                    </div>
+                                    {selectedStudent?._id === s._id && <span style={{ color: '#0ea5e9' }}>✓</span>}
+                                </div>
+                            ))
+                        }
+                        {students.filter(s => s.classId !== targetClassId && (s.firstName.toLowerCase().includes(studentSearch.toLowerCase()) || s.lastName.toLowerCase().includes(studentSearch.toLowerCase()))).length === 0 && (
+                            <div style={{ padding: 20, textAlign: 'center', color: '#94a3b8' }}>Aucun élève trouvé</div>
+                        )}
+                    </div>
                 </div>
-            )}
+            </Modal>
         </div>
     )
 }

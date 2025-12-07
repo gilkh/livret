@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import api from '../api'
 import { useSocket } from '../context/SocketContext'
+import Modal from '../components/Modal'
+import Toast, { ToastType } from '../components/Toast'
 
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
@@ -40,6 +42,10 @@ export default function SubAdminTemplateReview() {
     const [canEdit, setCanEdit] = useState(false)
     const [editMode, setEditMode] = useState(false)
     const [openDropdown, setOpenDropdown] = useState<string | null>(null)
+    
+    // UI State
+    const [toast, setToast] = useState<{ message: string, type: ToastType } | null>(null)
+    const [confirmModal, setConfirmModal] = useState<{ isOpen: boolean, title: string, content: React.ReactNode, onConfirm: () => void } | null>(null)
     const [suggestionModal, setSuggestionModal] = useState<{
         pageIndex: number, 
         blockIndex: number, 
@@ -49,6 +55,10 @@ export default function SubAdminTemplateReview() {
     const [suggestionText, setSuggestionText] = useState('')
 
     const socket = useSocket()
+
+    const showToast = (message: string, type: ToastType = 'info') => {
+        setToast({ message, type })
+    }
 
     useEffect(() => {
         if (!assignmentId || !socket) return
@@ -160,7 +170,7 @@ export default function SubAdminTemplateReview() {
                 }
             }
         } catch (e: any) {
-            setError('Échec de l\'enregistrement')
+            showToast('Échec de l\'enregistrement', 'error')
             console.error(e)
         }
     }
@@ -175,11 +185,11 @@ export default function SubAdminTemplateReview() {
                 originalText: suggestionModal.originalText,
                 suggestedText: suggestionText
             })
-            alert('Suggestion envoyée !')
+            showToast('Suggestion envoyée !', 'success')
             setSuggestionModal(null)
             setSuggestionText('')
         } catch (e) {
-            alert('Erreur lors de l\'envoi')
+            showToast('Erreur lors de l\'envoi', 'error')
         }
     }
 
@@ -201,50 +211,57 @@ export default function SubAdminTemplateReview() {
         const next = getNextLevel(student.level)
         if (!next) return
         
-        if (!confirm(`Confirmer le passage de ${student.firstName} en ${next} ?\nL'élève sera retiré de sa classe actuelle.`)) return
-
-        try {
-            setPromoting(true)
-            const r = await api.post(`${apiPrefix}/templates/${assignmentId}/promote`, { nextLevel: next })
-            alert('Élève promu avec succès !')
-            
-            // Update state with returned data instead of reloading
-            if (r.data.student) setStudent(r.data.student)
-            if (r.data.assignment) setAssignment(r.data.assignment)
-            // We don't necessarily need to update template unless language toggles changed, but good practice
-            // if (r.data.template) setTemplate(r.data.template) 
-            setIsPromoted(true)
-        } catch (e: any) {
-            if (e.response?.data?.error === 'already_promoted') {
-                alert('Cet élève a déjà été promu cette année.')
-            } else if (e.response?.data?.message) {
-                setError(`Échec de la promotion: ${e.response.data.message}`)
-            } else {
-                setError('Échec de la promotion')
+        setConfirmModal({
+            isOpen: true,
+            title: 'Confirmer la promotion',
+            content: (
+                <div>
+                    <p>Voulez-vous vraiment faire passer <strong>{student.firstName}</strong> en <strong>{next}</strong> ?</p>
+                    <p style={{ color: '#64748b', fontSize: '0.9em' }}>L'élève sera retiré de sa classe actuelle.</p>
+                </div>
+            ),
+            onConfirm: async () => {
+                try {
+                    setPromoting(true)
+                    const r = await api.post(`${apiPrefix}/templates/${assignmentId}/promote`, { nextLevel: next })
+                    showToast('Élève promu avec succès !', 'success')
+                    
+                    if (r.data.student) setStudent(r.data.student)
+                    if (r.data.assignment) setAssignment(r.data.assignment)
+                    setIsPromoted(true)
+                } catch (e: any) {
+                    if (e.response?.data?.error === 'already_promoted') {
+                        showToast('Cet élève a déjà été promu cette année.', 'info')
+                    } else if (e.response?.data?.message) {
+                        showToast(`Échec de la promotion: ${e.response.data.message}`, 'error')
+                    } else {
+                        showToast('Échec de la promotion', 'error')
+                    }
+                    console.error(e)
+                } finally {
+                    setPromoting(false)
+                    setConfirmModal(null)
+                }
             }
-            console.error(e)
-        } finally {
-            setPromoting(false)
-        }
+        })
     }
 
     const handleSign = async () => {
         if (assignment?.status !== 'completed') {
-            alert('L\'enseignant doit marquer le carnet comme terminé avant que vous puissiez le signer.')
+            showToast('L\'enseignant doit marquer le carnet comme terminé avant que vous puissiez le signer.', 'info')
             return
         }
         try {
             setSigning(true)
-            setError('')
             await api.post(`${apiPrefix}/templates/${assignmentId}/sign`)
-            // Reload data to get updated signature
             const r = await api.get(`${apiPrefix}/templates/${assignmentId}/review`)
             setSignature(r.data.signature)
             setFinalSignature(r.data.finalSignature)
             setAssignment(r.data.assignment)
             setIsSignedByMe(r.data.isSignedByMe)
+            showToast('Carnet signé avec succès', 'success')
         } catch (e: any) {
-            setError('Échec de la signature')
+            showToast('Échec de la signature', 'error')
             console.error(e)
         } finally {
             setSigning(false)
@@ -254,16 +271,15 @@ export default function SubAdminTemplateReview() {
     const handleUnsign = async () => {
         try {
             setUnsigning(true)
-            setError('')
             await api.delete(`${apiPrefix}/templates/${assignmentId}/sign`)
-            // Reload data to get updated state
             const r = await api.get(`${apiPrefix}/templates/${assignmentId}/review`)
             setSignature(r.data.signature)
             setFinalSignature(r.data.finalSignature)
             setAssignment(r.data.assignment)
             setIsSignedByMe(r.data.isSignedByMe)
+            showToast('Signature annulée', 'success')
         } catch (e: any) {
-            setError('Échec de la suppression de signature')
+            showToast('Échec de la suppression de signature', 'error')
             console.error(e)
         } finally {
             setUnsigning(false)
@@ -272,21 +288,20 @@ export default function SubAdminTemplateReview() {
 
     const handleSignFinal = async () => {
         if (assignment?.status !== 'completed' && assignment?.status !== 'signed') {
-            alert('L\'enseignant doit marquer le carnet comme terminé avant que vous puissiez le signer.')
+            showToast('L\'enseignant doit marquer le carnet comme terminé avant que vous puissiez le signer.', 'info')
             return
         }
         try {
             setSigningFinal(true)
-            setError('')
             await api.post(`${apiPrefix}/templates/${assignmentId}/sign`, { type: 'end_of_year' })
-            // Reload data to get updated signature
             const r = await api.get(`${apiPrefix}/templates/${assignmentId}/review`)
             setSignature(r.data.signature)
             setFinalSignature(r.data.finalSignature)
             setAssignment(r.data.assignment)
             setIsSignedByMe(r.data.isSignedByMe)
+            showToast('Carnet signé (fin d\'année) avec succès', 'success')
         } catch (e: any) {
-            setError('Échec de la signature fin d\'année')
+            showToast('Échec de la signature fin d\'année', 'error')
             console.error(e)
         } finally {
             setSigningFinal(false)
@@ -296,18 +311,15 @@ export default function SubAdminTemplateReview() {
     const handleUnsignFinal = async () => {
         try {
             setUnsigningFinal(true)
-            setError('')
-            // Use data property for DELETE body if supported by axios/backend, or query param
-            // Axios delete supports data in config
             await api.delete(`${apiPrefix}/templates/${assignmentId}/sign`, { data: { type: 'end_of_year' } })
-            // Reload data to get updated state
             const r = await api.get(`${apiPrefix}/templates/${assignmentId}/review`)
             setSignature(r.data.signature)
             setFinalSignature(r.data.finalSignature)
             setAssignment(r.data.assignment)
             setIsSignedByMe(r.data.isSignedByMe)
+            showToast('Signature (fin d\'année) annulée', 'success')
         } catch (e: any) {
-            setError('Échec de la suppression de signature fin d\'année')
+            showToast('Échec de la suppression de signature fin d\'année', 'error')
             console.error(e)
         } finally {
             setUnsigningFinal(false)
@@ -317,14 +329,12 @@ export default function SubAdminTemplateReview() {
     const handleExportPDF = async () => {
         if (template && student) {
             try {
-                setError('')
                 const token = localStorage.getItem('token')
                 const base = (api.defaults.baseURL || '').replace(/\/$/, '')
-                // Use new Puppeteer-based PDF generation for better rendering
                 const url = `${base}/pdf-v2/student/${student._id}?templateId=${template._id}&token=${token}`
                 window.open(url, '_blank')
             } catch (e: any) {
-                setError('Échec de l\'export PDF')
+                showToast('Échec de l\'export PDF', 'error')
                 console.error(e)
             }
         }
@@ -336,6 +346,49 @@ export default function SubAdminTemplateReview() {
 
     return (
         <div style={{ padding: 24 }}>
+            {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+            
+            <Modal 
+                isOpen={!!confirmModal} 
+                onClose={() => setConfirmModal(null)}
+                title={confirmModal?.title || ''}
+                footer={
+                    <>
+                        <button className="btn secondary" onClick={() => setConfirmModal(null)}>Annuler</button>
+                        <button className="btn" onClick={confirmModal?.onConfirm}>Confirmer</button>
+                    </>
+                }
+            >
+                {confirmModal?.content}
+            </Modal>
+
+            <Modal
+                isOpen={!!suggestionModal}
+                onClose={() => setSuggestionModal(null)}
+                title="Suggérer une modification"
+                footer={
+                    <>
+                        <button className="btn secondary" onClick={() => setSuggestionModal(null)}>Annuler</button>
+                        <button className="btn" onClick={submitSuggestion}>Envoyer</button>
+                    </>
+                }
+            >
+                 <div style={{ marginBottom: 12 }}>
+                    <label style={{ display: 'block', marginBottom: 4, fontSize: 12, color: '#666' }}>Texte original</label>
+                    <div style={{ padding: 8, background: '#f1f5f9', borderRadius: 4, fontSize: 14 }}>{suggestionModal?.originalText}</div>
+                </div>
+                <div style={{ marginBottom: 16 }}>
+                    <label style={{ display: 'block', marginBottom: 4, fontSize: 12, color: '#666' }}>Suggestion</label>
+                    <textarea 
+                        value={suggestionText}
+                        onChange={e => setSuggestionText(e.target.value)}
+                        style={{ width: '100%', height: 100, padding: 8, borderRadius: 4, border: '1px solid #ccc' }}
+                        placeholder="Entrez votre suggestion..."
+                        autoFocus
+                    />
+                </div>
+            </Modal>
+
             <div className="card">
                 <button className="btn secondary" onClick={() => navigate(dashboardPath)} style={{ 
                     marginBottom: 20,
@@ -522,7 +575,6 @@ export default function SubAdminTemplateReview() {
                                 const pageNum = Number(e.target.value)
                                 setSelectedPage(pageNum)
                                 if (continuousScroll) {
-                                    // Scroll to the selected page
                                     setTimeout(() => {
                                         const pageElement = document.getElementById(`page-${pageNum}`)
                                         if (pageElement) {
@@ -1011,34 +1063,6 @@ export default function SubAdminTemplateReview() {
                     })}
                 </div>
             </div>
-            {suggestionModal && (
-                <div style={{
-                    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-                    background: 'rgba(0,0,0,0.5)', zIndex: 2000,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center'
-                }}>
-                    <div style={{ background: 'white', padding: 24, borderRadius: 12, width: 500, maxWidth: '90%' }}>
-                        <h3 style={{ marginBottom: 16 }}>Suggérer une modification</h3>
-                        <div style={{ marginBottom: 12 }}>
-                            <label style={{ display: 'block', marginBottom: 4, fontSize: 12, color: '#666' }}>Texte original</label>
-                            <div style={{ padding: 8, background: '#f1f5f9', borderRadius: 4, fontSize: 14 }}>{suggestionModal.originalText}</div>
-                        </div>
-                        <div style={{ marginBottom: 16 }}>
-                            <label style={{ display: 'block', marginBottom: 4, fontSize: 12, color: '#666' }}>Suggestion</label>
-                            <textarea 
-                                value={suggestionText}
-                                onChange={e => setSuggestionText(e.target.value)}
-                                style={{ width: '100%', height: 100, padding: 8, borderRadius: 4, border: '1px solid #ccc' }}
-                                placeholder="Entrez votre suggestion..."
-                            />
-                        </div>
-                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-                            <button className="btn secondary" onClick={() => setSuggestionModal(null)}>Annuler</button>
-                            <button className="btn primary" onClick={submitSuggestion}>Envoyer</button>
-                        </div>
-                    </div>
-                </div>
-            )}
         </div>
     )
 }

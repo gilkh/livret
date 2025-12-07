@@ -478,9 +478,12 @@ export default function AdminPermissions() {
                 <p className="note" style={{ fontSize: 16, color: '#64748b' }}>
                     Gérez les permissions globales et les accès spécifiques.
                 </p>
-                <div style={{ marginTop: 16 }}>
+                <div style={{ marginTop: 16, display: 'flex', gap: 12 }}>
                     <Link to="/admin/all-gradebooks" className="btn primary" style={{ textDecoration: 'none', display: 'inline-block' }}>
                         Voir tous les carnets (Admin)
+                    </Link>
+                    <Link to="/admin/signatures" className="btn secondary" style={{ textDecoration: 'none', display: 'inline-block' }}>
+                        Signatures
                     </Link>
                 </div>
             </div>

@@ -42,7 +42,8 @@ export const createApp = () => {
   // Allow all origins with credentials
   app.use(cors({
     origin: true,
-    credentials: true
+    credentials: true,
+    exposedHeaders: ['Content-Disposition']
   }))
   
   app.use(bodyParser.json({ limit: '50mb' }))

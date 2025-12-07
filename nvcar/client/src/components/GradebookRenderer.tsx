@@ -259,7 +259,11 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                     // Hide if level doesn't match
                                     ...((b.props.level && student?.level && b.props.level !== student.level) ? { display: 'none' } : {})
                                 }}>
-                                    {finalSignature ? '✓ Signé Fin Année' : (b.props.label || 'Signature Fin Année')}
+                                    {finalSignature?.signatureUrl ? (
+                                        <img src={finalSignature.signatureUrl} alt="Signature Fin Année" style={{ maxWidth: '100%', maxHeight: '100%' }} />
+                                    ) : (
+                                        finalSignature ? '✓ Signé Fin Année' : (b.props.label || 'Signature Fin Année')
+                                    )}
                                 </div>
                             )}
                             
@@ -309,7 +313,11 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                     // Hide if level doesn't match
                                     ...((b.props.level && student?.level && b.props.level !== student.level) ? { display: 'none' } : {})
                                 }}>
-                                    {signature ? '✓ Signé' : (b.props.label || 'Signature')}
+                                    {signature?.signatureUrl ? (
+                                        <img src={signature.signatureUrl} alt="Signature" style={{ maxWidth: '100%', maxHeight: '100%' }} />
+                                    ) : (
+                                        signature ? '✓ Signé' : (b.props.label || 'Signature')
+                                    )}
                                 </div>
                             )}
                         </div>

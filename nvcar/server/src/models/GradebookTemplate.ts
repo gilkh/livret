@@ -14,6 +14,7 @@ const pageSchema = new Schema({
 
 const templateSchema = new Schema({
   name: { type: String, required: true },
+  defaultForLevels: { type: [String], default: [] },
   pages: { type: [pageSchema], default: [] },
   createdBy: { type: String },
   updatedAt: { type: Date, default: () => new Date() },
@@ -21,12 +22,12 @@ const templateSchema = new Schema({
   status: { type: String, default: 'draft' },
   variables: { type: Schema.Types.Mixed, default: {} },
   watermark: { type: Schema.Types.Mixed },
-  permissions: { type: Schema.Types.Mixed, default: { roles: ['ADMIN','SUBADMIN'] } },
+  permissions: { type: Schema.Types.Mixed, default: { roles: ['ADMIN', 'SUBADMIN'] } },
   shareId: { type: String },
   versions: { type: [Schema.Types.Mixed], default: [] },
   comments: { type: [Schema.Types.Mixed], default: [] },
   currentVersion: { type: Number, default: 1 },
-  versionHistory: { 
+  versionHistory: {
     type: [{
       version: { type: Number, required: true },
       pages: { type: [pageSchema], required: true },

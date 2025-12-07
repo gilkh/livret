@@ -18,7 +18,7 @@ import { requireAuth } from '../auth'
 
 export const pdfRouter = Router()
 
-pdfRouter.get('/student/:id', requireAuth(['ADMIN','SUBADMIN','TEACHER']), async (req, res) => {
+pdfRouter.get('/student/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), async (req, res) => {
   const { id } = req.params
   const { templateId, pwd } = req.query as any
   const student = await Student.findById(id).lean()
@@ -63,20 +63,20 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN','SUBADMIN','TEACHER']), async
         return renderDefault()
       }
     }
-    
+
     // Try to get assignment data for dropdowns
     const TemplateAssignment = (await import('../models/TemplateAssignment')).TemplateAssignment
-    const assignment = await TemplateAssignment.findOne({ 
-      studentId: id, 
-      templateId: tplId 
+    const assignment = await TemplateAssignment.findOne({
+      studentId: id,
+      templateId: tplId
     }).lean()
     const assignmentData = assignment?.data || {}
-    
+
     const categories = await Category.find({}).lean()
     const comps = await Competency.find({}).lean()
     const compByCat: Record<string, any[]> = {}
     for (const c of comps as any[]) {
-      ;(compByCat[c.categoryId] ||= []).push(c)
+      ; (compByCat[c.categoryId] ||= []).push(c)
     }
     const enrollment = enrollments[0]
     const signatures = await StudentSignature.findOne({ studentId: id }).lean()
@@ -146,7 +146,7 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN','SUBADMIN','TEACHER']), async
             if (typeof b.props?.width === 'number' && typeof b.props?.height === 'number') { options.width = sx(b.props.width); options.height = sy(b.props.height) }
             doc.image(buf, options.width ? options : undefined)
           }
-        } catch {}
+        } catch { }
       } else if (b.type === 'rect') {
         const x = px(b.props?.x || 50), y = py(b.props?.y || 50)
         const w = sx(b.props?.width || 100), h = sy(b.props?.height || 50)
@@ -186,7 +186,7 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN','SUBADMIN','TEACHER']), async
           const options: any = {}
           if (typeof b.props?.x === 'number' && typeof b.props?.y === 'number') { options.x = px(b.props.x); options.y = py(b.props.y) }
           doc.image(buf, options)
-        } catch {}
+        } catch { }
       } else if (b.type === 'table') {
         const x0 = px(b.props?.x || 50), y0 = py(b.props?.y || 50)
         const cols: number[] = (b.props?.columnWidths || []).map((cw: number) => sx(cw))
@@ -223,7 +223,7 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN','SUBADMIN','TEACHER']), async
           }
         }
       } else if (b.type === 'student_info') {
-        const fields: string[] = b.props?.fields || ['name','class']
+        const fields: string[] = b.props?.fields || ['name', 'class']
         const x = b.props?.x, y = b.props?.y
         const lines: string[] = []
         if (fields.includes('name')) lines.push(`${student.firstName} ${student.lastName}`)
@@ -264,7 +264,7 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN','SUBADMIN','TEACHER']), async
         else doc.text(text)
         doc.fillColor('#2d3436')
       } else if (b.type === 'signature') {
-        const labels: string[] = b.props?.labels || ['Directeur','Enseignant','Parent']
+        const labels: string[] = b.props?.labels || ['Directeur', 'Enseignant', 'Parent']
         let x = b.props?.x, y = b.props?.y
         for (const lab of labels) {
           const sig = sigMap.get(lab)
@@ -272,31 +272,39 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN','SUBADMIN','TEACHER']), async
           if (typeof x === 'number' && typeof y === 'number') {
             doc.text(`${lab}:`, px(x), py(y))
             y += 16
-            if (sig?.url) {
-              try {
+            try {
+              if (sig?.url && (sig.url.startsWith('/') || sig.url.startsWith('uploads'))) {
+                const localPath = path.join(__dirname, '../../public', sig.url.startsWith('/') ? sig.url : `/${sig.url}`)
+                if (fs.existsSync(localPath)) {
+                  doc.image(localPath, px(x), py(y), { width: 160 })
+                } else {
+                  doc.text(`______________________________`, px(x), py(y))
+                }
+              } else if (sig?.url) {
                 const r = await axios.get(String(sig.url).startsWith('http') ? sig.url : `http://localhost:4000${sig.url}`, { responseType: 'arraybuffer' })
                 const buf = Buffer.from(r.data)
                 doc.image(buf, px(x), py(y), { width: 160 })
-                y += 100
-              } catch {
-                doc.text(`______________________________`, px(x), py(y)); y += 18
-              }
-            } else if (sig?.dataUrl) {
-              try {
+              } else if (sig?.dataUrl) {
                 const base64 = String(sig.dataUrl).split(',').pop() || ''
                 const buf = Buffer.from(base64, 'base64')
                 doc.image(buf, px(x), py(y), { width: 160 })
-                y += 100
-              } catch {
-                doc.text(`______________________________`, px(x), py(y)); y += 18
+              } else {
+                doc.text(`______________________________`, px(x), py(y))
               }
-            } else {
+              y += 100
+            } catch (e) {
               doc.text(`______________________________`, px(x), py(y)); y += 18
             }
           } else {
             doc.text(`${lab}:`)
             if (sig?.url || sig?.dataUrl) doc.moveDown(0.2)
-            if (sig?.url) {
+            if (sig?.url && (sig.url.startsWith('/') || sig.url.startsWith('uploads'))) {
+              try {
+                const localPath = path.join(__dirname, '../../public', sig.url.startsWith('/') ? sig.url : `/${sig.url}`)
+                if (fs.existsSync(localPath)) doc.image(localPath, { width: 160 })
+                else doc.text(`______________________________`)
+              } catch { doc.text(`______________________________`) }
+            } else if (sig?.url) {
               try {
                 const r = await axios.get(String(sig.url).startsWith('http') ? sig.url : `http://localhost:4000${sig.url}`, { responseType: 'arraybuffer' })
                 const buf = Buffer.from(r.data)
@@ -312,29 +320,29 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN','SUBADMIN','TEACHER']), async
         }
       } else if (b.type === 'signature_box') {
         // Get the signature from the sub-admin who signed this template
-        const templateAssignment = await (await import('../models/TemplateAssignment')).TemplateAssignment.findOne({ 
-          studentId: id, 
-          templateId: tplId 
+        const templateAssignment = await (await import('../models/TemplateAssignment')).TemplateAssignment.findOne({
+          studentId: id,
+          templateId: tplId
         }).lean()
-        
+
         if (templateAssignment) {
           const TemplateSignature = (await import('../models/TemplateSignature')).TemplateSignature
-          const signature = await TemplateSignature.findOne({ 
-            templateAssignmentId: String(templateAssignment._id) 
+          const signature = await TemplateSignature.findOne({
+            templateAssignmentId: String(templateAssignment._id)
           }).lean()
-          
+
           if (signature?.subAdminId) {
             const subAdmin = await User.findById(signature.subAdminId).lean()
-            
+
             const x = px(b.props?.x || 50)
             const y = py(b.props?.y || 50)
             const width = sx(b.props?.width || 200)
             const height = sy(b.props?.height || 80)
-            
+
             // Draw white rectangle with black border
             doc.save()
             doc.rect(x, y, width, height).stroke('#000')
-            
+
             // If sub-admin has a signature image, place it in the box
             if (subAdmin?.signatureUrl) {
               try {
@@ -366,51 +374,51 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN','SUBADMIN','TEACHER']), async
       } else if (b.type === 'dropdown') {
         // Check level
         if (b.props?.levels && b.props.levels.length > 0 && level && !b.props.levels.includes(level)) {
-             return
+          return
         }
         // Render dropdown with selected value or as empty box
         const dropdownNum = b.props?.dropdownNumber
         const selectedValue = dropdownNum ? assignmentData[`dropdown_${dropdownNum}`] : (b.props?.variableName ? assignmentData[b.props.variableName] : '')
-        
+
         const x = px(b.props?.x || 50)
         const y = py(b.props?.y || 50)
         const width = sx(b.props?.width || 200)
         const height = sy(b.props?.height || 40)
-        
+
         // Draw dropdown box
         doc.save()
         doc.rect(x, y, width, height).stroke('#ccc')
-        
+
         // Draw label if present
         if (b.props?.label) {
           doc.fontSize(10).fillColor('#666')
           doc.text(b.props.label, x, y - 14, { width })
         }
-        
+
         // Draw dropdown number indicator
         if (dropdownNum) {
           doc.fontSize(8).fillColor('#6c5ce7').font('Helvetica-Bold')
           doc.text(`#${dropdownNum}`, x + width - 25, y - 14)
           doc.font('Helvetica')
         }
-        
+
         // Draw selected value or placeholder with text wrapping
         doc.fontSize(b.props?.fontSize || 12).fillColor(b.props?.color || '#333')
         const displayText = selectedValue || 'Sélectionner...'
         doc.text(displayText, x + 8, y + 8, { width: Math.max(0, width - 16), height: Math.max(0, height - 16), align: 'left' })
-        
+
         doc.restore()
       } else if (b.type === 'dropdown_reference') {
         // Render the value selected in the referenced dropdown
         const dropdownNum = b.props?.dropdownNumber || 1
         const selectedValue = assignmentData[`dropdown_${dropdownNum}`] || `[Dropdown #${dropdownNum}]`
-        
+
         if (b.props?.color) doc.fillColor(b.props.color)
         doc.fontSize(b.props?.size || b.props?.fontSize || 12)
         const x = b.props?.x, y = b.props?.y
         const width = sx(b.props?.width || 200)
         const height = b.props?.height != null ? sy(b.props?.height) : undefined
-        
+
         if (typeof x === 'number' && typeof y === 'number') {
           const options: any = { width }
           if (height) options.height = height
@@ -423,7 +431,7 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN','SUBADMIN','TEACHER']), async
         const items: any[] = b.props?.items || []
         // Filter items by level
         const filteredItems = items.filter(it => !it.levels || it.levels.length === 0 || !level || it.levels.includes(level))
-        
+
         const r = sr(b.props?.radius || 40)
         const size = r * 2
         const spacing = sx(b.props?.spacing || 12)
@@ -454,39 +462,39 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN','SUBADMIN','TEACHER']), async
         const targetLevel = b.props?.targetLevel
         const promotions = assignmentData.promotions || []
         const promo = promotions.find((p: any) => p.to === targetLevel)
-        
+
         if (promo) {
           const x = px(b.props?.x || 50)
           const y = py(b.props?.y || 50)
           const width = sx(b.props?.width || (b.props?.field ? 150 : 300))
           const height = sy(b.props?.height || (b.props?.field ? 30 : 100))
-          
+
           doc.save()
-          
+
           doc.fontSize(b.props?.fontSize || 12).fillColor(b.props?.color || '#2d3436')
-          
+
           if (!b.props?.field) {
-             // Legacy behavior: Draw box and all info
-             doc.rect(x, y, width, height).stroke('#6c5ce7')
-             const textX = x + 10
-             let textY = y + 15
-             doc.font('Helvetica-Bold').text(`Passage en ${targetLevel}`, textX, textY, { width: width - 20, align: 'center' })
-             textY += 20
-             doc.font('Helvetica').text(`${student.firstName} ${student.lastName}`, textX, textY, { width: width - 20, align: 'center' })
-             textY += 20
-             doc.fontSize((b.props?.fontSize || 12) * 0.8).fillColor('#666')
-             doc.text(`Année ${promo.year}`, textX, textY, { width: width - 20, align: 'center' })
+            // Legacy behavior: Draw box and all info
+            doc.rect(x, y, width, height).stroke('#6c5ce7')
+            const textX = x + 10
+            let textY = y + 15
+            doc.font('Helvetica-Bold').text(`Passage en ${targetLevel}`, textX, textY, { width: width - 20, align: 'center' })
+            textY += 20
+            doc.font('Helvetica').text(`${student.firstName} ${student.lastName}`, textX, textY, { width: width - 20, align: 'center' })
+            textY += 20
+            doc.fontSize((b.props?.fontSize || 12) * 0.8).fillColor('#666')
+            doc.text(`Année ${promo.year}`, textX, textY, { width: width - 20, align: 'center' })
           } else {
-             // Specific field
-             if (b.props.field === 'level') {
-                doc.font('Helvetica-Bold').text(`Passage en ${targetLevel}`, x, y + (height/2) - 6, { width, align: 'center' })
-             } else if (b.props.field === 'student') {
-                doc.font('Helvetica').text(`${student.firstName} ${student.lastName}`, x, y + (height/2) - 6, { width, align: 'center' })
-             } else if (b.props.field === 'year') {
-                doc.text(`Année ${promo.year}`, x, y + (height/2) - 6, { width, align: 'center' })
-             }
+            // Specific field
+            if (b.props.field === 'level') {
+              doc.font('Helvetica-Bold').text(`Passage en ${targetLevel}`, x, y + (height / 2) - 6, { width, align: 'center' })
+            } else if (b.props.field === 'student') {
+              doc.font('Helvetica').text(`${student.firstName} ${student.lastName}`, x, y + (height / 2) - 6, { width, align: 'center' })
+            } else if (b.props.field === 'year') {
+              doc.text(`Année ${promo.year}`, x, y + (height / 2) - 6, { width, align: 'center' })
+            }
           }
-          
+
           doc.restore()
         }
       }
@@ -517,7 +525,7 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN','SUBADMIN','TEACHER']), async
   doc.end()
 })
 
-pdfRouter.get('/class/:classId/batch', requireAuth(['ADMIN','SUBADMIN']), async (req, res) => {
+pdfRouter.get('/class/:classId/batch', requireAuth(['ADMIN', 'SUBADMIN']), async (req, res) => {
   const { classId } = req.params
   const { templateId, pwd } = req.query as any
   const enrolls = await Enrollment.find({ classId }).lean()
@@ -568,16 +576,16 @@ pdfRouter.get('/class/:classId/batch', requireAuth(['ADMIN','SUBADMIN']), async 
         } else {
           // Try to get assignment data for dropdowns
           const TemplateAssignment = (await import('../models/TemplateAssignment')).TemplateAssignment
-          const assignment = await TemplateAssignment.findOne({ 
-            studentId: String(s._id), 
+          const assignment = await TemplateAssignment.findOne({
+            studentId: String(s._id),
             templateId: String(templateId)
           }).lean()
           const assignmentData = assignment?.data || {}
-          
+
           const categories = await Category.find({}).lean()
           const comps = await Competency.find({}).lean()
           const compByCat: Record<string, any[]> = {}
-          for (const c of comps as any[]) { ;(compByCat[c.categoryId] ||= []).push(c) }
+          for (const c of comps as any[]) { ; (compByCat[c.categoryId] ||= []).push(c) }
           const signatures = await StudentSignature.findOne({ studentId: String(s._id) }).lean()
           const sigMap = new Map((signatures?.items || []).map((si: any) => [si.label, si]))
           const classDoc = enrollments[0] ? await ClassModel.findById(enrollments[0].classId).lean() : null
@@ -646,7 +654,7 @@ pdfRouter.get('/class/:classId/batch', requireAuth(['ADMIN','SUBADMIN']), async 
                   if (typeof b.props?.width === 'number' && typeof b.props?.height === 'number') { options.width = sx(b.props.width); options.height = sy(b.props.height) }
                   doc.image(buf, options.width ? options : undefined)
                 }
-              } catch {}
+              } catch { }
             } else if (b.type === 'rect') {
               const x = px(b.props?.x || 50), y = py(b.props?.y || 50)
               const w = sx(b.props?.width || 100), h = sy(b.props?.height || 50)
@@ -686,9 +694,9 @@ pdfRouter.get('/class/:classId/batch', requireAuth(['ADMIN','SUBADMIN']), async 
                 const options: any = {}
                 if (typeof b.props?.x === 'number' && typeof b.props?.y === 'number') { options.x = px(b.props.x); options.y = py(b.props.y) }
                 doc.image(buf, options)
-              } catch {}
+              } catch { }
             } else if (b.type === 'student_info') {
-              const fields: string[] = b.props?.fields || ['name','class']
+              const fields: string[] = b.props?.fields || ['name', 'class']
               const x = b.props?.x, y = b.props?.y
               const lines: string[] = []
               if (fields.includes('name')) lines.push(`${s.firstName} ${s.lastName}`)
@@ -729,7 +737,7 @@ pdfRouter.get('/class/:classId/batch', requireAuth(['ADMIN','SUBADMIN']), async 
               else doc.text(text)
               doc.fillColor('#2d3436')
             } else if (b.type === 'signature') {
-              const labels: string[] = b.props?.labels || ['Directeur','Enseignant','Parent']
+              const labels: string[] = b.props?.labels || ['Directeur', 'Enseignant', 'Parent']
               let x = b.props?.x, y = b.props?.y
               for (const lab of labels) {
                 const sig = sigMap.get(lab)
@@ -779,46 +787,46 @@ pdfRouter.get('/class/:classId/batch', requireAuth(['ADMIN','SUBADMIN']), async 
               // Render dropdown with selected value or as empty box
               const dropdownNum = b.props?.dropdownNumber
               const selectedValue = dropdownNum ? assignmentData[`dropdown_${dropdownNum}`] : (b.props?.variableName ? assignmentData[b.props.variableName] : '')
-              
+
               const x = px(b.props?.x || 50)
               const y = py(b.props?.y || 50)
               const width = sx(b.props?.width || 200)
               const height = sy(b.props?.height || 40)
-              
+
               // Draw dropdown box
               doc.save()
               doc.rect(x, y, width, height).stroke('#ccc')
-              
+
               // Draw label if present
               if (b.props?.label) {
                 doc.fontSize(10).fillColor('#666')
                 doc.text(b.props.label, x, y - 14, { width })
               }
-              
+
               // Draw dropdown number indicator
               if (dropdownNum) {
                 doc.fontSize(8).fillColor('#6c5ce7').font('Helvetica-Bold')
                 doc.text(`#${dropdownNum}`, x + width - 25, y - 14)
                 doc.font('Helvetica')
               }
-              
+
               // Draw selected value or placeholder with text wrapping
               doc.fontSize(b.props?.fontSize || 12).fillColor(b.props?.color || '#333')
               const displayText = selectedValue || 'Sélectionner...'
               doc.text(displayText, x + 8, y + 8, { width: Math.max(0, width - 16), height: Math.max(0, height - 16), align: 'left' })
-              
+
               doc.restore()
             } else if (b.type === 'dropdown_reference') {
               // Render the value selected in the referenced dropdown
               const dropdownNum = b.props?.dropdownNumber || 1
               const selectedValue = assignmentData[`dropdown_${dropdownNum}`] || `[Dropdown #${dropdownNum}]`
-              
+
               if (b.props?.color) doc.fillColor(b.props.color)
               doc.fontSize(b.props?.size || b.props?.fontSize || 12)
               const x = b.props?.x, y = b.props?.y
               const width = sx(b.props?.width || 200)
               const height = b.props?.height != null ? sy(b.props?.height) : undefined
-              
+
               if (typeof x === 'number' && typeof y === 'number') {
                 const options: any = { width }
                 if (height) options.height = height
@@ -844,7 +852,7 @@ pdfRouter.get('/class/:classId/batch', requireAuth(['ADMIN','SUBADMIN']), async 
                     const rimg = await axios.get(url, { responseType: 'arraybuffer' })
                     const buf = Buffer.from(rimg.data)
                     doc.image(buf, x, y, { width: size2, height: size2 })
-                  } catch {}
+                  } catch { }
                 }
                 if (!it?.active) {
                   doc.opacity(0.4)
@@ -892,29 +900,29 @@ pdfRouter.get('/class/:classId/batch', requireAuth(['ADMIN','SUBADMIN']), async 
             } else if (b.type === 'signature_box') {
               // Get the signature from the sub-admin who signed this template
               const TemplateAssignment = (await import('../models/TemplateAssignment')).TemplateAssignment
-              const templateAssignment = await TemplateAssignment.findOne({ 
-                studentId: String(s._id), 
+              const templateAssignment = await TemplateAssignment.findOne({
+                studentId: String(s._id),
                 templateId: String(templateId)
               }).lean()
-              
+
               if (templateAssignment) {
                 const TemplateSignature = (await import('../models/TemplateSignature')).TemplateSignature
-                const signature = await TemplateSignature.findOne({ 
-                  templateAssignmentId: String(templateAssignment._id) 
+                const signature = await TemplateSignature.findOne({
+                  templateAssignmentId: String(templateAssignment._id)
                 }).lean()
-                
+
                 if (signature?.subAdminId) {
                   const subAdmin = await User.findById(signature.subAdminId).lean()
-                  
+
                   const x = px(b.props?.x || 50)
                   const y = py(b.props?.y || 50)
                   const width = sx(b.props?.width || 200)
                   const height = sy(b.props?.height || 80)
-                  
+
                   // Draw white rectangle with black border
                   doc.save()
                   doc.rect(x, y, width, height).stroke('#000')
-                  
+
                   // If sub-admin has a signature image, place it in the box
                   if (subAdmin?.signatureUrl) {
                     try {
@@ -947,39 +955,39 @@ pdfRouter.get('/class/:classId/batch', requireAuth(['ADMIN','SUBADMIN']), async 
               const targetLevel = b.props?.targetLevel
               const promotions = assignmentData.promotions || []
               const promo = promotions.find((p: any) => p.to === targetLevel)
-              
+
               if (promo) {
                 const x = px(b.props?.x || 50)
                 const y = py(b.props?.y || 50)
                 const width = sx(b.props?.width || (b.props?.field ? 150 : 300))
                 const height = sy(b.props?.height || (b.props?.field ? 30 : 100))
-                
+
                 doc.save()
-                
+
                 doc.fontSize(b.props?.fontSize || 12).fillColor(b.props?.color || '#2d3436')
-                
+
                 if (!b.props?.field) {
-                   // Legacy behavior: Draw box and all info
-                   doc.rect(x, y, width, height).stroke('#6c5ce7')
-                   const textX = x + 10
-                   let textY = y + 15
-                   doc.font('Helvetica-Bold').text(`Passage en ${targetLevel}`, textX, textY, { width: width - 20, align: 'center' })
-                   textY += 20
-                   doc.font('Helvetica').text(`${s.firstName} ${s.lastName}`, textX, textY, { width: width - 20, align: 'center' })
-                   textY += 20
-                   doc.fontSize((b.props?.fontSize || 12) * 0.8).fillColor('#666')
-                   doc.text(`Année ${promo.year}`, textX, textY, { width: width - 20, align: 'center' })
+                  // Legacy behavior: Draw box and all info
+                  doc.rect(x, y, width, height).stroke('#6c5ce7')
+                  const textX = x + 10
+                  let textY = y + 15
+                  doc.font('Helvetica-Bold').text(`Passage en ${targetLevel}`, textX, textY, { width: width - 20, align: 'center' })
+                  textY += 20
+                  doc.font('Helvetica').text(`${s.firstName} ${s.lastName}`, textX, textY, { width: width - 20, align: 'center' })
+                  textY += 20
+                  doc.fontSize((b.props?.fontSize || 12) * 0.8).fillColor('#666')
+                  doc.text(`Année ${promo.year}`, textX, textY, { width: width - 20, align: 'center' })
                 } else {
-                   // Specific field
-                   if (b.props.field === 'level') {
-                      doc.font('Helvetica-Bold').text(`Passage en ${targetLevel}`, x, y + (height/2) - 6, { width, align: 'center' })
-                   } else if (b.props.field === 'student') {
-                      doc.font('Helvetica').text(`${s.firstName} ${s.lastName}`, x, y + (height/2) - 6, { width, align: 'center' })
-                   } else if (b.props.field === 'year') {
-                      doc.text(`Année ${promo.year}`, x, y + (height/2) - 6, { width, align: 'center' })
-                   }
+                  // Specific field
+                  if (b.props.field === 'level') {
+                    doc.font('Helvetica-Bold').text(`Passage en ${targetLevel}`, x, y + (height / 2) - 6, { width, align: 'center' })
+                  } else if (b.props.field === 'student') {
+                    doc.font('Helvetica').text(`${s.firstName} ${s.lastName}`, x, y + (height / 2) - 6, { width, align: 'center' })
+                  } else if (b.props.field === 'year') {
+                    doc.text(`Année ${promo.year}`, x, y + (height / 2) - 6, { width, align: 'center' })
+                  }
                 }
-                
+
                 doc.restore()
               }
             }

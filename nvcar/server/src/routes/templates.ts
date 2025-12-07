@@ -4,7 +4,11 @@ import { GradebookTemplate } from '../models/GradebookTemplate'
 import { TemplateAssignment } from '../models/TemplateAssignment'
 import multer from 'multer'
 import path from 'path'
+import archiver from 'archiver'
+import JSZip from 'jszip'
 import { PptxImporter } from '../utils/pptxImporter'
+
+import fs from 'fs'
 
 export const templatesRouter = Router()
 const upload = multer({ storage: multer.memoryStorage() })
@@ -19,8 +23,8 @@ templatesRouter.post('/import-pptx', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER'
     if (!req.file) return res.status(400).json({ error: 'missing_file' })
 
     const uploadDir = path.join(process.cwd(), 'public', 'uploads', 'media')
-    const baseUrl = process.env.API_URL || 'http://localhost:4000'
-    const importer = new PptxImporter(uploadDir, baseUrl)
+    // Pass empty baseUrl to generate relative paths (/uploads/media/...)
+    const importer = new PptxImporter(uploadDir, '')
     const templateData = await importer.parse(req.file.buffer)
 
     // Create the template in DB
@@ -32,6 +36,60 @@ templatesRouter.post('/import-pptx', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER'
     })
 
     res.json(tpl)
+  } catch (e: any) {
+    console.error(e)
+    res.status(500).json({ error: 'import_failed', message: e.message })
+  }
+})
+
+templatesRouter.post('/import-package', requireAuth(['ADMIN', 'SUBADMIN']), upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'missing_file' })
+    
+    let jsonContent = ''
+    
+    // Check if zip
+    if (req.file.mimetype === 'application/zip' || req.file.originalname.endsWith('.zip')) {
+        const zip = await JSZip.loadAsync(req.file.buffer)
+        const file = zip.file('template.json')
+        if (!file) return res.status(400).json({ error: 'invalid_zip_no_template_json' })
+        jsonContent = await file.async('string')
+    } else {
+        jsonContent = req.file.buffer.toString('utf8')
+    }
+
+    let templateData
+    try {
+        templateData = JSON.parse(jsonContent)
+    } catch (e) {
+        return res.status(400).json({ error: 'invalid_json' })
+    }
+    
+    const userId = (req as any).user.userId
+    
+    // Remove system fields
+    const { _id, __v, createdBy, createdAt, updatedAt, ...cleanData } = templateData
+    
+    const newTemplate = await GradebookTemplate.create({
+        ...cleanData,
+        name: `${cleanData.name} (Imported)`,
+        createdBy: userId,
+        updatedAt: new Date(),
+        createdAt: new Date(),
+        status: 'draft',
+        currentVersion: 1,
+        versionHistory: [{
+            version: 1,
+            pages: cleanData.pages || [],
+            variables: cleanData.variables || {},
+            watermark: cleanData.watermark,
+            createdAt: new Date(),
+            createdBy: userId,
+            changeDescription: 'Imported from package'
+        }]
+    })
+    
+    res.json(newTemplate)
   } catch (e: any) {
     console.error(e)
     res.status(500).json({ error: 'import_failed', message: e.message })
@@ -70,6 +128,81 @@ templatesRouter.post('/', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), async (
     res.json(tpl)
   } catch (e: any) {
     res.status(500).json({ error: 'create_failed', message: e.message })
+  }
+})
+
+templatesRouter.get('/:id/export-package', requireAuth(['ADMIN', 'SUBADMIN']), async (req, res) => {
+  try {
+    const { id } = req.params
+    const template = await GradebookTemplate.findById(id).lean()
+    if (!template) return res.status(404).json({ error: 'not_found' })
+
+    // Clean data
+    const { _id, __v, createdBy, updatedAt, ...cleanTemplate } = template
+    
+    // Create archive
+    const archive = archiver('zip', { zlib: { level: 9 } })
+    
+    // Determine target directory: .../nvcar/temps
+    // process.cwd() is .../nvcar/server
+    // So ../temps is .../nvcar/temps
+    const targetDir = path.join(process.cwd(), '../temps')
+    if (!fs.existsSync(targetDir)) {
+        fs.mkdirSync(targetDir, { recursive: true })
+    }
+
+    const fileName = `${template.name.replace(/[^a-z0-9]/gi, '_')}_export.zip`
+    const filePath = path.join(targetDir, fileName)
+    
+    // Check if file exists
+    let existed = false
+    if (fs.existsSync(filePath)) {
+        existed = true
+    }
+    
+    const output = fs.createWriteStream(filePath)
+
+    await new Promise<void>((resolve, reject) => {
+        output.on('close', () => resolve())
+        output.on('error', reject)
+        archive.on('error', reject)
+
+        archive.pipe(output)
+
+        // Add template JSON
+        archive.append(JSON.stringify(cleanTemplate, null, 2), { name: 'template.json' })
+
+        // Add batch file
+        const batContent = `@echo off
+set /p targetUrl="Enter the target server URL (default: https://localhost:4000): "
+if "%targetUrl%"=="" set targetUrl=https://localhost:4000
+
+echo.
+echo Please ensure you are logged in on the target server or have an authentication token.
+echo This script assumes you can access the API.
+echo.
+echo Importing template to %targetUrl%...
+echo.
+echo Note: This batch script attempts to upload 'template.json'.
+echo If this fails due to authentication, please use the "Import Template" button in the Admin UI.
+echo.
+
+curl -k -X POST -F "file=@template.json" "%targetUrl%/templates/import-package"
+
+echo.
+echo Done.
+pause
+`
+        archive.append(batContent, { name: 'import_template.bat' })
+
+        archive.finalize()
+    })
+
+    res.json({ success: true, path: filePath, fileName, existed })
+
+  } catch (e: any) {
+    console.error('Export error:', e)
+    res.status(500).json({ error: 'export_failed', message: e.message })
   }
 })
 

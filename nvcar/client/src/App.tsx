@@ -38,6 +38,7 @@ import AdminPermissions from './pages/AdminPermissions'
 import AdminOnlineUsers from './pages/AdminOnlineUsers'
 import AdminAllGradebooks from './pages/AdminAllGradebooks'
 import AdminGradebookReview from './pages/AdminGradebookReview'
+import AdminSignatures from './pages/AdminSignatures'
 import SystemAlertBanner from './components/SystemAlertBanner'
 
 const RequireAuth = ({ children }: { children: JSX.Element }) => {
@@ -368,6 +369,14 @@ export default function App() {
           element={
             <RequireAuth>
               <AdminProgress />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/admin/signatures"
+          element={
+            <RequireAuth>
+              <AdminSignatures />
             </RequireAuth>
           }
         />

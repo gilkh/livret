@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import api from '../api'
 import { useLevels } from '../context/LevelContext'
@@ -6,7 +7,7 @@ import { useSocket } from '../context/SocketContext'
 
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
-type Template = { _id?: string; name: string; pages: Page[] }
+type Template = { _id?: string; name: string; pages: Page[]; updatedAt?: string }
 type Year = { _id: string; name: string }
 type ClassDoc = { _id: string; name: string; schoolYearId: string }
 type StudentDoc = { _id: string; firstName: string; lastName: string }
@@ -36,12 +37,173 @@ export default function TemplateBuilder() {
   const [continuousScroll, setContinuousScroll] = useState(false)
   const [previewData, setPreviewData] = useState<Record<string, string>>({})
   const [rightPanelView, setRightPanelView] = useState<'properties' | 'slides'>('properties')
+  const [deleteConfirmations, setDeleteConfirmations] = useState<{ [id: string]: number }>({})
+  const [activeGuides, setActiveGuides] = useState<{ type: 'x' | 'y', pos: number }[]>([])
+  
+  // Undo/Redo History State
+  const [history, setHistory] = useState<Template[]>([])
+  const [historyIndex, setHistoryIndex] = useState(-1)
+  const isUndoRedoAction = useRef(false)
+
+  // Save state to history before making changes
+  const saveHistory = () => {
+    if (isUndoRedoAction.current) return
+
+    // If we are in the middle of history, remove future states
+    const newHistory = history.slice(0, historyIndex + 1)
+    newHistory.push(JSON.parse(JSON.stringify(tpl)))
+    
+    // Limit history size to 50
+    if (newHistory.length > 50) newHistory.shift()
+    
+    setHistory(newHistory)
+    setHistoryIndex(newHistory.length - 1)
+  }
+
+  const undo = () => {
+    if (historyIndex >= 0) {
+      isUndoRedoAction.current = true
+      
+      // If this is the first undo from the latest state, save current state first
+      if (historyIndex === history.length - 1) {
+          const currentHistory = [...history]
+          // Check if current tpl is different from last history
+          if (JSON.stringify(currentHistory[currentHistory.length-1]) !== JSON.stringify(tpl)) {
+              currentHistory.push(JSON.parse(JSON.stringify(tpl)))
+              setHistory(currentHistory)
+              setHistoryIndex(currentHistory.length - 2) // Go back one step from new latest
+              setTpl(currentHistory[currentHistory.length - 2])
+              isUndoRedoAction.current = false
+              return
+          }
+      }
+
+      const prevIndex = historyIndex - 1
+      if (prevIndex >= -1) { // Allow going back to initial state if we pushed it? 
+          // Actually simpler: History contains past states. 
+          // If we are at index i, tpl is history[i]. 
+          // Wait, standard way: history has all states. tpl is active state.
+          // Let's adjust:
+          // 1. push current tpl to history
+          // 2. set tpl to prev
+          
+          // Better approach:
+          // history = [state1, state2, state3]
+          // historyIndex points to current state index in history
+          
+          // Implementation:
+          // When change happens: 
+          //   newHistory = history.slice(0, historyIndex + 1)
+          //   newHistory.push(newState)
+          //   index++
+          
+          // My saveHistory saves the *previous* state effectively if called before setTpl?
+          // No, usually you save the *new* state.
+          
+          // Let's refine:
+          // historyIndex points to the *currently displayed* state in history.
+          // Initial: history = [initialTpl], index = 0
+          // Change: history.push(newTpl), index++
+          
+          // So on mount, we should initialize history?
+          
+      }
+      
+      // Revised Undo Logic:
+      // We need to move index back
+      if (historyIndex > 0) {
+          const newIndex = historyIndex - 1
+          setTpl(history[newIndex])
+          setHistoryIndex(newIndex)
+      }
+      isUndoRedoAction.current = false
+    }
+  }
+
+  const redo = () => {
+    if (historyIndex < history.length - 1) {
+      isUndoRedoAction.current = true
+      const newIndex = historyIndex + 1
+      setTpl(history[newIndex])
+      setHistoryIndex(newIndex)
+      isUndoRedoAction.current = false
+    }
+  }
+  
+  // Initialize history with initial tpl
+  useEffect(() => {
+      if (history.length === 0 && tpl) {
+          setHistory([JSON.parse(JSON.stringify(tpl))])
+          setHistoryIndex(0)
+      }
+  }, []) // Only on mount or if history empty
+
+  // Wrapper for setTpl to auto-save history
+  const updateTpl = (newTpl: Template, skipHistory = false) => {
+      if (!skipHistory && !isUndoRedoAction.current) {
+          const newHistory = history.slice(0, historyIndex + 1)
+          newHistory.push(JSON.parse(JSON.stringify(newTpl)))
+          if (newHistory.length > 50) newHistory.shift()
+          setHistory(newHistory)
+          setHistoryIndex(newHistory.length - 1)
+      }
+      setTpl(newTpl)
+  }
 
   const [error, setError] = useState('')
   const pptxInputRef = useRef<HTMLInputElement>(null)
+  const packageInputRef = useRef<HTMLInputElement>(null)
 
   const socket = useSocket()
   const isRemoteUpdate = useRef(false)
+
+  const handlePackageImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    const fd = new FormData()
+    fd.append('file', file)
+
+    try {
+      setSaveStatus('Importation en cours...')
+      await api.post('/templates/import-package', fd)
+      setSaveStatus('Importé avec succès')
+      await loadTemplates()
+    } catch (err) {
+      console.error(err)
+      setError('Échec de l\'importation')
+      setSaveStatus('')
+    }
+
+    if (packageInputRef.current) packageInputRef.current.value = ''
+  }
+
+  const downloadPackage = async (id: string) => {
+    try {
+      setSaveStatus('Exportation en cours...')
+      // Server now saves to disk instead of returning blob
+      const response = await api.get(`/templates/${id}/export-package`)
+      console.log('Export response:', response)
+      
+      if (response.data && response.data.success) {
+        let successMsg = `Export réussi : ${response.data.fileName} (dans ${response.data.path})`
+        if (response.data.existed) {
+            successMsg = `Export mis à jour (écrasé) : ${response.data.fileName}`
+        }
+        setSaveStatus(successMsg)
+      } else {
+        console.error('Export failed response:', response)
+        throw new Error(response.data?.message || 'Export failed')
+      }
+      
+      setTimeout(() => setSaveStatus(''), 8000)
+    } catch (e: any) {
+      console.error('Export exception:', e)
+      const msg = e.response?.data?.message || e.message || 'Erreur lors de l\'export'
+      setError(msg)
+      setSaveStatus('')
+    }
+  }
 
   useEffect(() => {
     if (viewMode === 'edit' && tpl._id && socket) {
@@ -75,6 +237,26 @@ export default function TemplateBuilder() {
       return () => clearTimeout(timer)
     }
   }, [tpl, viewMode, socket])
+
+  // Keyboard shortcuts
+  useEffect(() => {
+      const handleKeyDown = (e: KeyboardEvent) => {
+          if (viewMode !== 'edit') return
+          
+          // Undo: Ctrl+Z
+          if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+              e.preventDefault()
+              undo()
+          }
+          // Redo: Ctrl+Y or Ctrl+Shift+Z
+          if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.shiftKey && e.key === 'z'))) {
+              e.preventDefault()
+              redo()
+          }
+      }
+      window.addEventListener('keydown', handleKeyDown)
+      return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [historyIndex, history, viewMode, undo, redo])
 
   // Modal state
   const [showCreateModal, setShowCreateModal] = useState(false)
@@ -115,7 +297,7 @@ export default function TemplateBuilder() {
     { type: 'circle', props: { radius: 60, color: '#ffeaa7' } },
     {
       type: 'language_toggle', props: {
-        radius: 40, spacing: 12, items: [
+        radius: 40, spacing: 12, direction: 'column', items: [
           { code: 'en', label: 'English', logo: 'https://upload.wikimedia.org/wikipedia/commons/a/a4/Flag_of_the_United_States.svg', active: false },
           { code: 'fr', label: 'Français', logo: 'https://upload.wikimedia.org/wikipedia/en/c/c3/Flag_of_France.svg', active: false },
           { code: 'ar', label: 'العربية', logo: 'https://upload.wikimedia.org/wikipedia/commons/5/59/Flag_of_Lebanon.svg', active: false },
@@ -160,7 +342,7 @@ export default function TemplateBuilder() {
     
     const blocks = [...page.blocks, { type: b.type, props: newProps }]
     pages[selectedPage] = { ...page, blocks }
-    setTpl({ ...tpl, pages })
+    updateTpl({ ...tpl, pages })
     setSelectedIndex(blocks.length - 1)
     setSelectedCell(null)
   }
@@ -194,7 +376,7 @@ export default function TemplateBuilder() {
     const blocks = [...page.blocks, newBlock]
     
     pages[selectedPage] = { ...page, blocks }
-    setTpl({ ...tpl, pages })
+    updateTpl({ ...tpl, pages })
     setSelectedIndex(blocks.length - 1)
     setSelectedCell(null)
   }
@@ -206,7 +388,7 @@ export default function TemplateBuilder() {
     const blocks = [...page.blocks]
     blocks[selectedIndex] = { ...blocks[selectedIndex], props: { ...blocks[selectedIndex].props, ...patch } }
     pages[selectedPage] = { ...page, blocks }
-    setTpl({ ...tpl, pages })
+    updateTpl({ ...tpl, pages })
   }
 
   const updateSelectedTable = (fn: (props: any) => any) => {
@@ -218,7 +400,7 @@ export default function TemplateBuilder() {
     const nextProps = fn(props)
     blocks[selectedIndex] = { ...blocks[selectedIndex], props: nextProps }
     pages[selectedPage] = { ...page, blocks }
-    setTpl({ ...tpl, pages })
+    updateTpl({ ...tpl, pages })
   }
 
   const onDrag = (e: React.MouseEvent, pageIndex: number, idx: number) => {
@@ -227,26 +409,217 @@ export default function TemplateBuilder() {
     const block = tpl.pages[pageIndex].blocks[idx]
     const baseX = block.props.x || 0
     const baseY = block.props.y || 0
+    const blockW = block.props.width || (block.type === 'text' ? 120 : (block.type === 'language_toggle' ? 80 : 120))
+    const blockH = block.props.height || (block.type === 'text' ? 60 : (block.type === 'language_toggle' ? 200 : 120))
+
+    const otherBlocks = tpl.pages[pageIndex].blocks.filter((_, i) => i !== idx).map(b => ({
+      x: b.props.x || 0,
+      y: b.props.y || 0,
+      w: b.props.width || (b.type === 'text' ? 120 : (b.type === 'language_toggle' ? 80 : 120)),
+      h: b.props.height || (b.type === 'text' ? 60 : (b.type === 'language_toggle' ? 200 : 120))
+    }))
+    
+    // Save history start of drag (well, actually we want the result to be undoable)
+    // We can just save history on MouseUp if position changed.
+    const initialTpl = JSON.parse(JSON.stringify(tpl))
+    let hasMoved = false
+
     const onMove = (ev: MouseEvent) => {
+      hasMoved = true
       const dx = ev.clientX - startX
       const dy = ev.clientY - startY
       const pages = [...tpl.pages]
       const page = { ...pages[pageIndex] }
       const blocks = [...page.blocks]
-      const nx = Math.max(0, Math.min(pageWidth - 20, baseX + dx))
-      const ny = Math.max(0, Math.min(pageHeight - 20, baseY + dy))
-      const sx = snap ? Math.round(nx / 10) * 10 : nx
-      const sy = snap ? Math.round(ny / 10) * 10 : ny
+      let nx = Math.max(0, Math.min(pageWidth - 20, baseX + dx))
+      let ny = Math.max(0, Math.min(pageHeight - 20, baseY + dy))
+      
+      // Smart Guides Logic
+      const threshold = 5
+      const guides: { type: 'x' | 'y', pos: number }[] = []
+      
+      // Snap X
+      let snappedX = false
+      // Center of moving block
+      const cx = nx + blockW / 2
+      
+      for (const ob of otherBlocks) {
+          const ocx = ob.x + ob.w / 2
+          
+          // Left align
+          if (Math.abs(nx - ob.x) < threshold) { nx = ob.x; guides.push({ type: 'x', pos: ob.x }); snappedX = true }
+          // Right align
+          else if (Math.abs((nx + blockW) - (ob.x + ob.w)) < threshold) { nx = (ob.x + ob.w) - blockW; guides.push({ type: 'x', pos: ob.x + ob.w }); snappedX = true }
+          // Left to Right
+          else if (Math.abs(nx - (ob.x + ob.w)) < threshold) { nx = ob.x + ob.w; guides.push({ type: 'x', pos: ob.x + ob.w }); snappedX = true }
+          // Right to Left
+          else if (Math.abs((nx + blockW) - ob.x) < threshold) { nx = ob.x - blockW; guides.push({ type: 'x', pos: ob.x }); snappedX = true }
+          // Center X
+          else if (Math.abs(cx - ocx) < threshold) { nx = ocx - blockW / 2; guides.push({ type: 'x', pos: ocx }); snappedX = true }
+          
+          if (snappedX) break
+      }
+
+      // Snap Y
+      let snappedY = false
+      const cy = ny + blockH / 2
+      
+      for (const ob of otherBlocks) {
+          const ocy = ob.y + ob.h / 2
+          
+          // Top align
+          if (Math.abs(ny - ob.y) < threshold) { ny = ob.y; guides.push({ type: 'y', pos: ob.y }); snappedY = true }
+          // Bottom align
+          else if (Math.abs((ny + blockH) - (ob.y + ob.h)) < threshold) { ny = (ob.y + ob.h) - blockH; guides.push({ type: 'y', pos: ob.y + ob.h }); snappedY = true }
+          // Top to Bottom
+          else if (Math.abs(ny - (ob.y + ob.h)) < threshold) { ny = ob.y + ob.h; guides.push({ type: 'y', pos: ob.y + ob.h }); snappedY = true }
+          // Bottom to Top
+          else if (Math.abs((ny + blockH) - ob.y) < threshold) { ny = ob.y - blockH; guides.push({ type: 'y', pos: ob.y }); snappedY = true }
+          // Center Y
+          else if (Math.abs(cy - ocy) < threshold) { ny = ocy - blockH / 2; guides.push({ type: 'y', pos: ocy }); snappedY = true }
+          
+          if (snappedY) break
+      }
+      
+      setActiveGuides(guides)
+
+      const sx = snap && !snappedX ? Math.round(nx / 10) * 10 : nx
+      const sy = snap && !snappedY ? Math.round(ny / 10) * 10 : ny
       blocks[idx] = { ...blocks[idx], props: { ...blocks[idx].props, x: sx, y: sy } }
       pages[pageIndex] = { ...page, blocks }
+      // Use setTpl here to avoid history spam, we save on Up
       setTpl({ ...tpl, pages })
     }
     const onUp = () => {
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
+      setActiveGuides([])
+      if (hasMoved) {
+          // Manually push the *previous* state to history before confirming the move?
+          // No, updateTpl pushes the *new* state to history.
+          // But wait, updateTpl pushes newTpl to history.
+          // So if we just called setTpl during drag, history wasn't updated.
+          // Now we need to update history with the final state.
+          // BUT, we need to push the state BEFORE drag to history first?
+          // My updateTpl implementation: pushes `newTpl` to history.
+          // This means `history` contains [state1, state2, state3].
+          // If I am at state3, and I drag, I want state3 to be in history, and new state4 to be current.
+          
+          // Current logic:
+          // updateTpl(newTpl):
+          //   history.push(newTpl) -> history = [s1, s2, s3, s4]
+          //   setTpl(newTpl) -> tpl = s4
+          
+          // But during drag, I called setTpl(s4_draft) repeatedly without history.
+          // So tpl IS s4_draft.
+          // If I call updateTpl(tpl) now:
+          //   history.push(tpl) -> history = [s1, s2, s3, s4]
+          //   setTpl(tpl)
+          
+          // Correct? Yes.
+          // But wait, `history` currently has [s1, s2, s3].
+          // tpl is s4.
+          // If I call updateTpl(tpl), it pushes s4.
+          // So if I undo, I go to s3.
+          // s3 is the state before drag? Yes, because we haven't pushed anything since s3.
+          // So this is correct.
+          
+          // One catch: My `updateTpl` implementation pushes `newTpl` to history.
+          // So history becomes [s1, s2, s3, s4].
+          // Undo -> index at s3. tpl = s3. Correct.
+          
+          // Wait, if I am at s3. tpl is s3.
+          // Drag starts. tpl becomes s3_modified.
+          // Drag ends. I call updateTpl(s3_modified).
+          // history becomes [s1, s2, s3, s3_modified].
+          // Undo -> index at s3. tpl = s3.
+          // Correct.
+          
+          // HOWEVER, I need to pass the *final* tpl from the closure?
+          // No, `tpl` in `onUp` refers to the `tpl` when `onDrag` started (closure).
+          // So `tpl` inside `onUp` is the OLD tpl.
+          // `setTpl` updates the state but `onUp` doesn't see it?
+          // `onDrag` closes over `tpl`.
+          // Inside `onMove`, we calculate `pages` based on `tpl` (closure) + `dx/dy`.
+          // So `pages` in `onMove` is correct relative to start.
+          
+          // We need to capture the final pages in `onUp`.
+          // But `onMove` variables are local to `onMove`.
+          // We can use a mutable ref or variable in outer scope of `onDrag`.
+      }
     }
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
+    
+    // We need to track the latest calculated state to save it on Up
+    // Since we can't easily access the result of onMove from onUp without shared var
+    // Re-implementing logic slightly
+    
+    // ... Actually, I can just use `setTpl` with a callback in `onMove`?
+    // No, `onMove` has the `nx, ny`.
+    // Let's use a ref or variable.
+    
+    // Better:
+    // Just re-calculate final position in onUp? No, mouse position might be different.
+    
+    // Let's use a temp variable in onDrag scope.
+    let finalTpl = tpl
+    
+    const onMoveWithCapture = (ev: MouseEvent) => {
+        const dx = ev.clientX - startX
+        const dy = ev.clientY - startY
+        const pages = [...tpl.pages]
+        const page = { ...pages[pageIndex] }
+        const blocks = [...page.blocks]
+        let nx = Math.max(0, Math.min(pageWidth - 20, baseX + dx))
+        let ny = Math.max(0, Math.min(pageHeight - 20, baseY + dy))
+        
+        // Smart Guides (Copy-paste logic from above or refactor? Copying for safety/speed within tool)
+        const threshold = 5
+        const guides: { type: 'x' | 'y', pos: number }[] = []
+        let snappedX = false
+        const cx = nx + blockW / 2
+        for (const ob of otherBlocks) {
+            const ocx = ob.x + ob.w / 2
+            if (Math.abs(nx - ob.x) < threshold) { nx = ob.x; guides.push({ type: 'x', pos: ob.x }); snappedX = true }
+            else if (Math.abs((nx + blockW) - (ob.x + ob.w)) < threshold) { nx = (ob.x + ob.w) - blockW; guides.push({ type: 'x', pos: ob.x + ob.w }); snappedX = true }
+            else if (Math.abs(nx - (ob.x + ob.w)) < threshold) { nx = ob.x + ob.w; guides.push({ type: 'x', pos: ob.x + ob.w }); snappedX = true }
+            else if (Math.abs((nx + blockW) - ob.x) < threshold) { nx = ob.x - blockW; guides.push({ type: 'x', pos: ob.x }); snappedX = true }
+            else if (Math.abs(cx - ocx) < threshold) { nx = ocx - blockW / 2; guides.push({ type: 'x', pos: ocx }); snappedX = true }
+            if (snappedX) break
+        }
+        let snappedY = false
+        const cy = ny + blockH / 2
+        for (const ob of otherBlocks) {
+            const ocy = ob.y + ob.h / 2
+            if (Math.abs(ny - ob.y) < threshold) { ny = ob.y; guides.push({ type: 'y', pos: ob.y }); snappedY = true }
+            else if (Math.abs((ny + blockH) - (ob.y + ob.h)) < threshold) { ny = (ob.y + ob.h) - blockH; guides.push({ type: 'y', pos: ob.y + ob.h }); snappedY = true }
+            else if (Math.abs(ny - (ob.y + ob.h)) < threshold) { ny = ob.y + ob.h; guides.push({ type: 'y', pos: ob.y + ob.h }); snappedY = true }
+            else if (Math.abs((ny + blockH) - ob.y) < threshold) { ny = ob.y - blockH; guides.push({ type: 'y', pos: ob.y }); snappedY = true }
+            else if (Math.abs(cy - ocy) < threshold) { ny = ocy - blockH / 2; guides.push({ type: 'y', pos: ocy }); snappedY = true }
+            if (snappedY) break
+        }
+        setActiveGuides(guides)
+
+        const sx = snap && !snappedX ? Math.round(nx / 10) * 10 : nx
+        const sy = snap && !snappedY ? Math.round(ny / 10) * 10 : ny
+        
+        blocks[idx] = { ...blocks[idx], props: { ...blocks[idx].props, x: sx, y: sy } }
+        pages[pageIndex] = { ...page, blocks }
+        finalTpl = { ...tpl, pages }
+        hasMoved = true
+        setTpl(finalTpl)
+    }
+
+    const onUpWithCapture = () => {
+        window.removeEventListener('mousemove', onMoveWithCapture)
+        window.removeEventListener('mouseup', onUpWithCapture)
+        setActiveGuides([])
+        if (hasMoved) {
+            updateTpl(finalTpl)
+        }
+    }
+
+    window.addEventListener('mousemove', onMoveWithCapture)
+    window.addEventListener('mouseup', onUpWithCapture)
   }
 
   const save = async () => {
@@ -259,8 +632,8 @@ export default function TemplateBuilder() {
     }
   }
 
-  const previewUrl = tpl._id && studentId ? `http://localhost:4000/pdf/student/${studentId}?templateId=${tpl._id}` : ''
-  const bulkUrl = tpl._id && classId ? `http://localhost:4000/pdf/class/${classId}/batch?templateId=${tpl._id}` : ''
+  const previewUrl = tpl._id && studentId ? `/pdf/student/${studentId}?templateId=${tpl._id}` : ''
+  const bulkUrl = tpl._id && classId ? `/pdf/class/${classId}/batch?templateId=${tpl._id}` : ''
 
   const refreshGallery = async () => { try { const r = await api.get('/media/list'); setGallery(r.data) } catch { } }
   const loadTemplates = async () => {
@@ -320,9 +693,19 @@ export default function TemplateBuilder() {
   }
 
   const deleteTemplate = async (id: string) => {
-    if (!window.confirm('Êtes-vous sûr de vouloir supprimer ce template ?')) return
+    const current = deleteConfirmations[id] || 0
+    if (current < 2) {
+      setDeleteConfirmations({ ...deleteConfirmations, [id]: current + 1 })
+      return
+    }
+
     try {
       await api.delete(`/templates/${id}`)
+      // Reset confirmation state
+      const newState = { ...deleteConfirmations }
+      delete newState[id]
+      setDeleteConfirmations(newState)
+      
       await loadTemplates()
     } catch (e) {
       setError('Erreur lors de la suppression')
@@ -361,21 +744,40 @@ export default function TemplateBuilder() {
               <h1 style={{ margin: 0, fontSize: 32, fontWeight: 700, color: '#fff', marginBottom: 8 }}>Bibliothèque Templates</h1>
               <p style={{ margin: 0, fontSize: 16, color: 'rgba(255,255,255,0.9)' }}>Créez et gérez vos modèles de livrets</p>
             </div>
-            <button 
-              className="btn" 
-              onClick={() => setShowCreateModal(true)}
-              style={{ 
-                background: '#fff', 
-                color: '#667eea', 
-                padding: '14px 28px',
-                fontSize: 16,
-                fontWeight: 600,
-                boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                border: 'none'
-              }}
-            >
-              ✨ Nouveau Template
-            </button>
+            <div>
+              <input type="file" ref={packageInputRef} style={{ display: 'none' }} accept=".zip" onChange={handlePackageImport} />
+              <button 
+                className="btn" 
+                onClick={() => packageInputRef.current?.click()}
+                style={{ 
+                  background: 'rgba(255,255,255,0.2)', 
+                  color: '#fff', 
+                  padding: '14px 28px',
+                  fontSize: 16,
+                  fontWeight: 600,
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                  border: '1px solid rgba(255,255,255,0.3)',
+                  marginRight: 16
+                }}
+              >
+                📥 Importer
+              </button>
+              <button 
+                className="btn" 
+                onClick={() => setShowCreateModal(true)}
+                style={{ 
+                  background: '#fff', 
+                  color: '#667eea', 
+                  padding: '14px 28px',
+                  fontSize: 16,
+                  fontWeight: 600,
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                  border: 'none'
+                }}
+              >
+                ✨ Nouveau Template
+              </button>
+            </div>
           </div>
         </div>
         
@@ -412,121 +814,169 @@ export default function TemplateBuilder() {
               <div 
                 key={item._id} 
                 className="card" 
+                onClick={() => { 
+                  setTpl(item); 
+                  setViewMode('edit'); 
+                  setSelectedPage(0); 
+                  setSelectedIndex(null) 
+                }}
                 style={{ 
                   display: 'flex', 
                   flexDirection: 'column', 
-                  minHeight: 220,
-                  transition: 'all 0.3s ease',
+                  minHeight: 280,
+                  transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
                   cursor: 'pointer',
-                  border: '2px solid #e9ecef',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: 16,
                   position: 'relative',
-                  overflow: 'hidden'
+                  overflow: 'hidden',
+                  background: '#fff',
+                  boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03)'
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.transform = 'translateY(-4px)'
-                  e.currentTarget.style.boxShadow = '0 12px 32px rgba(0,0,0,0.12)'
-                  e.currentTarget.style.borderColor = '#667eea'
+                  e.currentTarget.style.transform = 'translateY(-8px)'
+                  e.currentTarget.style.boxShadow = '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)'
+                  e.currentTarget.style.borderColor = '#cbd5e0'
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.transform = 'translateY(0)'
-                  e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)'
-                  e.currentTarget.style.borderColor = '#e9ecef'
+                  e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03)'
+                  e.currentTarget.style.borderColor = '#e2e8f0'
                 }}
               >
+                {/* Header Preview */}
                 <div style={{ 
-                  position: 'absolute', 
-                  top: 0, 
-                  left: 0, 
-                  right: 0, 
-                  height: 4, 
-                  background: 'linear-gradient(90deg, #667eea, #764ba2)'
-                }} />
-                
-                <div style={{ flex: 1, padding: '20px 24px' }}>
-                  <h3 style={{ 
-                    margin: '0 0 12px 0', 
-                    fontSize: 20, 
+                  height: 140, 
+                  background: 'linear-gradient(135deg, #e0c3fc 0%, #8ec5fc 100%)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  position: 'relative'
+                }}>
+                  <div style={{ fontSize: 48, filter: 'drop-shadow(0 4px 6px rgba(0,0,0,0.1))' }}>📄</div>
+                  <div style={{
+                    position: 'absolute',
+                    bottom: 12,
+                    right: 12,
+                    background: 'rgba(255,255,255,0.9)',
+                    padding: '4px 10px',
+                    borderRadius: 20,
+                    fontSize: 12,
                     fontWeight: 600,
-                    color: '#2d3436',
+                    color: '#4a5568',
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
+                  }}>
+                    {item.pages.length} Pages
+                  </div>
+                </div>
+                
+                {/* Content */}
+                <div style={{ flex: 1, padding: '20px 24px 12px' }}>
+                  <h3 style={{ 
+                    margin: '0 0 8px 0', 
+                    fontSize: 18, 
+                    fontWeight: 700,
+                    color: '#2d3748',
+                    lineHeight: 1.4,
                     overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap'
+                    display: '-webkit-box',
+                    WebkitLineClamp: 2,
+                    WebkitBoxOrient: 'vertical'
                   }}>
                     {item.name}
                   </h3>
-                  <div style={{ 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    gap: 16,
-                    fontSize: 14,
-                    color: '#6c757d'
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span style={{ fontSize: 18 }}>📄</span>
-                      <span>{item.pages.length} page{item.pages.length > 1 ? 's' : ''}</span>
-                    </div>
-                  </div>
+                  {item.updatedAt && (
+                    <p style={{ margin: 0, fontSize: 13, color: '#a0aec0' }}>
+                      Modifié le {new Date(item.updatedAt).toLocaleDateString()}
+                    </p>
+                  )}
                 </div>
 
+                {/* Footer Actions */}
                 <div style={{ 
-                  padding: '16px 24px', 
-                  background: '#f8f9fa',
-                  borderTop: '1px solid #e9ecef',
+                  padding: '12px 24px 20px', 
                   display: 'flex',
-                  gap: 8,
-                  justifyContent: 'flex-end'
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  marginTop: 'auto'
                 }}>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button 
+                      className="btn icon-btn" 
+                      onClick={(e) => { e.stopPropagation(); duplicateTemplate(item) }} 
+                      title="Dupliquer"
+                      style={{ 
+                        padding: 8,
+                        borderRadius: 8,
+                        background: '#f7fafc',
+                        border: '1px solid #e2e8f0',
+                        color: '#4a5568',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s'
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.background = '#edf2f7'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = '#f7fafc'}
+                    >
+                      📋
+                    </button>
+                    <button 
+                      className="btn icon-btn" 
+                      onClick={(e) => { e.stopPropagation(); item._id && downloadPackage(item._id) }} 
+                      title="Exporter"
+                      style={{ 
+                        padding: 8,
+                        borderRadius: 8,
+                        background: '#f7fafc',
+                        border: '1px solid #e2e8f0',
+                        color: '#4a5568',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s'
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.background = '#edf2f7'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = '#f7fafc'}
+                    >
+                      📦
+                    </button>
+                    <button 
+                      className="btn icon-btn" 
+                      onClick={(e) => { e.stopPropagation(); item._id && deleteTemplate(item._id) }} 
+                      title="Supprimer" 
+                      style={{ 
+                        padding: 8,
+                        borderRadius: 8,
+                        background: (deleteConfirmations[item._id!] || 0) > 0 ? '#e53e3e' : '#fff5f5',
+                        border: (deleteConfirmations[item._id!] || 0) > 0 ? '1px solid #c53030' : '1px solid #fed7d7',
+                        color: (deleteConfirmations[item._id!] || 0) > 0 ? '#fff' : '#e53e3e',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                        minWidth: (deleteConfirmations[item._id!] || 0) > 0 ? 100 : 40
+                      }}
+                      onMouseEnter={(e) => {
+                        if ((deleteConfirmations[item._id!] || 0) === 0) e.currentTarget.style.background = '#fed7d7'
+                      }}
+                      onMouseLeave={(e) => {
+                        if ((deleteConfirmations[item._id!] || 0) === 0) e.currentTarget.style.background = '#fff5f5'
+                      }}
+                    >
+                      {(deleteConfirmations[item._id!] || 0) === 0 ? '🗑️' : `Confirmer (${3 - (deleteConfirmations[item._id!] || 0)})`}
+                    </button>
+                  </div>
+                  
                   <button 
-                    className="btn secondary" 
-                    onClick={(e) => { e.stopPropagation(); duplicateTemplate(item) }} 
-                    title="Dupliquer"
                     style={{ 
                       padding: '8px 16px',
                       fontSize: 14,
-                      background: '#fff',
-                      border: '1px solid #dee2e6'
+                      fontWeight: 600,
+                      color: '#667eea',
+                      background: 'transparent',
+                      border: 'none',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6
                     }}
                   >
-                    📋 Dupliquer
-                  </button>
-                  <button 
-                    className="btn secondary" 
-                    onClick={(e) => { e.stopPropagation(); item._id && deleteTemplate(item._id) }} 
-                    title="Supprimer" 
-                    style={{ 
-                      padding: '8px 16px',
-                      fontSize: 14,
-                      background: '#fff',
-                      border: '1px solid #ffcdd2',
-                      color: '#dc3545'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = '#dc3545'
-                      e.currentTarget.style.color = '#fff'
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = '#fff'
-                      e.currentTarget.style.color = '#dc3545'
-                    }}
-                  >
-                    🗑️
-                  </button>
-                  <button 
-                    className="btn" 
-                    onClick={(e) => { 
-                      e.stopPropagation(); 
-                      setTpl(item); 
-                      setViewMode('edit'); 
-                      setSelectedPage(0); 
-                      setSelectedIndex(null) 
-                    }}
-                    style={{ 
-                      padding: '8px 20px',
-                      fontSize: 14,
-                      fontWeight: 600
-                    }}
-                  >
-                    ✏️ Éditer
+                    Éditer <span>→</span>
                   </button>
                 </div>
               </div>
@@ -604,6 +1054,58 @@ export default function TemplateBuilder() {
             </div>
           </div>
         )}
+
+        {/* Portals for List View */}
+        {saveStatus && createPortal(
+          <div style={{ 
+            position: 'fixed',
+            top: 24,
+            right: 24,
+            zIndex: 2147483647, // Max z-index
+            padding: '16px 24px', 
+            background: '#10b981', 
+            color: 'white', 
+            borderRadius: 8, 
+            fontWeight: 600, 
+            fontSize: 16,
+            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            maxWidth: 400,
+            border: '1px solid rgba(255,255,255,0.2)',
+            pointerEvents: 'none', // Allow clicking through
+          }}>
+            <span style={{ fontSize: 24 }}>✓</span> 
+            <span style={{ wordBreak: 'break-word', lineHeight: 1.4 }}>{saveStatus}</span>
+          </div>,
+          document.body
+        )}
+        {error && createPortal(
+          <div style={{ 
+            position: 'fixed',
+            top: 100, // Offset to avoid overlap
+            right: 24,
+            zIndex: 2147483647, // Max z-index
+            padding: '16px 24px', 
+            background: '#ef4444', 
+            color: 'white', 
+            borderRadius: 8, 
+            fontWeight: 600, 
+            fontSize: 16,
+            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            maxWidth: 400,
+            border: '1px solid rgba(255,255,255,0.2)',
+            pointerEvents: 'none',
+          }}>
+            <span style={{ fontSize: 24 }}>✗</span> 
+            <span style={{ wordBreak: 'break-word', lineHeight: 1.4 }}>{error}</span>
+          </div>,
+          document.body
+        )}
       </div>
     )
   }
@@ -634,6 +1136,34 @@ export default function TemplateBuilder() {
           >
             <span>←</span> Retour
           </button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button 
+                className="btn secondary" 
+                onClick={undo}
+                disabled={historyIndex <= 0}
+                title="Annuler (Ctrl+Z)"
+                style={{ 
+                    padding: '10px 14px',
+                    opacity: historyIndex <= 0 ? 0.5 : 1,
+                    cursor: historyIndex <= 0 ? 'not-allowed' : 'pointer'
+                }}
+            >
+                ↩️
+            </button>
+            <button 
+                className="btn secondary" 
+                onClick={redo}
+                disabled={historyIndex >= history.length - 1}
+                title="Rétablir (Ctrl+Y)"
+                style={{ 
+                    padding: '10px 14px',
+                    opacity: historyIndex >= history.length - 1 ? 0.5 : 1,
+                    cursor: historyIndex >= history.length - 1 ? 'not-allowed' : 'pointer'
+                }}
+            >
+                ↪️
+            </button>
+          </div>
           <div style={{ height: 32, width: 1, background: '#e0e0e0' }} />
           <div>
             <h2 style={{ margin: 0, fontSize: 22, fontWeight: 600, color: '#2d3436' }}>
@@ -669,40 +1199,56 @@ export default function TemplateBuilder() {
         </button>
       </div>
 
-      {/* Status Messages */}
-      {saveStatus && (
+      {/* Status Messages - Toast Notifications */}
+      {saveStatus && createPortal(
         <div style={{ 
-          padding: '14px 20px', 
-          background: 'linear-gradient(135deg, #10b981, #059669)', 
+          position: 'fixed',
+          top: 24,
+          right: 24,
+          zIndex: 2147483647, // Max z-index
+          padding: '16px 24px', 
+          background: '#10b981', 
           color: 'white', 
-          borderRadius: 12, 
-          marginBottom: 20, 
+          borderRadius: 8, 
           fontWeight: 600, 
-          fontSize: 15,
-          boxShadow: '0 4px 12px rgba(16, 185, 129, 0.3)',
+          fontSize: 16,
+          boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
           display: 'flex',
           alignItems: 'center',
-          gap: 10
+          gap: 12,
+          maxWidth: 400,
+          border: '1px solid rgba(255,255,255,0.2)',
+          pointerEvents: 'none', // Allow clicking through
         }}>
-          <span style={{ fontSize: 20 }}>✓</span> {saveStatus}
-        </div>
+          <span style={{ fontSize: 24 }}>✓</span> 
+          <span style={{ wordBreak: 'break-word', lineHeight: 1.4 }}>{saveStatus}</span>
+        </div>,
+        document.body
       )}
-      {error && (
+      {error && createPortal(
         <div style={{ 
-          padding: '14px 20px', 
-          background: 'linear-gradient(135deg, #ef4444, #dc2626)', 
+          position: 'fixed',
+          top: 100, // Offset to avoid overlap
+          right: 24,
+          zIndex: 2147483647, // Max z-index
+          padding: '16px 24px', 
+          background: '#ef4444', 
           color: 'white', 
-          borderRadius: 12, 
-          marginBottom: 20, 
+          borderRadius: 8, 
           fontWeight: 600, 
-          fontSize: 15,
-          boxShadow: '0 4px 12px rgba(239, 68, 68, 0.3)',
+          fontSize: 16,
+          boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
           display: 'flex',
           alignItems: 'center',
-          gap: 10
+          gap: 12,
+          maxWidth: 400,
+          border: '1px solid rgba(255,255,255,0.2)',
+          pointerEvents: 'none',
         }}>
-          <span style={{ fontSize: 20 }}>✗</span> {error}
-        </div>
+          <span style={{ fontSize: 24 }}>✗</span> 
+          <span style={{ wordBreak: 'break-word', lineHeight: 1.4 }}>{error}</span>
+        </div>,
+        document.body
       )}
 
       {/* Main Controls */}
@@ -976,11 +1522,7 @@ export default function TemplateBuilder() {
                 const blob = new Blob([JSON.stringify(tpl)], { type: 'application/json' })
                 const fd = new FormData()
                 fd.append('file', new File([blob], `${tpl.name || 'template'}.json`, { type: 'application/json' }))
-                await fetch('http://localhost:4000/media/upload?folder=gradebook-templates', { 
-                  method: 'POST', 
-                  headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` }, 
-                  body: fd 
-                })
+                await api.post('/media/upload?folder=gradebook-templates', fd)
                 setSaveStatus('Modèle enregistré dans médias avec succès')
                 setTimeout(() => setSaveStatus(''), 3000)
               }}
@@ -1792,6 +2334,22 @@ export default function TemplateBuilder() {
                     onClick={() => setSelectedPage(pageIndex)}
                   >
                     <div className="page-margins" />
+                  {/* Guides */}
+                  {activeGuides.map((g, i) => (
+                      <div 
+                          key={i}
+                          style={{
+                              position: 'absolute',
+                              left: g.type === 'x' ? g.pos : 0,
+                              top: g.type === 'y' ? g.pos : 0,
+                              width: g.type === 'x' ? 1 : '100%',
+                              height: g.type === 'y' ? 1 : '100%',
+                              background: '#ff0055',
+                              zIndex: 1000,
+                              pointerEvents: 'none'
+                          }}
+                      />
+                  ))}
                   {page.blocks.map((b, idx) => {
                     const isSelected = selectedIndex === idx && selectedPage === pageIndex
                     return (
@@ -1825,12 +2383,12 @@ export default function TemplateBuilder() {
                           }
                         }}
                       >
-                {b.type === 'text' && <div style={{ color: b.props.color, fontSize: b.props.fontSize }}>{b.props.text}</div>}
+                {b.type === 'text' && <div style={{ color: b.props.color, fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden', whiteSpace: 'pre-wrap' }}>{b.props.text}</div>}
                 {b.type === 'image' && <img src={b.props.url} style={{ width: b.props.width || 120, height: b.props.height || 120, borderRadius: 8 }} />}
                 {b.type === 'rect' && <div style={{ width: b.props.width, height: b.props.height, background: b.props.color, borderRadius: b.props.radius || 8, border: b.props.stroke ? `${b.props.strokeWidth || 1}px solid ${b.props.stroke}` : 'none' }} />}
                 {b.type === 'circle' && <div style={{ width: (b.props.radius || 60) * 2, height: (b.props.radius || 60) * 2, background: b.props.color, borderRadius: '50%', border: b.props.stroke ? `${b.props.strokeWidth || 1}px solid ${b.props.stroke}` : 'none' }} />}
                 {b.type === 'language_toggle' && (
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: b.props.spacing || 12 }}>
+                  <div style={{ display: 'flex', flexDirection: (b.props.direction as any) || 'column', alignItems: 'center', gap: b.props.spacing || 12 }}>
                     {(b.props.items || []).map((it: any, i: number) => {
                       const r = b.props.radius || 40
                       const size = r * 2
@@ -1838,7 +2396,7 @@ export default function TemplateBuilder() {
                         <div key={i} style={{ width: size, height: size, borderRadius: '50%', overflow: 'hidden', position: 'relative', cursor: 'pointer', boxShadow: it.active ? '0 0 0 2px #6c5ce7' : 'none' }}
                           onClick={(ev) => { ev.stopPropagation(); const pages = [...tpl.pages]; const page = { ...pages[selectedPage] }; const blocks = [...page.blocks]; const items = [...(blocks[idx].props.items || [])]; items[i] = { ...items[i], active: !items[i].active }; blocks[idx] = { ...blocks[idx], props: { ...blocks[idx].props, items } }; pages[selectedPage] = { ...page, blocks }; setTpl({ ...tpl, pages }) }}>
                           {it.logo ? <img src={it.logo} style={{ width: '100%', height: '100%', objectFit: 'cover', filter: it.active ? 'brightness(1.1)' : 'brightness(0.6)' }} /> : <div style={{ width: '100%', height: '100%', background: '#ddd' }} />}
-                          <div style={{ position: 'absolute', bottom: 2, left: 0, right: 0, textAlign: 'center', fontSize: 10, color: '#fff', textShadow: '0 1px 2px rgba(0,0,0,0.6)' }}>{it.label || it.code}</div>
+                          <div style={{ position: 'absolute', bottom: 2, left: 0, right: 0, textAlign: 'center', fontSize: b.props.fontSize || 10, color: '#fff', textShadow: '0 1px 2px rgba(0,0,0,0.6)' }}>{it.label || it.code}</div>
                         </div>
                       )
                     })}
@@ -1846,7 +2404,7 @@ export default function TemplateBuilder() {
                 )}
                 {b.type === 'line' && <div style={{ width: b.props.x2 || 100, height: b.props.strokeWidth || 2, background: b.props.stroke || '#b2bec3' }} />}
                 {b.type === 'arrow' && <div style={{ width: b.props.x2 || 100, height: b.props.strokeWidth || 2, background: b.props.stroke || '#6c5ce7', position: 'relative' }}><div style={{ position: 'absolute', right: 0, top: -6, width: 0, height: 0, borderTop: '8px solid transparent', borderBottom: '8px solid transparent', borderLeft: `12px solid ${b.props.stroke || '#6c5ce7'}` }} /></div>}
-                {b.type === 'dynamic_text' && <div style={{ color: b.props.color, fontSize: b.props.fontSize }}>{(() => {
+                {b.type === 'dynamic_text' && <div style={{ color: b.props.color, fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden', whiteSpace: 'pre-wrap' }}>{(() => {
                   let text = b.props.text || ''
                   if (studentId) {
                     const s = students.find(st => st._id === studentId)
@@ -1859,16 +2417,16 @@ export default function TemplateBuilder() {
                   })
                   return text
                 })()}</div>}
-                {b.type === 'student_info' && <div style={{ color: b.props.color, fontSize: b.props.fontSize }}>{(() => {
+                {b.type === 'student_info' && <div style={{ color: b.props.color, fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden' }}>{(() => {
                   if (studentId) {
                     const s = students.find(st => st._id === studentId) as any
                     if (s) return `${s.firstName} ${s.lastName}, ${s.className || 'Classe'}, ${s.dateOfBirth ? new Date(s.dateOfBirth).toLocaleDateString() : 'Date'}`
                   }
                   return 'Nom, Classe, Naissance'
                 })()}</div>}
-                {b.type === 'category_title' && <div style={{ color: b.props.color, fontSize: b.props.fontSize }}>Titre catégorie</div>}
-                {b.type === 'competency_list' && <div style={{ color: b.props.color, fontSize: b.props.fontSize }}>Liste des compétences</div>}
-                {b.type === 'signature' && <div style={{ fontSize: b.props.fontSize }}>{(b.props.labels || []).join(' / ')}</div>}
+                {b.type === 'category_title' && <div style={{ color: b.props.color, fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden' }}>Titre catégorie</div>}
+                {b.type === 'competency_list' && <div style={{ color: b.props.color, fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden' }}>Liste des compétences</div>}
+                {b.type === 'signature' && <div style={{ fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden' }}>{(b.props.labels || []).join(' / ')}</div>}
                 {b.type === 'signature_box' && (
                   <div style={{ 
                     width: b.props.width || 200, 
@@ -2120,7 +2678,7 @@ export default function TemplateBuilder() {
                     )
                   })()
                 )}
-                {(b.type === 'image' || b.type === 'text') && selectedIndex === idx && selectedPage === pageIndex && (
+                {['image', 'text', 'dynamic_text', 'student_info', 'category_title', 'competency_list', 'signature', 'signature_box', 'promotion_info', 'language_toggle'].includes(b.type) && selectedIndex === idx && selectedPage === pageIndex && (
                   <>
                     {['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'].map((dir) => {
                       const style: React.CSSProperties = {
@@ -2140,8 +2698,8 @@ export default function TemplateBuilder() {
                             ev.stopPropagation()
                             const startX = ev.clientX
                             const startY = ev.clientY
-                            const startW = b.props.width || (b.type === 'text' ? 120 : 120)
-                            const startH = b.props.height || (b.type === 'text' ? 60 : 120)
+                            const startW = b.props.width || (b.type === 'text' ? 120 : (b.type === 'language_toggle' ? 80 : 120))
+                            const startH = b.props.height || (b.type === 'text' ? 60 : (b.type === 'language_toggle' ? 200 : 120))
                             const startXPos = b.props.x || 0
                             const startYPos = b.props.y || 0
 
@@ -2164,7 +2722,12 @@ export default function TemplateBuilder() {
                                 newY = startYPos + (startH - newH)
                               }
 
-                              updateSelected({ width: newW, height: newH, x: newX, y: newY })
+                              const patch: any = { width: newW, height: newH, x: newX, y: newY }
+                              if (b.type === 'language_toggle') {
+                                const isVertical = (b.props.direction || 'column') === 'column'
+                                patch.radius = isVertical ? newW / 2 : newH / 2
+                              }
+                              updateSelected(patch)
                             }
                             const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
                             window.addEventListener('mousemove', onMove)
@@ -2585,15 +3148,15 @@ export default function TemplateBuilder() {
                             fd.append('file', f)
                             const r = await fetch('http://localhost:4000/media/upload', { method: 'POST', headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` }, body: fd })
                             const data = await r.json()
-                            if (data?.url) { updateSelected({ url: `http://localhost:4000${data.url}` }); await refreshGallery() }
+                            if (data?.url) { updateSelected({ url: data.url }); await refreshGallery() }
                           }} 
                         />
                       </label>
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
                       {gallery.filter(u => u.type === 'file').map(u => (
-                        <div key={u.path} className="card" style={{ padding: 4, cursor: 'pointer' }} onClick={() => updateSelected({ url: `http://localhost:4000/uploads${u.path}` })}>
-                          <img src={`http://localhost:4000/uploads${u.path}`} style={{ width: '100%', height: 80, objectFit: 'cover', borderRadius: 6 }} />
+                        <div key={u.path} className="card" style={{ padding: 4, cursor: 'pointer' }} onClick={() => updateSelected({ url: `/uploads${u.path}` })}>
+                          <img src={`/uploads${u.path}`} style={{ width: '100%', height: 80, objectFit: 'cover', borderRadius: 6 }} />
                           <div className="note" style={{ fontSize: 10, marginTop: 4 }}>{u.name}</div>
                         </div>
                       ))}
@@ -2602,9 +3165,49 @@ export default function TemplateBuilder() {
                 )}
                 {tpl.pages[selectedPage].blocks[selectedIndex].type === 'table' && (
                   <div style={{ display: 'grid', gap: 8 }}>
-                    <div className="note">Table</div>
+                    <div style={{ padding: '12px', background: '#f8f9fa', borderRadius: 8, marginBottom: 4 }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: '#6c757d', marginBottom: 8, textTransform: 'uppercase' }}>
+                            Style Global
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                             <div>
+                                <label style={{ fontSize: 11, display: 'block', marginBottom: 4, fontWeight: 600, color: '#6c757d' }}>Taille Police</label>
+                                <input 
+                                    type="number" 
+                                    placeholder="Ex: 12"
+                                    onChange={(e) => {
+                                        const newSize = Number(e.target.value);
+                                        if (newSize > 0) {
+                                            updateSelectedTable(p => ({
+                                                ...p,
+                                                cells: (p.cells || []).map((row: any[]) => 
+                                                    row.map((cell: any) => ({ ...cell, fontSize: newSize }))
+                                                )
+                                            }))
+                                        }
+                                    }}
+                                    style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '2px solid #e9ecef', fontSize: 13 }}
+                                />
+                             </div>
+                             <div>
+                                <label style={{ fontSize: 11, display: 'block', marginBottom: 4, fontWeight: 600, color: '#6c757d' }}>Couleur</label>
+                                <input 
+                                    type="color" 
+                                    onChange={(e) => {
+                                        updateSelectedTable(p => ({
+                                            ...p,
+                                            cells: (p.cells || []).map((row: any[]) => 
+                                                row.map((cell: any) => ({ ...cell, color: e.target.value }))
+                                            )
+                                        }))
+                                    }}
+                                    style={{ width: '100%', height: 38, padding: 4, borderRadius: 6, border: '2px solid #e9ecef', cursor: 'pointer' }}
+                                />
+                             </div>
+                        </div>
+                    </div>
                     <div>
-                      <div className="note">Colonnes</div>
+                    <div className="note">Colonnes</div>
                       {(tpl.pages[selectedPage].blocks[selectedIndex].props.columnWidths || []).map((w: number, i: number) => (
                         <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                           <div>#{i + 1}</div>
@@ -2781,8 +3384,31 @@ export default function TemplateBuilder() {
                 )}
                 {tpl.pages[selectedPage].blocks[selectedIndex].type === 'language_toggle' && (
                   <div style={{ display: 'grid', gap: 8 }}>
-                    <input placeholder="Rayon" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.radius || 40} onChange={e => updateSelected({ radius: Number(e.target.value) })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
-                    <input placeholder="Espacement" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.spacing || 12} onChange={e => updateSelected({ spacing: Number(e.target.value) })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+                    <div style={{ display: 'flex', gap: 8 }}>
+                        <div style={{ flex: 1 }}>
+                            <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Rayon</label>
+                            <input placeholder="Rayon" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.radius || 40} onChange={e => updateSelected({ radius: Number(e.target.value) })} style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                            <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Espace</label>
+                            <input placeholder="Espacement" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.spacing || 12} onChange={e => updateSelected({ spacing: Number(e.target.value) })} style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+                        </div>
+                    </div>
+                    <div>
+                        <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Taille Police</label>
+                        <input placeholder="Taille" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.fontSize || 10} onChange={e => updateSelected({ fontSize: Number(e.target.value) })} style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+                    </div>
+                    <div>
+                        <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Direction</label>
+                        <select 
+                            value={tpl.pages[selectedPage].blocks[selectedIndex].props.direction || 'column'} 
+                            onChange={e => updateSelected({ direction: e.target.value })} 
+                            style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #ddd' }}
+                        >
+                            <option value="column">Vertical</option>
+                            <option value="row">Horizontal</option>
+                        </select>
+                    </div>
                     <div className="note">Langues ({(tpl.pages[selectedPage].blocks[selectedIndex].props.items || []).length})</div>
                     {((tpl.pages[selectedPage].blocks[selectedIndex].props.items || []) as any[]).map((it: any, i: number) => (
                       <div key={i} className="card" style={{ padding: 8, background: '#f9f9f9' }}>
