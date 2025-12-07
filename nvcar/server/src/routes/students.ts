@@ -45,7 +45,12 @@ studentsRouter.get('/', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), async (re
   const out = students.map(s => {
     const enr = enrollByStudent[String(s._id)]
     const cls = enr && enr.classId ? classMap[enr.classId] : null
-    return { ...s, classId: enr ? enr.classId : undefined, className: cls ? cls.name : undefined, level: cls ? cls.level : s.level }
+    return { 
+      ...s, 
+      classId: enr ? enr.classId : undefined, 
+      className: cls ? cls.name : undefined, 
+      level: cls ? cls.level : s.level 
+    }
   })
   res.json(out)
 })

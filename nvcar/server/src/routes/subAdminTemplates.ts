@@ -1,4 +1,5 @@
 import { Router } from 'express'
+import { signTemplateAssignment, unsignTemplateAssignment } from '../services/signatureService'
 import { requireAuth } from '../auth'
 import { SubAdminAssignment } from '../models/SubAdminAssignment'
 import { TemplateAssignment } from '../models/TemplateAssignment'
@@ -572,11 +573,19 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote', require
         if (currentSchoolYearId && enrollment) {
             const statuses = await StudentCompetencyStatus.find({ studentId: student._id }).lean()
             
+            // Get Class Name for Snapshot
+            let snapshotClassName = ''
+            if (enrollment.classId) {
+                const cls = await ClassModel.findById(enrollment.classId).lean()
+                if (cls) snapshotClassName = cls.name
+            }
+
             const snapshotData = {
                 student: student.toObject ? student.toObject() : student,
                 enrollment: enrollment,
                 statuses: statuses,
-                assignment: assignment
+                assignment: assignment,
+                className: snapshotClassName // Explicitly save class name
             }
 
             await SavedGradebook.create({
@@ -799,93 +808,21 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', requireAut
             }
         }
 
-        // Create signature
-        const signature = await TemplateSignature.create({
-            templateAssignmentId,
-            subAdminId,
-            signedAt: new Date(),
-            status: 'signed',
-            type
-        })
+        try {
+            const signature = await signTemplateAssignment({
+                templateAssignmentId,
+                signerId: subAdminId,
+                type: type as any,
+                req
+            })
 
-        // Update assignment status (only if standard signature, or maybe always?)
-        // Let's keep it simple: if any signature is added, we can consider it signed, 
-        // but usually the standard one is the main one. 
-        // If we sign 'end_of_year', we probably also want to mark it as signed if not already.
-        
-        // If this is a final signature, promote the student if not already promoted
-        if (type === 'end_of_year') {
-            const student = await Student.findById(assignment.studentId)
-            if (student && student.level) {
-                const getNextLevel = (current: string) => {
-                    const c = current.toUpperCase()
-                    if (c === 'TPS') return 'PS'
-                    if (c === 'PS') return 'MS'
-                    if (c === 'MS') return 'GS'
-                    if (c === 'GS') return 'EB1'
-                    if (c === 'KG1') return 'KG2'
-                    if (c === 'KG2') return 'KG3'
-                    if (c === 'KG3') return 'EB1'
-                    return null
-                }
-                
-                const nextLevel = getNextLevel(student.level)
-                const activeSchoolYear = await SchoolYear.findOne({ active: true }).lean()
-                
-                if (nextLevel && activeSchoolYear) {
-                    // Check if already promoted this year
-                    const alreadyPromoted = student.promotions?.some((p: any) => p.schoolYearId === String(activeSchoolYear._id))
-                    
-                    if (!alreadyPromoted) {
-                        // Create promotion data
-                        const promotionData = {
-                            fromLevel: student.level,
-                            toLevel: nextLevel,
-                            date: new Date(),
-                            schoolYearId: String(activeSchoolYear._id),
-                            promotedBy: subAdminId
-                        }
-                        
-                        // Update student
-                        await Student.findByIdAndUpdate(student._id, {
-                            $push: { promotions: promotionData }
-                        })
-                        
-                        // Also save promotion info in the assignment data so it persists
-                        await TemplateAssignment.findByIdAndUpdate(templateAssignmentId, {
-                            $push: { 
-                                'data.promotions': {
-                                    from: student.level,
-                                    to: nextLevel,
-                                    year: new Date().getFullYear(), // or academic year name
-                                    date: new Date(),
-                                    by: subAdminId
-                                }
-                            }
-                        })
-                    }
-                }
-            }
+        } catch (e: any) {
+            if (e.message === 'already_signed') return res.status(400).json({ error: 'already_signed' })
+            if (e.message === 'not_found') return res.status(404).json({ error: 'not_found' })
+            throw e
         }
 
-        await TemplateAssignment.findByIdAndUpdate(templateAssignmentId, { status: 'signed' })
-
-        // Log audit
-        const template = await GradebookTemplate.findById(assignment.templateId).lean()
-        const student = await Student.findById(assignment.studentId).lean()
-        await logAudit({
-            userId: subAdminId,
-            action: 'SIGN_TEMPLATE',
-            details: {
-                templateId: assignment.templateId,
-                templateName: template?.name,
-                studentId: assignment.studentId,
-                studentName: student ? `${student.firstName} ${student.lastName}` : 'Unknown',
-            },
-            req,
-        })
-
-        res.json(signature)
+        res.json({ ok: true })
     } catch (e: any) {
         res.status(500).json({ error: 'sign_failed', message: e.message })
     }
@@ -950,95 +887,18 @@ subAdminTemplatesRouter.delete('/templates/:templateAssignmentId/sign', requireA
 
         const type = req.body.type || req.query.type || 'standard'
 
-        // Check if signed
-        const existing = await TemplateSignature.findOne({ templateAssignmentId, type }).lean()
-        if (!existing) {
-            return res.status(400).json({ error: 'not_signed' })
-        }
-
-        // Delete signature
-        await TemplateSignature.deleteOne({ templateAssignmentId, type })
-
-        // Check if any signature remains
-        const remaining = await TemplateSignature.countDocuments({ templateAssignmentId })
-        if (remaining === 0) {
-            // Update assignment status back to completed
-            await TemplateAssignment.findByIdAndUpdate(templateAssignmentId, { status: 'completed' })
-        }
-
-        // If removing end_of_year signature, we should also remove the promotion data from the assignment
-        // Note: We don't revert the student level promotion itself because that might have other side effects,
-        // but we remove the display data from the gradebook.
-        if (type === 'end_of_year') {
-             await TemplateAssignment.findByIdAndUpdate(templateAssignmentId, {
-                $pull: { 
-                    'data.promotions': {
-                        // We can match by date or just remove the last one? 
-                        // Safest is to remove where 'by' is this subAdmin or just pull by structure
-                        // Since we pushed a specific object structure, let's try to pull it
-                        // However, $pull needs to match.
-                        // A simpler way is to filter the array.
-                    }
-                }
+        try {
+            await unsignTemplateAssignment({
+                templateAssignmentId,
+                signerId: subAdminId,
+                type,
+                req
             })
-            
-            // Actually, simpler: fetch, filter, save.
-            const currentAssignment = await TemplateAssignment.findById(templateAssignmentId)
-            if (currentAssignment && currentAssignment.data && currentAssignment.data.promotions) {
-                const newPromotions = currentAssignment.data.promotions.filter((p: any) => p.to !== 'REMOVED_LEVEL') 
-                // Since we don't know the exact level easily here without fetching student, 
-                // and we might have multiple promotions (rare but possible in testing),
-                // let's just remove the one corresponding to this year/action if possible.
-                // For now, let's just say we remove the promotion entry that matches the current active year if we can find it.
-                // OR, maybe we don't remove it? The user asked "data inserted should stay ... if a un-sign was not clicked".
-                // Wait, the user said: "once the signature was clicked the data inserted should stay ... and NOT removed IF a un-sign was NOT clicked"
-                // This implies: IF un-sign IS clicked, it SHOULD be removed.
-                // So yes, we should remove it here.
-                
-                // Let's just remove the last promotion added by this user?
-                // For simplicity and safety, let's remove the promotion data that corresponds to the student's current next level potential.
-                // But we don't have student here easily without fetching.
-                // Let's fetch student.
-                const s = await Student.findById(assignment.studentId)
-                if (s) {
-                     // We can try to remove the promotion from assignment data
-                     // We'll filter out promotions where 'by' is this user and date is recent?
-                     // Or just leave it. The prompt says "not removed if un-sign was NOT clicked". 
-                     // Meaning: It IS removed if un-sign IS clicked.
-                     
-                     // Let's clean up the assignment data
-                     if (currentAssignment.data.promotions) {
-                         // Remove the promotion entry for this year/action
-                         // We can't easily identify it without an ID. 
-                         // Let's just pop the last one? Or filter by 'by' field if we added it.
-                         const updatedPromotions = currentAssignment.data.promotions.filter((p: any) => p.by !== subAdminId)
-                         await TemplateAssignment.findByIdAndUpdate(templateAssignmentId, {
-                             $set: { 'data.promotions': updatedPromotions }
-                         })
-                     }
-                     
-                     // We also optionally revert the student profile promotion?
-                     // That might be dangerous if they did other things. 
-                     // Let's stick to removing the gradebook display data.
-                }
-            }
+
+        } catch (e: any) {
+            if (e.message === 'not_found') return res.status(404).json({ error: 'not_found' })
+            throw e
         }
-
-        // Log audit
-        const template = await GradebookTemplate.findById(assignment.templateId).lean()
-        const student = await Student.findById(assignment.studentId).lean()
-        await logAudit({
-            userId: subAdminId,
-            action: 'UNSIGN_TEMPLATE',
-            details: {
-                templateId: assignment.templateId,
-                templateName: template?.name,
-                studentId: assignment.studentId,
-                studentName: student ? `${student.firstName} ${student.lastName}` : 'Unknown',
-            },
-            req,
-        })
-
         res.json({ ok: true })
     } catch (e: any) {
         res.status(500).json({ error: 'unsign_failed', message: e.message })
@@ -1121,13 +981,26 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
         
         const isSignedByMe = signature && signature.subAdminId === subAdminId
 
-        // Get student level
+        // Get student level and class name
         let level = student?.level || ''
+        let className = ''
         if (student) {
-            const enrollment = await Enrollment.findOne({ studentId: assignment.studentId }).lean()
-            if (enrollment && enrollment.classId) {
-                const classDoc = await ClassModel.findById(enrollment.classId).lean()
-                if (classDoc) level = classDoc.level || ''
+            // Get active school year to ensure we get the CURRENT enrollment
+            const activeSchoolYear = await SchoolYear.findOne({ active: true }).lean()
+            if (activeSchoolYear) {
+                 const enrollment = await Enrollment.findOne({ 
+                     studentId: assignment.studentId,
+                     schoolYearId: activeSchoolYear._id,
+                     status: 'active'
+                 }).lean()
+                 
+                 if (enrollment && enrollment.classId) {
+                     const classDoc = await ClassModel.findById(enrollment.classId).lean()
+                     if (classDoc) {
+                         level = classDoc.level || student.level || ''
+                         className = classDoc.name || ''
+                     }
+                 }
             }
         }
 
@@ -1157,7 +1030,7 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
         res.json({
             assignment,
             template: versionedTemplate,
-            student: { ...student, level },
+            student: { ...student, level, className },
             signature,
             finalSignature,
             isSignedByMe,

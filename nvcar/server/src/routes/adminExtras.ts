@@ -13,6 +13,7 @@ import { SubAdminAssignment } from '../models/SubAdminAssignment'
 import { TemplateSignature } from '../models/TemplateSignature'
 import { Student } from '../models/Student'
 import { AdminSignature } from '../models/AdminSignature'
+import { signTemplateAssignment, unsignTemplateAssignment } from '../services/signatureService'
 
 export const adminExtrasRouter = Router()
 
@@ -350,35 +351,23 @@ adminExtrasRouter.post('/templates/:templateAssignmentId/sign', requireAuth(['AD
         const { templateAssignmentId } = req.params
         const { type = 'standard' } = req.body
 
-        // Get the template assignment
-        const assignment = await TemplateAssignment.findById(templateAssignmentId)
-        if (!assignment) return res.status(404).json({ error: 'not_found' })
-
-        // Check if already signed
-        const existing = await TemplateSignature.findOne({ templateAssignmentId, type }).lean()
-        if (existing) {
-            return res.status(400).json({ error: 'already_signed' })
-        }
-
         // Get active admin signature
         const activeSig = await AdminSignature.findOne({ isActive: true }).lean()
 
-        // Create signature
-        const signature = await TemplateSignature.create({
-            templateAssignmentId,
-            subAdminId: adminId,
-            signedAt: new Date(),
-            type,
-            signatureUrl: activeSig ? activeSig.dataUrl : undefined
-        })
-
-        // Update assignment status if needed
-        if (assignment.status !== 'signed') {
-            assignment.status = 'signed'
-            await assignment.save()
+        try {
+            const signature = await signTemplateAssignment({
+                templateAssignmentId,
+                signerId: adminId,
+                type: type as any,
+                signatureUrl: activeSig ? activeSig.dataUrl : undefined,
+                req
+            })
+            res.json(signature)
+        } catch (e: any) {
+            if (e.message === 'already_signed') return res.status(400).json({ error: 'already_signed' })
+            if (e.message === 'not_found') return res.status(404).json({ error: 'not_found' })
+            throw e
         }
-
-        res.json(signature)
     } catch (e: any) {
         res.status(500).json({ error: 'sign_failed', message: e.message })
     }
@@ -390,18 +379,18 @@ adminExtrasRouter.delete('/templates/:templateAssignmentId/sign', requireAuth(['
         const { templateAssignmentId } = req.params
         const { type } = req.body
 
-        const query: any = { templateAssignmentId }
-        if (type) query.type = type
-
-        await TemplateSignature.deleteMany(query)
-
-        // Check if any signatures remain
-        const remaining = await TemplateSignature.countDocuments({ templateAssignmentId })
-        if (remaining === 0) {
-            await TemplateAssignment.findByIdAndUpdate(templateAssignmentId, { status: 'completed' })
+        try {
+            await unsignTemplateAssignment({
+                templateAssignmentId,
+                signerId: (req as any).user.userId,
+                type,
+                req
+            })
+            res.json({ success: true })
+        } catch (e: any) {
+            if (e.message === 'not_found') return res.status(404).json({ error: 'not_found' })
+            throw e
         }
-
-        res.json({ success: true })
     } catch (e: any) {
         res.status(500).json({ error: 'unsign_failed', message: e.message })
     }
@@ -492,9 +481,23 @@ adminExtrasRouter.get('/templates/:templateAssignmentId/review', requireAuth(['A
         // Check if promoted
         const isPromoted = student?.promotions?.some((p: any) => p.schoolYearId === String(activeSchoolYear?._id))
 
+        // Enrich student with current class level and name for accurate display
+        let level = student?.level || ''
+        let className = ''
+        if (student) {
+            const enrollment = await Enrollment.findOne({ studentId: assignment.studentId, status: 'active' }).lean()
+            if (enrollment && enrollment.classId) {
+                const classDoc = await ClassModel.findById(enrollment.classId).lean()
+                if (classDoc) {
+                    level = classDoc.level || level
+                    className = classDoc.name || ''
+                }
+            }
+        }
+
         res.json({
             template: versionedTemplate,
-            student,
+            student: { ...student, level, className },
             assignment,
             signature,
             finalSignature,
