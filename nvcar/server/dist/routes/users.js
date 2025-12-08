@@ -82,6 +82,17 @@ exports.usersRouter.patch('/:id/password', (0, auth_1.requireAuth)(['ADMIN']), a
     await user.save();
     res.json({ ok: true });
 });
+exports.usersRouter.patch('/:id', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
+    const { id } = req.params;
+    const { displayName } = req.body;
+    const user = await User_1.User.findById(id);
+    if (!user)
+        return res.status(404).json({ error: 'not_found' });
+    if (displayName !== undefined)
+        user.displayName = displayName;
+    await user.save();
+    res.json(user);
+});
 exports.usersRouter.delete('/:id', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
     const { id } = req.params;
     const user = await User_1.User.findByIdAndDelete(id);

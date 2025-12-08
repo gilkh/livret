@@ -11,6 +11,7 @@ process.on('unhandledRejection', (reason, promise) => {
     console.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });
 const app_1 = require("./app");
+const repair_1 = require("./routes/repair");
 const os_1 = __importDefault(require("os"));
 const socket_1 = require("./socket");
 const https_1 = __importDefault(require("https"));
@@ -19,6 +20,7 @@ const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 const port = process.env.PORT ? Number(process.env.PORT) : 4000;
 const app = (0, app_1.createApp)();
+app.use('/api/repair', repair_1.repairRouter);
 let server;
 try {
     // Look for certs in ../certs relative to project root (server folder)

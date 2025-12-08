@@ -15,6 +15,7 @@ import { ClassModel } from '../models/Class'
 import { RoleScope } from '../models/RoleScope'
 import { SchoolYear } from '../models/SchoolYear'
 import { Level } from '../models/Level'
+import { Setting } from '../models/Setting'
 import { SavedGradebook } from '../models/SavedGradebook'
 import { StudentCompetencyStatus } from '../models/StudentCompetencyStatus'
 import { logAudit } from '../utils/auditLogger'
@@ -749,6 +750,7 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', requireAut
         const assignment = await TemplateAssignment.findById(templateAssignmentId).lean()
         if (!assignment) return res.status(404).json({ error: 'not_found' })
 
+        const { type = 'standard' } = req.body
         const bypassScopes = (req as any).user.bypassScopes || []
         
         // Check granular bypass permissions
@@ -778,6 +780,28 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', requireAut
                     canBypass = true
                 }
             }
+        }
+
+        // Apply Settings-based Restrictions
+        const settings = await Setting.find({
+            key: { $in: [
+                'subadmin_restriction_enabled', 
+                'subadmin_restriction_exempt_standard',
+                'subadmin_restriction_exempt_final'
+            ]}
+        }).lean()
+        const settingsMap: Record<string, any> = {}
+        settings.forEach(s => settingsMap[s.key] = s.value)
+
+        const restrictionsEnabled = settingsMap.subadmin_restriction_enabled !== false // Default true
+        const exemptStandard = settingsMap.subadmin_restriction_exempt_standard === true
+        const exemptFinal = settingsMap.subadmin_restriction_exempt_final === true
+
+        if (!restrictionsEnabled) {
+            canBypass = true
+        } else {
+             if (type === 'standard' && exemptStandard) canBypass = true
+             if (type === 'end_of_year' && exemptFinal) canBypass = true
         }
 
         // Check if assignment is completed
@@ -832,8 +856,6 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', requireAut
             return res.status(403).json({ error: 'not_authorized' })
         }
 
-        const { type = 'standard' } = req.body
-
         // Check if already signed
         const existing = await TemplateSignature.findOne({ templateAssignmentId, type }).lean()
         if (existing) {
@@ -841,7 +863,7 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', requireAut
         }
 
         // Check for Semester 2 requirement for end_of_year signature
-        if (type === 'end_of_year') {
+        if (type === 'end_of_year' && !canBypass) {
             const activeSchoolYear = await SchoolYear.findOne({ active: true }).lean()
             if (!activeSchoolYear || activeSchoolYear.activeSemester !== 2) {
                 return res.status(400).json({ error: 'semester_2_required', message: 'Semester 2 must be active to sign end of year' })

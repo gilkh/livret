@@ -37,7 +37,8 @@ export default function SubAdminStudents() {
     const [showAddModal, setShowAddModal] = useState(false)
     const [selectedStudent, setSelectedStudent] = useState<Student | null>(null)
     const [targetClassId, setTargetClassId] = useState('')
-    const [studentSearch, setStudentSearch] = useState('')
+    const [newStudentFirstName, setNewStudentFirstName] = useState('')
+    const [newStudentLastName, setNewStudentLastName] = useState('')
 
     useEffect(() => {
         loadData()
@@ -87,17 +88,19 @@ export default function SubAdminStudents() {
 
     const openAddModal = (classId: string) => {
         setTargetClassId(classId)
-        setStudentSearch('')
+        setNewStudentFirstName('')
+        setNewStudentLastName('')
         setSelectedStudent(null)
         setShowAddModal(true)
     }
 
     const handleAddStudent = async () => {
-        if (!selectedStudent || !targetClassId) return
+        if (!targetClassId || !newStudentFirstName.trim() || !newStudentLastName.trim()) return
         
         try {
-            await api.post('/subadmin/assign-student', {
-                studentId: selectedStudent._id,
+            await api.post('/students', {
+                firstName: newStudentFirstName.trim(),
+                lastName: newStudentLastName.trim(),
                 classId: targetClassId
             })
             setMessage({ type: 'success', text: 'Élève ajouté à la classe avec succès' })
@@ -319,57 +322,32 @@ export default function SubAdminStudents() {
                         <button 
                             className="btn" 
                             onClick={handleAddStudent}
-                            disabled={!selectedStudent}
+                            disabled={!newStudentFirstName.trim() || !newStudentLastName.trim() || !targetClassId}
                         >
                             Ajouter
                         </button>
                     </div>
                 }
             >
-                <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-                     <div style={{ marginBottom: 15 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    <div>
+                        <label style={{ display: 'block', marginBottom: 6, fontWeight: 500 }}>Prénom</label>
                         <input 
-                            placeholder="Rechercher un élève (nom, prénom)..." 
-                            value={studentSearch} 
-                            onChange={e => setStudentSearch(e.target.value)} 
-                            style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid #ddd' }} 
+                            placeholder="Prénom" 
+                            value={newStudentFirstName}
+                            onChange={e => setNewStudentFirstName(e.target.value)}
+                            style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid #ddd' }}
                             autoFocus
                         />
                     </div>
-
-                    <div style={{ maxHeight: '400px', overflowY: 'auto', border: '1px solid #eee', borderRadius: 8, marginBottom: 15 }}>
-                        {students
-                            .filter(s => 
-                                s.classId !== targetClassId && 
-                                (s.firstName.toLowerCase().includes(studentSearch.toLowerCase()) || 
-                                 s.lastName.toLowerCase().includes(studentSearch.toLowerCase()))
-                            )
-                            .slice(0, 20)
-                            .map(s => (
-                                <div 
-                                    key={s._id}
-                                    onClick={() => setSelectedStudent(s)}
-                                    style={{ 
-                                        padding: 10, 
-                                        borderBottom: '1px solid #eee', 
-                                        cursor: 'pointer',
-                                        background: selectedStudent?._id === s._id ? '#f0f9ff' : 'white',
-                                        display: 'flex', justifyContent: 'space-between', alignItems: 'center'
-                                    }}
-                                >
-                                    <div>
-                                        <div style={{ fontWeight: 500 }}>{s.firstName} {s.lastName}</div>
-                                        <div style={{ fontSize: '0.85em', color: '#64748b' }}>
-                                            {s.className ? `Actuellement en ${s.className}` : 'Non assigné'} ({s.level})
-                                        </div>
-                                    </div>
-                                    {selectedStudent?._id === s._id && <span style={{ color: '#0ea5e9' }}>✓</span>}
-                                </div>
-                            ))
-                        }
-                        {students.filter(s => s.classId !== targetClassId && (s.firstName.toLowerCase().includes(studentSearch.toLowerCase()) || s.lastName.toLowerCase().includes(studentSearch.toLowerCase()))).length === 0 && (
-                            <div style={{ padding: 20, textAlign: 'center', color: '#94a3b8' }}>Aucun élève trouvé</div>
-                        )}
+                    <div>
+                        <label style={{ display: 'block', marginBottom: 6, fontWeight: 500 }}>Nom</label>
+                        <input 
+                            placeholder="Nom" 
+                            value={newStudentLastName}
+                            onChange={e => setNewStudentLastName(e.target.value)}
+                            style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid #ddd' }}
+                        />
                     </div>
                 </div>
             </Modal>

@@ -35,7 +35,7 @@ export default function TemplateBuilder() {
   const [selectedCell, setSelectedCell] = useState<{ ri: number; ci: number } | null>(null)
   const [list, setList] = useState<Template[]>([])
   const [saveStatus, setSaveStatus] = useState('')
-  const [continuousScroll, setContinuousScroll] = useState(false)
+  const [continuousScroll, setContinuousScroll] = useState(true)
   const [previewData, setPreviewData] = useState<Record<string, string>>({})
   const [rightPanelView, setRightPanelView] = useState<'properties' | 'slides'>('properties')
   const [deleteConfirmations, setDeleteConfirmations] = useState<{ [id: string]: number }>({})

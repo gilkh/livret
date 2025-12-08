@@ -61,7 +61,6 @@ const templateAssignments_1 = require("./routes/templateAssignments");
 const subAdminAssignments_1 = require("./routes/subAdminAssignments");
 const teacherTemplates_1 = require("./routes/teacherTemplates");
 const subAdminTemplates_1 = require("./routes/subAdminTemplates");
-const aefeTemplates_1 = require("./routes/aefeTemplates");
 const auditLogs_1 = require("./routes/auditLogs");
 const impersonation_1 = require("./routes/impersonation");
 const suggestions_1 = require("./routes/suggestions");
@@ -108,7 +107,7 @@ const createApp = () => {
     app.use('/subadmin-assignments', subAdminAssignments_1.subAdminAssignmentsRouter);
     app.use('/teacher', teacherTemplates_1.teacherTemplatesRouter);
     app.use('/subadmin', subAdminTemplates_1.subAdminTemplatesRouter);
-    app.use('/aefe', aefeTemplates_1.aefeTemplatesRouter);
+    app.use('/aefe', subAdminTemplates_1.subAdminTemplatesRouter);
     app.use('/audit-logs', auditLogs_1.auditLogsRouter);
     app.use('/impersonation', impersonation_1.impersonationRouter);
     app.use('/suggestions', suggestions_1.suggestionsRouter);

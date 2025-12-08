@@ -19,6 +19,7 @@ const Enrollment_1 = require("../models/Enrollment");
 const TeacherClassAssignment_1 = require("../models/TeacherClassAssignment");
 const Class_1 = require("../models/Class");
 const RoleScope_1 = require("../models/RoleScope");
+const Setting_1 = require("../models/Setting");
 const SchoolYear_1 = require("../models/SchoolYear");
 const Level_1 = require("../models/Level");
 const SavedGradebook_1 = require("../models/SavedGradebook");
@@ -59,7 +60,7 @@ const upload = (0, multer_1.default)({
 });
 exports.subAdminTemplatesRouter = (0, express_1.Router)();
 // Sub-admin: Get signature
-exports.subAdminTemplatesRouter.get('/signature', (0, auth_1.requireAuth)(['SUBADMIN']), async (req, res) => {
+exports.subAdminTemplatesRouter.get('/signature', (0, auth_1.requireAuth)(['SUBADMIN', 'AEFE']), async (req, res) => {
     try {
         const subAdminId = req.user.userId;
         let user = await User_1.User.findById(subAdminId).lean();
@@ -76,7 +77,7 @@ exports.subAdminTemplatesRouter.get('/signature', (0, auth_1.requireAuth)(['SUBA
     }
 });
 // Sub-admin: Upload signature
-exports.subAdminTemplatesRouter.post('/signature/upload', (0, auth_1.requireAuth)(['SUBADMIN']), upload.single('file'), async (req, res) => {
+exports.subAdminTemplatesRouter.post('/signature/upload', (0, auth_1.requireAuth)(['SUBADMIN', 'AEFE']), upload.single('file'), async (req, res) => {
     try {
         const subAdminId = req.user.userId;
         if (!req.file) {
@@ -116,7 +117,7 @@ exports.subAdminTemplatesRouter.post('/signature/upload', (0, auth_1.requireAuth
     }
 });
 // Sub-admin: Delete signature
-exports.subAdminTemplatesRouter.delete('/signature', (0, auth_1.requireAuth)(['SUBADMIN']), async (req, res) => {
+exports.subAdminTemplatesRouter.delete('/signature', (0, auth_1.requireAuth)(['SUBADMIN', 'AEFE']), async (req, res) => {
     try {
         const subAdminId = req.user.userId;
         let user = await User_1.User.findById(subAdminId).lean();
@@ -150,7 +151,7 @@ exports.subAdminTemplatesRouter.delete('/signature', (0, auth_1.requireAuth)(['S
     }
 });
 // Sub-admin: Get promoted students not yet assigned to a class
-exports.subAdminTemplatesRouter.get('/promoted-students', (0, auth_1.requireAuth)(['SUBADMIN']), async (req, res) => {
+exports.subAdminTemplatesRouter.get('/promoted-students', (0, auth_1.requireAuth)(['SUBADMIN', 'AEFE']), async (req, res) => {
     try {
         const subAdminId = req.user.userId;
         // Get active school year
@@ -202,7 +203,7 @@ exports.subAdminTemplatesRouter.get('/promoted-students', (0, auth_1.requireAuth
     }
 });
 // Sub-admin: Get classes with pending signatures
-exports.subAdminTemplatesRouter.get('/classes', (0, auth_1.requireAuth)(['SUBADMIN']), async (req, res) => {
+exports.subAdminTemplatesRouter.get('/classes', (0, auth_1.requireAuth)(['SUBADMIN', 'AEFE']), async (req, res) => {
     try {
         const subAdminId = req.user.userId;
         // Get active school year
@@ -272,7 +273,7 @@ exports.subAdminTemplatesRouter.get('/classes', (0, auth_1.requireAuth)(['SUBADM
     }
 });
 // Sub-admin: Get assigned teachers
-exports.subAdminTemplatesRouter.get('/teachers', (0, auth_1.requireAuth)(['SUBADMIN']), async (req, res) => {
+exports.subAdminTemplatesRouter.get('/teachers', (0, auth_1.requireAuth)(['SUBADMIN', 'AEFE']), async (req, res) => {
     try {
         const subAdminId = req.user.userId;
         const assignments = await SubAdminAssignment_1.SubAdminAssignment.find({ subAdminId }).lean();
@@ -288,7 +289,7 @@ exports.subAdminTemplatesRouter.get('/teachers', (0, auth_1.requireAuth)(['SUBAD
     }
 });
 // Sub-admin: Get template changes by a teacher
-exports.subAdminTemplatesRouter.get('/teachers/:teacherId/changes', (0, auth_1.requireAuth)(['SUBADMIN']), async (req, res) => {
+exports.subAdminTemplatesRouter.get('/teachers/:teacherId/changes', (0, auth_1.requireAuth)(['SUBADMIN', 'AEFE']), async (req, res) => {
     try {
         const subAdminId = req.user.userId;
         const { teacherId } = req.params;
@@ -324,7 +325,7 @@ exports.subAdminTemplatesRouter.get('/teachers/:teacherId/changes', (0, auth_1.r
     }
 });
 // Sub-admin: Get pending signatures (templates awaiting signature)
-exports.subAdminTemplatesRouter.get('/pending-signatures', (0, auth_1.requireAuth)(['SUBADMIN']), async (req, res) => {
+exports.subAdminTemplatesRouter.get('/pending-signatures', (0, auth_1.requireAuth)(['SUBADMIN', 'AEFE']), async (req, res) => {
     try {
         const subAdminId = req.user.userId;
         // Get active school year
@@ -427,7 +428,7 @@ exports.subAdminTemplatesRouter.get('/pending-signatures', (0, auth_1.requireAut
     }
 });
 // Sub-admin: Promote student
-exports.subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote', (0, auth_1.requireAuth)(['SUBADMIN']), async (req, res) => {
+exports.subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote', (0, auth_1.requireAuth)(['SUBADMIN', 'AEFE']), async (req, res) => {
     try {
         const subAdminId = req.user.userId;
         const { templateAssignmentId } = req.params;
@@ -669,59 +670,43 @@ exports.subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote',
     }
 });
 // Sub-admin: Sign a template
-exports.subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', (0, auth_1.requireAuth)(['SUBADMIN']), async (req, res) => {
+exports.subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', (0, auth_1.requireAuth)(['SUBADMIN', 'AEFE']), async (req, res) => {
     try {
         const subAdminId = req.user.userId;
         const { templateAssignmentId } = req.params;
-        // Get the template assignment
         const assignment = await TemplateAssignment_1.TemplateAssignment.findById(templateAssignmentId).lean();
         if (!assignment)
             return res.status(404).json({ error: 'not_found' });
-        const bypassScopes = req.user.bypassScopes || [];
-        // Check granular bypass permissions
-        let canBypass = false;
-        if (bypassScopes.some((s) => s.type === 'ALL')) {
-            canBypass = true;
-        }
-        else {
-            // Check specific scopes
-            const enrollments = await Enrollment_1.Enrollment.find({ studentId: assignment.studentId }).lean();
-            const classIds = enrollments.map(e => String(e.classId));
-            // Check STUDENT scope
-            if (bypassScopes.some((s) => s.type === 'STUDENT' && s.value === assignment.studentId)) {
-                canBypass = true;
-            }
-            // Check CLASS scope
-            if (!canBypass && bypassScopes.some((s) => s.type === 'CLASS' && classIds.includes(s.value))) {
-                canBypass = true;
-            }
-            // Check LEVEL scope
-            if (!canBypass) {
-                const classes = await Class_1.ClassModel.find({ _id: { $in: classIds } }).lean();
-                const levels = classes.map(c => c.level).filter(Boolean);
-                if (bypassScopes.some((s) => s.type === 'LEVEL' && levels.includes(s.value))) {
-                    canBypass = true;
-                }
-            }
-        }
-        // Check if assignment is completed
+        const { type = 'standard' } = req.body;
+        const settingDoc = await Setting_1.Setting.findOne({ key: 'subadmin_signature_restrictions_enabled' }).lean();
+        const restrictionsEnabled = settingDoc ? (settingDoc.value === true || settingDoc.value === 'true') : true;
+        const bypassStandardDoc = await Setting_1.Setting.findOne({ key: 'subadmin_unrestricted_standard_enabled' }).lean();
+        const bypassFinalDoc = await Setting_1.Setting.findOne({ key: 'subadmin_unrestricted_final_enabled' }).lean();
+        const bypassStandard = bypassStandardDoc ? (bypassStandardDoc.value === true || bypassStandardDoc.value === 'true') : false;
+        const bypassFinal = bypassFinalDoc ? (bypassFinalDoc.value === true || bypassFinalDoc.value === 'true') : false;
+        const perTypeBypass = (type === 'standard' && bypassStandard) || (type === 'end_of_year' && bypassFinal);
+        const restrictionsActive = restrictionsEnabled && !perTypeBypass;
+        const canBypass = !restrictionsActive;
         if (!canBypass && assignment.status !== 'completed' && assignment.status !== 'signed') {
             return res.status(400).json({ error: 'not_completed', message: 'Teacher must mark assignment as done before signing' });
         }
-        // Verify authorization via class enrollment
         const enrollments = await Enrollment_1.Enrollment.find({ studentId: assignment.studentId }).lean();
         let authorized = false;
-        // Check if sub-admin is linked to assigned teachers (direct assignment check)
-        if (assignment.assignedTeachers && assignment.assignedTeachers.length > 0) {
-            const subAdminAssignments = await SubAdminAssignment_1.SubAdminAssignment.find({
-                subAdminId,
-                teacherId: { $in: assignment.assignedTeachers },
-            }).lean();
-            if (subAdminAssignments.length > 0) {
-                authorized = true;
+        if (restrictionsActive) {
+            if (assignment.assignedTeachers && assignment.assignedTeachers.length > 0) {
+                const subAdminAssignments = await SubAdminAssignment_1.SubAdminAssignment.find({
+                    subAdminId,
+                    teacherId: { $in: assignment.assignedTeachers },
+                }).lean();
+                if (subAdminAssignments.length > 0) {
+                    authorized = true;
+                }
             }
         }
-        if (!authorized && enrollments.length > 0) {
+        else {
+            authorized = true;
+        }
+        if (restrictionsActive && !authorized && enrollments.length > 0) {
             const classIds = enrollments.map(e => e.classId).filter(Boolean);
             const teacherClassAssignments = await TeacherClassAssignment_1.TeacherClassAssignment.find({ classId: { $in: classIds } }).lean();
             const classTeacherIds = teacherClassAssignments.map(ta => ta.teacherId);
@@ -733,7 +718,6 @@ exports.subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', (0
                 authorized = true;
             }
             if (!authorized) {
-                // Check RoleScope
                 const roleScope = await RoleScope_1.RoleScope.findOne({ userId: subAdminId }).lean();
                 if (roleScope?.levels?.length) {
                     const classes = await Class_1.ClassModel.find({ _id: { $in: classIds } }).lean();
@@ -746,26 +730,17 @@ exports.subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', (0
         if (!authorized) {
             return res.status(403).json({ error: 'not_authorized' });
         }
-        const { type = 'standard' } = req.body;
-        // Check if already signed
         const existing = await TemplateSignature_1.TemplateSignature.findOne({ templateAssignmentId, type }).lean();
-        if (existing) {
+        if (existing)
             return res.status(400).json({ error: 'already_signed' });
-        }
-        // Check for Semester 2 requirement for end_of_year signature
-        if (type === 'end_of_year') {
+        if (restrictionsActive && type === 'end_of_year') {
             const activeSchoolYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
             if (!activeSchoolYear || activeSchoolYear.activeSemester !== 2) {
                 return res.status(400).json({ error: 'semester_2_required', message: 'Semester 2 must be active to sign end of year' });
             }
         }
         try {
-            const signature = await (0, signatureService_1.signTemplateAssignment)({
-                templateAssignmentId,
-                signerId: subAdminId,
-                type: type,
-                req
-            });
+            await (0, signatureService_1.signTemplateAssignment)({ templateAssignmentId, signerId: subAdminId, type: type, req });
         }
         catch (e) {
             if (e.message === 'already_signed')
@@ -781,7 +756,7 @@ exports.subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', (0
     }
 });
 // Sub-admin: Unsign a template
-exports.subAdminTemplatesRouter.delete('/templates/:templateAssignmentId/sign', (0, auth_1.requireAuth)(['SUBADMIN']), async (req, res) => {
+exports.subAdminTemplatesRouter.delete('/templates/:templateAssignmentId/sign', (0, auth_1.requireAuth)(['SUBADMIN', 'AEFE']), async (req, res) => {
     try {
         const subAdminId = req.user.userId;
         const { templateAssignmentId } = req.params;
@@ -789,37 +764,41 @@ exports.subAdminTemplatesRouter.delete('/templates/:templateAssignmentId/sign', 
         const assignment = await TemplateAssignment_1.TemplateAssignment.findById(templateAssignmentId).lean();
         if (!assignment)
             return res.status(404).json({ error: 'not_found' });
-        // Verify authorization via class enrollment
+        const settingDoc = await Setting_1.Setting.findOne({ key: 'subadmin_signature_restrictions_enabled' }).lean();
+        const restrictionsEnabled = settingDoc ? (settingDoc.value === true || settingDoc.value === 'true') : true;
         const enrollments = await Enrollment_1.Enrollment.find({ studentId: assignment.studentId }).lean();
         let authorized = false;
-        // Check if sub-admin is linked to assigned teachers (direct assignment check)
-        if (assignment.assignedTeachers && assignment.assignedTeachers.length > 0) {
-            const subAdminAssignments = await SubAdminAssignment_1.SubAdminAssignment.find({
-                subAdminId,
-                teacherId: { $in: assignment.assignedTeachers },
-            }).lean();
-            if (subAdminAssignments.length > 0) {
-                authorized = true;
-            }
+        if (!restrictionsEnabled) {
+            authorized = true;
         }
-        if (!authorized && enrollments.length > 0) {
-            const classIds = enrollments.map(e => e.classId).filter(Boolean);
-            const teacherClassAssignments = await TeacherClassAssignment_1.TeacherClassAssignment.find({ classId: { $in: classIds } }).lean();
-            const classTeacherIds = teacherClassAssignments.map(ta => ta.teacherId);
-            const subAdminAssignments = await SubAdminAssignment_1.SubAdminAssignment.find({
-                subAdminId,
-                teacherId: { $in: classTeacherIds },
-            }).lean();
-            if (subAdminAssignments.length > 0) {
-                authorized = true;
+        else {
+            if (assignment.assignedTeachers && assignment.assignedTeachers.length > 0) {
+                const subAdminAssignments = await SubAdminAssignment_1.SubAdminAssignment.find({
+                    subAdminId,
+                    teacherId: { $in: assignment.assignedTeachers },
+                }).lean();
+                if (subAdminAssignments.length > 0) {
+                    authorized = true;
+                }
             }
-            if (!authorized) {
-                // Check RoleScope
-                const roleScope = await RoleScope_1.RoleScope.findOne({ userId: subAdminId }).lean();
-                if (roleScope?.levels?.length) {
-                    const classes = await Class_1.ClassModel.find({ _id: { $in: classIds } }).lean();
-                    if (classes.some(c => c.level && roleScope.levels.includes(c.level))) {
-                        authorized = true;
+            if (!authorized && enrollments.length > 0) {
+                const classIds = enrollments.map(e => e.classId).filter(Boolean);
+                const teacherClassAssignments = await TeacherClassAssignment_1.TeacherClassAssignment.find({ classId: { $in: classIds } }).lean();
+                const classTeacherIds = teacherClassAssignments.map(ta => ta.teacherId);
+                const subAdminAssignments = await SubAdminAssignment_1.SubAdminAssignment.find({
+                    subAdminId,
+                    teacherId: { $in: classTeacherIds },
+                }).lean();
+                if (subAdminAssignments.length > 0) {
+                    authorized = true;
+                }
+                if (!authorized) {
+                    const roleScope = await RoleScope_1.RoleScope.findOne({ userId: subAdminId }).lean();
+                    if (roleScope?.levels?.length) {
+                        const classes = await Class_1.ClassModel.find({ _id: { $in: classIds } }).lean();
+                        if (classes.some(c => c.level && roleScope.levels.includes(c.level))) {
+                            authorized = true;
+                        }
                     }
                 }
             }
@@ -848,7 +827,7 @@ exports.subAdminTemplatesRouter.delete('/templates/:templateAssignmentId/sign', 
     }
 });
 // Sub-admin: Get template assignment for review
-exports.subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', (0, auth_1.requireAuth)(['SUBADMIN']), async (req, res) => {
+exports.subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', (0, auth_1.requireAuth)(['SUBADMIN', 'AEFE']), async (req, res) => {
     try {
         const subAdminId = req.user.userId;
         const { templateAssignmentId } = req.params;
@@ -857,20 +836,26 @@ exports.subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', (
         if (!assignment)
             return res.status(404).json({ error: 'not_found' });
         const student = await Student_1.Student.findById(assignment.studentId).lean();
+        const settingDoc = await Setting_1.Setting.findOne({ key: 'subadmin_signature_restrictions_enabled' }).lean();
+        const restrictionsEnabled = settingDoc ? (settingDoc.value === true || settingDoc.value === 'true') : true;
         // Verify authorization via class enrollment
         const enrollments = await Enrollment_1.Enrollment.find({ studentId: assignment.studentId }).lean();
         let authorized = false;
-        // Check if sub-admin is linked to assigned teachers (direct assignment check)
-        if (assignment.assignedTeachers && assignment.assignedTeachers.length > 0) {
-            const subAdminAssignments = await SubAdminAssignment_1.SubAdminAssignment.find({
-                subAdminId,
-                teacherId: { $in: assignment.assignedTeachers },
-            }).lean();
-            if (subAdminAssignments.length > 0) {
-                authorized = true;
+        if (!restrictionsEnabled) {
+            authorized = true;
+        }
+        else {
+            if (assignment.assignedTeachers && assignment.assignedTeachers.length > 0) {
+                const subAdminAssignments = await SubAdminAssignment_1.SubAdminAssignment.find({
+                    subAdminId,
+                    teacherId: { $in: assignment.assignedTeachers },
+                }).lean();
+                if (subAdminAssignments.length > 0) {
+                    authorized = true;
+                }
             }
         }
-        if (!authorized && enrollments.length > 0) {
+        if (restrictionsEnabled && !authorized && enrollments.length > 0) {
             const classIds = enrollments.map(e => e.classId).filter(Boolean);
             const teacherClassAssignments = await TeacherClassAssignment_1.TeacherClassAssignment.find({ classId: { $in: classIds } }).lean();
             const classTeacherIds = teacherClassAssignments.map(ta => ta.teacherId);
@@ -944,7 +929,7 @@ exports.subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', (
                 }
             }
         }
-        const canEdit = authorized;
+        const canEdit = authorized && req.user.role !== 'AEFE';
         // Get active school year
         const activeSchoolYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
         const isPromoted = student?.promotions?.some((p) => p.schoolYearId === String(activeSchoolYear?._id));
@@ -966,13 +951,15 @@ exports.subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', (
     }
 });
 // Sub-admin: Sign all templates for a class
-exports.subAdminTemplatesRouter.post('/templates/sign-class/:classId', (0, auth_1.requireAuth)(['SUBADMIN']), async (req, res) => {
+exports.subAdminTemplatesRouter.post('/templates/sign-class/:classId', (0, auth_1.requireAuth)(['SUBADMIN', 'AEFE']), async (req, res) => {
     try {
         const subAdminId = req.user.userId;
         const { classId } = req.params;
         // Get all students in this class
         const enrollments = await Enrollment_1.Enrollment.find({ classId }).lean();
         const studentIds = enrollments.map(e => e.studentId);
+        const settingDoc = await Setting_1.Setting.findOne({ key: 'subadmin_signature_restrictions_enabled' }).lean();
+        const restrictionsEnabled = settingDoc ? (settingDoc.value === true || settingDoc.value === 'true') : true;
         // Verify authorization: Sub-admin must be assigned to at least one teacher of this class
         const teacherClassAssignments = await TeacherClassAssignment_1.TeacherClassAssignment.find({ classId }).lean();
         const classTeacherIds = teacherClassAssignments.map(ta => ta.teacherId);
@@ -981,8 +968,10 @@ exports.subAdminTemplatesRouter.post('/templates/sign-class/:classId', (0, auth_
             teacherId: { $in: classTeacherIds },
         }).lean();
         let authorized = subAdminAssignments.length > 0;
-        if (!authorized) {
-            // Check RoleScope
+        if (!restrictionsActive && !authorized) {
+            authorized = true;
+        }
+        else if (!authorized) {
             const roleScope = await RoleScope_1.RoleScope.findOne({ userId: subAdminId }).lean();
             if (roleScope?.levels?.length) {
                 const cls = await Class_1.ClassModel.findById(classId).lean();
@@ -994,21 +983,7 @@ exports.subAdminTemplatesRouter.post('/templates/sign-class/:classId', (0, auth_
         if (!authorized) {
             return res.status(403).json({ error: 'not_authorized' });
         }
-        const bypassScopes = req.user.bypassScopes || [];
-        let canBypass = false;
-        if (bypassScopes.some((s) => s.type === 'ALL')) {
-            canBypass = true;
-        }
-        else if (bypassScopes.some((s) => s.type === 'CLASS' && s.value === classId)) {
-            canBypass = true;
-        }
-        else {
-            // Check LEVEL
-            const cls = await Class_1.ClassModel.findById(classId).lean();
-            if (cls && cls.level && bypassScopes.some((s) => s.type === 'LEVEL' && s.value === cls.level)) {
-                canBypass = true;
-            }
-        }
+        const canBypass = !restrictionsActive;
         const query = { studentId: { $in: studentIds } };
         if (!canBypass) {
             query.status = 'completed';
@@ -1029,6 +1004,7 @@ exports.subAdminTemplatesRouter.post('/templates/sign-class/:classId', (0, auth_
                 subAdminId,
                 signedAt: new Date(),
                 status: 'signed',
+                type: 'standard',
             });
             // Update assignment status
             await TemplateAssignment_1.TemplateAssignment.findByIdAndUpdate(assignment._id, { status: 'signed' });
@@ -1060,7 +1036,7 @@ exports.subAdminTemplatesRouter.post('/templates/sign-class/:classId', (0, auth_
     }
 });
 // Sub-admin: Mark assignment as done
-exports.subAdminTemplatesRouter.post('/templates/:assignmentId/mark-done', (0, auth_1.requireAuth)(['SUBADMIN']), async (req, res) => {
+exports.subAdminTemplatesRouter.post('/templates/:assignmentId/mark-done', (0, auth_1.requireAuth)(['SUBADMIN', 'AEFE']), async (req, res) => {
     try {
         const subAdminId = req.user.userId;
         const { assignmentId } = req.params;
@@ -1104,7 +1080,7 @@ exports.subAdminTemplatesRouter.post('/templates/:assignmentId/mark-done', (0, a
     }
 });
 // Sub-admin: Unmark assignment as done
-exports.subAdminTemplatesRouter.post('/templates/:assignmentId/unmark-done', (0, auth_1.requireAuth)(['SUBADMIN']), async (req, res) => {
+exports.subAdminTemplatesRouter.post('/templates/:assignmentId/unmark-done', (0, auth_1.requireAuth)(['SUBADMIN', 'AEFE']), async (req, res) => {
     try {
         const subAdminId = req.user.userId;
         const { assignmentId } = req.params;
@@ -1148,7 +1124,7 @@ exports.subAdminTemplatesRouter.post('/templates/:assignmentId/unmark-done', (0,
     }
 });
 // Sub-admin: Update template data (e.g. language toggles)
-exports.subAdminTemplatesRouter.patch('/templates/:assignmentId/data', (0, auth_1.requireAuth)(['SUBADMIN']), async (req, res) => {
+exports.subAdminTemplatesRouter.patch('/templates/:assignmentId/data', (0, auth_1.requireAuth)(['SUBADMIN', 'AEFE']), async (req, res) => {
     try {
         const subAdminId = req.user.userId;
         const { assignmentId } = req.params;
@@ -1237,7 +1213,7 @@ exports.subAdminTemplatesRouter.patch('/templates/:assignmentId/data', (0, auth_
     }
 });
 // Sub-admin: Get students in assigned levels
-exports.subAdminTemplatesRouter.get('/students', (0, auth_1.requireAuth)(['SUBADMIN']), async (req, res) => {
+exports.subAdminTemplatesRouter.get('/students', (0, auth_1.requireAuth)(['SUBADMIN', 'AEFE']), async (req, res) => {
     try {
         const subAdminId = req.user.userId;
         // Get active school year
@@ -1288,7 +1264,7 @@ exports.subAdminTemplatesRouter.get('/students', (0, auth_1.requireAuth)(['SUBAD
     }
 });
 // Sub-admin: Assign student to class
-exports.subAdminTemplatesRouter.post('/assign-student', (0, auth_1.requireAuth)(['SUBADMIN']), async (req, res) => {
+exports.subAdminTemplatesRouter.post('/assign-student', (0, auth_1.requireAuth)(['SUBADMIN', 'AEFE']), async (req, res) => {
     try {
         const subAdminId = req.user.userId;
         const { studentId, classId } = req.body;

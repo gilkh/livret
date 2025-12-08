@@ -50,7 +50,7 @@ exports.teacherAssignmentsRouter.post('/', (0, auth_1.requireAuth)(['ADMIN']), a
             // Add teacher to assignedTeachers for active templates
             await TemplateAssignment_1.TemplateAssignment.updateMany({
                 studentId: { $in: studentIds },
-                status: { $in: ['draft', 'in_progress'] }
+                status: { $in: ['draft', 'in_progress', 'completed', 'signed'] }
             }, { $addToSet: { assignedTeachers: teacherId } });
         }
         res.json(assignment);
@@ -90,7 +90,7 @@ exports.teacherAssignmentsRouter.delete('/:id', (0, auth_1.requireAuth)(['ADMIN'
                 // Remove teacher from assignedTeachers for active templates
                 await TemplateAssignment_1.TemplateAssignment.updateMany({
                     studentId: { $in: studentIds },
-                    status: { $in: ['draft', 'in_progress'] }
+                    status: { $in: ['draft', 'in_progress', 'completed', 'signed'] }
                 }, { $pull: { assignedTeachers: assignment.teacherId } });
             }
         }

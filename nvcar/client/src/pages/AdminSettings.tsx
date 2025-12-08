@@ -8,6 +8,9 @@ export default function AdminSettings() {
   const [teacherLogin, setTeacherLogin] = useState(true)
   const [subAdminLogin, setSubAdminLogin] = useState(true)
   const [microsoftLogin, setMicrosoftLogin] = useState(true)
+  const [subAdminRestriction, setSubAdminRestriction] = useState(true)
+  const [subAdminExemptStandard, setSubAdminExemptStandard] = useState(false)
+  const [subAdminExemptFinal, setSubAdminExemptFinal] = useState(false)
   const [loading, setLoading] = useState(true)
   const [msg, setMsg] = useState('')
   const [backupLoading, setBackupLoading] = useState(false)
@@ -100,6 +103,9 @@ export default function AdminSettings() {
       setTeacherLogin(res.data.login_enabled_teacher !== false)
       setSubAdminLogin(res.data.login_enabled_subadmin !== false)
       setMicrosoftLogin(res.data.login_enabled_microsoft !== false)
+      setSubAdminRestriction(res.data.subadmin_restriction_enabled !== false)
+      setSubAdminExemptStandard(res.data.subadmin_restriction_exempt_standard === true)
+      setSubAdminExemptFinal(res.data.subadmin_restriction_exempt_final === true)
     } catch (err) {
       console.error(err)
     } finally {
@@ -144,6 +150,24 @@ export default function AdminSettings() {
     const newVal = !microsoftLogin
     setMicrosoftLogin(newVal)
     if (!(await saveSetting('login_enabled_microsoft', newVal))) setMicrosoftLogin(!newVal)
+  }
+
+  const toggleSubAdminRestriction = async () => {
+    const newVal = !subAdminRestriction
+    setSubAdminRestriction(newVal)
+    if (!(await saveSetting('subadmin_restriction_enabled', newVal))) setSubAdminRestriction(!newVal)
+  }
+
+  const toggleSubAdminExemptStandard = async () => {
+    const newVal = !subAdminExemptStandard
+    setSubAdminExemptStandard(newVal)
+    if (!(await saveSetting('subadmin_restriction_exempt_standard', newVal))) setSubAdminExemptStandard(!newVal)
+  }
+
+  const toggleSubAdminExemptFinal = async () => {
+    const newVal = !subAdminExemptFinal
+    setSubAdminExemptFinal(newVal)
+    if (!(await saveSetting('subadmin_restriction_exempt_final', newVal))) setSubAdminExemptFinal(!newVal)
   }
 
   const downloadBackup = async () => {
@@ -390,6 +414,95 @@ export default function AdminSettings() {
               </label>
             </div>
           </div>
+        </div>
+
+        {/* Signature Restrictions Section */}
+        <div className="settings-section">
+          <div className="section-header">
+            <div className="section-icon-wrapper" style={{ background: 'rgba(255, 159, 67, 0.1)', color: '#ff9f43' }}>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                <polyline points="14 2 14 8 20 8"></polyline>
+                <line x1="16" y1="13" x2="8" y2="13"></line>
+                <line x1="16" y1="17" x2="8" y2="17"></line>
+                <polyline points="10 9 9 9 8 9"></polyline>
+              </svg>
+            </div>
+            <h2 className="section-title">Restrictions de Signature (Sous-Admin)</h2>
+          </div>
+          
+          <div className="setting-item">
+            <div className="setting-info">
+              <h3>Activer les restrictions</h3>
+              <p>Si désactivé, les sous-admins peuvent signer n'importe quel carnet sans contrainte.</p>
+            </div>
+            <div className="flex items-center" style={{ gap: '1rem' }}>
+              <div className="status-indicator">
+                <span className={`dot ${subAdminRestriction ? 'active' : 'inactive'}`}></span>
+                <span style={{ color: subAdminRestriction ? 'var(--success)' : '#ff7675' }}>
+                  {subAdminRestriction ? 'Activé' : 'Désactivé'}
+                </span>
+              </div>
+              <label className="switch">
+                <input 
+                  type="checkbox" 
+                  checked={subAdminRestriction}
+                  onChange={toggleSubAdminRestriction}
+                />
+                <span className="slider"></span>
+              </label>
+            </div>
+          </div>
+
+          {subAdminRestriction && (
+            <>
+              <div className="setting-item" style={{ borderLeft: '4px solid #ff9f43', paddingLeft: '1rem', background: '#fffaf0' }}>
+                <div className="setting-info">
+                  <h3>Exempter 1ère Signature (Standard)</h3>
+                  <p>Autoriser la signature standard même si le carnet n'est pas terminé.</p>
+                </div>
+                <div className="flex items-center" style={{ gap: '1rem' }}>
+                  <div className="status-indicator">
+                    <span className={`dot ${subAdminExemptStandard ? 'active' : 'inactive'}`}></span>
+                    <span style={{ color: subAdminExemptStandard ? 'var(--success)' : '#64748b' }}>
+                      {subAdminExemptStandard ? 'Exempté' : 'Restreint'}
+                    </span>
+                  </div>
+                  <label className="switch">
+                    <input 
+                      type="checkbox" 
+                      checked={subAdminExemptStandard}
+                      onChange={toggleSubAdminExemptStandard}
+                    />
+                    <span className="slider"></span>
+                  </label>
+                </div>
+              </div>
+
+              <div className="setting-item" style={{ borderLeft: '4px solid #ff9f43', paddingLeft: '1rem', background: '#fffaf0' }}>
+                <div className="setting-info">
+                  <h3>Exempter Fin d'Année / Promotion</h3>
+                  <p>Autoriser la signature de fin d'année et la promotion sans contraintes strictes.</p>
+                </div>
+                <div className="flex items-center" style={{ gap: '1rem' }}>
+                  <div className="status-indicator">
+                    <span className={`dot ${subAdminExemptFinal ? 'active' : 'inactive'}`}></span>
+                    <span style={{ color: subAdminExemptFinal ? 'var(--success)' : '#64748b' }}>
+                      {subAdminExemptFinal ? 'Exempté' : 'Restreint'}
+                    </span>
+                  </div>
+                  <label className="switch">
+                    <input 
+                      type="checkbox" 
+                      checked={subAdminExemptFinal}
+                      onChange={toggleSubAdminExemptFinal}
+                    />
+                    <span className="slider"></span>
+                  </label>
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
         {/* Maintenance Section */}
