@@ -42,7 +42,7 @@ import AdminSignatures from './pages/AdminSignatures'
 import SystemAlertBanner from './components/SystemAlertBanner'
 
 const RequireAuth = ({ children }: { children: JSX.Element }) => {
-  const token = localStorage.getItem('token')
+  const token = sessionStorage.getItem('token') || localStorage.getItem('token')
   const location = useLocation()
 
   if (token) {

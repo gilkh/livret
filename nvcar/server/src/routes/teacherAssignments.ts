@@ -59,7 +59,7 @@ teacherAssignmentsRouter.post('/', requireAuth(['ADMIN']), async (req, res) => {
             await TemplateAssignment.updateMany(
                 { 
                     studentId: { $in: studentIds }, 
-                    status: { $in: ['draft', 'in_progress'] } 
+                    status: { $in: ['draft', 'in_progress', 'completed', 'signed'] } 
                 },
                 { $addToSet: { assignedTeachers: teacherId } }
             )
@@ -108,7 +108,7 @@ teacherAssignmentsRouter.delete('/:id', requireAuth(['ADMIN']), async (req, res)
                 await TemplateAssignment.updateMany(
                     { 
                         studentId: { $in: studentIds }, 
-                        status: { $in: ['draft', 'in_progress'] } 
+                        status: { $in: ['draft', 'in_progress', 'completed', 'signed'] } 
                     },
                     { $pull: { assignedTeachers: assignment.teacherId } }
                 )

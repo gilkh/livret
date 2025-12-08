@@ -120,7 +120,12 @@ subAdminAssignmentsRouter.get('/progress', requireAuth(['SUBADMIN', 'AEFE']), as
                                                 }
                                             }
 
-                                            const lang = item.type || item.label || 'Autre'
+                                            let lang = item.type || item.label || 'Autre'
+                                            // Normalize French to Polyvalent
+                                            if (lang.toLowerCase().includes('français') || lang.toLowerCase().includes('french')) {
+                                                lang = 'Polyvalent'
+                                            }
+
                                             if (!statsByLevel[lvl].byCategory[lang]) {
                                                 statsByLevel[lvl].byCategory[lang] = { total: 0, filled: 0, name: lang }
                                             }
@@ -128,7 +133,8 @@ subAdminAssignmentsRouter.get('/progress', requireAuth(['SUBADMIN', 'AEFE']), as
                                             statsByLevel[lvl].total++
                                             statsByLevel[lvl].byCategory[lang].total++
 
-                                            if (item.active) {
+                                            const isActive = item.active === true || item.active === 'true'
+                                            if (isActive) {
                                                 statsByLevel[lvl].filled++
                                                 statsByLevel[lvl].byCategory[lang].filled++
                                             }
@@ -144,12 +150,15 @@ subAdminAssignmentsRouter.get('/progress', requireAuth(['SUBADMIN', 'AEFE']), as
             // Format the output
             const levelsData = Object.keys(statsByLevel).map(lvl => {
                 const stats = statsByLevel[lvl]
+                // Ensure we have at least these categories initialized if they exist in data
+                const categories = Object.values(stats.byCategory)
+                
                 return {
                     level: lvl,
                     activeCount: stats.filled,
                     totalAvailable: stats.total,
                     percentage: stats.total > 0 ? Math.round((stats.filled / stats.total) * 100) : 0,
-                    byCategory: Object.values(stats.byCategory).map(cat => ({
+                    byCategory: categories.map(cat => ({
                         name: cat.name,
                         total: cat.total,
                         filled: cat.filled,
@@ -157,6 +166,18 @@ subAdminAssignmentsRouter.get('/progress', requireAuth(['SUBADMIN', 'AEFE']), as
                     }))
                 }
             })
+
+            // If no levels data found (e.g. empty assignment or level mismatch), return default empty structure
+            // But only if we have student info
+            if (levelsData.length === 0 && student.level) {
+                 levelsData.push({
+                    level: student.level,
+                    activeCount: 0,
+                    totalAvailable: 0,
+                    percentage: 0,
+                    byCategory: []
+                })
+            }
 
             return {
                 _id: student._id,
@@ -623,14 +644,46 @@ subAdminAssignmentsRouter.get('/teacher-progress', requireAuth(['SUBADMIN', 'AEF
                 if (!template) return
 
                 const assignmentData = assignment.data || {}
-                
-                // Find student level for filtering
-                const studentId = assignment.studentId
-                const enrollment = enrollments.find(e => e.studentId === studentId)
-                // We don't have student object here easily, but we can try to find it or use class level
-                // Assuming class level is sufficient or we can fetch students if needed.
-                // For teacher progress, using class level is a reasonable approximation if student level is missing.
+
+                // Level was previously defined here but removed in previous refactor
+                // Restore it using class level
                 const level = cls.level 
+                
+                // Determine completion status for categories based on teacher completion
+                const teacherCompletions = (assignment as any).teacherCompletions || []
+                
+                // Helper to check if a category is "done" by checking if any assigned teacher for that category has completed
+                const isCategoryCompleted = (categoryName: string) => {
+                    const l = categoryName.toLowerCase()
+                    const isArabic = l.includes('arabe') || l.includes('arabic') || l.includes('العربية')
+                    const isEnglish = l.includes('anglais') || l.includes('english')
+                    
+                    // Find teachers responsible for this category in this class
+                    const responsibleTeachers = teacherAssignments
+                        .filter(ta => ta.classId === clsId)
+                        .filter(ta => {
+                            if (isArabic) {
+                                return ta.languages?.some((tl: string) => tl.toLowerCase().includes('arabe') || tl.toLowerCase().includes('arabic') || tl.toLowerCase().includes('العربية'))
+                            }
+                            if (isEnglish) {
+                                return ta.languages?.some((tl: string) => tl.toLowerCase().includes('anglais') || tl.toLowerCase().includes('english'))
+                            }
+                            // If not explicitly Arabic or English, assume Polyvalent (French/Maths/etc)
+                            // BUT: Polyvalent teachers usually handle everything EXCEPT special languages.
+                            // So if the category is "Français" or "Maths" or "Polyvalent", we check isProfPolyvalent.
+                            return ta.isProfPolyvalent
+                        })
+                        .map(ta => ta.teacherId)
+
+                    // Debugging log (only for first few assignments to avoid spam)
+                    // if (Math.random() < 0.01) {
+                    //    console.log(`DEBUG: Class ${cls.name} Cat ${categoryName} RespTeachers:`, responsibleTeachers, 'Completions:', teacherCompletions)
+                    // }
+
+                    return responsibleTeachers.some(tid => 
+                        teacherCompletions.some((tc: any) => String(tc.teacherId) === String(tid) && tc.completed)
+                    )
+                }
 
                 template.pages.forEach((page: any, pageIdx: number) => {
                     (page.blocks || []).forEach((block: any, blockIdx: number) => {
@@ -649,7 +702,11 @@ subAdminAssignmentsRouter.get('/teacher-progress', requireAuth(['SUBADMIN', 'AEF
                                 }
                                 
                                 if (isAssigned) {
-                                    const lang = item.type || item.label || 'Autre'
+                                    let lang = item.type || item.label || 'Autre'
+                                    // Normalize French to Polyvalent
+                                    if (lang.toLowerCase().includes('français') || lang.toLowerCase().includes('french')) {
+                                        lang = 'Polyvalent'
+                                    }
                                     
                                     if (!categoryStats[lang]) {
                                         // Determine assigned teachers
@@ -677,7 +734,9 @@ subAdminAssignmentsRouter.get('/teacher-progress', requireAuth(['SUBADMIN', 'AEF
                                     categoryStats[lang].total++
                                     totalCompetencies++
 
-                                    if (item.active) {
+                                    // Check if the category is completed by the teacher
+                                    // OR if the item is individually checked (fallback)
+                                    if (isCategoryCompleted(lang) || item.active) {
                                         categoryStats[lang].filled++
                                         filledCompetencies++
                                     }

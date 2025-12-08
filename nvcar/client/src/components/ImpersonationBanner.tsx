@@ -21,7 +21,7 @@ export default function ImpersonationBanner() {
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
-    const token = localStorage.getItem('token')
+    const token = sessionStorage.getItem('token') || localStorage.getItem('token')
     if (token) {
       checkImpersonationStatus()
     }
@@ -41,10 +41,11 @@ export default function ImpersonationBanner() {
       setLoading(true)
       await impersonationApi.stop()
       
-      // Clear the impersonated session
-      localStorage.removeItem('token')
-      localStorage.removeItem('role')
-      localStorage.removeItem('displayName')
+      // Clear the impersonated session from sessionStorage only
+      // Do NOT clear localStorage as it holds the admin session
+      sessionStorage.removeItem('token')
+      sessionStorage.removeItem('role')
+      sessionStorage.removeItem('displayName')
       
       // Close the tab (this works if opened by window.open)
       window.close()
@@ -61,6 +62,16 @@ export default function ImpersonationBanner() {
       alert('Failed to exit impersonation mode')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const getRoleLabel = (role?: string) => {
+    switch(role) {
+      case 'ADMIN': return 'Administrateur'
+      case 'SUBADMIN': return 'Préfet'
+      case 'AEFE': return 'RPP ET DIRECTION'
+      case 'TEACHER': return 'Enseignant'
+      default: return role || ''
     }
   }
 
@@ -84,7 +95,7 @@ export default function ImpersonationBanner() {
         <span style={{ fontSize: '20px' }}>⚠️</span>
         <div>
           <div>
-            <strong>ADMIN MODE:</strong> Logged in as {status.impersonatedUser?.displayName} ({status.impersonatedUser?.role})
+            <strong>ADMIN MODE:</strong> Logged in as {status.impersonatedUser?.displayName} ({getRoleLabel(status.impersonatedUser?.role)})
           </div>
           <div style={{ fontSize: '12px', opacity: 0.9, marginTop: '2px' }}>
             Full account access • Original admin: {status.actualAdmin?.displayName}

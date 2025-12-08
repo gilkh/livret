@@ -475,8 +475,16 @@ teacherTemplatesRouter.get('/classes/:classId/assignments', requireAuth(['TEACHE
             const template = await GradebookTemplate.findById(assignment.templateId).lean()
             const student = await Student.findById(assignment.studentId).lean()
 
+            // Calculate "isCompleted" for THIS teacher
+            // The global assignment.isCompleted is only true if ALL teachers are done
+            // But for the list view, we want to show if THIS teacher is done
+            const myCompletion = (assignment as any).teacherCompletions?.find((tc: any) => tc.teacherId === teacherId)
+            const isMyWorkCompleted = !!myCompletion?.completed
+
             return {
                 ...assignment,
+                isCompleted: isMyWorkCompleted, // Override for frontend
+                isGlobalCompleted: assignment.isCompleted, // Keep original just in case
                 template,
                 student,
             }
@@ -525,14 +533,23 @@ teacherTemplatesRouter.get('/classes/:classId/completion-stats', requireAuth(['T
 
             const stats = templateStats.get(key)!
             stats.total++
-            if (assignment.isCompleted) {
+            
+            // Check specific teacher completion
+            const myCompletion = (assignment as any).teacherCompletions?.find((tc: any) => tc.teacherId === teacherId)
+            if (myCompletion?.completed) {
                 stats.completed++
             }
         }
 
         // Calculate overall stats
         const totalAssignments = assignments.length
-        const completedAssignments = assignments.filter(a => a.isCompleted).length
+        
+        // Count completions for this teacher
+        const completedAssignments = assignments.filter(a => {
+            const myCompletion = (a as any).teacherCompletions?.find((tc: any) => tc.teacherId === teacherId)
+            return myCompletion?.completed
+        }).length
+        
         const completionPercentage = totalAssignments > 0 ? Math.round((completedAssignments / totalAssignments) * 100) : 0
 
         res.json({

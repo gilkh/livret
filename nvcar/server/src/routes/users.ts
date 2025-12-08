@@ -49,6 +49,18 @@ usersRouter.patch('/:id/password', requireAuth(['ADMIN']), async (req, res) => {
   res.json({ ok: true })
 })
 
+usersRouter.patch('/:id', requireAuth(['ADMIN']), async (req, res) => {
+  const { id } = req.params
+  const { displayName } = req.body
+  const user = await User.findById(id)
+  if (!user) return res.status(404).json({ error: 'not_found' })
+  
+  if (displayName !== undefined) user.displayName = displayName
+  
+  await user.save()
+  res.json(user)
+})
+
 usersRouter.delete('/:id', requireAuth(['ADMIN']), async (req, res) => {
   const { id } = req.params
   const user = await User.findByIdAndDelete(id)

@@ -174,6 +174,26 @@ export default function AdminSettings() {
     }
   }
 
+  const syncAllTeachers = async () => {
+    if (!confirm('ATTENTION: Cette action va parcourir toutes les classes et forcer l\'assignation des enseignants à tous les carnets des élèves, quel que soit leur état (même complété). Voulez-vous continuer ?')) {
+        return
+    }
+
+    setLoading(true)
+    try {
+        const res = await api.post('/api/repair/sync-all-classes')
+        console.log(res.data)
+        setMsg('Synchronisation terminée avec succès.')
+        alert(`Synchronisation terminée. ${res.data.results?.length} classes traitées.`)
+    } catch (e: any) {
+        console.error(e)
+        setMsg('Erreur lors de la synchronisation')
+        alert('Erreur: ' + (e.response?.data?.message || e.message))
+    } finally {
+        setLoading(false)
+    }
+  }
+
   if (loading) return (
     <div className="settings-container">
       <div className="settings-header">
@@ -327,8 +347,8 @@ export default function AdminSettings() {
 
           <div className="setting-item">
             <div className="setting-info">
-              <h3>Connexion Sous-Administrateurs</h3>
-              <p>Autoriser les sous-administrateurs à accéder au panneau de gestion</p>
+              <h3>Connexion Préfets</h3>
+              <p>Autoriser les préfets à accéder au panneau de gestion</p>
             </div>
             <div className="flex items-center" style={{ gap: '1rem' }}>
               <div className="status-indicator">
@@ -417,6 +437,21 @@ export default function AdminSettings() {
               style={{ display: 'flex', alignItems: 'center', gap: 8, borderColor: '#ff7675', backgroundColor: '#ff7675', color: '#fff' }}
             >
               🔄 Redémarrer
+            </button>
+          </div>
+
+          <div className="setting-item">
+            <div className="setting-info">
+              <h3>Réparer les Carnets (Sync Enseignants)</h3>
+              <p>Force l'assignation des enseignants de chaque classe à tous les carnets des élèves (corrige le bug "Aucun carnet").</p>
+            </div>
+            <button 
+              className="btn secondary" 
+              onClick={syncAllTeachers}
+              disabled={loading}
+              style={{ display: 'flex', alignItems: 'center', gap: 8, borderColor: '#e17055', color: '#e17055' }}
+            >
+              🛠️ Lancer la réparation
             </button>
           </div>
 

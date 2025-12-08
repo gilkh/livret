@@ -9,6 +9,7 @@ process.on('unhandledRejection', (reason, promise) => {
 })
 
 import { createApp } from './app'
+import { repairRouter } from './routes/repair'
 import os from 'os'
 import { initSocket } from './socket'
 import https from 'https'
@@ -18,6 +19,8 @@ import path from 'path'
 
 const port = process.env.PORT ? Number(process.env.PORT) : 4000
 const app = createApp()
+
+app.use('/api/repair', repairRouter)
 
 let server: https.Server | http.Server
 

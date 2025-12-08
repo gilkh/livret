@@ -500,14 +500,14 @@ export default function AdminPermissions() {
                 />
                 <NavPermissionSection 
                     role="SUBADMIN" 
-                    label="Sous-Admins" 
+                    label="Préfets" 
                     items={subAdminItems} 
                     permissions={navPermissions} 
                     onToggle={toggleNavPermission} 
                 />
                 <NavPermissionSection 
                     role="AEFE" 
-                    label="AEFE" 
+                    label="RPP ET DIRECTION" 
                     items={aefeItems} 
                     permissions={navPermissions} 
                     onToggle={toggleNavPermission} 
@@ -515,9 +515,9 @@ export default function AdminPermissions() {
             </div>
 
             <div style={{ marginBottom: 32 }}>
-                <h2 className="title" style={{ fontSize: 20, marginBottom: 8 }}>Permissions Sous-Admins (Signatures)</h2>
+                <h2 className="title" style={{ fontSize: 20, marginBottom: 8 }}>Permissions Préfets (Signatures)</h2>
                 <p className="note" style={{ fontSize: 16, color: '#64748b' }}>
-                    Configurez les exceptions aux règles de signature pour les sous-administrateurs.
+                    Configurez les exceptions aux règles de signature pour les préfets.
                     <br/>
                     Vous pouvez accorder des permissions globales, par niveau, par classe ou par élève.
                 </p>
@@ -538,7 +538,7 @@ export default function AdminPermissions() {
                     ))}
                     {subadmins.length === 0 && (
                         <div style={{ textAlign: 'center', padding: 40, background: '#f8fafc', borderRadius: 12, color: '#64748b' }}>
-                            Aucun sous-administrateur trouvé.
+                            Aucun Préfet trouvé.
                         </div>
                     )}
                 </div>

@@ -46,8 +46,8 @@ export default function Users() {
   const getRoleLabel = (role: string) => {
     switch(role) {
       case 'ADMIN': return 'Administrateur'
-      case 'SUBADMIN': return 'Sous-Administrateur'
-      case 'AEFE': return 'AEFE'
+      case 'SUBADMIN': return 'Préfet'
+      case 'AEFE': return 'RPP ET DIRECTION'
       case 'TEACHER': return 'Enseignant'
       default: return role
     }
@@ -98,7 +98,21 @@ export default function Users() {
                         placeholder="Nom d'affichage"
                         style={{ border: 'none', borderBottom: '1px dashed #ccc', width: '100%', padding: '2px 0' }}
                      />
-                  ) : u.displayName}
+                  ) : (
+                    <input
+                        defaultValue={u.displayName || ''}
+                        onBlur={(e) => {
+                            if (e.target.value !== (u.displayName || '')) {
+                                updateUserDisplayName(u._id, e.target.value)
+                            }
+                        }}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter') e.currentTarget.blur()
+                        }}
+                        placeholder="Nom d'affichage"
+                        style={{ border: 'none', borderBottom: '1px dashed #ccc', width: '100%', padding: '2px 0' }}
+                     />
+                  )}
                 </div>
               </div>
               
@@ -134,8 +148,8 @@ export default function Users() {
                         style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #ccc', fontSize: '0.85rem' }}
                       >
                         <option value="TEACHER">Enseignant</option>
-                        <option value="SUBADMIN">Sous-admin</option>
-                        <option value="AEFE">AEFE</option>
+                        <option value="SUBADMIN">Préfet</option>
+                        <option value="AEFE">RPP ET DIRECTION</option>
                         <option value="ADMIN">Admin</option>
                       </select>
                    ) : (
@@ -262,6 +276,16 @@ export default function Users() {
     }
   }
 
+  const updateUserDisplayName = async (id: string, displayName: string) => {
+    try {
+      await api.patch(`/users/${id}`, { displayName })
+      await load()
+      showToast('Nom mis à jour', 'success')
+    } catch (e) {
+      showToast('Erreur lors de la mise à jour du nom', 'error')
+    }
+  }
+
   const updateOutlookUserDisplayName = async (id: string, displayName: string) => {
     try {
       await api.patch(`/outlook-users/${id}`, { displayName })
@@ -299,10 +323,11 @@ export default function Users() {
       // Open in new tab with the impersonation token
       const newWindow = window.open('about:blank', '_blank')
       if (newWindow) {
-        // Store the impersonation data in the new window's localStorage
-        newWindow.localStorage.setItem('token', data.token)
-        newWindow.localStorage.setItem('role', user.role)
-        newWindow.localStorage.setItem('displayName', user.displayName)
+        // Store the impersonation data in the new window's sessionStorage
+        // This ensures the admin session in localStorage remains untouched in the original tab
+        newWindow.sessionStorage.setItem('token', data.token)
+        newWindow.sessionStorage.setItem('role', user.role)
+        newWindow.sessionStorage.setItem('displayName', user.displayName)
         
         // Navigate to the target URL
         newWindow.location.href = window.location.origin + targetUrl
@@ -393,8 +418,8 @@ export default function Users() {
                     <label className="note" style={{ display: 'block', marginBottom: 4 }}>Rôle</label>
                     <select value={role} onChange={e => setRole(e.target.value as any)} style={{ width: '100%', padding: '10px', borderRadius: 6, border: '1px solid #d9d9d9', backgroundColor: 'white' }}>
                       <option value="ADMIN">Admin</option>
-                      <option value="SUBADMIN">Sous-admin</option>
-                      <option value="AEFE">AEFE</option>
+                      <option value="SUBADMIN">Préfet</option>
+                      <option value="AEFE">RPP ET DIRECTION</option>
                       <option value="TEACHER">Enseignant</option>
                     </select>
                 </div>
@@ -429,8 +454,8 @@ export default function Users() {
                     <label className="note" style={{ display: 'block', marginBottom: 4 }}>Rôle</label>
                     <select value={outlookRole} onChange={e => setOutlookRole(e.target.value as any)} style={{ width: '100%', padding: '10px', borderRadius: 6, border: '1px solid #d9d9d9', backgroundColor: 'white' }}>
                       <option value="ADMIN">Admin</option>
-                      <option value="SUBADMIN">Sous-admin</option>
-                      <option value="AEFE">AEFE</option>
+                      <option value="SUBADMIN">Préfet</option>
+                      <option value="AEFE">RPP ET DIRECTION</option>
                       <option value="TEACHER">Enseignant</option>
                     </select>
                 </div>

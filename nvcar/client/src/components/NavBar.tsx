@@ -4,9 +4,9 @@ import { useState, useEffect } from 'react'
 import api from '../api'
 
 export default function NavBar() {
-  const role = typeof window !== 'undefined' ? localStorage.getItem('role') : null
-  const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
-  const displayName = typeof window !== 'undefined' ? localStorage.getItem('displayName') : null
+  const role = typeof window !== 'undefined' ? (sessionStorage.getItem('role') || localStorage.getItem('role')) : null
+  const token = typeof window !== 'undefined' ? (sessionStorage.getItem('token') || localStorage.getItem('token')) : null
+  const displayName = typeof window !== 'undefined' ? (sessionStorage.getItem('displayName') || localStorage.getItem('displayName')) : null
   const navigate = useNavigate()
   const location = useLocation()
   const { activeYear, years, activeYearId, setActiveYearId } = useSchoolYear()
@@ -23,6 +23,12 @@ export default function NavBar() {
   }
 
   const logout = () => {
+    // Clear both session and local storage
+    if (sessionStorage.getItem('token')) {
+        sessionStorage.removeItem('token')
+        sessionStorage.removeItem('role')
+        sessionStorage.removeItem('displayName')
+    }
     localStorage.removeItem('token')
     localStorage.removeItem('role')
     localStorage.removeItem('displayName')

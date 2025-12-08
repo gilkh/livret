@@ -237,19 +237,71 @@ templateAssignmentsRouter.patch('/:id/status', requireAuth(['ADMIN', 'SUBADMIN',
     try {
         const { id } = req.params
         const { status } = req.body
+        const user = (req as any).user
 
         if (!['draft', 'in_progress', 'completed', 'signed'].includes(status)) {
             return res.status(400).json({ error: 'invalid_status' })
         }
 
-        const assignment = await TemplateAssignment.findByIdAndUpdate(
+        // Retrieve existing assignment to check current state
+        const assignment = await TemplateAssignment.findById(id).lean()
+        if (!assignment) return res.status(404).json({ error: 'not_found' })
+
+        let newStatus = status
+        let teacherCompletions = (assignment as any).teacherCompletions || []
+        let isCompleted = assignment.isCompleted
+        let completedAt = assignment.completedAt
+        let completedBy = assignment.completedBy
+
+        // Special handling for TEACHER role: only update their part
+        if (user.role === 'TEACHER') {
+            // Verify teacher is assigned
+            if (assignment.assignedTeachers && assignment.assignedTeachers.includes(user.userId)) {
+                const isMarkingDone = status === 'completed'
+                
+                // Update this teacher's completion status
+                teacherCompletions = teacherCompletions.filter((tc: any) => tc.teacherId !== user.userId)
+                
+                teacherCompletions.push({
+                    teacherId: user.userId,
+                    completed: isMarkingDone,
+                    completedAt: new Date()
+                })
+
+                // Check if ALL assigned teachers are done
+                // If assignedTeachers is empty, this returns true, which is acceptable
+                const allDone = assignment.assignedTeachers.every((tid: string) => 
+                   teacherCompletions.some((tc: any) => tc.teacherId === tid && tc.completed)
+                )
+
+                if (allDone) {
+                    newStatus = 'completed'
+                    isCompleted = true
+                    completedAt = new Date()
+                    completedBy = user.userId // Last one to complete
+                } else {
+                    // If not all done, status should be in_progress
+                    newStatus = 'in_progress'
+                    isCompleted = false
+                    completedAt = undefined
+                    completedBy = undefined
+                }
+            }
+        }
+
+        const updated = await TemplateAssignment.findByIdAndUpdate(
             id,
-            { status },
+            { 
+                status: newStatus,
+                teacherCompletions,
+                isCompleted,
+                completedAt,
+                completedBy
+            },
             { new: true }
         )
 
-        if (!assignment) return res.status(404).json({ error: 'not_found' })
-        res.json(assignment)
+        res.json(updated)
     } catch (e: any) {
         res.status(500).json({ error: 'update_failed', message: e.message })
     }
