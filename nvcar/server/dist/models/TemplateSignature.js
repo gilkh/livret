@@ -9,6 +9,7 @@ const templateSignatureSchema = new mongoose_1.Schema({
     pdfPath: { type: String },
     status: { type: String, enum: ['signed', 'exported'], default: 'signed' },
     type: { type: String, enum: ['standard', 'end_of_year'], default: 'standard' },
+    signatureUrl: { type: String },
 });
 // Index for quick lookup
 templateSignatureSchema.index({ templateAssignmentId: 1 });

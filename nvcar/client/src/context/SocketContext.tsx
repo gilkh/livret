@@ -13,7 +13,7 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
   useEffect(() => {
     // Use relative URL to leverage Vite proxy
     const url = import.meta.env.VITE_API_URL || '/'
-    
+
     const newSocket = io(url, {
       withCredentials: true,
       transports: ['websocket', 'polling']

@@ -615,7 +615,7 @@ subAdminAssignmentsRouter.get('/teacher-progress', requireAuth(['SUBADMIN', 'AEF
 
             let totalCompetencies = 0
             let filledCompetencies = 0
-            const categoryStats: Record<string, { total: number, filled: number, name: string }> = {}
+            const categoryStats: Record<string, { total: number, filled: number, name: string, teachers: string[] }> = {}
 
             clsAssignments.forEach(assignment => {
                 const templateId = assignment.templateId
@@ -652,7 +652,26 @@ subAdminAssignmentsRouter.get('/teacher-progress', requireAuth(['SUBADMIN', 'AEF
                                     const lang = item.type || item.label || 'Autre'
                                     
                                     if (!categoryStats[lang]) {
-                                        categoryStats[lang] = { total: 0, filled: 0, name: lang }
+                                        // Determine assigned teachers
+                                        const assignedTeachers = teacherAssignments
+                                            .filter(ta => ta.classId === clsId)
+                                            .filter(ta => {
+                                                const l = lang.toLowerCase();
+                                                const isArabic = l.includes('arabe') || l.includes('arabic') || l.includes('العربية');
+                                                const isEnglish = l.includes('anglais') || l.includes('english');
+                                                
+                                                if (isArabic) {
+                                                    return ta.languages?.some((tl: string) => tl.toLowerCase().includes('arabe') || tl.toLowerCase().includes('arabic'));
+                                                }
+                                                if (isEnglish) {
+                                                    return ta.languages?.some((tl: string) => tl.toLowerCase().includes('anglais') || tl.toLowerCase().includes('english'));
+                                                }
+                                                // Default/Polyvalent
+                                                return ta.isProfPolyvalent;
+                                            })
+                                            .map(ta => teacherMap.get(ta.teacherId)?.displayName || 'Unknown');
+
+                                        categoryStats[lang] = { total: 0, filled: 0, name: lang, teachers: assignedTeachers }
                                     }
                                     
                                     categoryStats[lang].total++
@@ -684,7 +703,8 @@ subAdminAssignmentsRouter.get('/teacher-progress', requireAuth(['SUBADMIN', 'AEF
                     name: stat.name,
                     total: stat.total,
                     filled: stat.filled,
-                    percentage: stat.total > 0 ? Math.round((stat.filled / stat.total) * 100) : 0
+                    percentage: stat.total > 0 ? Math.round((stat.filled / stat.total) * 100) : 0,
+                    teachers: stat.teachers
                 }))
             }
         })

@@ -92,7 +92,7 @@ const ProgressionChart: React.FC<ProgressionChartProps> = ({ title, total, compl
                         <BarChart
                             data={barData}
                             layout="vertical"
-                            margin={{ top: 5, right: 30, left: 40, bottom: 5 }}
+                            margin={{ top: 5, right: 30, left: 40, bottom: 30 }}
                         >
                             <CartesianGrid strokeDasharray="3 3" horizontal={false} />
                             <XAxis type="number" />
@@ -114,8 +114,8 @@ const ProgressionChart: React.FC<ProgressionChartProps> = ({ title, total, compl
                                     return null;
                                 }}
                             />
-                            <Legend />
-                            <Bar dataKey="Complété" stackId="a" fill="#3b82f6" radius={[0, 0, 0, 0]} />
+                            <Legend wrapperStyle={{ paddingTop: '20px' }} />
+                            <Bar dataKey="Complété" stackId="a" fill="#10b981" radius={[0, 0, 0, 0]} />
                             <Bar dataKey="Restant" stackId="a" fill="#e2e8f0" radius={[0, 4, 4, 0]} />
                         </BarChart>
                     </ResponsiveContainer>

@@ -1,0 +1,82 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.checkAndAssignTemplates = checkAndAssignTemplates;
+const Class_1 = require("../models/Class");
+const Enrollment_1 = require("../models/Enrollment");
+const TemplateAssignment_1 = require("../models/TemplateAssignment");
+const TeacherClassAssignment_1 = require("../models/TeacherClassAssignment");
+const GradebookTemplate_1 = require("../models/GradebookTemplate");
+async function checkAndAssignTemplates(studentId, level, schoolYearId, classId, userId) {
+    try {
+        // 1. Find other students in the same level for this school year
+        const classesInLevel = await Class_1.ClassModel.find({ level, schoolYearId }).lean();
+        const classIdsInLevel = classesInLevel.map(c => String(c._id));
+        if (classIdsInLevel.length === 0)
+            return;
+        // Find enrollments in these classes (excluding the current student)
+        const enrollments = await Enrollment_1.Enrollment.find({
+            classId: { $in: classIdsInLevel },
+            studentId: { $ne: studentId }
+        }).lean();
+        if (enrollments.length === 0)
+            return;
+        const otherStudentIds = enrollments.map(e => e.studentId);
+        // 2. Find templates assigned to these students
+        const assignments = await TemplateAssignment_1.TemplateAssignment.find({
+            studentId: { $in: otherStudentIds }
+        }).lean();
+        const templateIds = [...new Set(assignments.map(a => a.templateId))];
+        if (templateIds.length === 0) {
+            // 2a. Check for Default Templates for this Level
+            const defaultTemplates = await GradebookTemplate_1.GradebookTemplate.find({ defaultForLevels: level }).lean();
+            if (defaultTemplates.length > 0) {
+                templateIds.push(...defaultTemplates.map(t => String(t._id)));
+            }
+        }
+        if (templateIds.length === 0)
+            return;
+        // 3. Assign these templates to the new student
+        const teacherAssignments = await TeacherClassAssignment_1.TeacherClassAssignment.find({ classId }).lean();
+        const teacherIds = teacherAssignments.map(t => t.teacherId);
+        for (const templateId of templateIds) {
+            // Check if already assigned
+            const exists = await TemplateAssignment_1.TemplateAssignment.findOne({ studentId, templateId });
+            const template = await GradebookTemplate_1.GradebookTemplate.findById(templateId).lean();
+            if (!template)
+                continue;
+            if (!exists) {
+                await TemplateAssignment_1.TemplateAssignment.create({
+                    templateId,
+                    templateVersion: template.currentVersion || 1,
+                    studentId,
+                    assignedTeachers: teacherIds,
+                    assignedBy: userId,
+                    assignedAt: new Date(),
+                    status: 'draft',
+                });
+            }
+            else {
+                // Update existing assignment to ensure it's ready for the new year
+                const updates = {};
+                // Update version if needed
+                if (exists.templateVersion !== template.currentVersion) {
+                    updates.templateVersion = template.currentVersion;
+                }
+                // Reset status if it was completed/signed in previous years
+                if (['completed', 'signed'].includes(exists.status)) {
+                    updates.status = 'in_progress';
+                    updates.isCompleted = false;
+                    updates.completedAt = null;
+                    updates.completedBy = null;
+                    updates.teacherCompletions = [];
+                }
+                // Always update teachers to the new class teachers
+                updates.assignedTeachers = teacherIds;
+                await TemplateAssignment_1.TemplateAssignment.updateOne({ _id: exists._id }, { $set: updates });
+            }
+        }
+    }
+    catch (err) {
+        console.error('Error in checkAndAssignTemplates:', err);
+    }
+}

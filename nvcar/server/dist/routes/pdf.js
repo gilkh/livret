@@ -391,31 +391,32 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
                     if (typeof x === 'number' && typeof y === 'number') {
                         doc.text(`${lab}:`, px(x), py(y));
                         y += 16;
-                        if (sig?.url) {
-                            try {
+                        try {
+                            if (sig?.url && (sig.url.startsWith('/') || sig.url.startsWith('uploads'))) {
+                                const localPath = path_1.default.join(__dirname, '../../public', sig.url.startsWith('/') ? sig.url : `/${sig.url}`);
+                                if (fs_1.default.existsSync(localPath)) {
+                                    doc.image(localPath, px(x), py(y), { width: 160 });
+                                }
+                                else {
+                                    doc.text(`______________________________`, px(x), py(y));
+                                }
+                            }
+                            else if (sig?.url) {
                                 const r = await axios_1.default.get(String(sig.url).startsWith('http') ? sig.url : `http://localhost:4000${sig.url}`, { responseType: 'arraybuffer' });
                                 const buf = Buffer.from(r.data);
                                 doc.image(buf, px(x), py(y), { width: 160 });
-                                y += 100;
                             }
-                            catch {
-                                doc.text(`______________________________`, px(x), py(y));
-                                y += 18;
-                            }
-                        }
-                        else if (sig?.dataUrl) {
-                            try {
+                            else if (sig?.dataUrl) {
                                 const base64 = String(sig.dataUrl).split(',').pop() || '';
                                 const buf = Buffer.from(base64, 'base64');
                                 doc.image(buf, px(x), py(y), { width: 160 });
-                                y += 100;
                             }
-                            catch {
+                            else {
                                 doc.text(`______________________________`, px(x), py(y));
-                                y += 18;
                             }
+                            y += 100;
                         }
-                        else {
+                        catch (e) {
                             doc.text(`______________________________`, px(x), py(y));
                             y += 18;
                         }
@@ -424,7 +425,19 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
                         doc.text(`${lab}:`);
                         if (sig?.url || sig?.dataUrl)
                             doc.moveDown(0.2);
-                        if (sig?.url) {
+                        if (sig?.url && (sig.url.startsWith('/') || sig.url.startsWith('uploads'))) {
+                            try {
+                                const localPath = path_1.default.join(__dirname, '../../public', sig.url.startsWith('/') ? sig.url : `/${sig.url}`);
+                                if (fs_1.default.existsSync(localPath))
+                                    doc.image(localPath, { width: 160 });
+                                else
+                                    doc.text(`______________________________`);
+                            }
+                            catch {
+                                doc.text(`______________________________`);
+                            }
+                        }
+                        else if (sig?.url) {
                             try {
                                 const r = await axios_1.default.get(String(sig.url).startsWith('http') ? sig.url : `http://localhost:4000${sig.url}`, { responseType: 'arraybuffer' });
                                 const buf = Buffer.from(r.data);

@@ -14,7 +14,7 @@ const SchoolYear_1 = require("../models/SchoolYear");
 const auditLogger_1 = require("../utils/auditLogger");
 exports.teacherTemplatesRouter = (0, express_1.Router)();
 // Teacher: Get classes assigned to logged-in teacher
-exports.teacherTemplatesRouter.get('/classes', (0, auth_1.requireAuth)(['TEACHER']), async (req, res) => {
+exports.teacherTemplatesRouter.get('/classes', (0, auth_1.requireAuth)(['TEACHER', 'ADMIN', 'SUBADMIN']), async (req, res) => {
     try {
         const teacherId = req.user.userId;
         const { schoolYearId } = req.query;
@@ -38,7 +38,7 @@ exports.teacherTemplatesRouter.get('/classes', (0, auth_1.requireAuth)(['TEACHER
     }
 });
 // Teacher: Get students in assigned class
-exports.teacherTemplatesRouter.get('/classes/:classId/students', (0, auth_1.requireAuth)(['TEACHER']), async (req, res) => {
+exports.teacherTemplatesRouter.get('/classes/:classId/students', (0, auth_1.requireAuth)(['TEACHER', 'ADMIN', 'SUBADMIN']), async (req, res) => {
     try {
         const teacherId = req.user.userId;
         const { classId } = req.params;
@@ -57,7 +57,7 @@ exports.teacherTemplatesRouter.get('/classes/:classId/students', (0, auth_1.requ
     }
 });
 // Teacher: Get templates for a student
-exports.teacherTemplatesRouter.get('/students/:studentId/templates', (0, auth_1.requireAuth)(['TEACHER']), async (req, res) => {
+exports.teacherTemplatesRouter.get('/students/:studentId/templates', (0, auth_1.requireAuth)(['TEACHER', 'ADMIN', 'SUBADMIN']), async (req, res) => {
     try {
         const teacherId = req.user.userId;
         const { studentId } = req.params;
@@ -86,7 +86,7 @@ exports.teacherTemplatesRouter.get('/students/:studentId/templates', (0, auth_1.
     }
 });
 // Teacher: Get specific template assignment for editing
-exports.teacherTemplatesRouter.get('/template-assignments/:assignmentId', (0, auth_1.requireAuth)(['TEACHER']), async (req, res) => {
+exports.teacherTemplatesRouter.get('/template-assignments/:assignmentId', (0, auth_1.requireAuth)(['TEACHER', 'ADMIN', 'SUBADMIN']), async (req, res) => {
     try {
         const teacherId = req.user.userId;
         const { assignmentId } = req.params;
@@ -137,7 +137,21 @@ exports.teacherTemplatesRouter.get('/template-assignments/:assignmentId', (0, au
         let level = '';
         let className = '';
         let allowedLanguages = [];
-        const enrollment = await Enrollment_1.Enrollment.findOne({ studentId: assignment.studentId }).lean();
+        // Try to find enrollment in active year first
+        const activeYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
+        let enrollment = null;
+        if (activeYear) {
+            enrollment = await Enrollment_1.Enrollment.findOne({
+                studentId: assignment.studentId,
+                schoolYearId: String(activeYear._id)
+            }).lean();
+        }
+        // Fallback to most recent enrollment if not found in active year
+        if (!enrollment) {
+            enrollment = await Enrollment_1.Enrollment.findOne({ studentId: assignment.studentId })
+                .sort({ _id: -1 })
+                .lean();
+        }
         if (!enrollment) {
             return res.status(403).json({ error: 'student_not_enrolled' });
         }
@@ -167,7 +181,6 @@ exports.teacherTemplatesRouter.get('/template-assignments/:assignmentId', (0, au
         const myCompletion = assignment.teacherCompletions?.find((tc) => tc.teacherId === teacherId);
         const isMyWorkCompleted = !!myCompletion?.completed;
         // Get active semester from the active school year
-        const activeYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
         const activeSemester = activeYear?.activeSemester || 1;
         res.json({
             assignment,
@@ -376,7 +389,7 @@ exports.teacherTemplatesRouter.post('/templates/:assignmentId/unmark-done', (0, 
     }
 });
 // Teacher: Get all template assignments for a class with completion stats
-exports.teacherTemplatesRouter.get('/classes/:classId/assignments', (0, auth_1.requireAuth)(['TEACHER']), async (req, res) => {
+exports.teacherTemplatesRouter.get('/classes/:classId/assignments', (0, auth_1.requireAuth)(['TEACHER', 'ADMIN', 'SUBADMIN']), async (req, res) => {
     try {
         const teacherId = req.user.userId;
         const { classId } = req.params;
@@ -409,7 +422,7 @@ exports.teacherTemplatesRouter.get('/classes/:classId/assignments', (0, auth_1.r
     }
 });
 // Teacher: Get completion statistics for a class
-exports.teacherTemplatesRouter.get('/classes/:classId/completion-stats', (0, auth_1.requireAuth)(['TEACHER']), async (req, res) => {
+exports.teacherTemplatesRouter.get('/classes/:classId/completion-stats', (0, auth_1.requireAuth)(['TEACHER', 'ADMIN', 'SUBADMIN']), async (req, res) => {
     try {
         const teacherId = req.user.userId;
         const { classId } = req.params;

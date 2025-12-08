@@ -79,6 +79,8 @@ export default function AdminLogin() {
           navigate('/admin')
         } else if (r.data.role === 'SUBADMIN') {
           navigate('/subadmin/dashboard')
+        } else if (r.data.role === 'AEFE') {
+          navigate('/aefe/dashboard')
         } else if (r.data.role === 'TEACHER') {
           navigate('/teacher/classes')
         } else {
@@ -136,6 +138,8 @@ export default function AdminLogin() {
         navigate('/admin')
       } else if (r.data.role === 'SUBADMIN') {
         navigate('/subadmin/dashboard')
+      } else if (r.data.role === 'AEFE') {
+        navigate('/aefe/dashboard')
       } else if (r.data.role === 'TEACHER') {
         navigate('/teacher/classes')
       } else {

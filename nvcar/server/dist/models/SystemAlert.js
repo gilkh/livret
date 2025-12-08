@@ -5,6 +5,7 @@ const mongoose_1 = require("mongoose");
 const systemAlertSchema = new mongoose_1.Schema({
     message: { type: String, required: true },
     active: { type: Boolean, default: true },
+    expiresAt: { type: Date },
     createdAt: { type: Date, default: Date.now },
     createdBy: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User' },
 });

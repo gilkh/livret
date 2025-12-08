@@ -5,14 +5,7 @@ const socket_io_1 = require("socket.io");
 const initSocket = (httpServer) => {
     const io = new socket_io_1.Server(httpServer, {
         cors: {
-            origin: (origin, callback) => {
-                // Allow all origins for now, or match your app.ts CORS policy
-                if (!origin)
-                    return callback(null, true);
-                if (origin.startsWith('http://localhost:5173') || origin.startsWith('http://localhost:5174'))
-                    return callback(null, true);
-                return callback(null, true);
-            },
+            origin: true,
             methods: ['GET', 'POST'],
             credentials: true
         }

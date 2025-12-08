@@ -9,7 +9,7 @@ const SavedGradebook_1 = require("../models/SavedGradebook");
 const Enrollment_1 = require("../models/Enrollment");
 const Class_1 = require("../models/Class");
 exports.schoolYearsRouter = (0, express_1.Router)();
-exports.schoolYearsRouter.get('/', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', 'AEFE']), async (req, res) => {
+exports.schoolYearsRouter.get('/', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', 'AEFE', 'TEACHER']), async (req, res) => {
     const list = await SchoolYear_1.SchoolYear.find({}).sort({ startDate: -1 }).lean();
     res.json(list);
 });
@@ -20,7 +20,9 @@ exports.schoolYearsRouter.post('/', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN'
     if (active) {
         await SchoolYear_1.SchoolYear.updateMany({}, { $set: { active: false } });
     }
-    const year = await SchoolYear_1.SchoolYear.create({ name, startDate: new Date(startDate), endDate: new Date(endDate), active: active ?? true });
+    const lastYear = await SchoolYear_1.SchoolYear.findOne({}).sort({ sequence: -1 }).lean();
+    const nextSequence = (lastYear?.sequence || 0) + 1;
+    const year = await SchoolYear_1.SchoolYear.create({ name, startDate: new Date(startDate), endDate: new Date(endDate), active: active ?? true, sequence: nextSequence });
     res.json(year);
 });
 exports.schoolYearsRouter.patch('/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN']), async (req, res) => {

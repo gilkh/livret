@@ -22,7 +22,6 @@ import { templateAssignmentsRouter } from './routes/templateAssignments'
 import { subAdminAssignmentsRouter } from './routes/subAdminAssignments'
 import { teacherTemplatesRouter } from './routes/teacherTemplates'
 import { subAdminTemplatesRouter } from './routes/subAdminTemplates'
-import { aefeTemplatesRouter } from './routes/aefeTemplates'
 import { auditLogsRouter } from './routes/auditLogs'
 import { impersonationRouter } from './routes/impersonation'
 import { suggestionsRouter } from './routes/suggestions'
@@ -73,7 +72,7 @@ export const createApp = () => {
   app.use('/subadmin-assignments', subAdminAssignmentsRouter)
   app.use('/teacher', teacherTemplatesRouter)
   app.use('/subadmin', subAdminTemplatesRouter)
-  app.use('/aefe', aefeTemplatesRouter)
+  app.use('/aefe', subAdminTemplatesRouter)
   app.use('/audit-logs', auditLogsRouter)
   app.use('/impersonation', impersonationRouter)
   app.use('/suggestions', suggestionsRouter)

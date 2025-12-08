@@ -76,17 +76,14 @@ const Level_1 = require("./models/Level");
 const adminExtras_1 = require("./routes/adminExtras");
 const createApp = () => {
     const app = (0, express_1.default)();
+    // Allow all origins with credentials
     app.use((0, cors_1.default)({
-        origin: (origin, cb) => {
-            if (!origin)
-                return cb(null, true);
-            if (origin.startsWith('http://localhost:5173') || origin.startsWith('http://localhost:5174'))
-                return cb(null, true);
-            return cb(null, true);
-        },
+        origin: true,
         credentials: true,
+        exposedHeaders: ['Content-Disposition']
     }));
-    app.use(body_parser_1.default.json({ limit: '2mb' }));
+    app.use(body_parser_1.default.json({ limit: '50mb' }));
+    app.use(body_parser_1.default.urlencoded({ limit: '50mb', extended: true }));
     app.use('/auth', auth_1.authRouter);
     app.use('/categories', categories_1.categoriesRouter);
     app.use('/students', students_1.studentsRouter);

@@ -56,7 +56,7 @@ const upload = multer({
 export const subAdminTemplatesRouter = Router()
 
 // Sub-admin: Get signature
-subAdminTemplatesRouter.get('/signature', requireAuth(['SUBADMIN']), async (req, res) => {
+subAdminTemplatesRouter.get('/signature', requireAuth(['SUBADMIN', 'AEFE']), async (req, res) => {
     try {
         const subAdminId = (req as any).user.userId
         let user = await User.findById(subAdminId).lean() as any
@@ -75,7 +75,7 @@ subAdminTemplatesRouter.get('/signature', requireAuth(['SUBADMIN']), async (req,
 })
 
 // Sub-admin: Upload signature
-subAdminTemplatesRouter.post('/signature/upload', requireAuth(['SUBADMIN']), upload.single('file'), async (req, res) => {
+subAdminTemplatesRouter.post('/signature/upload', requireAuth(['SUBADMIN', 'AEFE']), upload.single('file'), async (req, res) => {
     try {
         const subAdminId = (req as any).user.userId
         
@@ -121,7 +121,7 @@ subAdminTemplatesRouter.post('/signature/upload', requireAuth(['SUBADMIN']), upl
 })
 
 // Sub-admin: Delete signature
-subAdminTemplatesRouter.delete('/signature', requireAuth(['SUBADMIN']), async (req, res) => {
+subAdminTemplatesRouter.delete('/signature', requireAuth(['SUBADMIN', 'AEFE']), async (req, res) => {
     try {
         const subAdminId = (req as any).user.userId
         let user = await User.findById(subAdminId).lean() as any
@@ -158,12 +158,13 @@ subAdminTemplatesRouter.delete('/signature', requireAuth(['SUBADMIN']), async (r
 })
 
 // Sub-admin: Get promoted students not yet assigned to a class
-subAdminTemplatesRouter.get('/promoted-students', requireAuth(['SUBADMIN']), async (req, res) => {
+subAdminTemplatesRouter.get('/promoted-students', requireAuth(['SUBADMIN', 'AEFE']), async (req, res) => {
     try {
         const subAdminId = (req as any).user.userId
         
         // Get active school year
         const activeSchoolYear = await SchoolYear.findOne({ active: true }).lean()
+        if (!activeSchoolYear) return res.json([])
 
         // Find students promoted by this sub-admin
         const students = await Student.find({
@@ -210,12 +211,13 @@ subAdminTemplatesRouter.get('/promoted-students', requireAuth(['SUBADMIN']), asy
 
         res.json(promotedStudents)
     } catch (e: any) {
+        console.error('Error in /subadmin/promoted-students:', e)
         res.status(500).json({ error: 'fetch_failed', message: e.message })
     }
 })
 
 // Sub-admin: Get classes with pending signatures
-subAdminTemplatesRouter.get('/classes', requireAuth(['SUBADMIN']), async (req, res) => {
+subAdminTemplatesRouter.get('/classes', requireAuth(['SUBADMIN', 'AEFE']), async (req, res) => {
     try {
         const subAdminId = (req as any).user.userId
 
@@ -254,58 +256,62 @@ subAdminTemplatesRouter.get('/classes', requireAuth(['SUBADMIN']), async (req, r
             studentId: { $in: studentIds },
             status: { $in: ['draft', 'in_progress', 'completed'] },
         }).lean()
-        
-        // Get unique class IDs and their details
+
+        // Pre-compute maps for fast aggregation
         const classIds = [...new Set(enrollments.map(e => e.classId))]
         const classes = await ClassModel.find({ _id: { $in: classIds } }).lean()
+        const studentToClass = new Map(enrollments.map(e => [String(e.studentId), String(e.classId)]))
+        const allAssignmentIds = templateAssignments.map(a => String(a._id))
+        const signatures = await TemplateSignature.find({ templateAssignmentId: { $in: allAssignmentIds } }).lean()
+        const signedSet = new Set(signatures.map(s => String(s.templateAssignmentId)))
 
-        // For each class, count pending signatures
-        const classesWithStats = await Promise.all(classes.map(async (cls: any) => {
-            const classEnrollments = enrollments.filter(e => String(e.classId) === String(cls._id))
-            const classStudentIds = classEnrollments.map(e => e.studentId)
-            
-            const classAssignments = templateAssignments.filter(a => 
-                classStudentIds.includes(a.studentId)
-            )
-            
-            const assignmentIds = classAssignments.map(a => String(a._id))
-            const signatures = await TemplateSignature.find({ 
-                templateAssignmentId: { $in: assignmentIds } 
-            }).lean()
-            
-            const signedCount = signatures.length
-            const totalCount = classAssignments.length
-            
+        // Aggregate counts per class in one pass
+        const counts = new Map<string, { total: number; signed: number }>()
+        for (const a of templateAssignments) {
+            const clsId = studentToClass.get(String(a.studentId))
+            if (!clsId) continue
+            const entry = counts.get(clsId) || { total: 0, signed: 0 }
+            entry.total++
+            if (signedSet.has(String(a._id))) entry.signed++
+            counts.set(clsId, entry)
+        }
+
+        const classesWithStats = classes.map((cls: any) => {
+            const c = counts.get(String(cls._id)) || { total: 0, signed: 0 }
             return {
                 ...cls,
-                pendingSignatures: totalCount - signedCount,
-                totalAssignments: totalCount,
-                signedAssignments: signedCount,
+                pendingSignatures: c.total - c.signed,
+                totalAssignments: c.total,
+                signedAssignments: c.signed,
             }
-        }))
+        })
 
         res.json(classesWithStats)
     } catch (e: any) {
+        console.error('Error in /subadmin/classes:', e)
         res.status(500).json({ error: 'fetch_failed', message: e.message })
     }
 })
 
 // Sub-admin: Get assigned teachers
-subAdminTemplatesRouter.get('/teachers', requireAuth(['SUBADMIN']), async (req, res) => {
+subAdminTemplatesRouter.get('/teachers', requireAuth(['SUBADMIN', 'AEFE']), async (req, res) => {
     try {
         const subAdminId = (req as any).user.userId
         const assignments = await SubAdminAssignment.find({ subAdminId }).lean()
         const teacherIds = assignments.map(a => a.teacherId)
-        const teachers = await User.find({ _id: { $in: teacherIds } }).lean()
+        const teachers = await User.find({ _id: { $in: teacherIds } })
+            .select('_id email displayName')
+            .lean()
 
         res.json(teachers)
     } catch (e: any) {
+        console.error('Error in /subadmin/teachers:', e)
         res.status(500).json({ error: 'fetch_failed', message: e.message })
     }
 })
 
 // Sub-admin: Get template changes by a teacher
-subAdminTemplatesRouter.get('/teachers/:teacherId/changes', requireAuth(['SUBADMIN']), async (req, res) => {
+subAdminTemplatesRouter.get('/teachers/:teacherId/changes', requireAuth(['SUBADMIN', 'AEFE']), async (req, res) => {
     try {
         const subAdminId = (req as any).user.userId
         const { teacherId } = req.params
@@ -346,7 +352,7 @@ subAdminTemplatesRouter.get('/teachers/:teacherId/changes', requireAuth(['SUBADM
 })
 
 // Sub-admin: Get pending signatures (templates awaiting signature)
-subAdminTemplatesRouter.get('/pending-signatures', requireAuth(['SUBADMIN']), async (req, res) => {
+subAdminTemplatesRouter.get('/pending-signatures', requireAuth(['SUBADMIN', 'AEFE']), async (req, res) => {
     try {
         const subAdminId = (req as any).user.userId
 
@@ -396,41 +402,75 @@ subAdminTemplatesRouter.get('/pending-signatures', requireAuth(['SUBADMIN']), as
         // Get signature information for all assignments
         const assignmentIds = templateAssignments.map(a => String(a._id))
         const signatures = await TemplateSignature.find({ templateAssignmentId: { $in: assignmentIds } }).lean()
-        const signatureMap = new Map(signatures.map(s => [s.templateAssignmentId, s]))
+        
+        const signatureMap = new Map<string, any[]>()
+        signatures.forEach(s => {
+            const key = String(s.templateAssignmentId)
+            if (!signatureMap.has(key)) signatureMap.set(key, [])
+            signatureMap.get(key)?.push(s)
+        })
 
-        // Enrich with template and student data, including signature info
-        const enrichedAssignments = await Promise.all(templateAssignments.map(async (assignment) => {
-            const template = await GradebookTemplate.findById(assignment.templateId).lean()
-            const student = await Student.findById(assignment.studentId).lean()
-            const signature = signatureMap.get(String(assignment._id))
-            
+        const templateIds = [...new Set(templateAssignments.map(a => a.templateId))]
+        const validTemplateIds = templateIds.filter(id => /^[a-fA-F0-9]{24}$/.test(String(id)))
+        const validStudentIds = studentIds.filter(id => /^[a-fA-F0-9]{24}$/.test(String(id)))
+        const [templates, students] = await Promise.all([
+            validTemplateIds.length ? GradebookTemplate.find({ _id: { $in: validTemplateIds } }).lean() : Promise.resolve([]),
+            validStudentIds.length ? Student.find({ _id: { $in: validStudentIds } }).lean() : Promise.resolve([])
+        ])
+        const templateMap = new Map(templates.map(t => [String(t._id), t]))
+        const studentMap = new Map(students.map(s => [String(s._id), s]))
+        const promotedSet = new Set(
+            students
+                .filter(s => Array.isArray(s.promotions) && s.promotions.some(p => {
+                    const promotionYearId = String(p.schoolYearId);
+                    const activeYearId = String(activeSchoolYear?._id);
+                    // Check if promotion matches current year OR if it was done recently (e.g. today) regardless of year ID mapping
+                    // But year ID check is safest.
+                    // Also check if p.toLevel is populated, implying a successful promotion record.
+                    return promotionYearId === activeYearId;
+                }))
+                .map(s => String(s._id))
+        )
+
+        const enrichedAssignments = templateAssignments.map((assignment) => {
+            const template = templateMap.get(String(assignment.templateId))
+            const student = studentMap.get(String(assignment.studentId))
+            const assignmentSignatures = signatureMap.get(String(assignment._id)) || []
+            const standardSig = assignmentSignatures.find(s => s.type === 'standard' || !s.type)
+            const finalSig = assignmentSignatures.find(s => s.type === 'end_of_year')
+
             const classId = studentClassMap.get(String(assignment.studentId))
             const classInfo = classId ? classMap.get(classId) : null
-
-            const isPromoted = student?.promotions?.some((p: any) => p.schoolYearId === String(activeSchoolYear?._id))
-
+            const isPromoted = promotedSet.has(String(assignment.studentId))
             return {
-                ...assignment,
-                template,
-                student,
-                signature,
+                _id: assignment._id,
+                studentId: assignment.studentId,
+                status: assignment.status,
+                isCompleted: assignment.isCompleted,
+                completedAt: assignment.completedAt,
+                template: template ? { name: template.name } : undefined,
+                student: student ? { firstName: student.firstName, lastName: student.lastName } : undefined,
+                signatures: {
+                    standard: standardSig ? { signedAt: standardSig.signedAt, subAdminId: standardSig.subAdminId } : null,
+                    final: finalSig ? { signedAt: finalSig.signedAt, subAdminId: finalSig.subAdminId } : null
+                },
                 className: classInfo?.name,
                 level: classInfo?.level,
                 isPromoted
             }
-        }))
+        })
 
-        // Filter out promoted students
-        const finalAssignments = enrichedAssignments.filter(a => !a.isPromoted)
+        const finalAssignments = enrichedAssignments
 
         res.json(finalAssignments)
     } catch (e: any) {
+        console.error('Error in /subadmin/pending-signatures:', e)
         res.status(500).json({ error: 'fetch_failed', message: e.message })
     }
 })
 
 // Sub-admin: Promote student
-subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote', requireAuth(['SUBADMIN']), async (req, res) => {
+subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote', requireAuth(['SUBADMIN', 'AEFE']), async (req, res) => {
     try {
         const subAdminId = (req as any).user.userId
         const { templateAssignmentId } = req.params
@@ -700,7 +740,7 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote', require
 })
 
 // Sub-admin: Sign a template
-subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', requireAuth(['SUBADMIN']), async (req, res) => {
+subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', requireAuth(['SUBADMIN', 'AEFE']), async (req, res) => {
     try {
         const subAdminId = (req as any).user.userId
         const { templateAssignmentId } = req.params
@@ -829,7 +869,7 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', requireAut
 })
 
 // Sub-admin: Unsign a template
-subAdminTemplatesRouter.delete('/templates/:templateAssignmentId/sign', requireAuth(['SUBADMIN']), async (req, res) => {
+subAdminTemplatesRouter.delete('/templates/:templateAssignmentId/sign', requireAuth(['SUBADMIN', 'AEFE']), async (req, res) => {
     try {
         const subAdminId = (req as any).user.userId
         const { templateAssignmentId } = req.params
@@ -906,7 +946,7 @@ subAdminTemplatesRouter.delete('/templates/:templateAssignmentId/sign', requireA
 })
 
 // Sub-admin: Get template assignment for review
-subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAuth(['SUBADMIN']), async (req, res) => {
+subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAuth(['SUBADMIN', 'AEFE']), async (req, res) => {
     try {
         const subAdminId = (req as any).user.userId
         const { templateAssignmentId } = req.params
@@ -1020,7 +1060,7 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
             }
         }
 
-        const canEdit = authorized
+        const canEdit = authorized && (req as any).user.role !== 'AEFE'
 
         // Get active school year
         const activeSchoolYear = await SchoolYear.findOne({ active: true }).lean()
@@ -1044,7 +1084,7 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
 })
 
 // Sub-admin: Sign all templates for a class
-subAdminTemplatesRouter.post('/templates/sign-class/:classId', requireAuth(['SUBADMIN']), async (req, res) => {
+subAdminTemplatesRouter.post('/templates/sign-class/:classId', requireAuth(['SUBADMIN', 'AEFE']), async (req, res) => {
     try {
         const subAdminId = (req as any).user.userId
         const { classId } = req.params
@@ -1153,7 +1193,7 @@ subAdminTemplatesRouter.post('/templates/sign-class/:classId', requireAuth(['SUB
 })
 
 // Sub-admin: Mark assignment as done
-subAdminTemplatesRouter.post('/templates/:assignmentId/mark-done', requireAuth(['SUBADMIN']), async (req, res) => {
+subAdminTemplatesRouter.post('/templates/:assignmentId/mark-done', requireAuth(['SUBADMIN', 'AEFE']), async (req, res) => {
     try {
         const subAdminId = (req as any).user.userId
         const { assignmentId } = req.params
@@ -1206,7 +1246,7 @@ subAdminTemplatesRouter.post('/templates/:assignmentId/mark-done', requireAuth([
 })
 
 // Sub-admin: Unmark assignment as done
-subAdminTemplatesRouter.post('/templates/:assignmentId/unmark-done', requireAuth(['SUBADMIN']), async (req, res) => {
+subAdminTemplatesRouter.post('/templates/:assignmentId/unmark-done', requireAuth(['SUBADMIN', 'AEFE']), async (req, res) => {
     try {
         const subAdminId = (req as any).user.userId
         const { assignmentId } = req.params
@@ -1259,7 +1299,7 @@ subAdminTemplatesRouter.post('/templates/:assignmentId/unmark-done', requireAuth
 })
 
 // Sub-admin: Update template data (e.g. language toggles)
-subAdminTemplatesRouter.patch('/templates/:assignmentId/data', requireAuth(['SUBADMIN']), async (req, res) => {
+subAdminTemplatesRouter.patch('/templates/:assignmentId/data', requireAuth(['SUBADMIN', 'AEFE']), async (req, res) => {
     try {
         const subAdminId = (req as any).user.userId
         const { assignmentId } = req.params
@@ -1361,7 +1401,7 @@ subAdminTemplatesRouter.patch('/templates/:assignmentId/data', requireAuth(['SUB
 })
 
 // Sub-admin: Get students in assigned levels
-subAdminTemplatesRouter.get('/students', requireAuth(['SUBADMIN']), async (req, res) => {
+subAdminTemplatesRouter.get('/students', requireAuth(['SUBADMIN', 'AEFE']), async (req, res) => {
     try {
         const subAdminId = (req as any).user.userId
         
@@ -1422,7 +1462,7 @@ subAdminTemplatesRouter.get('/students', requireAuth(['SUBADMIN']), async (req, 
 })
 
 // Sub-admin: Assign student to class
-subAdminTemplatesRouter.post('/assign-student', requireAuth(['SUBADMIN']), async (req, res) => {
+subAdminTemplatesRouter.post('/assign-student', requireAuth(['SUBADMIN', 'AEFE']), async (req, res) => {
     try {
         const subAdminId = (req as any).user.userId
         const { studentId, classId } = req.body

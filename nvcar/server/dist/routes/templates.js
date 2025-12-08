@@ -10,7 +10,10 @@ const GradebookTemplate_1 = require("../models/GradebookTemplate");
 const TemplateAssignment_1 = require("../models/TemplateAssignment");
 const multer_1 = __importDefault(require("multer"));
 const path_1 = __importDefault(require("path"));
+const archiver_1 = __importDefault(require("archiver"));
+const jszip_1 = __importDefault(require("jszip"));
 const pptxImporter_1 = require("../utils/pptxImporter");
+const fs_1 = __importDefault(require("fs"));
 exports.templatesRouter = (0, express_1.Router)();
 const upload = (0, multer_1.default)({ storage: multer_1.default.memoryStorage() });
 exports.templatesRouter.get('/', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', 'AEFE', 'TEACHER']), async (req, res) => {
@@ -22,8 +25,8 @@ exports.templatesRouter.post('/import-pptx', (0, auth_1.requireAuth)(['ADMIN', '
         if (!req.file)
             return res.status(400).json({ error: 'missing_file' });
         const uploadDir = path_1.default.join(process.cwd(), 'public', 'uploads', 'media');
-        const baseUrl = process.env.API_URL || 'http://localhost:4000';
-        const importer = new pptxImporter_1.PptxImporter(uploadDir, baseUrl);
+        // Pass empty baseUrl to generate relative paths (/uploads/media/...)
+        const importer = new pptxImporter_1.PptxImporter(uploadDir, '');
         const templateData = await importer.parse(req.file.buffer);
         // Create the template in DB
         const tpl = await GradebookTemplate_1.GradebookTemplate.create({
@@ -33,6 +36,57 @@ exports.templatesRouter.post('/import-pptx', (0, auth_1.requireAuth)(['ADMIN', '
             status: 'draft'
         });
         res.json(tpl);
+    }
+    catch (e) {
+        console.error(e);
+        res.status(500).json({ error: 'import_failed', message: e.message });
+    }
+});
+exports.templatesRouter.post('/import-package', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN']), upload.single('file'), async (req, res) => {
+    try {
+        if (!req.file)
+            return res.status(400).json({ error: 'missing_file' });
+        let jsonContent = '';
+        // Check if zip
+        if (req.file.mimetype === 'application/zip' || req.file.originalname.endsWith('.zip')) {
+            const zip = await jszip_1.default.loadAsync(req.file.buffer);
+            const file = zip.file('template.json');
+            if (!file)
+                return res.status(400).json({ error: 'invalid_zip_no_template_json' });
+            jsonContent = await file.async('string');
+        }
+        else {
+            jsonContent = req.file.buffer.toString('utf8');
+        }
+        let templateData;
+        try {
+            templateData = JSON.parse(jsonContent);
+        }
+        catch (e) {
+            return res.status(400).json({ error: 'invalid_json' });
+        }
+        const userId = req.user.userId;
+        // Remove system fields
+        const { _id, __v, createdBy, createdAt, updatedAt, ...cleanData } = templateData;
+        const newTemplate = await GradebookTemplate_1.GradebookTemplate.create({
+            ...cleanData,
+            name: `${cleanData.name} (Imported)`,
+            createdBy: userId,
+            updatedAt: new Date(),
+            createdAt: new Date(),
+            status: 'draft',
+            currentVersion: 1,
+            versionHistory: [{
+                    version: 1,
+                    pages: cleanData.pages || [],
+                    variables: cleanData.variables || {},
+                    watermark: cleanData.watermark,
+                    createdAt: new Date(),
+                    createdBy: userId,
+                    changeDescription: 'Imported from package'
+                }]
+        });
+        res.json(newTemplate);
     }
     catch (e) {
         console.error(e);
@@ -71,6 +125,69 @@ exports.templatesRouter.post('/', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', 
     }
     catch (e) {
         res.status(500).json({ error: 'create_failed', message: e.message });
+    }
+});
+exports.templatesRouter.get('/:id/export-package', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN']), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const template = await GradebookTemplate_1.GradebookTemplate.findById(id).lean();
+        if (!template)
+            return res.status(404).json({ error: 'not_found' });
+        // Clean data
+        const { _id, __v, createdBy, updatedAt, ...cleanTemplate } = template;
+        // Create archive
+        const archive = (0, archiver_1.default)('zip', { zlib: { level: 9 } });
+        // Determine target directory: .../nvcar/temps
+        // process.cwd() is .../nvcar/server
+        // So ../temps is .../nvcar/temps
+        const targetDir = path_1.default.join(process.cwd(), '../temps');
+        if (!fs_1.default.existsSync(targetDir)) {
+            fs_1.default.mkdirSync(targetDir, { recursive: true });
+        }
+        const fileName = `${template.name.replace(/[^a-z0-9]/gi, '_')}_export.zip`;
+        const filePath = path_1.default.join(targetDir, fileName);
+        // Check if file exists
+        let existed = false;
+        if (fs_1.default.existsSync(filePath)) {
+            existed = true;
+        }
+        const output = fs_1.default.createWriteStream(filePath);
+        await new Promise((resolve, reject) => {
+            output.on('close', () => resolve());
+            output.on('error', reject);
+            archive.on('error', reject);
+            archive.pipe(output);
+            // Add template JSON
+            archive.append(JSON.stringify(cleanTemplate, null, 2), { name: 'template.json' });
+            // Add batch file
+            const batContent = `@echo off
+set /p targetUrl="Enter the target server URL (default: https://localhost:4000): "
+if "%targetUrl%"=="" set targetUrl=https://localhost:4000
+
+echo.
+echo Please ensure you are logged in on the target server or have an authentication token.
+echo This script assumes you can access the API.
+echo.
+echo Importing template to %targetUrl%...
+echo.
+echo Note: This batch script attempts to upload 'template.json'.
+echo If this fails due to authentication, please use the "Import Template" button in the Admin UI.
+echo.
+
+curl -k -X POST -F "file=@template.json" "%targetUrl%/templates/import-package"
+
+echo.
+echo Done.
+pause
+`;
+            archive.append(batContent, { name: 'import_template.bat' });
+            archive.finalize();
+        });
+        res.json({ success: true, path: filePath, fileName, existed });
+    }
+    catch (e) {
+        console.error('Export error:', e);
+        res.status(500).json({ error: 'export_failed', message: e.message });
     }
 });
 exports.templatesRouter.get('/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', 'AEFE', 'TEACHER']), async (req, res) => {

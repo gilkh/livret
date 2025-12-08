@@ -25,4 +25,5 @@ const templateAssignmentSchema = new mongoose_1.Schema({
 });
 // Create compound index to prevent duplicate assignments
 templateAssignmentSchema.index({ templateId: 1, studentId: 1 }, { unique: true });
+templateAssignmentSchema.index({ studentId: 1, status: 1 });
 exports.TemplateAssignment = (0, mongoose_1.model)('TemplateAssignment', templateAssignmentSchema);

@@ -15,19 +15,23 @@ exports.templateAssignmentsRouter = (0, express_1.Router)();
 // Admin: Assign template to all students in a level
 exports.templateAssignmentsRouter.post('/bulk-level', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
     try {
-        const { templateId, level } = req.body;
+        const { templateId, level, schoolYearId } = req.body;
         if (!templateId || !level)
             return res.status(400).json({ error: 'missing_payload' });
         // Verify template exists
         const template = await GradebookTemplate_1.GradebookTemplate.findById(templateId).lean();
         if (!template)
             return res.status(404).json({ error: 'template_not_found' });
-        // Find the active school year
-        const activeYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
-        if (!activeYear)
-            return res.status(400).json({ error: 'no_active_year' });
+        let targetYearId = schoolYearId;
+        if (!targetYearId) {
+            // Find the active school year
+            const activeYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
+            if (!activeYear)
+                return res.status(400).json({ error: 'no_active_year' });
+            targetYearId = String(activeYear._id);
+        }
         // Find all classes in this level for the active school year
-        const classes = await Class_1.ClassModel.find({ level, schoolYearId: String(activeYear._id) }).lean();
+        const classes = await Class_1.ClassModel.find({ level, schoolYearId: targetYearId }).lean();
         const classIds = classes.map(c => String(c._id));
         if (classIds.length === 0) {
             return res.json({ count: 0, message: 'No classes found for this level in active year' });
@@ -68,6 +72,37 @@ exports.templateAssignmentsRouter.post('/bulk-level', (0, auth_1.requireAuth)(['
     }
     catch (e) {
         res.status(500).json({ error: 'bulk_assign_failed', message: e.message });
+    }
+});
+// Admin: Delete bulk level assignments
+exports.templateAssignmentsRouter.delete('/bulk-level/:templateId/:level', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
+    try {
+        const { templateId, level } = req.params;
+        const { schoolYearId } = req.query;
+        let targetYearId = schoolYearId;
+        if (!targetYearId) {
+            // Find students in this level for active year
+            const activeYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
+            if (!activeYear)
+                return res.status(400).json({ error: 'no_active_year' });
+            targetYearId = String(activeYear._id);
+        }
+        const classes = await Class_1.ClassModel.find({ level, schoolYearId: targetYearId }).lean();
+        const classIds = classes.map(c => String(c._id));
+        if (classIds.length === 0)
+            return res.json({ ok: true, count: 0 });
+        const enrollments = await Enrollment_1.Enrollment.find({ classId: { $in: classIds } }).lean();
+        const studentIds = enrollments.map(e => e.studentId);
+        if (studentIds.length === 0)
+            return res.json({ ok: true, count: 0 });
+        const result = await TemplateAssignment_1.TemplateAssignment.deleteMany({
+            templateId,
+            studentId: { $in: studentIds }
+        });
+        res.json({ ok: true, count: result.deletedCount });
+    }
+    catch (e) {
+        res.status(500).json({ error: 'delete_failed', message: e.message });
     }
 });
 // Admin: Assign template to student with teachers
@@ -205,15 +240,18 @@ exports.templateAssignmentsRouter.get('/', (0, auth_1.requireAuth)(['ADMIN']), a
         let studentIds = [];
         let enrollments = [];
         if (schoolYearId) {
-            const sy = await SchoolYear_1.SchoolYear.findById(schoolYearId).lean();
+            // We don't filter by date because assignments might be created before the school year starts (during setup)
+            /*
+            const sy = await SchoolYear.findById(schoolYearId).lean()
             if (sy) {
                 dateFilter = {
                     assignedAt: {
                         $gte: sy.startDate,
                         $lte: sy.endDate
                     }
-                };
+                }
             }
+            */
             enrollments = await Enrollment_1.Enrollment.find({ schoolYearId }).lean();
             studentIds = enrollments.map(e => e.studentId);
         }

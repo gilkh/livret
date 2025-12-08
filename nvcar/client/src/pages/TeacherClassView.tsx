@@ -188,7 +188,7 @@ export default function TeacherClassView() {
                                         <div className="note" style={{ fontSize: 13, fontWeight: 500 }}>
                                             {completion.total > 0 ? (
                                                 <span style={{ color: completion.isFullyComplete ? '#10b981' : '#6c5ce7' }}>
-                                                    📖 {completion.completed}/{completion.total} carnets
+                                                    {completion.isFullyComplete ? 'Terminé' : 'Pas encore terminé'}
                                                 </span>
                                             ) : (
                                                 <span style={{ color: '#94a3b8' }}>Aucun carnet</span>
@@ -226,7 +226,7 @@ export default function TeacherClassView() {
                                                     e.currentTarget.style.transform = 'translateX(0)';
                                                 }}
                                                 >
-                                                    <span style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.template?.name || 'Carnet'}</span>
+                                                    <span style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Ouvrir</span>
                                                     {a.isCompleted ? <span style={{ color: '#10b981' }}>✓</span> : <span style={{ color: '#6c5ce7' }}>→</span>}
                                                 </div>
                                             </Link>

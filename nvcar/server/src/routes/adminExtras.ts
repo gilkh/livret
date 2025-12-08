@@ -25,7 +25,7 @@ adminExtrasRouter.get('/progress', requireAuth(['ADMIN']), async (req, res) => {
 
         // --- Classes Progress ---
         const classes = await ClassModel.find({ schoolYearId: String(activeYear._id) }).lean()
-        
+
         const classIds = classes.map(c => String(c._id))
 
         const teacherAssignments = await TeacherClassAssignment.find({
@@ -41,7 +41,7 @@ adminExtrasRouter.get('/progress', requireAuth(['ADMIN']), async (req, res) => {
             classId: { $in: classIds },
             schoolYearId: String(activeYear._id)
         }).lean()
-        
+
         const studentIds = enrollments.map(e => e.studentId)
 
         const assignments = await TemplateAssignment.find({
@@ -50,16 +50,16 @@ adminExtrasRouter.get('/progress', requireAuth(['ADMIN']), async (req, res) => {
 
         const templateIds = [...new Set(assignments.map(a => a.templateId))]
         const templates = await GradebookTemplate.find({ _id: { $in: templateIds } }).lean()
-        
+
         const classesResult = classes.map(cls => {
             const clsId = String(cls._id)
             const clsTeachers = teacherAssignments
                 .filter(ta => ta.classId === clsId)
                 .map(ta => teacherMap.get(ta.teacherId)?.displayName || 'Unknown')
-            
+
             const clsEnrollments = enrollments.filter(e => e.classId === clsId)
             const clsStudentIds = new Set(clsEnrollments.map(e => e.studentId))
-            
+
             const clsAssignments = assignments.filter(a => clsStudentIds.has(a.studentId))
 
             let totalCompetencies = 0
@@ -72,7 +72,7 @@ adminExtrasRouter.get('/progress', requireAuth(['ADMIN']), async (req, res) => {
                 if (!template) return
 
                 const assignmentData = assignment.data || {}
-                const level = cls.level 
+                const level = cls.level
 
                 template.pages.forEach((page: any, pageIdx: number) => {
                     (page.blocks || []).forEach((block: any, blockIdx: number) => {
@@ -80,7 +80,7 @@ adminExtrasRouter.get('/progress', requireAuth(['ADMIN']), async (req, res) => {
                             const key = `language_toggle_${pageIdx}_${blockIdx}`
                             const overrideItems = assignmentData[key]
                             const items = overrideItems || block.props.items || []
-                            
+
                             items.forEach((item: any) => {
                                 let isAssigned = true
                                 if (item.levels && Array.isArray(item.levels) && item.levels.length > 0) {
@@ -88,7 +88,7 @@ adminExtrasRouter.get('/progress', requireAuth(['ADMIN']), async (req, res) => {
                                         isAssigned = false
                                     }
                                 }
-                                
+
                                 if (isAssigned) {
                                     const lang = item.type || item.label || 'Autre'
                                     if (!categoryStats[lang]) categoryStats[lang] = { total: 0, filled: 0, name: lang }
@@ -129,7 +129,7 @@ adminExtrasRouter.get('/progress', requireAuth(['ADMIN']), async (req, res) => {
         const subAdmins = await User.find({ role: 'SUBADMIN' }).lean()
         const subAdminProgress = await Promise.all(subAdmins.map(async (sa) => {
             const saId = String(sa._id)
-            
+
             // Get assigned levels from RoleScope
             const scope = await RoleScope.findOne({ userId: saId }).lean()
             const assignedLevels = scope?.levels || []
@@ -140,11 +140,11 @@ adminExtrasRouter.get('/progress', requireAuth(['ADMIN']), async (req, res) => {
 
             // Find classes matching levels OR teachers
             // 1. By Level
-            const levelClasses = await ClassModel.find({ 
+            const levelClasses = await ClassModel.find({
                 level: { $in: assignedLevels },
                 schoolYearId: String(activeYear._id)
             }).lean()
-            
+
             // 2. By Teacher
             const teacherClassesAssignments = await TeacherClassAssignment.find({
                 teacherId: { $in: assignedTeacherIds },
@@ -211,8 +211,8 @@ adminExtrasRouter.post('/alert', requireAuth(['ADMIN']), async (req, res) => {
         const { message, duration } = req.body
         await SystemAlert.updateMany({}, { active: false }) // Deactivate old alerts
         if (message) {
-            const alertData: any = { 
-                message, 
+            const alertData: any = {
+                message,
                 createdBy: (req as any).user.userId,
                 active: true
             }
@@ -239,12 +239,12 @@ adminExtrasRouter.post('/alert/stop', requireAuth(['ADMIN']), async (req, res) =
 adminExtrasRouter.get('/alert', async (req, res) => {
     try {
         const alert = await SystemAlert.findOne({ active: true }).sort({ createdAt: -1 }).lean()
-        
+
         if (alert && alert.expiresAt && new Date() > new Date(alert.expiresAt)) {
             await SystemAlert.updateOne({ _id: alert._id }, { active: false })
             return res.json(null)
         }
-        
+
         res.json(alert)
     } catch (e) {
         res.status(500).json({ error: 'failed' })
@@ -323,7 +323,7 @@ adminExtrasRouter.get('/all-gradebooks', requireAuth(['ADMIN']), async (req, res
             const student = await Student.findById(assignment.studentId).lean()
             const assignmentSignatures = signatureMap.get(String(assignment._id)) || []
             const signature = assignmentSignatures.length > 0 ? assignmentSignatures[0] : null
-            
+
             const classId = studentClassMap.get(String(assignment.studentId))
             const classInfo = classId ? classMap.get(classId) : null
 
@@ -412,13 +412,13 @@ adminExtrasRouter.patch('/templates/:assignmentId/data', requireAuth(['ADMIN']),
             }
 
             const key = `language_toggle_${pageIndex}_${blockIndex}`
-            
+
             // Update assignment data
             if (!assignment.data) assignment.data = {}
             assignment.data[key] = items
             assignment.markModified('data')
             await assignment.save()
-            
+
             return res.json({ success: true })
         } else if (data) {
             // Generic data update (for dropdowns etc)
@@ -428,7 +428,7 @@ adminExtrasRouter.patch('/templates/:assignmentId/data', requireAuth(['ADMIN']),
             }
             assignment.markModified('data')
             await assignment.save()
-            
+
             return res.json({ success: true })
         }
 
@@ -450,7 +450,7 @@ adminExtrasRouter.get('/templates/:templateAssignmentId/review', requireAuth(['A
 
         const template = await GradebookTemplate.findById(assignment.templateId).lean()
         const student = await Student.findById(assignment.studentId).lean()
-        
+
         const signature = await TemplateSignature.findOne({ templateAssignmentId, type: { $ne: 'end_of_year' } }).sort({ signedAt: -1 }).lean()
         const finalSignature = await TemplateSignature.findOne({ templateAssignmentId, type: 'end_of_year' }).lean()
 

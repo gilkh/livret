@@ -148,7 +148,7 @@ exports.subAdminAssignmentsRouter.get('/progress', (0, auth_1.requireAuth)(['SUB
 // Admin: Assign sub-admin to all teachers in a level
 exports.subAdminAssignmentsRouter.post('/bulk-level', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
     try {
-        const { subAdminId, level } = req.body;
+        const { subAdminId, level, schoolYearId } = req.body;
         if (!subAdminId || !level)
             return res.status(400).json({ error: 'missing_payload' });
         // Verify sub-admin exists
@@ -159,12 +159,16 @@ exports.subAdminAssignmentsRouter.post('/bulk-level', (0, auth_1.requireAuth)(['
         if (!subAdmin || (subAdmin.role !== 'SUBADMIN' && subAdmin.role !== 'AEFE')) {
             return res.status(400).json({ error: 'invalid_subadmin' });
         }
-        // Find the active school year
-        const activeYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
-        if (!activeYear)
-            return res.status(400).json({ error: 'no_active_year' });
-        // Find all classes in this level for the active school year
-        const classes = await Class_1.ClassModel.find({ level, schoolYearId: String(activeYear._id) }).lean();
+        let targetYearId = schoolYearId;
+        if (!targetYearId) {
+            // Find the active school year
+            const activeYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
+            if (!activeYear)
+                return res.status(400).json({ error: 'no_active_year' });
+            targetYearId = String(activeYear._id);
+        }
+        // Find all classes in this level for the target school year
+        const classes = await Class_1.ClassModel.find({ level, schoolYearId: targetYearId }).lean();
         const classIds = classes.map(c => String(c._id));
         if (classIds.length === 0) {
             return res.json({ count: 0, message: 'No classes found for this level in active year' });
@@ -320,6 +324,130 @@ exports.subAdminAssignmentsRouter.get('/', (0, auth_1.requireAuth)(['ADMIN']), a
     }
 });
 // SubAdmin: Get teacher progress overview
+// SubAdmin: Get detailed student progress
+exports.subAdminAssignmentsRouter.get('/teacher-progress-detailed', (0, auth_1.requireAuth)(['SUBADMIN', 'AEFE']), async (req, res) => {
+    try {
+        const subAdminId = req.user.userId;
+        // Get assigned levels
+        const scope = await RoleScope_1.RoleScope.findOne({ userId: subAdminId }).lean();
+        if (!scope || !scope.levels || scope.levels.length === 0) {
+            return res.json([]);
+        }
+        const levels = scope.levels;
+        // Get active school year
+        const activeYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
+        if (!activeYear) {
+            return res.status(400).json({ error: 'no_active_year' });
+        }
+        // Find classes
+        const classes = await Class_1.ClassModel.find({
+            level: { $in: levels },
+            schoolYearId: String(activeYear._id)
+        }).lean();
+        if (classes.length === 0)
+            return res.json([]);
+        const classIds = classes.map(c => String(c._id));
+        // Find enrollments
+        const enrollments = await Enrollment_1.Enrollment.find({
+            classId: { $in: classIds },
+            schoolYearId: String(activeYear._id)
+        }).lean();
+        const studentIds = enrollments.map(e => e.studentId);
+        const students = await Student_1.Student.find({ _id: { $in: studentIds } }).lean();
+        const studentMap = new Map(students.map(s => [String(s._id), s]));
+        // Find assignments
+        const assignments = await TemplateAssignment_1.TemplateAssignment.find({
+            studentId: { $in: studentIds }
+        }).lean();
+        // Get Templates
+        const templateIds = [...new Set(assignments.map(a => a.templateId))];
+        const templates = await GradebookTemplate_1.GradebookTemplate.find({ _id: { $in: templateIds } }).lean();
+        const templateMap = new Map(templates.map(t => [String(t._id), t]));
+        // Build result
+        const result = classes.map(cls => {
+            const clsId = String(cls._id);
+            const clsEnrollments = enrollments.filter(e => e.classId === clsId);
+            const clsStudents = clsEnrollments.map(enrollment => {
+                const student = studentMap.get(enrollment.studentId);
+                if (!student)
+                    return null;
+                const studentAssignments = assignments.filter(a => a.studentId === enrollment.studentId);
+                let arabicTotal = 0, arabicFilled = 0;
+                let englishTotal = 0, englishFilled = 0;
+                let polyvalentTotal = 0, polyvalentFilled = 0;
+                studentAssignments.forEach(assignment => {
+                    const template = templateMap.get(assignment.templateId);
+                    if (!template)
+                        return;
+                    const assignmentData = assignment.data || {};
+                    const level = cls.level ? cls.level.trim() : '';
+                    template.pages.forEach((page, pageIdx) => {
+                        (page.blocks || []).forEach((block, blockIdx) => {
+                            if (block.type === 'language_toggle') {
+                                const key = `language_toggle_${pageIdx}_${blockIdx}`;
+                                const overrideItems = assignmentData[key];
+                                const items = overrideItems || block.props.items || [];
+                                items.forEach((item) => {
+                                    // Check level
+                                    let isAssigned = true;
+                                    if (item.levels && Array.isArray(item.levels) && item.levels.length > 0) {
+                                        if (!level || !item.levels.some((l) => l.trim() === level)) {
+                                            isAssigned = false;
+                                        }
+                                    }
+                                    if (isAssigned) {
+                                        const lang = (item.type || item.label || 'Autre').toLowerCase();
+                                        const isActive = item.active === true || item.active === 'true';
+                                        if (lang.includes('arabe') || lang.includes('arabic') || lang.includes('العربية')) {
+                                            arabicTotal++;
+                                            if (isActive)
+                                                arabicFilled++;
+                                        }
+                                        else if (lang.includes('anglais') || lang.includes('english')) {
+                                            englishTotal++;
+                                            if (isActive)
+                                                englishFilled++;
+                                        }
+                                        else {
+                                            // Default to Polyvalent (usually French/General)
+                                            polyvalentTotal++;
+                                            if (isActive)
+                                                polyvalentFilled++;
+                                        }
+                                    }
+                                });
+                            }
+                        });
+                    });
+                });
+                return {
+                    studentId: String(student._id),
+                    firstName: student.firstName,
+                    lastName: student.lastName,
+                    arabic: arabicTotal > 0 && arabicTotal === arabicFilled,
+                    english: englishTotal > 0 && englishTotal === englishFilled,
+                    polyvalent: polyvalentTotal > 0 && polyvalentTotal === polyvalentFilled,
+                    hasArabic: arabicTotal > 0,
+                    hasEnglish: englishTotal > 0,
+                    hasPolyvalent: polyvalentTotal > 0
+                };
+            }).filter(Boolean);
+            // Sort students by last name
+            clsStudents.sort((a, b) => a.lastName.localeCompare(b.lastName));
+            return {
+                classId: clsId,
+                className: cls.name,
+                level: cls.level,
+                students: clsStudents
+            };
+        });
+        res.json(result);
+    }
+    catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Failed to fetch detailed teacher progress' });
+    }
+});
 exports.subAdminAssignmentsRouter.get('/teacher-progress', (0, auth_1.requireAuth)(['SUBADMIN', 'AEFE']), async (req, res) => {
     try {
         const subAdminId = req.user.userId;
@@ -415,7 +543,24 @@ exports.subAdminAssignmentsRouter.get('/teacher-progress', (0, auth_1.requireAut
                                 if (isAssigned) {
                                     const lang = item.type || item.label || 'Autre';
                                     if (!categoryStats[lang]) {
-                                        categoryStats[lang] = { total: 0, filled: 0, name: lang };
+                                        // Determine assigned teachers
+                                        const assignedTeachers = teacherAssignments
+                                            .filter(ta => ta.classId === clsId)
+                                            .filter(ta => {
+                                            const l = lang.toLowerCase();
+                                            const isArabic = l.includes('arabe') || l.includes('arabic') || l.includes('العربية');
+                                            const isEnglish = l.includes('anglais') || l.includes('english');
+                                            if (isArabic) {
+                                                return ta.languages?.some((tl) => tl.toLowerCase().includes('arabe') || tl.toLowerCase().includes('arabic'));
+                                            }
+                                            if (isEnglish) {
+                                                return ta.languages?.some((tl) => tl.toLowerCase().includes('anglais') || tl.toLowerCase().includes('english'));
+                                            }
+                                            // Default/Polyvalent
+                                            return ta.isProfPolyvalent;
+                                        })
+                                            .map(ta => teacherMap.get(ta.teacherId)?.displayName || 'Unknown');
+                                        categoryStats[lang] = { total: 0, filled: 0, name: lang, teachers: assignedTeachers };
                                     }
                                     categoryStats[lang].total++;
                                     totalCompetencies++;
@@ -444,7 +589,8 @@ exports.subAdminAssignmentsRouter.get('/teacher-progress', (0, auth_1.requireAut
                     name: stat.name,
                     total: stat.total,
                     filled: stat.filled,
-                    percentage: stat.total > 0 ? Math.round((stat.filled / stat.total) * 100) : 0
+                    percentage: stat.total > 0 ? Math.round((stat.filled / stat.total) * 100) : 0,
+                    teachers: stat.teachers
                 }))
             };
         });

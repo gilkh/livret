@@ -8,6 +8,7 @@ const Student_1 = require("../models/Student");
 const Enrollment_1 = require("../models/Enrollment");
 const CsvImportJob_1 = require("../models/CsvImportJob");
 const sync_1 = require("csv-parse/sync");
+const templateUtils_1 = require("../utils/templateUtils");
 exports.importRouter = (0, express_1.Router)();
 exports.importRouter.post('/students', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN']), async (req, res) => {
     const { csv, schoolYearId, dryRun, mapping } = req.body;
@@ -41,8 +42,12 @@ exports.importRouter.post('/students', (0, auth_1.requireAuth)(['ADMIN', 'SUBADM
                 cls = await Class_1.ClassModel.create({ name: className, schoolYearId });
             }
             const enrollmentExists = await Enrollment_1.Enrollment.findOne({ studentId: String(student._id), classId: String(cls._id), schoolYearId });
-            if (!enrollmentExists)
+            if (!enrollmentExists) {
                 await Enrollment_1.Enrollment.create({ studentId: String(student._id), classId: String(cls._id), schoolYearId });
+                if (cls && cls.level) {
+                    await (0, templateUtils_1.checkAndAssignTemplates)(String(student._id), cls.level, schoolYearId, String(cls._id), req.user.userId);
+                }
+            }
             report.push({ status: existing ? 'updated' : 'added', studentId: String(student._id), classId: String(cls._id) });
         }
         catch (e) {

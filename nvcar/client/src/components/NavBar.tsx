@@ -90,8 +90,8 @@ export default function NavBar() {
           <Link to="/login" className="btn">Connexion</Link>
         ) : (
           <>
-            {/* Year Switcher (hidden for teachers) */}
-            {years.length > 0 && role !== 'TEACHER' && (
+            {/* Year Switcher (hidden for teachers, aefe, and subadmin) */}
+            {years.length > 0 && role === 'ADMIN' && (
               <div style={{ marginRight: '16px', position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
                 <select
                   value={activeYearId}

@@ -18,6 +18,7 @@ type CategoryProgress = {
     total: number
     filled: number
     percentage: number
+    teachers?: string[]
 }
 
 type ClassProgress = {
@@ -60,21 +61,21 @@ const ProgressSection = ({ title, subtitle, progress, byCategory, color = '#fff'
         background: color, 
         borderRadius: 12, 
         border: '1px solid #e2e8f0',
-        padding: 24,
+        padding: 16,
         boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
     }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: 24 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: 16 }}>
             <div>
-                <h4 style={{ fontSize: 20, fontWeight: 600, color: '#0f172a', margin: 0 }}>{title}</h4>
-                {subtitle && <div style={{ color: '#64748b', fontSize: 15, marginTop: 4 }}>{subtitle}</div>}
+                <h4 style={{ fontSize: 18, fontWeight: 600, color: '#0f172a', margin: 0 }}>{title}</h4>
+                {subtitle && <div style={{ color: '#64748b', fontSize: 14, marginTop: 4 }}>{subtitle}</div>}
             </div>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: 32 }}>
+        <div style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: 24 }}>
             {/* Global Progress Pie Chart */}
-            <div style={{ flex: '0 0 250px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                <h5 style={{ fontSize: 16, fontWeight: 600, color: '#475569', marginBottom: 12 }}>Progression Globale</h5>
-                <div style={{ width: 200, height: 200, position: 'relative' }}>
+            <div style={{ flex: '0 0 180px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <h5 style={{ fontSize: 14, fontWeight: 600, color: '#475569', marginBottom: 8 }}>Progression Globale</h5>
+                <div style={{ width: 140, height: 140, position: 'relative' }}>
                     <ResponsiveContainer width="100%" height="100%">
                         <PieChart>
                             <Pie
@@ -84,8 +85,8 @@ const ProgressSection = ({ title, subtitle, progress, byCategory, color = '#fff'
                                 ]}
                                 cx="50%"
                                 cy="50%"
-                                innerRadius={60}
-                                outerRadius={80}
+                                innerRadius={45}
+                                outerRadius={60}
                                 fill="#8884d8"
                                 paddingAngle={5}
                                 dataKey="value"
@@ -103,38 +104,64 @@ const ProgressSection = ({ title, subtitle, progress, byCategory, color = '#fff'
                         transform: 'translate(-50%, -50%)',
                         textAlign: 'center'
                     }}>
-                        <div style={{ fontSize: 24, fontWeight: 700, color: '#0f172a' }}>{progress.percentage}%</div>
-                        <div style={{ fontSize: 12, color: '#64748b' }}>complété</div>
+                        <div style={{ fontSize: 18, fontWeight: 700, color: '#0f172a' }}>{progress.percentage}%</div>
                     </div>
                 </div>
             </div>
 
             {/* Category Progress Bar Chart */}
-            <div style={{ flex: 1, minWidth: 300 }}>
-                <h5 style={{ fontSize: 16, fontWeight: 600, color: '#475569', marginBottom: 12 }}>Par Domaine / Langue</h5>
-                <div style={{ width: '100%', height: 250 }}>
+            <div style={{ flex: 1, minWidth: 350, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <h5 style={{ fontSize: 14, fontWeight: 600, color: '#475569', marginBottom: 12 }}>Par Enseignant / Domaine</h5>
+                <div style={{ width: '100%', height: Math.max(180, byCategory.length * 65) }}>
                     <ResponsiveContainer width="100%" height="100%">
                         <BarChart
                             data={byCategory}
                             layout="vertical"
-                            margin={{ top: 5, right: 30, left: 40, bottom: 5 }}
+                            margin={{ top: 10, right: 30, left: 180, bottom: 10 }}
+                            barGap={2}
                         >
                             <CartesianGrid strokeDasharray="3 3" horizontal={false} />
                             <XAxis type="number" domain={[0, 100]} unit="%" />
                             <YAxis 
                                 dataKey="name" 
                                 type="category" 
-                                width={100} 
-                                tick={{ fontSize: 12 }}
+                                width={170} 
+                                tick={(props) => {
+                                    const { x, y, payload } = props;
+                                    const categoryData = byCategory.find((c: any) => c.name === payload.value);
+                                    const teachers = categoryData?.teachers?.join(', ') || '';
+                                    const displayName = payload.value.length > 25 ? payload.value.substring(0, 23) + '...' : payload.value;
+
+                                    return (
+                                        <g transform={`translate(${x},${y})`}>
+                                            <text x={-10} y={-6} textAnchor="end" fill="#334155" fontSize={13} fontWeight={500}>
+                                                {displayName}
+                                            </text>
+                                            <text x={-10} y={14} textAnchor="end" fill="#64748b" fontSize={11}>
+                                                {teachers.length > 30 ? teachers.substring(0, 28) + '...' : teachers}
+                                            </text>
+                                        </g>
+                                    );
+                                }}
                             />
                             <Tooltip 
                                 formatter={(value: number, name: string, props: any) => {
                                     const data = props.payload;
-                                    return [`${data.filled}/${data.total} (${value}%)`, 'Progression']
+                                    return [
+                                        <div key="tooltip">
+                                            <div>Progression: {data.filled}/{data.total} ({value}%)</div>
+                                            {data.teachers && data.teachers.length > 0 && (
+                                                <div style={{ marginTop: 4, fontSize: 12, color: '#ccc' }}>
+                                                    Enseignants: {data.teachers.join(', ')}
+                                                </div>
+                                            )}
+                                        </div>, 
+                                        ''
+                                    ]
                                 }}
                                 contentStyle={{ borderRadius: 8, border: 'none', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}
                             />
-                            <Bar dataKey="percentage" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={20}>
+                            <Bar dataKey="percentage" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={16}>
                                 {byCategory.map((entry: any, index: number) => (
                                     <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                                 ))}
@@ -143,6 +170,61 @@ const ProgressSection = ({ title, subtitle, progress, byCategory, color = '#fff'
                     </ResponsiveContainer>
                 </div>
             </div>
+        </div>
+    </div>
+)
+
+const CompactProgressCard = ({ title, subtitle, progress, byCategory }: any) => (
+    <div style={{ 
+        background: '#fff', 
+        borderRadius: 12, 
+        border: '1px solid #e2e8f0',
+        padding: 20,
+        boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100%',
+        boxSizing: 'border-box'
+    }}>
+        <div style={{ marginBottom: 20 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <h4 style={{ fontSize: 16, fontWeight: 700, color: '#0f172a', margin: 0 }}>{title}</h4>
+                <span style={{ 
+                    fontSize: 13, 
+                    fontWeight: 600, 
+                    color: progress.percentage === 100 ? '#16a34a' : '#2563eb',
+                    background: progress.percentage === 100 ? '#dcfce7' : '#dbeafe',
+                    padding: '2px 8px',
+                    borderRadius: 12
+                }}>
+                    {progress.percentage}%
+                </span>
+            </div>
+            {subtitle && <div style={{ color: '#64748b', fontSize: 12, marginTop: 4 }}>{subtitle}</div>}
+        </div>
+
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {byCategory.map((cat: any, idx: number) => (
+                <div key={idx} style={{ fontSize: 13 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                        <span style={{ fontWeight: 500, color: '#334155' }}>{cat.name}</span>
+                        <span style={{ color: '#64748b' }}>{cat.percentage}%</span>
+                    </div>
+                    <div style={{ height: 8, background: '#f1f5f9', borderRadius: 4, overflow: 'hidden' }}>
+                        <div style={{ 
+                            height: '100%', 
+                            width: `${cat.percentage}%`, 
+                            background: COLORS[idx % COLORS.length],
+                            borderRadius: 4
+                        }} />
+                    </div>
+                    {cat.teachers && cat.teachers.length > 0 && (
+                        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {cat.teachers.join(', ')}
+                        </div>
+                    )}
+                </div>
+            ))}
         </div>
     </div>
 )
@@ -195,7 +277,7 @@ export default function SubAdminTeacherProgress() {
         const stats = {
             studentCount: 0,
             progress: { total: 0, filled: 0, percentage: 0 },
-            byCategory: {} as Record<string, { total: number, filled: number, name: string }>
+            byCategory: {} as Record<string, { total: number, filled: number, name: string, teachers: Set<string> }>
         }
 
         levelClasses.forEach(cls => {
@@ -205,10 +287,14 @@ export default function SubAdminTeacherProgress() {
             
             cls.byCategory.forEach(cat => {
                 if (!stats.byCategory[cat.name]) {
-                    stats.byCategory[cat.name] = { total: 0, filled: 0, name: cat.name }
+                    stats.byCategory[cat.name] = { total: 0, filled: 0, name: cat.name, teachers: new Set() }
                 }
                 stats.byCategory[cat.name].total += cat.total
                 stats.byCategory[cat.name].filled += cat.filled
+                
+                if (cat.teachers && Array.isArray(cat.teachers)) {
+                    cat.teachers.forEach(t => stats.byCategory[cat.name].teachers.add(t))
+                }
             })
         })
 
@@ -218,6 +304,7 @@ export default function SubAdminTeacherProgress() {
 
         const byCategoryArray = Object.values(stats.byCategory).map(cat => ({
             ...cat,
+            teachers: Array.from(cat.teachers),
             percentage: cat.total > 0 ? Math.round((cat.filled / cat.total) * 100) : 0
         }))
 
@@ -333,7 +420,7 @@ export default function SubAdminTeacherProgress() {
                                     </h3>
 
                                     {/* Level Summary */}
-                                    <div style={{ marginBottom: 24 }}>
+                                    <div style={{ marginBottom: 64 }}>
                                         <ProgressSection 
                                             title={`Résumé ${level}`}
                                             subtitle={`${levelStats.studentCount} élèves au total`}
@@ -344,9 +431,14 @@ export default function SubAdminTeacherProgress() {
                                     </div>
 
                                     {/* Classes Grid */}
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 24 }}>
+                                    <div style={{ 
+                                        display: 'grid', 
+                                        gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', 
+                                        gap: 24,
+                                        rowGap: 48
+                                    }}>
                                         {levelClasses.map(cls => (
-                                            <ProgressSection 
+                                            <CompactProgressCard 
                                                 key={cls.classId}
                                                 title={cls.className}
                                                 subtitle={`${cls.teachers.join(', ') || 'Aucun enseignant'} • ${cls.studentCount} élèves`}

@@ -13,6 +13,10 @@ const GradebookTemplate_1 = require("../models/GradebookTemplate");
 const SystemAlert_1 = require("../models/SystemAlert");
 const RoleScope_1 = require("../models/RoleScope");
 const SubAdminAssignment_1 = require("../models/SubAdminAssignment");
+const TemplateSignature_1 = require("../models/TemplateSignature");
+const Student_1 = require("../models/Student");
+const AdminSignature_1 = require("../models/AdminSignature");
+const signatureService_1 = require("../services/signatureService");
 exports.adminExtrasRouter = (0, express_1.Router)();
 // 1. Progress (All Classes)
 exports.adminExtrasRouter.get('/progress', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
@@ -179,11 +183,28 @@ exports.adminExtrasRouter.get('/online-users', (0, auth_1.requireAuth)(['ADMIN']
 // 3. Alerts
 exports.adminExtrasRouter.post('/alert', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
     try {
-        const { message } = req.body;
+        const { message, duration } = req.body;
         await SystemAlert_1.SystemAlert.updateMany({}, { active: false }); // Deactivate old alerts
         if (message) {
-            await SystemAlert_1.SystemAlert.create({ message, createdBy: req.user.userId });
+            const alertData = {
+                message,
+                createdBy: req.user.userId,
+                active: true
+            };
+            if (duration && !isNaN(Number(duration))) {
+                alertData.expiresAt = new Date(Date.now() + Number(duration) * 60 * 1000);
+            }
+            await SystemAlert_1.SystemAlert.create(alertData);
         }
+        res.json({ success: true });
+    }
+    catch (e) {
+        res.status(500).json({ error: 'failed' });
+    }
+});
+exports.adminExtrasRouter.post('/alert/stop', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
+    try {
+        await SystemAlert_1.SystemAlert.updateMany({ active: true }, { active: false });
         res.json({ success: true });
     }
     catch (e) {
@@ -193,6 +214,10 @@ exports.adminExtrasRouter.post('/alert', (0, auth_1.requireAuth)(['ADMIN']), asy
 exports.adminExtrasRouter.get('/alert', async (req, res) => {
     try {
         const alert = await SystemAlert_1.SystemAlert.findOne({ active: true }).sort({ createdAt: -1 }).lean();
+        if (alert && alert.expiresAt && new Date() > new Date(alert.expiresAt)) {
+            await SystemAlert_1.SystemAlert.updateOne({ _id: alert._id }, { active: false });
+            return res.json(null);
+        }
         res.json(alert);
     }
     catch (e) {
@@ -228,5 +253,217 @@ exports.adminExtrasRouter.post('/permissions', (0, auth_1.requireAuth)(['ADMIN']
     }
     catch (e) {
         res.status(500).json({ error: 'failed' });
+    }
+});
+// Admin: Get ALL gradebooks for active year
+exports.adminExtrasRouter.get('/all-gradebooks', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
+    try {
+        // Get active school year
+        const activeSchoolYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
+        if (!activeSchoolYear) {
+            return res.json([]);
+        }
+        // Get ALL classes for active year
+        const classes = await Class_1.ClassModel.find({ schoolYearId: activeSchoolYear._id }).lean();
+        const classIds = classes.map(c => String(c._id));
+        const classMap = new Map(classes.map(c => [String(c._id), c]));
+        // Get ALL enrollments
+        const enrollments = await Enrollment_1.Enrollment.find({ classId: { $in: classIds } }).lean();
+        const studentIds = enrollments.map(e => e.studentId);
+        const studentClassMap = new Map(enrollments.map(e => [String(e.studentId), String(e.classId)]));
+        // Get ALL template assignments
+        const templateAssignments = await TemplateAssignment_1.TemplateAssignment.find({
+            studentId: { $in: studentIds },
+        }).lean();
+        // Get signature information
+        const assignmentIds = templateAssignments.map(a => String(a._id));
+        const signatures = await TemplateSignature_1.TemplateSignature.find({ templateAssignmentId: { $in: assignmentIds } }).lean();
+        const signatureMap = new Map();
+        signatures.forEach(s => {
+            if (!signatureMap.has(s.templateAssignmentId)) {
+                signatureMap.set(s.templateAssignmentId, []);
+            }
+            signatureMap.get(s.templateAssignmentId).push(s);
+        });
+        // Enrich
+        const enrichedAssignments = await Promise.all(templateAssignments.map(async (assignment) => {
+            const template = await GradebookTemplate_1.GradebookTemplate.findById(assignment.templateId).lean();
+            const student = await Student_1.Student.findById(assignment.studentId).lean();
+            const assignmentSignatures = signatureMap.get(String(assignment._id)) || [];
+            const signature = assignmentSignatures.length > 0 ? assignmentSignatures[0] : null;
+            const classId = studentClassMap.get(String(assignment.studentId));
+            const classInfo = classId ? classMap.get(classId) : null;
+            return {
+                ...assignment,
+                template,
+                student,
+                signature,
+                signatures: assignmentSignatures,
+                className: classInfo?.name,
+                level: classInfo?.level,
+            };
+        }));
+        res.json(enrichedAssignments);
+    }
+    catch (e) {
+        res.status(500).json({ error: 'fetch_failed', message: e.message });
+    }
+});
+// Admin: Sign gradebook (Unrestricted)
+exports.adminExtrasRouter.post('/templates/:templateAssignmentId/sign', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
+    try {
+        const adminId = req.user.userId;
+        const { templateAssignmentId } = req.params;
+        const { type = 'standard' } = req.body;
+        // Get active admin signature
+        const activeSig = await AdminSignature_1.AdminSignature.findOne({ isActive: true }).lean();
+        try {
+            const signature = await (0, signatureService_1.signTemplateAssignment)({
+                templateAssignmentId,
+                signerId: adminId,
+                type: type,
+                signatureUrl: activeSig ? activeSig.dataUrl : undefined,
+                req
+            });
+            res.json(signature);
+        }
+        catch (e) {
+            if (e.message === 'already_signed')
+                return res.status(400).json({ error: 'already_signed' });
+            if (e.message === 'not_found')
+                return res.status(404).json({ error: 'not_found' });
+            throw e;
+        }
+    }
+    catch (e) {
+        res.status(500).json({ error: 'sign_failed', message: e.message });
+    }
+});
+// Admin: Unsign gradebook
+exports.adminExtrasRouter.delete('/templates/:templateAssignmentId/sign', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
+    try {
+        const { templateAssignmentId } = req.params;
+        const { type } = req.body;
+        try {
+            await (0, signatureService_1.unsignTemplateAssignment)({
+                templateAssignmentId,
+                signerId: req.user.userId,
+                type,
+                req
+            });
+            res.json({ success: true });
+        }
+        catch (e) {
+            if (e.message === 'not_found')
+                return res.status(404).json({ error: 'not_found' });
+            throw e;
+        }
+    }
+    catch (e) {
+        res.status(500).json({ error: 'unsign_failed', message: e.message });
+    }
+});
+// Admin: Update assignment data (Unrestricted)
+exports.adminExtrasRouter.patch('/templates/:assignmentId/data', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
+    try {
+        const { assignmentId } = req.params;
+        const { type, pageIndex, blockIndex, items, data } = req.body;
+        // Get assignment
+        const assignment = await TemplateAssignment_1.TemplateAssignment.findById(assignmentId);
+        if (!assignment)
+            return res.status(404).json({ error: 'not_found' });
+        if (type === 'language_toggle') {
+            if (pageIndex === undefined || blockIndex === undefined || !items) {
+                return res.status(400).json({ error: 'missing_payload' });
+            }
+            const key = `language_toggle_${pageIndex}_${blockIndex}`;
+            // Update assignment data
+            if (!assignment.data)
+                assignment.data = {};
+            assignment.data[key] = items;
+            assignment.markModified('data');
+            await assignment.save();
+            return res.json({ success: true });
+        }
+        else if (data) {
+            // Generic data update (for dropdowns etc)
+            if (!assignment.data)
+                assignment.data = {};
+            for (const key in data) {
+                assignment.data[key] = data[key];
+            }
+            assignment.markModified('data');
+            await assignment.save();
+            return res.json({ success: true });
+        }
+        res.status(400).json({ error: 'unknown_update_type' });
+    }
+    catch (e) {
+        res.status(500).json({ error: 'update_failed', message: e.message });
+    }
+});
+// Admin: Get gradebook review data (Unrestricted)
+exports.adminExtrasRouter.get('/templates/:templateAssignmentId/review', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
+    try {
+        const adminId = req.user.userId;
+        const { templateAssignmentId } = req.params;
+        // Get the template assignment
+        const assignment = await TemplateAssignment_1.TemplateAssignment.findById(templateAssignmentId).lean();
+        if (!assignment)
+            return res.status(404).json({ error: 'not_found' });
+        const template = await GradebookTemplate_1.GradebookTemplate.findById(assignment.templateId).lean();
+        const student = await Student_1.Student.findById(assignment.studentId).lean();
+        const signature = await TemplateSignature_1.TemplateSignature.findOne({ templateAssignmentId, type: { $ne: 'end_of_year' } }).sort({ signedAt: -1 }).lean();
+        const finalSignature = await TemplateSignature_1.TemplateSignature.findOne({ templateAssignmentId, type: 'end_of_year' }).lean();
+        // Apply language toggles from assignment data
+        const versionedTemplate = JSON.parse(JSON.stringify(template));
+        if (assignment.data) {
+            for (const [key, value] of Object.entries(assignment.data)) {
+                if (key.startsWith('language_toggle_')) {
+                    const parts = key.split('_');
+                    if (parts.length >= 4) {
+                        const pageIndex = parseInt(parts[2]);
+                        const blockIndex = parseInt(parts[3]);
+                        if (versionedTemplate.pages?.[pageIndex]?.blocks?.[blockIndex]?.props?.items) {
+                            versionedTemplate.pages[pageIndex].blocks[blockIndex].props.items = value;
+                        }
+                    }
+                }
+            }
+        }
+        // Check if signed by ME
+        const isSignedByMe = !!(signature && String(signature.subAdminId) === String(adminId));
+        // Get active semester
+        const activeSchoolYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
+        const activeSemester = activeSchoolYear?.activeSemester || 1;
+        // Check if promoted
+        const isPromoted = student?.promotions?.some((p) => p.schoolYearId === String(activeSchoolYear?._id));
+        // Enrich student with current class level and name for accurate display
+        let level = student?.level || '';
+        let className = '';
+        if (student) {
+            const enrollment = await Enrollment_1.Enrollment.findOne({ studentId: assignment.studentId, status: 'active' }).lean();
+            if (enrollment && enrollment.classId) {
+                const classDoc = await Class_1.ClassModel.findById(enrollment.classId).lean();
+                if (classDoc) {
+                    level = classDoc.level || level;
+                    className = classDoc.name || '';
+                }
+            }
+        }
+        res.json({
+            template: versionedTemplate,
+            student: { ...student, level, className },
+            assignment,
+            signature,
+            finalSignature,
+            canEdit: true,
+            isPromoted,
+            isSignedByMe,
+            activeSemester
+        });
+    }
+    catch (e) {
+        res.status(500).json({ error: 'fetch_failed', message: e.message });
     }
 });

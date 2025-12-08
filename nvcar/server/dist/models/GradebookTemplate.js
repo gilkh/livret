@@ -14,6 +14,7 @@ const pageSchema = new mongoose_1.Schema({
 });
 const templateSchema = new mongoose_1.Schema({
     name: { type: String, required: true },
+    defaultForLevels: { type: [String], default: [] },
     pages: { type: [pageSchema], default: [] },
     createdBy: { type: String },
     updatedAt: { type: Date, default: () => new Date() },

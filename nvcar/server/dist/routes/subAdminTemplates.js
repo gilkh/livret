@@ -5,6 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.subAdminTemplatesRouter = void 0;
 const express_1 = require("express");
+const signatureService_1 = require("../services/signatureService");
 const auth_1 = require("../auth");
 const SubAdminAssignment_1 = require("../models/SubAdminAssignment");
 const TemplateAssignment_1 = require("../models/TemplateAssignment");
@@ -23,6 +24,7 @@ const Level_1 = require("../models/Level");
 const SavedGradebook_1 = require("../models/SavedGradebook");
 const StudentCompetencyStatus_1 = require("../models/StudentCompetencyStatus");
 const auditLogger_1 = require("../utils/auditLogger");
+const templateUtils_1 = require("../utils/templateUtils");
 const multer_1 = __importDefault(require("multer"));
 const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
@@ -153,6 +155,8 @@ exports.subAdminTemplatesRouter.get('/promoted-students', (0, auth_1.requireAuth
         const subAdminId = req.user.userId;
         // Get active school year
         const activeSchoolYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
+        if (!activeSchoolYear)
+            return res.json([]);
         // Find students promoted by this sub-admin
         const students = await Student_1.Student.find({
             'promotions.promotedBy': subAdminId
@@ -193,6 +197,7 @@ exports.subAdminTemplatesRouter.get('/promoted-students', (0, auth_1.requireAuth
         res.json(promotedStudents);
     }
     catch (e) {
+        console.error('Error in /subadmin/promoted-students:', e);
         res.status(500).json({ error: 'fetch_failed', message: e.message });
     }
 });
@@ -231,30 +236,38 @@ exports.subAdminTemplatesRouter.get('/classes', (0, auth_1.requireAuth)(['SUBADM
             studentId: { $in: studentIds },
             status: { $in: ['draft', 'in_progress', 'completed'] },
         }).lean();
-        // Get unique class IDs and their details
+        // Pre-compute maps for fast aggregation
         const classIds = [...new Set(enrollments.map(e => e.classId))];
         const classes = await Class_1.ClassModel.find({ _id: { $in: classIds } }).lean();
-        // For each class, count pending signatures
-        const classesWithStats = await Promise.all(classes.map(async (cls) => {
-            const classEnrollments = enrollments.filter(e => String(e.classId) === String(cls._id));
-            const classStudentIds = classEnrollments.map(e => e.studentId);
-            const classAssignments = templateAssignments.filter(a => classStudentIds.includes(a.studentId));
-            const assignmentIds = classAssignments.map(a => String(a._id));
-            const signatures = await TemplateSignature_1.TemplateSignature.find({
-                templateAssignmentId: { $in: assignmentIds }
-            }).lean();
-            const signedCount = signatures.length;
-            const totalCount = classAssignments.length;
+        const studentToClass = new Map(enrollments.map(e => [String(e.studentId), String(e.classId)]));
+        const allAssignmentIds = templateAssignments.map(a => String(a._id));
+        const signatures = await TemplateSignature_1.TemplateSignature.find({ templateAssignmentId: { $in: allAssignmentIds } }).lean();
+        const signedSet = new Set(signatures.map(s => String(s.templateAssignmentId)));
+        // Aggregate counts per class in one pass
+        const counts = new Map();
+        for (const a of templateAssignments) {
+            const clsId = studentToClass.get(String(a.studentId));
+            if (!clsId)
+                continue;
+            const entry = counts.get(clsId) || { total: 0, signed: 0 };
+            entry.total++;
+            if (signedSet.has(String(a._id)))
+                entry.signed++;
+            counts.set(clsId, entry);
+        }
+        const classesWithStats = classes.map((cls) => {
+            const c = counts.get(String(cls._id)) || { total: 0, signed: 0 };
             return {
                 ...cls,
-                pendingSignatures: totalCount - signedCount,
-                totalAssignments: totalCount,
-                signedAssignments: signedCount,
+                pendingSignatures: c.total - c.signed,
+                totalAssignments: c.total,
+                signedAssignments: c.signed,
             };
-        }));
+        });
         res.json(classesWithStats);
     }
     catch (e) {
+        console.error('Error in /subadmin/classes:', e);
         res.status(500).json({ error: 'fetch_failed', message: e.message });
     }
 });
@@ -264,10 +277,13 @@ exports.subAdminTemplatesRouter.get('/teachers', (0, auth_1.requireAuth)(['SUBAD
         const subAdminId = req.user.userId;
         const assignments = await SubAdminAssignment_1.SubAdminAssignment.find({ subAdminId }).lean();
         const teacherIds = assignments.map(a => a.teacherId);
-        const teachers = await User_1.User.find({ _id: { $in: teacherIds } }).lean();
+        const teachers = await User_1.User.find({ _id: { $in: teacherIds } })
+            .select('_id email displayName')
+            .lean();
         res.json(teachers);
     }
     catch (e) {
+        console.error('Error in /subadmin/teachers:', e);
         res.status(500).json({ error: 'fetch_failed', message: e.message });
     }
 });
@@ -350,30 +366,63 @@ exports.subAdminTemplatesRouter.get('/pending-signatures', (0, auth_1.requireAut
         // Get signature information for all assignments
         const assignmentIds = templateAssignments.map(a => String(a._id));
         const signatures = await TemplateSignature_1.TemplateSignature.find({ templateAssignmentId: { $in: assignmentIds } }).lean();
-        const signatureMap = new Map(signatures.map(s => [s.templateAssignmentId, s]));
-        // Enrich with template and student data, including signature info
-        const enrichedAssignments = await Promise.all(templateAssignments.map(async (assignment) => {
-            const template = await GradebookTemplate_1.GradebookTemplate.findById(assignment.templateId).lean();
-            const student = await Student_1.Student.findById(assignment.studentId).lean();
-            const signature = signatureMap.get(String(assignment._id));
+        const signatureMap = new Map();
+        signatures.forEach(s => {
+            const key = String(s.templateAssignmentId);
+            if (!signatureMap.has(key))
+                signatureMap.set(key, []);
+            signatureMap.get(key)?.push(s);
+        });
+        const templateIds = [...new Set(templateAssignments.map(a => a.templateId))];
+        const validTemplateIds = templateIds.filter(id => /^[a-fA-F0-9]{24}$/.test(String(id)));
+        const validStudentIds = studentIds.filter(id => /^[a-fA-F0-9]{24}$/.test(String(id)));
+        const [templates, students] = await Promise.all([
+            validTemplateIds.length ? GradebookTemplate_1.GradebookTemplate.find({ _id: { $in: validTemplateIds } }).lean() : Promise.resolve([]),
+            validStudentIds.length ? Student_1.Student.find({ _id: { $in: validStudentIds } }).lean() : Promise.resolve([])
+        ]);
+        const templateMap = new Map(templates.map(t => [String(t._id), t]));
+        const studentMap = new Map(students.map(s => [String(s._id), s]));
+        const promotedSet = new Set(students
+            .filter(s => Array.isArray(s.promotions) && s.promotions.some(p => {
+            const promotionYearId = String(p.schoolYearId);
+            const activeYearId = String(activeSchoolYear?._id);
+            // Check if promotion matches current year OR if it was done recently (e.g. today) regardless of year ID mapping
+            // But year ID check is safest.
+            // Also check if p.toLevel is populated, implying a successful promotion record.
+            return promotionYearId === activeYearId;
+        }))
+            .map(s => String(s._id)));
+        const enrichedAssignments = templateAssignments.map((assignment) => {
+            const template = templateMap.get(String(assignment.templateId));
+            const student = studentMap.get(String(assignment.studentId));
+            const assignmentSignatures = signatureMap.get(String(assignment._id)) || [];
+            const standardSig = assignmentSignatures.find(s => s.type === 'standard' || !s.type);
+            const finalSig = assignmentSignatures.find(s => s.type === 'end_of_year');
             const classId = studentClassMap.get(String(assignment.studentId));
             const classInfo = classId ? classMap.get(classId) : null;
-            const isPromoted = student?.promotions?.some((p) => p.schoolYearId === String(activeSchoolYear?._id));
+            const isPromoted = promotedSet.has(String(assignment.studentId));
             return {
-                ...assignment,
-                template,
-                student,
-                signature,
+                _id: assignment._id,
+                studentId: assignment.studentId,
+                status: assignment.status,
+                isCompleted: assignment.isCompleted,
+                completedAt: assignment.completedAt,
+                template: template ? { name: template.name } : undefined,
+                student: student ? { firstName: student.firstName, lastName: student.lastName } : undefined,
+                signatures: {
+                    standard: standardSig ? { signedAt: standardSig.signedAt, subAdminId: standardSig.subAdminId } : null,
+                    final: finalSig ? { signedAt: finalSig.signedAt, subAdminId: finalSig.subAdminId } : null
+                },
                 className: classInfo?.name,
                 level: classInfo?.level,
                 isPromoted
             };
-        }));
-        // Filter out promoted students
-        const finalAssignments = enrichedAssignments.filter(a => !a.isPromoted);
+        });
+        const finalAssignments = enrichedAssignments;
         res.json(finalAssignments);
     }
     catch (e) {
+        console.error('Error in /subadmin/pending-signatures:', e);
         res.status(500).json({ error: 'fetch_failed', message: e.message });
     }
 });
@@ -504,11 +553,19 @@ exports.subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote',
         // Create Gradebook Snapshot
         if (currentSchoolYearId && enrollment) {
             const statuses = await StudentCompetencyStatus_1.StudentCompetencyStatus.find({ studentId: student._id }).lean();
+            // Get Class Name for Snapshot
+            let snapshotClassName = '';
+            if (enrollment.classId) {
+                const cls = await Class_1.ClassModel.findById(enrollment.classId).lean();
+                if (cls)
+                    snapshotClassName = cls.name;
+            }
             const snapshotData = {
                 student: student.toObject ? student.toObject() : student,
                 enrollment: enrollment,
                 statuses: statuses,
-                assignment: assignment
+                assignment: assignment,
+                className: snapshotClassName // Explicitly save class name
             };
             await SavedGradebook_1.SavedGradebook.create({
                 studentId: student._id,
@@ -695,34 +752,29 @@ exports.subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', (0
         if (existing) {
             return res.status(400).json({ error: 'already_signed' });
         }
-        // Create signature
-        const signature = await TemplateSignature_1.TemplateSignature.create({
-            templateAssignmentId,
-            subAdminId,
-            signedAt: new Date(),
-            status: 'signed',
-            type
-        });
-        // Update assignment status (only if standard signature, or maybe always?)
-        // Let's keep it simple: if any signature is added, we can consider it signed, 
-        // but usually the standard one is the main one. 
-        // If we sign 'end_of_year', we probably also want to mark it as signed if not already.
-        await TemplateAssignment_1.TemplateAssignment.findByIdAndUpdate(templateAssignmentId, { status: 'signed' });
-        // Log audit
-        const template = await GradebookTemplate_1.GradebookTemplate.findById(assignment.templateId).lean();
-        const student = await Student_1.Student.findById(assignment.studentId).lean();
-        await (0, auditLogger_1.logAudit)({
-            userId: subAdminId,
-            action: 'SIGN_TEMPLATE',
-            details: {
-                templateId: assignment.templateId,
-                templateName: template?.name,
-                studentId: assignment.studentId,
-                studentName: student ? `${student.firstName} ${student.lastName}` : 'Unknown',
-            },
-            req,
-        });
-        res.json(signature);
+        // Check for Semester 2 requirement for end_of_year signature
+        if (type === 'end_of_year') {
+            const activeSchoolYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
+            if (!activeSchoolYear || activeSchoolYear.activeSemester !== 2) {
+                return res.status(400).json({ error: 'semester_2_required', message: 'Semester 2 must be active to sign end of year' });
+            }
+        }
+        try {
+            const signature = await (0, signatureService_1.signTemplateAssignment)({
+                templateAssignmentId,
+                signerId: subAdminId,
+                type: type,
+                req
+            });
+        }
+        catch (e) {
+            if (e.message === 'already_signed')
+                return res.status(400).json({ error: 'already_signed' });
+            if (e.message === 'not_found')
+                return res.status(404).json({ error: 'not_found' });
+            throw e;
+        }
+        res.json({ ok: true });
     }
     catch (e) {
         res.status(500).json({ error: 'sign_failed', message: e.message });
@@ -776,33 +828,19 @@ exports.subAdminTemplatesRouter.delete('/templates/:templateAssignmentId/sign', 
             return res.status(403).json({ error: 'not_authorized' });
         }
         const type = req.body.type || req.query.type || 'standard';
-        // Check if signed
-        const existing = await TemplateSignature_1.TemplateSignature.findOne({ templateAssignmentId, type }).lean();
-        if (!existing) {
-            return res.status(400).json({ error: 'not_signed' });
+        try {
+            await (0, signatureService_1.unsignTemplateAssignment)({
+                templateAssignmentId,
+                signerId: subAdminId,
+                type,
+                req
+            });
         }
-        // Delete signature
-        await TemplateSignature_1.TemplateSignature.deleteOne({ templateAssignmentId, type });
-        // Check if any signature remains
-        const remaining = await TemplateSignature_1.TemplateSignature.countDocuments({ templateAssignmentId });
-        if (remaining === 0) {
-            // Update assignment status back to completed
-            await TemplateAssignment_1.TemplateAssignment.findByIdAndUpdate(templateAssignmentId, { status: 'completed' });
+        catch (e) {
+            if (e.message === 'not_found')
+                return res.status(404).json({ error: 'not_found' });
+            throw e;
         }
-        // Log audit
-        const template = await GradebookTemplate_1.GradebookTemplate.findById(assignment.templateId).lean();
-        const student = await Student_1.Student.findById(assignment.studentId).lean();
-        await (0, auditLogger_1.logAudit)({
-            userId: subAdminId,
-            action: 'UNSIGN_TEMPLATE',
-            details: {
-                templateId: assignment.templateId,
-                templateName: template?.name,
-                studentId: assignment.studentId,
-                studentName: student ? `${student.firstName} ${student.lastName}` : 'Unknown',
-            },
-            req,
-        });
         res.json({ ok: true });
     }
     catch (e) {
@@ -870,14 +908,25 @@ exports.subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', (
         const signature = signatures.find(s => s.type === 'standard' || !s.type);
         const finalSignature = signatures.find(s => s.type === 'end_of_year');
         const isSignedByMe = signature && signature.subAdminId === subAdminId;
-        // Get student level
+        // Get student level and class name
         let level = student?.level || '';
+        let className = '';
         if (student) {
-            const enrollment = await Enrollment_1.Enrollment.findOne({ studentId: assignment.studentId }).lean();
-            if (enrollment && enrollment.classId) {
-                const classDoc = await Class_1.ClassModel.findById(enrollment.classId).lean();
-                if (classDoc)
-                    level = classDoc.level || '';
+            // Get active school year to ensure we get the CURRENT enrollment
+            const activeSchoolYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
+            if (activeSchoolYear) {
+                const enrollment = await Enrollment_1.Enrollment.findOne({
+                    studentId: assignment.studentId,
+                    schoolYearId: activeSchoolYear._id,
+                    status: 'active'
+                }).lean();
+                if (enrollment && enrollment.classId) {
+                    const classDoc = await Class_1.ClassModel.findById(enrollment.classId).lean();
+                    if (classDoc) {
+                        level = classDoc.level || student.level || '';
+                        className = classDoc.name || '';
+                    }
+                }
             }
         }
         // Merge assignment data into template (for language toggles, dropdowns, etc.)
@@ -903,7 +952,7 @@ exports.subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', (
         res.json({
             assignment,
             template: versionedTemplate,
-            student: { ...student, level },
+            student: { ...student, level, className },
             signature,
             finalSignature,
             isSignedByMe,
@@ -1185,5 +1234,116 @@ exports.subAdminTemplatesRouter.patch('/templates/:assignmentId/data', (0, auth_
     }
     catch (e) {
         res.status(500).json({ error: 'update_failed', message: e.message });
+    }
+});
+// Sub-admin: Get students in assigned levels
+exports.subAdminTemplatesRouter.get('/students', (0, auth_1.requireAuth)(['SUBADMIN']), async (req, res) => {
+    try {
+        const subAdminId = req.user.userId;
+        // Get active school year
+        const activeSchoolYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
+        if (!activeSchoolYear)
+            return res.json([]);
+        // Get RoleScope for levels
+        const roleScope = await RoleScope_1.RoleScope.findOne({ userId: subAdminId }).lean();
+        const levels = roleScope?.levels || [];
+        if (levels.length === 0) {
+            return res.json([]);
+        }
+        // Get classes in these levels
+        const classes = await Class_1.ClassModel.find({
+            level: { $in: levels },
+            schoolYearId: activeSchoolYear._id
+        }).lean();
+        const classIds = classes.map(c => String(c._id));
+        const classMap = new Map(classes.map(c => [String(c._id), c]));
+        // Get enrollments in these classes
+        const enrollments = await Enrollment_1.Enrollment.find({
+            classId: { $in: classIds },
+            schoolYearId: activeSchoolYear._id
+        }).lean();
+        const enrolledStudentIds = enrollments.map(e => e.studentId);
+        const enrollmentMap = new Map(enrollments.map(e => [e.studentId, e]));
+        // Get students by level OR by enrollment
+        const studentsByLevel = await Student_1.Student.find({ level: { $in: levels } }).lean();
+        const studentsByEnrollment = await Student_1.Student.find({ _id: { $in: enrolledStudentIds } }).lean();
+        // Merge and deduplicate
+        const allStudents = [...studentsByLevel, ...studentsByEnrollment];
+        const uniqueStudents = Array.from(new Map(allStudents.map(s => [String(s._id), s])).values());
+        // Attach class info
+        const result = uniqueStudents.map(s => {
+            const enrollment = enrollmentMap.get(String(s._id));
+            const cls = (enrollment && enrollment.classId) ? classMap.get(enrollment.classId) : null;
+            return {
+                ...s,
+                classId: cls ? String(cls._id) : undefined,
+                className: cls ? cls.name : undefined,
+                level: cls ? cls.level : s.level
+            };
+        });
+        res.json(result);
+    }
+    catch (e) {
+        res.status(500).json({ error: 'fetch_failed', message: e.message });
+    }
+});
+// Sub-admin: Assign student to class
+exports.subAdminTemplatesRouter.post('/assign-student', (0, auth_1.requireAuth)(['SUBADMIN']), async (req, res) => {
+    try {
+        const subAdminId = req.user.userId;
+        const { studentId, classId } = req.body;
+        if (!studentId || !classId)
+            return res.status(400).json({ error: 'missing_params' });
+        // Verify class is allowed
+        const cls = await Class_1.ClassModel.findById(classId).lean();
+        if (!cls)
+            return res.status(404).json({ error: 'class_not_found' });
+        const roleScope = await RoleScope_1.RoleScope.findOne({ userId: subAdminId }).lean();
+        const levels = roleScope?.levels || [];
+        if (!cls.level || !levels.includes(cls.level)) {
+            return res.status(403).json({ error: 'not_authorized_for_level' });
+        }
+        // Get active school year
+        const activeSchoolYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
+        if (!activeSchoolYear)
+            return res.status(400).json({ error: 'no_active_year' });
+        if (String(cls.schoolYearId) !== String(activeSchoolYear._id)) {
+            return res.status(400).json({ error: 'class_wrong_year' });
+        }
+        // Update/Create enrollment
+        const existing = await Enrollment_1.Enrollment.findOne({
+            studentId,
+            schoolYearId: activeSchoolYear._id
+        });
+        if (existing) {
+            existing.classId = classId;
+            await existing.save();
+            if (cls && cls.level) {
+                await (0, templateUtils_1.checkAndAssignTemplates)(studentId, cls.level, String(activeSchoolYear._id), classId, req.user.userId);
+            }
+        }
+        else {
+            await Enrollment_1.Enrollment.create({
+                studentId,
+                classId,
+                schoolYearId: activeSchoolYear._id
+            });
+            if (cls && cls.level) {
+                await (0, templateUtils_1.checkAndAssignTemplates)(studentId, cls.level, String(activeSchoolYear._id), classId, req.user.userId);
+            }
+        }
+        // Update student level to match class level
+        await Student_1.Student.findByIdAndUpdate(studentId, { level: cls.level });
+        // Update template assignments
+        const teacherAssignments = await TeacherClassAssignment_1.TeacherClassAssignment.find({ classId }).lean();
+        const teacherIds = teacherAssignments.map(t => t.teacherId);
+        await TemplateAssignment_1.TemplateAssignment.updateMany({
+            studentId,
+            status: { $in: ['draft', 'in_progress'] }
+        }, { $set: { assignedTeachers: teacherIds } });
+        res.json({ success: true });
+    }
+    catch (e) {
+        res.status(500).json({ error: 'assign_failed', message: e.message });
     }
 });

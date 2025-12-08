@@ -13,7 +13,7 @@ import { logAudit } from '../utils/auditLogger'
 export const teacherTemplatesRouter = Router()
 
 // Teacher: Get classes assigned to logged-in teacher
-teacherTemplatesRouter.get('/classes', requireAuth(['TEACHER']), async (req, res) => {
+teacherTemplatesRouter.get('/classes', requireAuth(['TEACHER', 'ADMIN', 'SUBADMIN']), async (req, res) => {
     try {
         const teacherId = (req as any).user.userId
         const { schoolYearId } = req.query
@@ -40,7 +40,7 @@ teacherTemplatesRouter.get('/classes', requireAuth(['TEACHER']), async (req, res
 })
 
 // Teacher: Get students in assigned class
-teacherTemplatesRouter.get('/classes/:classId/students', requireAuth(['TEACHER']), async (req, res) => {
+teacherTemplatesRouter.get('/classes/:classId/students', requireAuth(['TEACHER', 'ADMIN', 'SUBADMIN']), async (req, res) => {
     try {
         const teacherId = (req as any).user.userId
         const { classId } = req.params
@@ -61,7 +61,7 @@ teacherTemplatesRouter.get('/classes/:classId/students', requireAuth(['TEACHER']
 })
 
 // Teacher: Get templates for a student
-teacherTemplatesRouter.get('/students/:studentId/templates', requireAuth(['TEACHER']), async (req, res) => {
+teacherTemplatesRouter.get('/students/:studentId/templates', requireAuth(['TEACHER', 'ADMIN', 'SUBADMIN']), async (req, res) => {
     try {
         const teacherId = (req as any).user.userId
         const { studentId } = req.params
@@ -94,7 +94,7 @@ teacherTemplatesRouter.get('/students/:studentId/templates', requireAuth(['TEACH
 })
 
 // Teacher: Get specific template assignment for editing
-teacherTemplatesRouter.get('/template-assignments/:assignmentId', requireAuth(['TEACHER']), async (req, res) => {
+teacherTemplatesRouter.get('/template-assignments/:assignmentId', requireAuth(['TEACHER', 'ADMIN', 'SUBADMIN']), async (req, res) => {
     try {
         const teacherId = (req as any).user.userId
         const { assignmentId } = req.params
@@ -451,7 +451,7 @@ teacherTemplatesRouter.post('/templates/:assignmentId/unmark-done', requireAuth(
 })
 
 // Teacher: Get all template assignments for a class with completion stats
-teacherTemplatesRouter.get('/classes/:classId/assignments', requireAuth(['TEACHER']), async (req, res) => {
+teacherTemplatesRouter.get('/classes/:classId/assignments', requireAuth(['TEACHER', 'ADMIN', 'SUBADMIN']), async (req, res) => {
     try {
         const teacherId = (req as any).user.userId
         const { classId } = req.params
@@ -489,7 +489,7 @@ teacherTemplatesRouter.get('/classes/:classId/assignments', requireAuth(['TEACHE
 })
 
 // Teacher: Get completion statistics for a class
-teacherTemplatesRouter.get('/classes/:classId/completion-stats', requireAuth(['TEACHER']), async (req, res) => {
+teacherTemplatesRouter.get('/classes/:classId/completion-stats', requireAuth(['TEACHER', 'ADMIN', 'SUBADMIN']), async (req, res) => {
     try {
         const teacherId = (req as any).user.userId
         const { classId } = req.params

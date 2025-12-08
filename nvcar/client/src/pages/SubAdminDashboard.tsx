@@ -6,12 +6,17 @@ import ProgressionChart from '../components/ProgressionChart'
 type Teacher = { _id: string; email: string; displayName: string }
 type PendingTemplate = {
     _id: string
+    studentId?: string
     status: string
     isCompleted?: boolean
     completedAt?: Date
     template?: { name: string }
     student?: { firstName: string; lastName: string }
     signature?: { signedAt: Date; subAdminId: string }
+    signatures?: {
+        standard?: { signedAt: Date; subAdminId: string } | null
+        final?: { signedAt: Date; subAdminId: string } | null
+    }
     className?: string
     level?: string
     isPromoted?: boolean
@@ -62,7 +67,7 @@ export default function SubAdminDashboard() {
                 setClasses(classesRes.data)
                 setPromotedStudents(promotedRes.data)
             } catch (e: any) {
-                setError('Impossible de charger les données')
+                setError('Impossible de charger les données: ' + (e.response?.data?.message || e.message))
                 console.error(e)
             } finally {
                 setLoading(false)
@@ -269,84 +274,126 @@ export default function SubAdminDashboard() {
                                             </div>
                                             
                                             {isExpanded && (
-                                                <div style={{ padding: 16, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 18, background: 'white', borderTop: '1px solid #e2e8f0' }}>
-                                                    {templates.map(p => (
-                                                        <Link key={p._id} to={`${routePrefix}/templates/${p._id}/review`} style={{ textDecoration: 'none' }}>
-                                                            <div className="card" style={{ 
-                                                                cursor: 'pointer', 
-                                                                position: 'relative',
-                                                                transition: 'all 0.3s ease',
-                                                                border: '1px solid #e2e8f0',
-                                                                background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
-                                                                height: '100%'
-                                                            }} onMouseEnter={(e) => {
-                                                                e.currentTarget.style.transform = 'translateY(-3px)';
-                                                                e.currentTarget.style.boxShadow = '0 10px 30px rgba(0,0,0,0.12)';
-                                                            }} onMouseLeave={(e) => {
-                                                                e.currentTarget.style.transform = 'translateY(0)';
-                                                                e.currentTarget.style.boxShadow = '0 6px 24px rgba(0,0,0,0.06)';
+                                                <div style={{ padding: 16, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16, background: 'white', borderTop: '1px solid #e2e8f0' }}>
+                                                    {Object.values(
+                                                        templates.reduce((acc, t) => {
+                                                            const key = t.studentId || (t.student ? `${t.student.firstName} ${t.student.lastName}` : 'unknown')
+                                                            if (!acc[key]) acc[key] = []
+                                                            acc[key].push(t)
+                                                            return acc
+                                                        }, {} as Record<string, PendingTemplate[]>)
+                                                    ).sort((a, b) => {
+                                                        const nameA = a[0]?.student ? `${a[0].student.lastName} ${a[0].student.firstName}` : ''
+                                                        const nameB = b[0]?.student ? `${b[0].student.lastName} ${b[0].student.firstName}` : ''
+                                                        return nameA.localeCompare(nameB)
+                                                    }).map(studentTemplates => {
+                                                        const student = studentTemplates[0].student
+                                                        const isPromoted = studentTemplates.some(t => t.isPromoted)
+                                                        
+                                                        return (
+                                                            <div key={studentTemplates[0].studentId || Math.random().toString()} className="card" style={{ 
+                                                                border: isPromoted ? '1px solid #86efac' : '1px solid #e2e8f0',
+                                                                background: isPromoted ? '#f0fdf4' : '#fff',
+                                                                padding: 16,
+                                                                borderRadius: 10,
+                                                                boxShadow: '0 2px 4px -1px rgba(0, 0, 0, 0.06)'
                                                             }}>
-                                                                {p.isCompleted && (
-                                                                    <div style={{
-                                                                        position: 'absolute',
-                                                                        top: 14,
-                                                                        right: 14,
-                                                                        background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                                                                        color: 'white',
-                                                                        borderRadius: '50%',
-                                                                        width: 32,
-                                                                        height: 32,
-                                                                        display: 'flex',
-                                                                        alignItems: 'center',
-                                                                        justifyContent: 'center',
-                                                                        fontSize: 18,
-                                                                        fontWeight: 'bold',
-                                                                        boxShadow: '0 4px 12px rgba(16, 185, 129, 0.4)'
-                                                                    }}>
-                                                                        ✓
+                                                                <div style={{ marginBottom: 12 }}>
+                                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                                                                        <h3 style={{ fontSize: 18, color: '#1e293b', fontWeight: 700, margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                                            {student ? `${student.firstName} ${student.lastName}` : 'Élève Inconnu'}
+                                                                        </h3>
+                                                                        {isPromoted ? (
+                                                                            <span style={{ 
+                                                                                fontSize: 10, 
+                                                                                background: '#166534', 
+                                                                                color: '#fff', 
+                                                                                padding: '2px 8px', 
+                                                                                borderRadius: 12,
+                                                                                fontWeight: 600,
+                                                                                whiteSpace: 'nowrap'
+                                                                            }}>
+                                                                                Promu
+                                                                            </span>
+                                                                        ) : (
+                                                                            <span style={{ 
+                                                                                fontSize: 10, 
+                                                                                background: '#f1f5f9', 
+                                                                                color: '#64748b', 
+                                                                                padding: '2px 8px', 
+                                                                                borderRadius: 12,
+                                                                                fontWeight: 600,
+                                                                                whiteSpace: 'nowrap',
+                                                                                border: '1px solid #cbd5e1'
+                                                                            }}>
+                                                                                Non promu
+                                                                            </span>
+                                                                        )}
                                                                     </div>
-                                                                )}
-                                                                <div className="title" style={{ fontSize: 18, paddingRight: p.isCompleted ? 42 : 0, marginBottom: 8, color: '#1e293b', fontWeight: 600 }}>
-                                                                    {p.template?.name || 'Carnet'}
                                                                 </div>
-                                                                <div className="note" style={{ fontSize: 13, color: '#475569', marginBottom: 4 }}>
-                                                                    👤 Élève: <span style={{ fontWeight: 500 }}>{p.student ? `${p.student.firstName} ${p.student.lastName}` : 'N/A'}</span>
-                                                                    {p.isPromoted && (
-                                                                        <span style={{ 
-                                                                            marginLeft: 8, 
-                                                                            fontSize: 11, 
-                                                                            background: '#dcfce7', 
-                                                                            color: '#166534', 
-                                                                            padding: '2px 6px', 
-                                                                            borderRadius: 4,
-                                                                            border: '1px solid #bbf7d0'
-                                                                        }}>
-                                                                            Promu
-                                                                        </span>
-                                                                    )}
+
+                                                                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                                                    {studentTemplates.map(p => (
+                                                                        <Link key={p._id} to={`${routePrefix}/templates/${p._id}/review`} style={{ textDecoration: 'none' }}>
+                                                                            <div style={{ 
+                                                                                padding: '8px 10px', 
+                                                                                background: '#f8fafc', 
+                                                                                borderRadius: 6, 
+                                                                                border: '1px solid #e2e8f0',
+                                                                                transition: 'all 0.2s',
+                                                                                display: 'flex',
+                                                                                justifyContent: 'space-between',
+                                                                                alignItems: 'center'
+                                                                            }}
+                                                                            onMouseEnter={(e) => {
+                                                                                e.currentTarget.style.borderColor = '#94a3b8';
+                                                                                e.currentTarget.style.background = '#f1f5f9';
+                                                                            }}
+                                                                            onMouseLeave={(e) => {
+                                                                                e.currentTarget.style.borderColor = '#e2e8f0';
+                                                                                e.currentTarget.style.background = '#f8fafc';
+                                                                            }}>
+                                                                                <div style={{ flex: 1, minWidth: 0 }}>
+                                                                                    <div style={{ fontSize: 13, fontWeight: 600, color: '#334155', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                                                        {p.template?.name || 'Carnet'}
+                                                                                    </div>
+                                                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 6 }}>
+                                                                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11 }}>
+                                                                                            <span style={{ color: '#64748b' }}>Mi-année</span>
+                                                                                            {p.signatures?.standard ? (
+                                                                                                <span style={{ color: '#059669', display: 'flex', alignItems: 'center', gap: 3, fontWeight: 500 }}>
+                                                                                                    ✓ Signé
+                                                                                                </span>
+                                                                                            ) : (
+                                                                                                <span style={{ color: '#d97706', display: 'flex', alignItems: 'center', gap: 3 }}>
+                                                                                                    ⏳
+                                                                                                </span>
+                                                                                            )}
+                                                                                        </div>
+                                                                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11 }}>
+                                                                                            <span style={{ color: '#64748b' }}>Fin d'année</span>
+                                                                                            {p.signatures?.final ? (
+                                                                                                <span style={{ color: '#059669', display: 'flex', alignItems: 'center', gap: 3, fontWeight: 500 }}>
+                                                                                                    ✓ Signé
+                                                                                                </span>
+                                                                                            ) : (
+                                                                                                <span style={{ color: '#d97706', display: 'flex', alignItems: 'center', gap: 3 }}>
+                                                                                                    ⏳
+                                                                                                </span>
+                                                                                            )}
+                                                                                        </div>
+                                                                                    </div>
+                                                                                </div>
+                                                                                <div style={{ color: '#94a3b8', fontSize: 12, marginLeft: 8 }}>
+                                                                                    →
+                                                                                </div>
+                                                                            </div>
+                                                                        </Link>
+                                                                    ))}
                                                                 </div>
-                                                                <div className="note" style={{ fontSize: 13, color: '#475569' }}>
-                                                                    📊 Statut: <span style={{ fontWeight: 500 }}>{p.signature ? '✓ Signé' : p.status === 'in_progress' ? '🔄 En cours' : p.status === 'completed' ? '✅ Terminé' : p.status}</span>
-                                                                </div>
-                                                                {p.signature && (
-                                                                    <div className="note" style={{ fontSize: 12, marginTop: 6, color: '#10b981', fontWeight: 500 }}>
-                                                                        📅 Signé le {new Date(p.signature.signedAt).toLocaleDateString('fr-FR')}
-                                                                    </div>
-                                                                )}
-                                                                {p.isCompleted && p.completedAt && (
-                                                                    <div className="note" style={{ fontSize: 12, marginTop: 6, color: '#64748b' }}>
-                                                                        📌 Marqué terminé le {new Date(p.completedAt).toLocaleDateString('fr-FR')}
-                                                                    </div>
-                                                                )}
-                                                                <div className="btn" style={{ 
-                                                                    marginTop: 16,
-                                                                    background: 'linear-gradient(135deg, #6c5ce7 0%, #5b4bc4 100%)',
-                                                                    fontWeight: 500,
-                                                                    boxShadow: '0 2px 8px rgba(108, 92, 231, 0.3)'
-                                                                }}>Examiner →</div>
                                                             </div>
-                                                        </Link>
-                                                    ))}
+                                                        )
+                                                    })}
                                                 </div>
                                             )}
                                         </div>

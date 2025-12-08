@@ -24,5 +24,6 @@ const templateAssignmentSchema = new Schema({
 
 // Create compound index to prevent duplicate assignments
 templateAssignmentSchema.index({ templateId: 1, studentId: 1 }, { unique: true })
+templateAssignmentSchema.index({ studentId: 1, status: 1 })
 
 export const TemplateAssignment = model('TemplateAssignment', templateAssignmentSchema)

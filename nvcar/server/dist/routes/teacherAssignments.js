@@ -7,6 +7,8 @@ const TeacherClassAssignment_1 = require("../models/TeacherClassAssignment");
 const Class_1 = require("../models/Class");
 const User_1 = require("../models/User");
 const OutlookUser_1 = require("../models/OutlookUser");
+const Enrollment_1 = require("../models/Enrollment");
+const TemplateAssignment_1 = require("../models/TemplateAssignment");
 exports.teacherAssignmentsRouter = (0, express_1.Router)();
 // Admin: Assign teacher to class
 exports.teacherAssignmentsRouter.post('/', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
@@ -36,6 +38,21 @@ exports.teacherAssignmentsRouter.post('/', (0, auth_1.requireAuth)(['ADMIN']), a
             assignedBy: req.user.userId,
             assignedAt: new Date(),
         }, { upsert: true, new: true });
+        // Update existing template assignments for students in this class
+        // Find all active enrollments for this class
+        const enrollments = await Enrollment_1.Enrollment.find({
+            classId,
+            schoolYearId: classDoc.schoolYearId,
+            status: 'active'
+        }).select('studentId').lean();
+        if (enrollments.length > 0) {
+            const studentIds = enrollments.map(e => e.studentId);
+            // Add teacher to assignedTeachers for active templates
+            await TemplateAssignment_1.TemplateAssignment.updateMany({
+                studentId: { $in: studentIds },
+                status: { $in: ['draft', 'in_progress'] }
+            }, { $addToSet: { assignedTeachers: teacherId } });
+        }
         res.json(assignment);
     }
     catch (e) {
@@ -59,7 +76,24 @@ exports.teacherAssignmentsRouter.get('/teacher/:teacherId', (0, auth_1.requireAu
 exports.teacherAssignmentsRouter.delete('/:id', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
     try {
         const { id } = req.params;
-        await TeacherClassAssignment_1.TeacherClassAssignment.findByIdAndDelete(id);
+        const assignment = await TeacherClassAssignment_1.TeacherClassAssignment.findById(id).lean();
+        if (assignment) {
+            await TeacherClassAssignment_1.TeacherClassAssignment.findByIdAndDelete(id);
+            // Remove teacher from template assignments for students in this class
+            const enrollments = await Enrollment_1.Enrollment.find({
+                classId: assignment.classId,
+                schoolYearId: assignment.schoolYearId,
+                status: 'active'
+            }).select('studentId').lean();
+            if (enrollments.length > 0) {
+                const studentIds = enrollments.map(e => e.studentId);
+                // Remove teacher from assignedTeachers for active templates
+                await TemplateAssignment_1.TemplateAssignment.updateMany({
+                    studentId: { $in: studentIds },
+                    status: { $in: ['draft', 'in_progress'] }
+                }, { $pull: { assignedTeachers: assignment.teacherId } });
+            }
+        }
         res.json({ ok: true });
     }
     catch (e) {
@@ -69,7 +103,11 @@ exports.teacherAssignmentsRouter.delete('/:id', (0, auth_1.requireAuth)(['ADMIN'
 // Admin: Get all assignments
 exports.teacherAssignmentsRouter.get('/', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
     try {
-        const assignments = await TeacherClassAssignment_1.TeacherClassAssignment.find({}).lean();
+        const filter = {};
+        if (req.query.schoolYearId) {
+            filter.schoolYearId = req.query.schoolYearId;
+        }
+        const assignments = await TeacherClassAssignment_1.TeacherClassAssignment.find(filter).lean();
         const teacherIds = assignments.map(a => a.teacherId);
         const classIds = assignments.map(a => a.classId);
         const [teachers, outlookTeachers, classes] = await Promise.all([
@@ -91,5 +129,49 @@ exports.teacherAssignmentsRouter.get('/', (0, auth_1.requireAuth)(['ADMIN']), as
     }
     catch (e) {
         res.status(500).json({ error: 'fetch_failed', message: e.message });
+    }
+});
+// Admin: Import assignments from previous year
+exports.teacherAssignmentsRouter.post('/import', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
+    try {
+        const { sourceAssignments, targetYearId } = req.body;
+        if (!sourceAssignments || !Array.isArray(sourceAssignments) || !targetYearId) {
+            return res.status(400).json({ error: 'missing_payload' });
+        }
+        // Get all classes for target year to lookup by name
+        const targetClasses = await Class_1.ClassModel.find({ schoolYearId: targetYearId }).lean();
+        const classMap = new Map(targetClasses.map(c => [c.name, String(c._id)]));
+        let importedCount = 0;
+        const errors = [];
+        for (const assignment of sourceAssignments) {
+            // Skip if no class name provided
+            if (!assignment.className)
+                continue;
+            const targetClassId = classMap.get(assignment.className);
+            if (!targetClassId) {
+                errors.push(`Classe '${assignment.className}' introuvable dans l'année sélectionnée`);
+                continue;
+            }
+            // Create assignment
+            try {
+                await TeacherClassAssignment_1.TeacherClassAssignment.findOneAndUpdate({ teacherId: assignment.teacherId, classId: targetClassId }, {
+                    teacherId: assignment.teacherId,
+                    classId: targetClassId,
+                    schoolYearId: targetYearId,
+                    languages: assignment.languages || [],
+                    isProfPolyvalent: !!assignment.isProfPolyvalent,
+                    assignedBy: req.user.userId,
+                    assignedAt: new Date(),
+                }, { upsert: true, new: true });
+                importedCount++;
+            }
+            catch (err) {
+                console.error('Error importing assignment', err);
+            }
+        }
+        res.json({ importedCount, errors });
+    }
+    catch (e) {
+        res.status(500).json({ error: 'import_failed', message: e.message });
     }
 });
