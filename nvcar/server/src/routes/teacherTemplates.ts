@@ -265,25 +265,31 @@ teacherTemplatesRouter.patch('/template-assignments/:assignmentId/language-toggl
             }).lean()
             
             const allowedLanguages = (teacherClassAssignment as any)?.languages || []
+            const isProfPolyvalent = !!(teacherClassAssignment as any)?.isProfPolyvalent
+
+            const currentData = assignment.data || {}
+            const key = `language_toggle_${pageIndex}_${blockIndex}`
+            // Get previous state: either from assignment data or default from block props
+            const previousItems = currentData[key] || block.props.items || []
             
-            if (allowedLanguages.length > 0) {
-                const currentData = assignment.data || {}
-                const key = `language_toggle_${pageIndex}_${blockIndex}`
-                // Get previous state: either from assignment data or default from block props
-                const previousItems = currentData[key] || block.props.items || []
+            // Check each item for changes
+            for (let i = 0; i < items.length; i++) {
+                const newItem = items[i]
+                const oldItem = previousItems[i] || (block.props.items && block.props.items[i])
                 
-                // Check each item for changes
-                for (let i = 0; i < items.length; i++) {
-                    const newItem = items[i]
-                    const oldItem = previousItems[i] || (block.props.items && block.props.items[i])
-                    
-                    // If state changed
-                    if (newItem && oldItem && newItem.active !== oldItem.active) {
-                        // Check if language is allowed
-                        // Use code from block props to be safe (source of truth)
-                        const langCode = block.props.items && block.props.items[i]?.code
+                // If state changed
+                if (newItem && oldItem && newItem.active !== oldItem.active) {
+                    // Use code from block props to be safe (source of truth)
+                    const langCode = block.props.items && block.props.items[i]?.code
+                    // Polyvalent teachers can only change French
+                    if (isProfPolyvalent) {
+                        if (langCode && langCode !== 'fr') {
+                            return res.status(403).json({ error: 'polyvalent_only_french', details: langCode })
+                        }
+                    } else if (allowedLanguages.length > 0) {
+                        // If restrictions exist for non-poly teachers, enforce them
                         if (langCode && !allowedLanguages.includes(langCode)) {
-                             return res.status(403).json({ error: 'language_not_allowed', details: langCode })
+                            return res.status(403).json({ error: 'language_not_allowed', details: langCode })
                         }
                     }
                 }

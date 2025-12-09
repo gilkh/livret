@@ -805,9 +805,78 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', requireAut
              if (type === 'end_of_year' && exemptFinal) canBypass = true
         }
 
-        // Check if assignment is completed
-        if (!canBypass && assignment.status !== 'completed' && assignment.status !== 'signed') {
-            return res.status(400).json({ error: 'not_completed', message: 'Teacher must mark assignment as done before signing' })
+        if (!canBypass) {
+            if (assignment.status !== 'completed' && assignment.status !== 'signed') {
+                const enrollments = await Enrollment.find({ studentId: assignment.studentId }).lean()
+                const classIds = enrollments.map(e => String(e.classId)).filter(Boolean)
+                let clsId = classIds[0]
+                let cls: any = null
+                if (clsId) cls = await ClassModel.findById(clsId).lean()
+
+                const template = await GradebookTemplate.findById(assignment.templateId).lean()
+                const teacherCompletions = (assignment as any).teacherCompletions || []
+                const assignmentData = (assignment as any).data || {}
+                const teacherAssignments = clsId ? await TeacherClassAssignment.find({ classId: clsId }).lean() : []
+
+                const level = cls?.level || ''
+                const categoriesRequired = new Set<string>()
+
+                if (template && Array.isArray((template as any).pages)) {
+                    for (let p = 0; p < (template as any).pages.length; p++) {
+                        const page: any = (template as any).pages[p]
+                        for (let b = 0; b < (page.blocks || []).length; b++) {
+                            const block: any = page.blocks[b]
+                            if (block.type === 'language_toggle') {
+                                const key = `language_toggle_${p}_${b}`
+                                const overrideItems = (assignmentData as any)[key]
+                                const items = overrideItems || block.props?.items || []
+                                for (const item of items) {
+                                    let isAssigned = true
+                                    if (item?.levels && Array.isArray(item.levels) && item.levels.length > 0) {
+                                        if (!level || !item.levels.includes(level)) isAssigned = false
+                                    }
+                                    if (!isAssigned) continue
+                                    const raw = String(item.type || item.label || '')
+                                    const code = String(item.code || '').toLowerCase()
+                                    const l = raw.toLowerCase()
+                                    if (code === 'ar' || l.includes('arabe') || l.includes('arabic') || l.includes('العربية')) categoriesRequired.add('ar')
+                                    else if (code === 'en' || l.includes('anglais') || l.includes('english')) categoriesRequired.add('en')
+                                    else categoriesRequired.add('poly')
+                                }
+                            }
+                        }
+                    }
+                }
+
+                const isCatCompleted = (cat: string) => {
+                    let responsible = (teacherAssignments || [])
+                        .filter((ta: any) => String(ta.classId) === String(clsId))
+                        .filter((ta: any) => {
+                            const langs = ((ta as any).languages || []).map((x: string) => x.toLowerCase())
+                            if (cat === 'ar') {
+                                if (langs.length === 0) return !(ta as any).isProfPolyvalent
+                                return langs.some((v: string) => v === 'ar' || v.includes('arabe') || v.includes('arabic') || v.includes('العربية'))
+                            }
+                            if (cat === 'en') {
+                                if (langs.length === 0) return !(ta as any).isProfPolyvalent
+                                return langs.some((v: string) => v === 'en' || v.includes('anglais') || v.includes('english'))
+                            }
+                            return (ta as any).isProfPolyvalent
+                        })
+                        .map((ta: any) => String(ta.teacherId))
+                    if (responsible.length === 0) responsible = ((assignment as any).assignedTeachers || []).map((id: any) => String(id))
+                    return responsible.some((tid: string) => (teacherCompletions || []).some((tc: any) => String(tc.teacherId) === String(tid) && tc.completed))
+                }
+
+                let eligible = true
+                for (const cat of categoriesRequired) {
+                    if (!isCatCompleted(cat)) { eligible = false; break }
+                }
+
+                if (!eligible) {
+                    return res.status(400).json({ error: 'not_completed', message: 'Teacher must mark assignment as done before signing' })
+                }
+            }
         }
 
         // Verify authorization via class enrollment
@@ -1090,6 +1159,65 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
         const isPromoted = student?.promotions?.some((p: any) => p.schoolYearId === String(activeSchoolYear?._id))
         const activeSemester = (activeSchoolYear as any)?.activeSemester || 1
 
+        let eligibleForSign = assignment.status === 'completed' || assignment.status === 'signed'
+        if (!eligibleForSign) {
+            const enrollment = activeSchoolYear ? await Enrollment.findOne({ studentId: assignment.studentId, schoolYearId: activeSchoolYear._id, status: 'active' }).lean() : null
+            const clsId = enrollment?.classId ? String(enrollment.classId) : undefined
+            const teacherAssignments = clsId ? await TeacherClassAssignment.find({ classId: clsId }).lean() : []
+            const teacherCompletions = (assignment as any).teacherCompletions || []
+
+            const categoriesRequired = new Set<string>()
+            if (versionedTemplate && Array.isArray((versionedTemplate as any).pages)) {
+                for (let p = 0; p < (versionedTemplate as any).pages.length; p++) {
+                    const page: any = (versionedTemplate as any).pages[p]
+                    for (let b = 0; b < (page.blocks || []).length; b++) {
+                        const block: any = page.blocks[b]
+                        if (block.type === 'language_toggle') {
+                            const items = block.props?.items || []
+                            for (const item of items) {
+                                let isAssigned = true
+                                if (item?.levels && Array.isArray(item.levels) && item.levels.length > 0) {
+                                    if (!level || !item.levels.includes(level)) isAssigned = false
+                                }
+                                if (!isAssigned) continue
+                                const raw = String(item.type || item.label || '')
+                                const code = String(item.code || '').toLowerCase()
+                                const l = raw.toLowerCase()
+                                if (code === 'ar' || l.includes('arabe') || l.includes('arabic') || l.includes('العربية')) categoriesRequired.add('ar')
+                                else if (code === 'en' || l.includes('anglais') || l.includes('english')) categoriesRequired.add('en')
+                                else categoriesRequired.add('poly')
+                            }
+                        }
+                    }
+                }
+            }
+
+            const isCatCompleted = (cat: string) => {
+                let responsible = (teacherAssignments || [])
+                    .filter((ta: any) => String(ta.classId) === String(clsId))
+                    .filter((ta: any) => {
+                        const langs = ((ta as any).languages || []).map((x: string) => x.toLowerCase())
+                        if (cat === 'ar') {
+                            if (langs.length === 0) return !(ta as any).isProfPolyvalent
+                            return langs.some((v: string) => v === 'ar' || v.includes('arabe') || v.includes('arabic') || v.includes('العربية'))
+                        }
+                        if (cat === 'en') {
+                            if (langs.length === 0) return !(ta as any).isProfPolyvalent
+                            return langs.some((v: string) => v === 'en' || v.includes('anglais') || v.includes('english'))
+                        }
+                        return (ta as any).isProfPolyvalent
+                    })
+                    .map((ta: any) => String(ta.teacherId))
+                if (responsible.length === 0) responsible = ((assignment as any).assignedTeachers || []).map((id: any) => String(id))
+                return responsible.some((tid: string) => (teacherCompletions || []).some((tc: any) => String(tc.teacherId) === String(tid) && tc.completed))
+            }
+            let ok = true
+            for (const cat of categoriesRequired) {
+                if (!isCatCompleted(cat)) { ok = false; break }
+            }
+            eligibleForSign = ok
+        }
+
         res.json({
             assignment,
             template: versionedTemplate,
@@ -1099,7 +1227,8 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
             isSignedByMe,
             canEdit,
             isPromoted,
-            activeSemester
+            activeSemester,
+            eligibleForSign
         })
     } catch (e: any) {
         res.status(500).json({ error: 'fetch_failed', message: e.message })

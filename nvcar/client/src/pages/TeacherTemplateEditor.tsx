@@ -406,7 +406,13 @@ export default function TeacherTemplateEditor() {
                                         // Check level and language
                                         // Strict check: If levels are defined on the item, student MUST have a matching level
                                         const isLevelAllowed = !it.levels || it.levels.length === 0 || (student?.level && it.levels.includes(student.level));
-                                        const isLanguageAllowed = allowedLanguages.length === 0 || (it.code && allowedLanguages.includes(it.code)) || (isProfPolyvalent && it.code === 'fr');
+                                        const isLanguageAllowed = (() => {
+                                            const code = it.code
+                                            if (isProfPolyvalent) {
+                                                return code === 'fr'
+                                            }
+                                            return allowedLanguages.length === 0 || (code && allowedLanguages.includes(code))
+                                        })();
                                         const isAllowed = isLevelAllowed && isLanguageAllowed;
                                         
                                         const r = b.props.radius || 40

@@ -729,9 +729,84 @@ exports.subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', (0
             if (type === 'end_of_year' && exemptFinal)
                 canBypass = true;
         }
-        // Check if assignment is completed
-        if (!canBypass && assignment.status !== 'completed' && assignment.status !== 'signed') {
-            return res.status(400).json({ error: 'not_completed', message: 'Teacher must mark assignment as done before signing' });
+        if (!canBypass) {
+            if (assignment.status !== 'completed' && assignment.status !== 'signed') {
+                const enrollments = await Enrollment_1.Enrollment.find({ studentId: assignment.studentId }).lean();
+                const classIds = enrollments.map(e => String(e.classId)).filter(Boolean);
+                let clsId = classIds[0];
+                let cls = null;
+                if (clsId)
+                    cls = await Class_1.ClassModel.findById(clsId).lean();
+                const template = await GradebookTemplate_1.GradebookTemplate.findById(assignment.templateId).lean();
+                const teacherCompletions = assignment.teacherCompletions || [];
+                const assignmentData = assignment.data || {};
+                const teacherAssignments = clsId ? await TeacherClassAssignment_1.TeacherClassAssignment.find({ classId: clsId }).lean() : [];
+                const level = cls?.level || '';
+                const categoriesRequired = new Set();
+                if (template && Array.isArray(template.pages)) {
+                    for (let p = 0; p < template.pages.length; p++) {
+                        const page = template.pages[p];
+                        for (let b = 0; b < (page.blocks || []).length; b++) {
+                            const block = page.blocks[b];
+                            if (block.type === 'language_toggle') {
+                                const key = `language_toggle_${p}_${b}`;
+                                const overrideItems = assignmentData[key];
+                                const items = overrideItems || block.props?.items || [];
+                                for (const item of items) {
+                                    let isAssigned = true;
+                                    if (item?.levels && Array.isArray(item.levels) && item.levels.length > 0) {
+                                        if (!level || !item.levels.includes(level))
+                                            isAssigned = false;
+                                    }
+                                    if (!isAssigned)
+                                        continue;
+                                    const raw = String(item.type || item.label || '');
+                                    const code = String(item.code || '').toLowerCase();
+                                    const l = raw.toLowerCase();
+                                    if (code === 'ar' || l.includes('arabe') || l.includes('arabic') || l.includes('العربية'))
+                                        categoriesRequired.add('ar');
+                                    else if (code === 'en' || l.includes('anglais') || l.includes('english'))
+                                        categoriesRequired.add('en');
+                                    else
+                                        categoriesRequired.add('poly');
+                                }
+                            }
+                        }
+                    }
+                }
+                const isCatCompleted = (cat) => {
+                    let responsible = (teacherAssignments || [])
+                        .filter((ta) => String(ta.classId) === String(clsId))
+                        .filter((ta) => {
+                        const langs = (ta.languages || []).map((x) => x.toLowerCase());
+                        if (cat === 'ar') {
+                            if (langs.length === 0)
+                                return !ta.isProfPolyvalent;
+                            return langs.some((v) => v === 'ar' || v.includes('arabe') || v.includes('arabic') || v.includes('العربية'));
+                        }
+                        if (cat === 'en') {
+                            if (langs.length === 0)
+                                return !ta.isProfPolyvalent;
+                            return langs.some((v) => v === 'en' || v.includes('anglais') || v.includes('english'));
+                        }
+                        return ta.isProfPolyvalent;
+                    })
+                        .map((ta) => String(ta.teacherId));
+                    if (responsible.length === 0)
+                        responsible = (assignment.assignedTeachers || []).map((id) => String(id));
+                    return responsible.some((tid) => (teacherCompletions || []).some((tc) => String(tc.teacherId) === String(tid) && tc.completed));
+                };
+                let eligible = true;
+                for (const cat of categoriesRequired) {
+                    if (!isCatCompleted(cat)) {
+                        eligible = false;
+                        break;
+                    }
+                }
+                if (!eligible) {
+                    return res.status(400).json({ error: 'not_completed', message: 'Teacher must mark assignment as done before signing' });
+                }
+            }
         }
         // Verify authorization via class enrollment
         const enrollments = await Enrollment_1.Enrollment.find({ studentId: assignment.studentId }).lean();
@@ -973,6 +1048,73 @@ exports.subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', (
         const activeSchoolYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
         const isPromoted = student?.promotions?.some((p) => p.schoolYearId === String(activeSchoolYear?._id));
         const activeSemester = activeSchoolYear?.activeSemester || 1;
+        let eligibleForSign = assignment.status === 'completed' || assignment.status === 'signed';
+        if (!eligibleForSign) {
+            const enrollment = activeSchoolYear ? await Enrollment_1.Enrollment.findOne({ studentId: assignment.studentId, schoolYearId: activeSchoolYear._id, status: 'active' }).lean() : null;
+            const clsId = enrollment?.classId ? String(enrollment.classId) : undefined;
+            const teacherAssignments = clsId ? await TeacherClassAssignment_1.TeacherClassAssignment.find({ classId: clsId }).lean() : [];
+            const teacherCompletions = assignment.teacherCompletions || [];
+            const categoriesRequired = new Set();
+            if (versionedTemplate && Array.isArray(versionedTemplate.pages)) {
+                for (let p = 0; p < versionedTemplate.pages.length; p++) {
+                    const page = versionedTemplate.pages[p];
+                    for (let b = 0; b < (page.blocks || []).length; b++) {
+                        const block = page.blocks[b];
+                        if (block.type === 'language_toggle') {
+                            const items = block.props?.items || [];
+                            for (const item of items) {
+                                let isAssigned = true;
+                                if (item?.levels && Array.isArray(item.levels) && item.levels.length > 0) {
+                                    if (!level || !item.levels.includes(level))
+                                        isAssigned = false;
+                                }
+                                if (!isAssigned)
+                                    continue;
+                                const raw = String(item.type || item.label || '');
+                                const code = String(item.code || '').toLowerCase();
+                                const l = raw.toLowerCase();
+                                if (code === 'ar' || l.includes('arabe') || l.includes('arabic') || l.includes('العربية'))
+                                    categoriesRequired.add('ar');
+                                else if (code === 'en' || l.includes('anglais') || l.includes('english'))
+                                    categoriesRequired.add('en');
+                                else
+                                    categoriesRequired.add('poly');
+                            }
+                        }
+                    }
+                }
+            }
+            const isCatCompleted = (cat) => {
+                let responsible = (teacherAssignments || [])
+                    .filter((ta) => String(ta.classId) === String(clsId))
+                    .filter((ta) => {
+                    const langs = (ta.languages || []).map((x) => x.toLowerCase());
+                    if (cat === 'ar') {
+                        if (langs.length === 0)
+                            return !ta.isProfPolyvalent;
+                        return langs.some((v) => v === 'ar' || v.includes('arabe') || v.includes('arabic') || v.includes('العربية'));
+                    }
+                    if (cat === 'en') {
+                        if (langs.length === 0)
+                            return !ta.isProfPolyvalent;
+                        return langs.some((v) => v === 'en' || v.includes('anglais') || v.includes('english'));
+                    }
+                    return ta.isProfPolyvalent;
+                })
+                    .map((ta) => String(ta.teacherId));
+                if (responsible.length === 0)
+                    responsible = (assignment.assignedTeachers || []).map((id) => String(id));
+                return responsible.some((tid) => (teacherCompletions || []).some((tc) => String(tc.teacherId) === String(tid) && tc.completed));
+            };
+            let ok = true;
+            for (const cat of categoriesRequired) {
+                if (!isCatCompleted(cat)) {
+                    ok = false;
+                    break;
+                }
+            }
+            eligibleForSign = ok;
+        }
         res.json({
             assignment,
             template: versionedTemplate,
@@ -982,7 +1124,8 @@ exports.subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', (
             isSignedByMe,
             canEdit,
             isPromoted,
-            activeSemester
+            activeSemester,
+            eligibleForSign
         });
     }
     catch (e) {

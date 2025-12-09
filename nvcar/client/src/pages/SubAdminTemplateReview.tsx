@@ -50,6 +50,7 @@ export default function SubAdminTemplateReview() {
     const [isPromoted, setIsPromoted] = useState(false)
     const [isSignedByMe, setIsSignedByMe] = useState(false)
     const [activeSemester, setActiveSemester] = useState<number>(1)
+    const [eligibleForSign, setEligibleForSign] = useState<boolean>(false)
 
     const [promoting, setPromoting] = useState(false)
     const [canEdit, setCanEdit] = useState(false)
@@ -136,6 +137,7 @@ export default function SubAdminTemplateReview() {
                 setIsPromoted(r.data.isPromoted)
                 setIsSignedByMe(r.data.isSignedByMe)
                 setActiveSemester(r.data.activeSemester || 1)
+                setEligibleForSign(r.data.eligibleForSign === true)
             } catch (e: any) {
                 setError('Impossible de charger le carnet')
                 console.error(e)
@@ -272,8 +274,8 @@ export default function SubAdminTemplateReview() {
     }
 
     const handleSign = async () => {
-        if (assignment?.status !== 'completed') {
-            showToast('L\'enseignant doit marquer le carnet comme terminé avant que vous puissiez le signer.', 'info')
+        if (!eligibleForSign) {
+            showToast('Le carnet n\'est pas encore prêt pour la signature.', 'info')
             return
         }
         try {
@@ -284,6 +286,7 @@ export default function SubAdminTemplateReview() {
             setFinalSignature(r.data.finalSignature)
             setAssignment(r.data.assignment)
             setIsSignedByMe(r.data.isSignedByMe)
+            setEligibleForSign(r.data.eligibleForSign === true)
             showToast('Carnet signé avec succès', 'success')
         } catch (e: any) {
             showToast('Échec de la signature', 'error')
@@ -470,14 +473,14 @@ export default function SubAdminTemplateReview() {
                 {!isAefeUser && (
                     <div style={{ marginTop: 20, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
                         {!signature ? (
-                            <button className="btn" onClick={handleSign} disabled={signing || assignment?.status !== 'completed'} style={{
-                                background: assignment?.status === 'completed' ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)' : '#cbd5e1',
+                            <button className="btn" onClick={handleSign} disabled={signing || !eligibleForSign} style={{
+                                background: eligibleForSign ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)' : '#cbd5e1',
                                 fontWeight: 500,
                                 padding: '12px 20px',
-                                boxShadow: assignment?.status === 'completed' ? '0 2px 8px rgba(16, 185, 129, 0.3)' : 'none',
-                                cursor: assignment?.status === 'completed' ? 'pointer' : 'not-allowed'
+                                boxShadow: eligibleForSign ? '0 2px 8px rgba(16, 185, 129, 0.3)' : 'none',
+                                cursor: eligibleForSign ? 'pointer' : 'not-allowed'
                             }}
-                            title={assignment?.status !== 'completed' ? "L'enseignant n'a pas encore terminé ce carnet" : ""}
+                            title={!eligibleForSign ? "Le carnet n'est pas prêt pour la signature" : ""}
                             >
                                 {signing ? '✍️ Signature...' : '✍️ Signer ce carnet'}
                             </button>

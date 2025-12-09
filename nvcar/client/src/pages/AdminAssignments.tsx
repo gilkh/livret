@@ -496,17 +496,18 @@ export default function AdminAssignments() {
                                                         <div>
                                                             <div style={{ fontWeight: 500 }}>{ta.className}</div>
                                                             <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
-                                                                {ta.languages && ta.languages.length > 0 ? (
-                                                                    <span style={{ fontSize: '0.7rem', background: '#e6f7ff', padding: '2px 6px', borderRadius: 4, color: '#1890ff' }}>
-                                                                        {ta.languages.join(', ').toUpperCase()}
-                                                                    </span>
-                                                                ) : (
-                                                                    <span style={{ fontSize: '0.7rem', color: '#999' }}>Toutes langues</span>
-                                                                )}
-                                                                {ta.isProfPolyvalent && (
+                                                                {ta.isProfPolyvalent ? (
                                                                     <span style={{ fontSize: '0.7rem', background: '#fff7e6', padding: '2px 6px', borderRadius: 4, color: '#fa8c16' }}>
                                                                         Polyvalent
                                                                     </span>
+                                                                ) : (
+                                                                    ta.languages && ta.languages.length > 0 ? (
+                                                                        <span style={{ fontSize: '0.7rem', background: '#e6f7ff', padding: '2px 6px', borderRadius: 4, color: '#1890ff' }}>
+                                                                            {ta.languages.join(', ').toUpperCase()}
+                                                                        </span>
+                                                                    ) : (
+                                                                        <span style={{ fontSize: '0.7rem', color: '#999' }}>Toutes langues</span>
+                                                                    )
                                                                 )}
                                                             </div>
                                                         </div>
