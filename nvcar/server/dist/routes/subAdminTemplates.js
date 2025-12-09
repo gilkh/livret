@@ -19,9 +19,9 @@ const Enrollment_1 = require("../models/Enrollment");
 const TeacherClassAssignment_1 = require("../models/TeacherClassAssignment");
 const Class_1 = require("../models/Class");
 const RoleScope_1 = require("../models/RoleScope");
-const Setting_1 = require("../models/Setting");
 const SchoolYear_1 = require("../models/SchoolYear");
 const Level_1 = require("../models/Level");
+const Setting_1 = require("../models/Setting");
 const SavedGradebook_1 = require("../models/SavedGradebook");
 const StudentCompetencyStatus_1 = require("../models/StudentCompetencyStatus");
 const auditLogger_1 = require("../utils/auditLogger");
@@ -188,6 +188,7 @@ exports.subAdminTemplatesRouter.get('/promoted-students', (0, auth_1.requireAuth
                     _id: student._id,
                     firstName: student.firstName,
                     lastName: student.lastName,
+                    avatarUrl: student.avatarUrl,
                     fromLevel: lastPromotion.fromLevel,
                     toLevel: lastPromotion.toLevel,
                     date: lastPromotion.date,
@@ -409,7 +410,7 @@ exports.subAdminTemplatesRouter.get('/pending-signatures', (0, auth_1.requireAut
                 isCompleted: assignment.isCompleted,
                 completedAt: assignment.completedAt,
                 template: template ? { name: template.name } : undefined,
-                student: student ? { firstName: student.firstName, lastName: student.lastName } : undefined,
+                student: student ? { firstName: student.firstName, lastName: student.lastName, avatarUrl: student.avatarUrl } : undefined,
                 signatures: {
                     standard: standardSig ? { signedAt: standardSig.signedAt, subAdminId: standardSig.subAdminId } : null,
                     final: finalSig ? { signedAt: finalSig.signedAt, subAdminId: finalSig.subAdminId } : null
@@ -674,39 +675,78 @@ exports.subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', (0
     try {
         const subAdminId = req.user.userId;
         const { templateAssignmentId } = req.params;
+        // Get the template assignment
         const assignment = await TemplateAssignment_1.TemplateAssignment.findById(templateAssignmentId).lean();
         if (!assignment)
             return res.status(404).json({ error: 'not_found' });
         const { type = 'standard' } = req.body;
-        const settingDoc = await Setting_1.Setting.findOne({ key: 'subadmin_signature_restrictions_enabled' }).lean();
-        const restrictionsEnabled = settingDoc ? (settingDoc.value === true || settingDoc.value === 'true') : true;
-        const bypassStandardDoc = await Setting_1.Setting.findOne({ key: 'subadmin_unrestricted_standard_enabled' }).lean();
-        const bypassFinalDoc = await Setting_1.Setting.findOne({ key: 'subadmin_unrestricted_final_enabled' }).lean();
-        const bypassStandard = bypassStandardDoc ? (bypassStandardDoc.value === true || bypassStandardDoc.value === 'true') : false;
-        const bypassFinal = bypassFinalDoc ? (bypassFinalDoc.value === true || bypassFinalDoc.value === 'true') : false;
-        const perTypeBypass = (type === 'standard' && bypassStandard) || (type === 'end_of_year' && bypassFinal);
-        const restrictionsActive = restrictionsEnabled && !perTypeBypass;
-        const canBypass = !restrictionsActive;
-        if (!canBypass && assignment.status !== 'completed' && assignment.status !== 'signed') {
-            return res.status(400).json({ error: 'not_completed', message: 'Teacher must mark assignment as done before signing' });
+        const bypassScopes = req.user.bypassScopes || [];
+        // Check granular bypass permissions
+        let canBypass = false;
+        if (bypassScopes.some((s) => s.type === 'ALL')) {
+            canBypass = true;
         }
-        const enrollments = await Enrollment_1.Enrollment.find({ studentId: assignment.studentId }).lean();
-        let authorized = false;
-        if (restrictionsActive) {
-            if (assignment.assignedTeachers && assignment.assignedTeachers.length > 0) {
-                const subAdminAssignments = await SubAdminAssignment_1.SubAdminAssignment.find({
-                    subAdminId,
-                    teacherId: { $in: assignment.assignedTeachers },
-                }).lean();
-                if (subAdminAssignments.length > 0) {
-                    authorized = true;
+        else {
+            // Check specific scopes
+            const enrollments = await Enrollment_1.Enrollment.find({ studentId: assignment.studentId }).lean();
+            const classIds = enrollments.map(e => String(e.classId));
+            // Check STUDENT scope
+            if (bypassScopes.some((s) => s.type === 'STUDENT' && s.value === assignment.studentId)) {
+                canBypass = true;
+            }
+            // Check CLASS scope
+            if (!canBypass && bypassScopes.some((s) => s.type === 'CLASS' && classIds.includes(s.value))) {
+                canBypass = true;
+            }
+            // Check LEVEL scope
+            if (!canBypass) {
+                const classes = await Class_1.ClassModel.find({ _id: { $in: classIds } }).lean();
+                const levels = classes.map(c => c.level).filter(Boolean);
+                if (bypassScopes.some((s) => s.type === 'LEVEL' && levels.includes(s.value))) {
+                    canBypass = true;
                 }
             }
         }
-        else {
-            authorized = true;
+        // Apply Settings-based Restrictions
+        const settings = await Setting_1.Setting.find({
+            key: { $in: [
+                    'subadmin_restriction_enabled',
+                    'subadmin_restriction_exempt_standard',
+                    'subadmin_restriction_exempt_final'
+                ] }
+        }).lean();
+        const settingsMap = {};
+        settings.forEach(s => settingsMap[s.key] = s.value);
+        const restrictionsEnabled = settingsMap.subadmin_restriction_enabled !== false; // Default true
+        const exemptStandard = settingsMap.subadmin_restriction_exempt_standard === true;
+        const exemptFinal = settingsMap.subadmin_restriction_exempt_final === true;
+        if (!restrictionsEnabled) {
+            canBypass = true;
         }
-        if (restrictionsActive && !authorized && enrollments.length > 0) {
+        else {
+            if (type === 'standard' && exemptStandard)
+                canBypass = true;
+            if (type === 'end_of_year' && exemptFinal)
+                canBypass = true;
+        }
+        // Check if assignment is completed
+        if (!canBypass && assignment.status !== 'completed' && assignment.status !== 'signed') {
+            return res.status(400).json({ error: 'not_completed', message: 'Teacher must mark assignment as done before signing' });
+        }
+        // Verify authorization via class enrollment
+        const enrollments = await Enrollment_1.Enrollment.find({ studentId: assignment.studentId }).lean();
+        let authorized = false;
+        // Check if sub-admin is linked to assigned teachers (direct assignment check)
+        if (assignment.assignedTeachers && assignment.assignedTeachers.length > 0) {
+            const subAdminAssignments = await SubAdminAssignment_1.SubAdminAssignment.find({
+                subAdminId,
+                teacherId: { $in: assignment.assignedTeachers },
+            }).lean();
+            if (subAdminAssignments.length > 0) {
+                authorized = true;
+            }
+        }
+        if (!authorized && enrollments.length > 0) {
             const classIds = enrollments.map(e => e.classId).filter(Boolean);
             const teacherClassAssignments = await TeacherClassAssignment_1.TeacherClassAssignment.find({ classId: { $in: classIds } }).lean();
             const classTeacherIds = teacherClassAssignments.map(ta => ta.teacherId);
@@ -718,6 +758,7 @@ exports.subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', (0
                 authorized = true;
             }
             if (!authorized) {
+                // Check RoleScope
                 const roleScope = await RoleScope_1.RoleScope.findOne({ userId: subAdminId }).lean();
                 if (roleScope?.levels?.length) {
                     const classes = await Class_1.ClassModel.find({ _id: { $in: classIds } }).lean();
@@ -730,17 +771,25 @@ exports.subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', (0
         if (!authorized) {
             return res.status(403).json({ error: 'not_authorized' });
         }
+        // Check if already signed
         const existing = await TemplateSignature_1.TemplateSignature.findOne({ templateAssignmentId, type }).lean();
-        if (existing)
+        if (existing) {
             return res.status(400).json({ error: 'already_signed' });
-        if (restrictionsActive && type === 'end_of_year') {
+        }
+        // Check for Semester 2 requirement for end_of_year signature
+        if (type === 'end_of_year' && !canBypass) {
             const activeSchoolYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
             if (!activeSchoolYear || activeSchoolYear.activeSemester !== 2) {
                 return res.status(400).json({ error: 'semester_2_required', message: 'Semester 2 must be active to sign end of year' });
             }
         }
         try {
-            await (0, signatureService_1.signTemplateAssignment)({ templateAssignmentId, signerId: subAdminId, type: type, req });
+            const signature = await (0, signatureService_1.signTemplateAssignment)({
+                templateAssignmentId,
+                signerId: subAdminId,
+                type: type,
+                req
+            });
         }
         catch (e) {
             if (e.message === 'already_signed')
@@ -764,41 +813,37 @@ exports.subAdminTemplatesRouter.delete('/templates/:templateAssignmentId/sign', 
         const assignment = await TemplateAssignment_1.TemplateAssignment.findById(templateAssignmentId).lean();
         if (!assignment)
             return res.status(404).json({ error: 'not_found' });
-        const settingDoc = await Setting_1.Setting.findOne({ key: 'subadmin_signature_restrictions_enabled' }).lean();
-        const restrictionsEnabled = settingDoc ? (settingDoc.value === true || settingDoc.value === 'true') : true;
+        // Verify authorization via class enrollment
         const enrollments = await Enrollment_1.Enrollment.find({ studentId: assignment.studentId }).lean();
         let authorized = false;
-        if (!restrictionsEnabled) {
-            authorized = true;
-        }
-        else {
-            if (assignment.assignedTeachers && assignment.assignedTeachers.length > 0) {
-                const subAdminAssignments = await SubAdminAssignment_1.SubAdminAssignment.find({
-                    subAdminId,
-                    teacherId: { $in: assignment.assignedTeachers },
-                }).lean();
-                if (subAdminAssignments.length > 0) {
-                    authorized = true;
-                }
+        // Check if sub-admin is linked to assigned teachers (direct assignment check)
+        if (assignment.assignedTeachers && assignment.assignedTeachers.length > 0) {
+            const subAdminAssignments = await SubAdminAssignment_1.SubAdminAssignment.find({
+                subAdminId,
+                teacherId: { $in: assignment.assignedTeachers },
+            }).lean();
+            if (subAdminAssignments.length > 0) {
+                authorized = true;
             }
-            if (!authorized && enrollments.length > 0) {
-                const classIds = enrollments.map(e => e.classId).filter(Boolean);
-                const teacherClassAssignments = await TeacherClassAssignment_1.TeacherClassAssignment.find({ classId: { $in: classIds } }).lean();
-                const classTeacherIds = teacherClassAssignments.map(ta => ta.teacherId);
-                const subAdminAssignments = await SubAdminAssignment_1.SubAdminAssignment.find({
-                    subAdminId,
-                    teacherId: { $in: classTeacherIds },
-                }).lean();
-                if (subAdminAssignments.length > 0) {
-                    authorized = true;
-                }
-                if (!authorized) {
-                    const roleScope = await RoleScope_1.RoleScope.findOne({ userId: subAdminId }).lean();
-                    if (roleScope?.levels?.length) {
-                        const classes = await Class_1.ClassModel.find({ _id: { $in: classIds } }).lean();
-                        if (classes.some(c => c.level && roleScope.levels.includes(c.level))) {
-                            authorized = true;
-                        }
+        }
+        if (!authorized && enrollments.length > 0) {
+            const classIds = enrollments.map(e => e.classId).filter(Boolean);
+            const teacherClassAssignments = await TeacherClassAssignment_1.TeacherClassAssignment.find({ classId: { $in: classIds } }).lean();
+            const classTeacherIds = teacherClassAssignments.map(ta => ta.teacherId);
+            const subAdminAssignments = await SubAdminAssignment_1.SubAdminAssignment.find({
+                subAdminId,
+                teacherId: { $in: classTeacherIds },
+            }).lean();
+            if (subAdminAssignments.length > 0) {
+                authorized = true;
+            }
+            if (!authorized) {
+                // Check RoleScope
+                const roleScope = await RoleScope_1.RoleScope.findOne({ userId: subAdminId }).lean();
+                if (roleScope?.levels?.length) {
+                    const classes = await Class_1.ClassModel.find({ _id: { $in: classIds } }).lean();
+                    if (classes.some(c => c.level && roleScope.levels.includes(c.level))) {
+                        authorized = true;
                     }
                 }
             }
@@ -836,26 +881,20 @@ exports.subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', (
         if (!assignment)
             return res.status(404).json({ error: 'not_found' });
         const student = await Student_1.Student.findById(assignment.studentId).lean();
-        const settingDoc = await Setting_1.Setting.findOne({ key: 'subadmin_signature_restrictions_enabled' }).lean();
-        const restrictionsEnabled = settingDoc ? (settingDoc.value === true || settingDoc.value === 'true') : true;
         // Verify authorization via class enrollment
         const enrollments = await Enrollment_1.Enrollment.find({ studentId: assignment.studentId }).lean();
         let authorized = false;
-        if (!restrictionsEnabled) {
-            authorized = true;
-        }
-        else {
-            if (assignment.assignedTeachers && assignment.assignedTeachers.length > 0) {
-                const subAdminAssignments = await SubAdminAssignment_1.SubAdminAssignment.find({
-                    subAdminId,
-                    teacherId: { $in: assignment.assignedTeachers },
-                }).lean();
-                if (subAdminAssignments.length > 0) {
-                    authorized = true;
-                }
+        // Check if sub-admin is linked to assigned teachers (direct assignment check)
+        if (assignment.assignedTeachers && assignment.assignedTeachers.length > 0) {
+            const subAdminAssignments = await SubAdminAssignment_1.SubAdminAssignment.find({
+                subAdminId,
+                teacherId: { $in: assignment.assignedTeachers },
+            }).lean();
+            if (subAdminAssignments.length > 0) {
+                authorized = true;
             }
         }
-        if (restrictionsEnabled && !authorized && enrollments.length > 0) {
+        if (!authorized && enrollments.length > 0) {
             const classIds = enrollments.map(e => e.classId).filter(Boolean);
             const teacherClassAssignments = await TeacherClassAssignment_1.TeacherClassAssignment.find({ classId: { $in: classIds } }).lean();
             const classTeacherIds = teacherClassAssignments.map(ta => ta.teacherId);
@@ -958,8 +997,6 @@ exports.subAdminTemplatesRouter.post('/templates/sign-class/:classId', (0, auth_
         // Get all students in this class
         const enrollments = await Enrollment_1.Enrollment.find({ classId }).lean();
         const studentIds = enrollments.map(e => e.studentId);
-        const settingDoc = await Setting_1.Setting.findOne({ key: 'subadmin_signature_restrictions_enabled' }).lean();
-        const restrictionsEnabled = settingDoc ? (settingDoc.value === true || settingDoc.value === 'true') : true;
         // Verify authorization: Sub-admin must be assigned to at least one teacher of this class
         const teacherClassAssignments = await TeacherClassAssignment_1.TeacherClassAssignment.find({ classId }).lean();
         const classTeacherIds = teacherClassAssignments.map(ta => ta.teacherId);
@@ -968,10 +1005,8 @@ exports.subAdminTemplatesRouter.post('/templates/sign-class/:classId', (0, auth_
             teacherId: { $in: classTeacherIds },
         }).lean();
         let authorized = subAdminAssignments.length > 0;
-        if (!restrictionsActive && !authorized) {
-            authorized = true;
-        }
-        else if (!authorized) {
+        if (!authorized) {
+            // Check RoleScope
             const roleScope = await RoleScope_1.RoleScope.findOne({ userId: subAdminId }).lean();
             if (roleScope?.levels?.length) {
                 const cls = await Class_1.ClassModel.findById(classId).lean();
@@ -983,7 +1018,21 @@ exports.subAdminTemplatesRouter.post('/templates/sign-class/:classId', (0, auth_
         if (!authorized) {
             return res.status(403).json({ error: 'not_authorized' });
         }
-        const canBypass = !restrictionsActive;
+        const bypassScopes = req.user.bypassScopes || [];
+        let canBypass = false;
+        if (bypassScopes.some((s) => s.type === 'ALL')) {
+            canBypass = true;
+        }
+        else if (bypassScopes.some((s) => s.type === 'CLASS' && s.value === classId)) {
+            canBypass = true;
+        }
+        else {
+            // Check LEVEL
+            const cls = await Class_1.ClassModel.findById(classId).lean();
+            if (cls && cls.level && bypassScopes.some((s) => s.type === 'LEVEL' && s.value === cls.level)) {
+                canBypass = true;
+            }
+        }
         const query = { studentId: { $in: studentIds } };
         if (!canBypass) {
             query.status = 'completed';
@@ -1004,7 +1053,6 @@ exports.subAdminTemplatesRouter.post('/templates/sign-class/:classId', (0, auth_
                 subAdminId,
                 signedAt: new Date(),
                 status: 'signed',
-                type: 'standard',
             });
             // Update assignment status
             await TemplateAssignment_1.TemplateAssignment.findByIdAndUpdate(assignment._id, { status: 'signed' });

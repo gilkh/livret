@@ -79,53 +79,55 @@ exports.subAdminAssignmentsRouter.get('/progress', (0, auth_1.requireAuth)(['SUB
                 if (!template)
                     return;
                 const assignmentData = assignment.data || {};
-                // Iterate through all pages and blocks to find language_toggle
                 template.pages.forEach((page, pageIdx) => {
                     (page.blocks || []).forEach((block, blockIdx) => {
-                        if (block.type === 'language_toggle') {
-                            const key = `language_toggle_${pageIdx}_${blockIdx}`;
-                            const overrideItems = assignmentData[key];
-                            const items = overrideItems || block.props.items || [];
-                            items.forEach((item) => {
-                                // Check which levels this item belongs to
-                                if (item.levels && Array.isArray(item.levels)) {
-                                    item.levels.forEach((lvl) => {
-                                        // Only count if this level is assigned to the sub-admin
-                                        if (assignedLevels.includes(lvl)) {
-                                            if (!statsByLevel[lvl]) {
-                                                statsByLevel[lvl] = {
-                                                    total: 0,
-                                                    filled: 0,
-                                                    byCategory: {}
-                                                };
-                                            }
-                                            const code = (item.code || '').toLowerCase();
-                                            const rawLang = item.type || item.label || '';
-                                            const lang = (() => {
-                                                const ll = rawLang.toLowerCase();
-                                                if (code === 'fr' || code === 'fra' || ll.includes('français') || ll.includes('french'))
-                                                    return 'Polyvalent';
-                                                if (code === 'ar' || code === 'ara' || code === 'arab' || ll.includes('arabe') || ll.includes('arabic') || ll.includes('العربية'))
-                                                    return 'Arabe';
-                                                if (code === 'en' || code === 'eng' || ll.includes('anglais') || ll.includes('english'))
-                                                    return 'Anglais';
-                                                return rawLang || 'Autre';
-                                            })();
-                                            if (!statsByLevel[lvl].byCategory[lang]) {
-                                                statsByLevel[lvl].byCategory[lang] = { total: 0, filled: 0, name: lang };
-                                            }
-                                            statsByLevel[lvl].total++;
-                                            statsByLevel[lvl].byCategory[lang].total++;
-                                            const isActive = item.active === true || item.active === 'true';
-                                            if (isActive) {
-                                                statsByLevel[lvl].filled++;
-                                                statsByLevel[lvl].byCategory[lang].filled++;
-                                            }
-                                        }
-                                    });
+                        if (block.type !== 'language_toggle')
+                            return;
+                        const key = `language_toggle_${pageIdx}_${blockIdx}`;
+                        const overrideItems = assignmentData[key];
+                        const items = overrideItems || block.props.items || [];
+                        items.forEach((item) => {
+                            const code = (item.code || '').toLowerCase();
+                            const rawLang = item.type || item.label || '';
+                            const lang = (() => {
+                                const ll = rawLang.toLowerCase();
+                                if (code === 'fr' || code === 'fra' || ll.includes('français') || ll.includes('french'))
+                                    return 'Polyvalent';
+                                if (code === 'ar' || code === 'ara' || code === 'arab' || ll.includes('arabe') || ll.includes('arabic') || ll.includes('العربية'))
+                                    return 'Arabe';
+                                if (code === 'en' || code === 'eng' || ll.includes('anglais') || ll.includes('english'))
+                                    return 'Anglais';
+                                return rawLang || 'Autre';
+                            })();
+                            const targetLevels = (() => {
+                                const levelsArr = item.levels && Array.isArray(item.levels) ? item.levels : [];
+                                if (levelsArr.length > 0)
+                                    return levelsArr;
+                                const lvl = currentLevel && currentLevel !== 'Unknown' ? currentLevel : '';
+                                return lvl ? [lvl] : [];
+                            })();
+                            targetLevels.forEach(lvl => {
+                                if (!assignedLevels.includes(lvl))
+                                    return;
+                                if (!statsByLevel[lvl]) {
+                                    statsByLevel[lvl] = {
+                                        total: 0,
+                                        filled: 0,
+                                        byCategory: {}
+                                    };
+                                }
+                                if (!statsByLevel[lvl].byCategory[lang]) {
+                                    statsByLevel[lvl].byCategory[lang] = { total: 0, filled: 0, name: lang };
+                                }
+                                statsByLevel[lvl].total++;
+                                statsByLevel[lvl].byCategory[lang].total++;
+                                const isActive = item.active === true || item.active === 'true';
+                                if (isActive) {
+                                    statsByLevel[lvl].filled++;
+                                    statsByLevel[lvl].byCategory[lang].filled++;
                                 }
                             });
-                        }
+                        });
                     });
                 });
             });
@@ -443,12 +445,12 @@ exports.subAdminAssignmentsRouter.get('/teacher-progress-detailed', (0, auth_1.r
                                                 const langs = (ta.languages || []).map((tl) => tl.toLowerCase());
                                                 if (isArabic) {
                                                     if (langs.length === 0)
-                                                        return true;
+                                                        return !ta.isProfPolyvalent;
                                                     return langs.some((v) => v === 'ar' || v.includes('arabe') || v.includes('arabic') || v.includes('العربية'));
                                                 }
                                                 if (isEnglish) {
                                                     if (langs.length === 0)
-                                                        return true;
+                                                        return !ta.isProfPolyvalent;
                                                     return langs.some((v) => v === 'en' || v.includes('anglais') || v.includes('english'));
                                                 }
                                                 return ta.isProfPolyvalent;
@@ -600,14 +602,14 @@ exports.subAdminAssignmentsRouter.get('/teacher-progress', (0, auth_1.requireAut
                         .filter((ta) => {
                         const langs = (ta.languages || []).map((tl) => tl.toLowerCase());
                         if (isArabic) {
-                            // Empty languages means all special languages are allowed
+                            // Empty languages means all special languages are allowed ONLY if not polyvalent
                             if (langs.length === 0)
-                                return true;
+                                return !ta.isProfPolyvalent;
                             return langs.some((v) => v === 'ar' || v.includes('arabe') || v.includes('arabic') || v.includes('العربية'));
                         }
                         if (isEnglish) {
                             if (langs.length === 0)
-                                return true;
+                                return !ta.isProfPolyvalent;
                             return langs.some((v) => v === 'en' || v.includes('anglais') || v.includes('english'));
                         }
                         // Polyvalent
@@ -659,12 +661,12 @@ exports.subAdminAssignmentsRouter.get('/teacher-progress', (0, auth_1.requireAut
                                             const langs = (ta.languages || []).map((tl) => tl.toLowerCase());
                                             if (isArabic) {
                                                 if (langs.length === 0)
-                                                    return true;
+                                                    return !ta.isProfPolyvalent;
                                                 return langs.some((v) => v === 'ar' || v.includes('arabe') || v.includes('arabic'));
                                             }
                                             if (isEnglish) {
                                                 if (langs.length === 0)
-                                                    return true;
+                                                    return !ta.isProfPolyvalent;
                                                 return langs.some((v) => v === 'en' || v.includes('anglais') || v.includes('english'));
                                             }
                                             // Default/Polyvalent

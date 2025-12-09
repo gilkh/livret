@@ -202,6 +202,7 @@ subAdminTemplatesRouter.get('/promoted-students', requireAuth(['SUBADMIN', 'AEFE
                     _id: student._id,
                     firstName: student.firstName,
                     lastName: student.lastName,
+                    avatarUrl: student.avatarUrl,
                     fromLevel: lastPromotion.fromLevel,
                     toLevel: lastPromotion.toLevel,
                     date: lastPromotion.date,
@@ -450,7 +451,7 @@ subAdminTemplatesRouter.get('/pending-signatures', requireAuth(['SUBADMIN', 'AEF
                 isCompleted: assignment.isCompleted,
                 completedAt: assignment.completedAt,
                 template: template ? { name: template.name } : undefined,
-                student: student ? { firstName: student.firstName, lastName: student.lastName } : undefined,
+                student: student ? { firstName: student.firstName, lastName: student.lastName, avatarUrl: student.avatarUrl } : undefined,
                 signatures: {
                     standard: standardSig ? { signedAt: standardSig.signedAt, subAdminId: standardSig.subAdminId } : null,
                     final: finalSig ? { signedAt: finalSig.signedAt, subAdminId: finalSig.subAdminId } : null
