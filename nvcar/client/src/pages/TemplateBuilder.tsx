@@ -292,6 +292,7 @@ export default function TemplateBuilder() {
     { type: 'arrow', props: { x2: 120, y2: 0, stroke: '#6c5ce7', strokeWidth: 2 } },
     { type: 'rect', props: { width: 160, height: 80, color: '#eef1f7' } },
     { type: 'circle', props: { radius: 60, color: '#ffeaa7' } },
+    { type: 'student_photo', props: { width: 100, height: 100 } },
 
     // Promotion / Student Info Components (The requested ones)
     { type: 'promotion_info', props: { field: 'student', width: 200, height: 30, fontSize: 12, color: '#2d3436', label: 'Nom de l\'élève' } },
@@ -1672,7 +1673,7 @@ export default function TemplateBuilder() {
             {
               title: 'Promotion & Signatures',
               items: [
-                ...blocksPalette.filter(b => ['promotion_info', 'signature_box', 'signature'].includes(b.type))
+                ...blocksPalette.filter(b => ['promotion_info', 'signature_box', 'signature', 'student_photo'].includes(b.type))
               ]
             },
             {
@@ -1733,6 +1734,7 @@ export default function TemplateBuilder() {
                       {b.type === 'promotion_info' && '🎓'}
                       {b.type === 'signature_box' && '✍️'}
                       {b.type === 'signature' && '👥'}
+                      {b.type === 'student_photo' && '📸'}
                       {b.type === 'language_toggle' && '🌐'}
                       {b.type === 'dropdown' && '🔽'}
                       {b.type === 'dropdown_reference' && '🔗'}
@@ -1749,10 +1751,11 @@ export default function TemplateBuilder() {
                                     b.type === 'rect' ? 'Rectangle' :
                                       b.type === 'circle' ? 'Cercle' :
                                         b.type === 'promotion_info' ? 'Info Passage' :
-                                          b.type === 'signature_box' ? 'Signature Box' :
-                                            b.type === 'signature' ? 'Signatures (Noms)' :
-                                              b.type === 'language_toggle' ? 'Langues' :
-                                                b.type === 'dropdown' ? 'Menu déroulant' :
+                                            b.type === 'signature_box' ? 'Signature Box' :
+                                              b.type === 'signature' ? 'Signatures (Noms)' :
+                                                b.type === 'student_photo' ? 'Photo Élève' :
+                                                  b.type === 'language_toggle' ? 'Langues' :
+                                                    b.type === 'dropdown' ? 'Menu déroulant' :
                                                   b.type === 'dropdown_reference' ? 'Référence Dropdown' :
                                                     b.type === 'dynamic_text' ? 'Texte Dynamique' :
                                                       b.type
@@ -1901,6 +1904,21 @@ export default function TemplateBuilder() {
                         >
                           {b.type === 'text' && <div style={{ color: b.props.color, fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden', whiteSpace: 'pre-wrap' }}>{b.props.text}</div>}
                           {b.type === 'image' && <img src={b.props.url} style={{ width: b.props.width || 120, height: b.props.height || 120, borderRadius: 8 }} />}
+                          {b.type === 'student_photo' && (() => {
+                            let url = ''
+                            if (studentId) {
+                                const s = students.find(st => st._id === studentId) as any
+                                if (s && s.avatarUrl) url = s.avatarUrl
+                            }
+                            return url ? (
+                                <img src={url} style={{ width: b.props.width || 100, height: b.props.height || 100, objectFit: 'cover', borderRadius: 8 }} />
+                            ) : (
+                                <div style={{ width: b.props.width || 100, height: b.props.height || 100, borderRadius: 8, background: '#f0f0f0', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', border: '1px solid #ccc' }}>
+                                    <div style={{ fontSize: 24 }}>👤</div>
+                                    <div style={{ fontSize: 10, color: '#666' }}>Photo</div>
+                                </div>
+                            )
+                          })()}
                           {b.type === 'rect' && <div style={{ width: b.props.width, height: b.props.height, background: b.props.color, borderRadius: b.props.radius || 8, border: b.props.stroke ? `${b.props.strokeWidth || 1}px solid ${b.props.stroke}` : 'none' }} />}
                           {b.type === 'circle' && <div style={{ width: (b.props.radius || 60) * 2, height: (b.props.radius || 60) * 2, background: b.props.color, borderRadius: '50%', border: b.props.stroke ? `${b.props.strokeWidth || 1}px solid ${b.props.stroke}` : 'none' }} />}
                           {b.type === 'language_toggle' && (
@@ -2220,7 +2238,7 @@ export default function TemplateBuilder() {
                               )
                             })()
                           )}
-                          {['image', 'text', 'dynamic_text', 'student_info', 'category_title', 'competency_list', 'signature', 'signature_box', 'promotion_info', 'language_toggle'].includes(b.type) && selectedIndex === idx && selectedPage === pageIndex && (
+                          {['image', 'text', 'dynamic_text', 'student_info', 'student_photo', 'category_title', 'competency_list', 'signature', 'signature_box', 'promotion_info', 'language_toggle'].includes(b.type) && selectedIndex === idx && selectedPage === pageIndex && (
                             <>
                               {['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'].map((dir) => {
                                 const style: React.CSSProperties = {
@@ -2910,6 +2928,35 @@ export default function TemplateBuilder() {
                           })()}
                         </div>
                       )}
+                    </div>
+                  )}
+                  {tpl.pages[selectedPage].blocks[selectedIndex].type === 'student_photo' && (
+                    <div style={{
+                      padding: '14px',
+                      background: '#f8f9fa',
+                      borderRadius: 10,
+                      marginBottom: 8
+                    }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+                          <div>
+                            <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Largeur</label>
+                            <input
+                              type="number"
+                              value={tpl.pages[selectedPage].blocks[selectedIndex].props.width || 0}
+                              onChange={e => updateSelected({ width: Number(e.target.value) })}
+                              style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '2px solid #e9ecef', fontSize: 13 }}
+                            />
+                          </div>
+                          <div>
+                            <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Hauteur</label>
+                            <input
+                              type="number"
+                              value={tpl.pages[selectedPage].blocks[selectedIndex].props.height || 0}
+                              onChange={e => updateSelected({ height: Number(e.target.value) })}
+                              style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '2px solid #e9ecef', fontSize: 13 }}
+                            />
+                          </div>
+                        </div>
                     </div>
                   )}
                   {tpl.pages[selectedPage].blocks[selectedIndex].type === 'category_title' && (

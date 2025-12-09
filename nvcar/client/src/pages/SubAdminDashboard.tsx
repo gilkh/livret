@@ -11,7 +11,7 @@ type PendingTemplate = {
     isCompleted?: boolean
     completedAt?: Date
     template?: { name: string }
-    student?: { firstName: string; lastName: string }
+    student?: { firstName: string; lastName: string; avatarUrl?: string }
     signature?: { signedAt: Date; subAdminId: string }
     signatures?: {
         standard?: { signedAt: Date; subAdminId: string } | null
@@ -32,6 +32,7 @@ type PromotedStudent = {
     _id: string
     firstName: string
     lastName: string
+    avatarUrl?: string
     fromLevel: string
     toLevel: string
     date: string
@@ -179,7 +180,22 @@ export default function SubAdminDashboard() {
                                             {students.map(student => (
                                                 <tr key={student._id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                                                     <td style={{ padding: '12px 16px', fontSize: 14, color: '#1e293b', fontWeight: 500 }}>
-                                                        {student.firstName} {student.lastName}
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                            {student.avatarUrl && (
+                                                                <img 
+                                                                    src={student.avatarUrl} 
+                                                                    alt="" 
+                                                                    style={{ 
+                                                                        width: 24, 
+                                                                        height: 24, 
+                                                                        borderRadius: '50%', 
+                                                                        objectFit: 'cover',
+                                                                        border: '1px solid #e2e8f0'
+                                                                    }} 
+                                                                />
+                                                            )}
+                                                            <span>{student.firstName} {student.lastName}</span>
+                                                        </div>
                                                     </td>
                                                     <td style={{ padding: '12px 16px', fontSize: 14, color: '#64748b' }}>
                                                         {new Date(student.date).toLocaleDateString('fr-FR')}
@@ -300,6 +316,19 @@ export default function SubAdminDashboard() {
                                                             }}>
                                                                 <div style={{ marginBottom: 12 }}>
                                                                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                                                                        {student?.avatarUrl && (
+                                                                            <img 
+                                                                                src={student.avatarUrl} 
+                                                                                alt="" 
+                                                                                style={{ 
+                                                                                    width: 32, 
+                                                                                    height: 32, 
+                                                                                    borderRadius: '50%', 
+                                                                                    objectFit: 'cover',
+                                                                                    border: '1px solid #e2e8f0'
+                                                                                }} 
+                                                                            />
+                                                                        )}
                                                                         <h3 style={{ fontSize: 18, color: '#1e293b', fontWeight: 700, margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                                                             {student ? `${student.firstName} ${student.lastName}` : 'Élève Inconnu'}
                                                                         </h3>
@@ -355,7 +384,7 @@ export default function SubAdminDashboard() {
                                                                             }}>
                                                                                 <div style={{ flex: 1, minWidth: 0 }}>
                                                                                     <div style={{ fontSize: 13, fontWeight: 600, color: '#334155', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                                                                        {p.template?.name || 'Carnet'}
+                                                                                        Ouvrir
                                                                                     </div>
                                                                                     <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 6 }}>
                                                                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11 }}>

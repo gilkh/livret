@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import api from '../api'
 import { useSchoolYear } from '../context/SchoolYearContext'
 import { useLevels } from '../context/LevelContext'
@@ -19,6 +19,7 @@ type StudentDoc = {
 }
 
 export default function AdminResources() {
+  const navigate = useNavigate()
   const { activeYearId } = useSchoolYear()
   const { levels } = useLevels()
   const [years, setYears] = useState<Year[]>([])
@@ -224,16 +225,19 @@ export default function AdminResources() {
   }
 
   return (
-    <div className="container">
-      <div style={{ marginBottom: 32, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div>
-            <h2 className="title" style={{ fontSize: '2rem', marginBottom: 8 }}>Gestion des ressources</h2>
-            <p className="note">Gérez les années scolaires, les classes et les élèves</p>
-        </div>
-        <Link to="/admin" className="btn secondary">Retour</Link>
+    <div className="container" style={{ maxWidth: 1600 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+        <h2 className="title" style={{ margin: 0 }}>Ressources Scolaires</h2>
+        <button 
+            className="btn secondary" 
+            onClick={() => navigate('/admin/students')}
+            style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+        >
+            <span>👨‍🎓</span> Gestion des Élèves
+        </button>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 24, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '350px 400px minmax(0, 1fr)', gap: 24, alignItems: 'start', height: 'calc(100vh - 120px)' }}>
         
         {/* Column 1: Years */}
         <div className="card" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>

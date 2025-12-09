@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import api from '../api'
 
-type Student = { _id: string; firstName: string; lastName: string; dateOfBirth: Date }
+type Student = { _id: string; firstName: string; lastName: string; dateOfBirth: Date; avatarUrl?: string }
 type Assignment = {
     _id: string
     studentId: string
@@ -182,7 +182,7 @@ export default function TeacherClassView() {
                                             ✓
                                         </div>
                                     )}
-                                    <img className="avatar" src={`https://api.dicebear.com/9.x/thumbs/svg?seed=${s.firstName}-${s.lastName}`} alt="" style={{ width: 64, height: 64, borderRadius: '50%', border: '3px solid #e2e8f0' }} />
+                                    <img className="avatar" src={s.avatarUrl || `https://api.dicebear.com/9.x/thumbs/svg?seed=${s.firstName}-${s.lastName}`} alt="" style={{ width: 64, height: 64, borderRadius: '50%', border: '3px solid #e2e8f0', objectFit: 'cover' }} />
                                     <div style={{ flex: 1 }}>
                                         <div className="title" style={{ fontSize: 17, marginBottom: 4, color: '#1e293b', fontWeight: 600 }}>{s.firstName} {s.lastName}</div>
                                         <div className="note" style={{ fontSize: 13, fontWeight: 500 }}>

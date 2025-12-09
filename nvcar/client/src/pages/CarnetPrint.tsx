@@ -5,7 +5,7 @@ import api from '../api'
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
 type Template = { _id?: string; name: string; pages: Page[] }
-type Student = { _id: string; firstName: string; lastName: string; level?: string; dateOfBirth: Date; className?: string }
+type Student = { _id: string; firstName: string; lastName: string; level?: string; dateOfBirth: Date; className?: string; avatarUrl?: string }
 type Assignment = { _id: string; status: string; data?: any }
 
 const pageWidth = 800
@@ -180,6 +180,15 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' }) {
                                 </div>
                             )}
                             {b.type === 'image' && <img src={b.props.url} style={{ width: b.props.width || 120, height: b.props.height || 120, borderRadius: 8 }} alt="" />}
+                            {b.type === 'student_photo' && (
+                                student?.avatarUrl ? (
+                                    <img src={student.avatarUrl} style={{ width: b.props.width || 100, height: b.props.height || 100, objectFit: 'cover', borderRadius: 8 }} alt="Student" />
+                                ) : (
+                                    <div style={{ width: b.props.width || 100, height: b.props.height || 100, borderRadius: 8, background: '#f0f0f0', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', border: '1px solid #ccc' }}>
+                                        <div style={{ fontSize: 24 }}>👤</div>
+                                    </div>
+                                )
+                            )}
                             {b.type === 'rect' && <div style={{ width: b.props.width, height: b.props.height, background: b.props.color, border: b.props.stroke ? `${b.props.strokeWidth || 1}px solid ${b.props.stroke}` : 'none', borderRadius: b.props.radius || 8 }} />}
                             {b.type === 'circle' && <div style={{ width: (b.props.radius || 60) * 2, height: (b.props.radius || 60) * 2, background: b.props.color, border: b.props.stroke ? `${b.props.strokeWidth || 1}px solid ${b.props.stroke}` : 'none', borderRadius: '50%' }} />}
                             {b.type === 'line' && <div style={{ width: b.props.x2 || 100, height: b.props.strokeWidth || 2, background: b.props.stroke || '#b2bec3' }} />}
