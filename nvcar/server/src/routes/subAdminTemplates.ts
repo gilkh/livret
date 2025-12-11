@@ -1172,7 +1172,7 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
                     const page: any = (versionedTemplate as any).pages[p]
                     for (let b = 0; b < (page.blocks || []).length; b++) {
                         const block: any = page.blocks[b]
-                        if (block.type === 'language_toggle') {
+                        if (['language_toggle', 'language_toggle_v2'].includes(block.type)) {
                             const items = block.props?.items || []
                             for (const item of items) {
                                 let isAssigned = true

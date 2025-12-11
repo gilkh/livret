@@ -160,6 +160,30 @@ export default function TemplateBuilder() {
   const socket = useSocket()
   const isRemoteUpdate = useRef(false)
 
+  const normalizeTemplateNumbers = (t: Template): Template => {
+    const pages = (t.pages || []).map(p => ({
+      ...p,
+      blocks: (p.blocks || []).map(b => {
+        if (b.type === 'table') {
+          const parseNum = (v: any) => {
+            const n = typeof v === 'number' ? v : parseFloat(String(v || '0'))
+            return isNaN(n) ? 0 : n
+          }
+          const props = { ...b.props }
+          props.rowGap = parseNum(props.rowGap)
+          props.colGap = parseNum(props.colGap)
+          props.expandedRowHeight = parseNum(props.expandedRowHeight)
+          props.expandedDividerWidth = parseNum(props.expandedDividerWidth)
+          props.columnWidths = (props.columnWidths || []).map((x: any) => parseNum(x))
+          props.rowHeights = (props.rowHeights || []).map((x: any) => parseNum(x))
+          return { ...b, props }
+        }
+        return b
+      })
+    }))
+    return { ...t, pages }
+  }
+
   const handlePackageImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -214,7 +238,7 @@ export default function TemplateBuilder() {
 
       const handleUpdate = (newTpl: any) => {
         isRemoteUpdate.current = true
-        setTpl(newTpl)
+        setTpl(normalizeTemplateNumbers(newTpl))
       }
 
       socket.on('template-updated', handleUpdate)
@@ -302,7 +326,7 @@ export default function TemplateBuilder() {
     { type: 'promotion_info', props: { field: 'class', width: 100, height: 30, fontSize: 12, color: '#2d3436', label: 'Classe' } },
     { type: 'promotion_info', props: { field: 'level', width: 150, height: 30, fontSize: 12, color: '#2d3436', label: 'Niveau Suivant (Passage)' } },
     { type: 'promotion_info', props: { field: 'year', width: 120, height: 30, fontSize: 12, color: '#2d3436', label: 'Année Suivante' } },
-    
+
     // Legacy Final Signature Info (kept for compatibility but updated label)
     { type: 'final_signature_info', props: { field: 'nextLevel', width: 150, height: 30, fontSize: 12, color: '#2d3436', label: 'Info (Legacy) - Niveau Suivant', placeholder: '...' } },
 
@@ -317,6 +341,15 @@ export default function TemplateBuilder() {
           { code: 'en', label: 'English', logo: 'https://upload.wikimedia.org/wikipedia/commons/a/a4/Flag_of_the_United_States.svg', active: false },
           { code: 'fr', label: 'Français', logo: 'https://upload.wikimedia.org/wikipedia/en/c/c3/Flag_of_France.svg', active: false },
           { code: 'ar', label: 'العربية', logo: 'https://upload.wikimedia.org/wikipedia/commons/5/59/Flag_of_Lebanon.svg', active: false },
+        ]
+      }
+    },
+    {
+      type: 'language_toggle_v2', props: {
+        radius: 40, spacing: 12, direction: 'row', width: 300, height: 100, items: [
+          { code: 'lb', label: 'Lebanese', emoji: '🇱🇧', active: false },
+          { code: 'fr', label: 'French', emoji: '🇫🇷', active: false },
+          { code: 'en', label: 'English', emoji: '🇬🇧', active: false },
         ]
       }
     },
@@ -440,8 +473,8 @@ export default function TemplateBuilder() {
     const mainBlock = tpl.pages[pageIndex].blocks[idx]
     const baseX = mainBlock.props.x || 0
     const baseY = mainBlock.props.y || 0
-    const blockW = mainBlock.props.width || (mainBlock.type === 'text' ? 120 : (mainBlock.type === 'language_toggle' ? 80 : 120))
-    const blockH = mainBlock.props.height || (mainBlock.type === 'text' ? 60 : (mainBlock.type === 'language_toggle' ? 200 : 120))
+    const blockW = mainBlock.props.width || (mainBlock.type === 'text' ? 120 : (mainBlock.type === 'language_toggle' ? 80 : (mainBlock.type === 'language_toggle_v2' ? 300 : 120)))
+    const blockH = mainBlock.props.height || (mainBlock.type === 'text' ? 60 : (mainBlock.type === 'language_toggle' ? 200 : (mainBlock.type === 'language_toggle_v2' ? 100 : 120)))
 
     const otherBlocks = tpl.pages[pageIndex].blocks
       .map((b, i) => ({ b, i }))
@@ -449,8 +482,8 @@ export default function TemplateBuilder() {
       .map(({ b }) => ({
         x: b.props.x || 0,
         y: b.props.y || 0,
-        w: b.props.width || (b.type === 'text' ? 120 : (b.type === 'language_toggle' ? 80 : 120)),
-        h: b.props.height || (b.type === 'text' ? 60 : (b.type === 'language_toggle' ? 200 : 120))
+        w: b.props.width || (b.type === 'text' ? 120 : (b.type === 'language_toggle' ? 80 : (b.type === 'language_toggle_v2' ? 300 : 120))),
+        h: b.props.height || (b.type === 'text' ? 60 : (b.type === 'language_toggle' ? 200 : (b.type === 'language_toggle_v2' ? 100 : 120)))
       }))
 
     let hasMoved = false
@@ -667,10 +700,10 @@ export default function TemplateBuilder() {
   const save = async () => {
     if (tpl._id) {
       const r = await api.patch(`/templates/${tpl._id}`, tpl)
-      setTpl(r.data)
+      setTpl(normalizeTemplateNumbers(r.data))
     } else {
       const r = await api.post('/templates', tpl)
-      setTpl(r.data)
+      setTpl(normalizeTemplateNumbers(r.data))
     }
   }
 
@@ -705,7 +738,7 @@ export default function TemplateBuilder() {
       // But I want to ensure we get className.
       // If /students/by-class returns className, we are good.
       // If not, we might need to update the endpoint or use /students with filtering.
-      
+
       // Let's assume /students/by-class/${cls} is the correct one for now but verify its response structure?
       // No, I can't verify response structure without running it.
       // But I updated /students endpoint in students.ts to return className.
@@ -713,15 +746,15 @@ export default function TemplateBuilder() {
       // I checked students.ts content earlier and didn't see /by-class.
       // I saw GET / and GET /unassigned/export/:schoolYearId and POST /bulk-assign-section.
       // So /students/by-class/${cls} might be 404!
-      
+
       // Let's switch to using the main /students endpoint and filter client side if needed,
       // or check if there is a classId param.
-      
+
       const response = await api.get('/students', { params: { schoolYearId: yearId } })
       const allStudents = response.data
       const classStudents = allStudents.filter((s: any) => s.classId === cls)
       setStudents(classStudents)
-    } catch { } 
+    } catch { }
   }
 
 
@@ -735,7 +768,7 @@ export default function TemplateBuilder() {
     try {
       setSaveStatus('Importation en cours...')
       const r = await api.post('/templates/import-pptx', fd)
-      setTpl(r.data)
+      setTpl(normalizeTemplateNumbers(r.data))
       setSaveStatus('Importé avec succès')
       await loadTemplates()
     } catch (err) {
@@ -752,7 +785,7 @@ export default function TemplateBuilder() {
     try {
       const newTpl: Template = { name: newTemplateName, pages: [{ title: 'Page 1', blocks: [] }] }
       const r = await api.post('/templates', newTpl)
-      setTpl(r.data)
+      setTpl(normalizeTemplateNumbers(r.data))
       setViewMode('edit')
       setShowCreateModal(false)
       setNewTemplateName('')
@@ -1681,7 +1714,7 @@ export default function TemplateBuilder() {
             {
               title: 'Interactif',
               items: [
-                ...blocksPalette.filter(b => ['language_toggle', 'dropdown', 'dropdown_reference', 'dynamic_text'].includes(b.type))
+                ...blocksPalette.filter(b => ['language_toggle', 'language_toggle_v2', 'dropdown', 'dropdown_reference', 'dynamic_text'].includes(b.type))
               ]
             }
           ].map((group, groupIndex) => (
@@ -1738,6 +1771,7 @@ export default function TemplateBuilder() {
                       {b.type === 'signature' && '👥'}
                       {b.type === 'student_photo' && '📸'}
                       {b.type === 'language_toggle' && '🌐'}
+                      {b.type === 'language_toggle_v2' && '🏳️'}
                       {b.type === 'dropdown' && '🔽'}
                       {b.type === 'dropdown_reference' && '🔗'}
                       {b.type === 'dynamic_text' && '🔤'}
@@ -1753,14 +1787,15 @@ export default function TemplateBuilder() {
                                     b.type === 'rect' ? 'Rectangle' :
                                       b.type === 'circle' ? 'Cercle' :
                                         b.type === 'promotion_info' ? 'Info Passage' :
-                                            b.type === 'signature_box' ? 'Signature Box' :
-                                              b.type === 'signature' ? 'Signatures (Noms)' :
-                                                b.type === 'student_photo' ? 'Photo Élève' :
-                                                  b.type === 'language_toggle' ? 'Langues' :
+                                          b.type === 'signature_box' ? 'Signature Box' :
+                                            b.type === 'signature' ? 'Signatures (Noms)' :
+                                              b.type === 'student_photo' ? 'Photo Élève' :
+                                                b.type === 'language_toggle' ? 'Langues (V1)' :
+                                                  b.type === 'language_toggle_v2' ? 'Langues (V2)' :
                                                     b.type === 'dropdown' ? 'Menu déroulant' :
-                                                  b.type === 'dropdown_reference' ? 'Référence Dropdown' :
-                                                    b.type === 'dynamic_text' ? 'Texte Dynamique' :
-                                                      b.type
+                                                      b.type === 'dropdown_reference' ? 'Référence Dropdown' :
+                                                        b.type === 'dynamic_text' ? 'Texte Dynamique' :
+                                                          b.type
                       )}
                     </span>
                   </div>
@@ -1909,16 +1944,16 @@ export default function TemplateBuilder() {
                           {b.type === 'student_photo' && (() => {
                             let url = ''
                             if (studentId) {
-                                const s = students.find(st => st._id === studentId) as any
-                                if (s && s.avatarUrl) url = s.avatarUrl
+                              const s = students.find(st => st._id === studentId) as any
+                              if (s && s.avatarUrl) url = s.avatarUrl
                             }
                             return url ? (
-                                <img src={url} style={{ width: b.props.width || 100, height: b.props.height || 100, objectFit: 'cover', borderRadius: 8 }} />
+                              <img src={url} style={{ width: b.props.width || 100, height: b.props.height || 100, objectFit: 'cover', borderRadius: 8 }} />
                             ) : (
-                                <div style={{ width: b.props.width || 100, height: b.props.height || 100, borderRadius: 8, background: '#f0f0f0', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', border: '1px solid #ccc' }}>
-                                    <div style={{ fontSize: 24 }}>👤</div>
-                                    <div style={{ fontSize: 10, color: '#666' }}>Photo</div>
-                                </div>
+                              <div style={{ width: b.props.width || 100, height: b.props.height || 100, borderRadius: 8, background: '#f0f0f0', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', border: '1px solid #ccc' }}>
+                                <div style={{ fontSize: 24 }}>👤</div>
+                                <div style={{ fontSize: 10, color: '#666' }}>Photo</div>
+                              </div>
                             )
                           })()}
                           {b.type === 'rect' && <div style={{ width: b.props.width, height: b.props.height, background: b.props.color, borderRadius: b.props.radius || 8, border: b.props.stroke ? `${b.props.strokeWidth || 1}px solid ${b.props.stroke}` : 'none' }} />}
@@ -1933,6 +1968,73 @@ export default function TemplateBuilder() {
                                     onClick={(ev) => { ev.stopPropagation(); const pages = [...tpl.pages]; const page = { ...pages[selectedPage] }; const blocks = [...page.blocks]; const items = [...(blocks[idx].props.items || [])]; items[i] = { ...items[i], active: !items[i].active }; blocks[idx] = { ...blocks[idx], props: { ...blocks[idx].props, items } }; pages[selectedPage] = { ...page, blocks }; setTpl({ ...tpl, pages }) }}>
                                     {it.logo ? <img src={it.logo} style={{ width: '100%', height: '100%', objectFit: 'cover', filter: it.active ? 'brightness(1.1)' : 'brightness(0.6)' }} /> : <div style={{ width: '100%', height: '100%', background: '#ddd' }} />}
                                     <div style={{ position: 'absolute', bottom: 2, left: 0, right: 0, textAlign: 'center', fontSize: b.props.fontSize || 10, color: '#fff', textShadow: '0 1px 2px rgba(0,0,0,0.6)' }}>{it.label || it.code}</div>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          )}
+                          {b.type === 'language_toggle_v2' && (
+                            <div style={{
+                              display: 'flex',
+                              flexDirection: (b.props.direction as any) || 'row',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: b.props.spacing || 12,
+                              background: b.props.backgroundColor || 'transparent',
+                              borderRadius: b.props.borderRadius || 12,
+                              padding: b.props.padding || 8,
+                              width: b.props.width,
+                              height: b.props.height,
+                              boxSizing: 'border-box'
+                            }}>
+                              {(b.props.items || []).map((it: any, i: number) => {
+                                const size = 40
+                                const getEmoji = (item: any) => {
+                                  const e = item.emoji
+                                  if (e && e.length >= 2) return e
+                                  const c = (item.code || '').toLowerCase()
+                                  if (c === 'lb' || c === 'ar') return '🇱🇧'
+                                  if (c === 'fr') return '🇫🇷'
+                                  if (c === 'en' || c === 'uk' || c === 'gb') return '🇬🇧'
+                                  return '🏳️'
+                                }
+                                const emoji = getEmoji(it)
+                                const appleEmojiUrl = `https://emojicdn.elk.sh/${emoji}?style=apple`
+                                return (
+                                  <div key={i}
+                                    title={it.label}
+                                    style={{
+                                      width: size,
+                                      height: size,
+                                      minWidth: size, // Prevent shrinking
+                                      borderRadius: '50%',
+                                      background: it.active ? '#fff' : 'rgba(255, 255, 255, 0.5)',
+                                      border: it.active ? '2px solid #2563eb' : '1px solid rgba(0, 0, 0, 0.1)',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      cursor: 'pointer',
+                                      transition: 'all 0.2s ease',
+                                      transform: it.active ? 'scale(1.1)' : 'scale(1)',
+                                      boxShadow: it.active ? '0 0 0 2px rgba(37, 99, 235, 0.2)' : 'none',
+                                      filter: 'none',
+                                      opacity: it.active ? 1 : 0.5
+                                    }}
+                                    onClick={(ev) => {
+                                      ev.stopPropagation();
+                                      const pages = [...tpl.pages];
+                                      const page = { ...pages[selectedPage] };
+                                      const blocks = [...page.blocks];
+                                      const items = [...(blocks[idx].props.items || [])];
+                                      items[i] = { ...items[i], active: !items[i].active };
+                                      blocks[idx] = { ...blocks[idx], props: { ...blocks[idx].props, items } };
+                                      pages[selectedPage] = { ...page, blocks };
+                                      setTpl({ ...tpl, pages })
+                                    }}
+                                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.2)'}
+                                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)'}
+                                  >
+                                    <img src={appleEmojiUrl} style={{ width: size * 0.75, height: size * 0.75, objectFit: 'contain' }} alt="" />
                                   </div>
                                 )
                               })}
@@ -2169,11 +2271,26 @@ export default function TemplateBuilder() {
                           )}
                           {b.type === 'table' && (
                             (() => {
-                              const cols: number[] = b.props.columnWidths || []
-                              const rows: number[] = b.props.rowHeights || []
+                              const parseNum = (v: any) => {
+                                const n = typeof v === 'number' ? v : parseFloat(String(v || '0'))
+                                return isNaN(n) ? 0 : n
+                              }
+                              const cols: number[] = (b.props.columnWidths || []).map(parseNum)
+                              const rows: number[] = (b.props.rowHeights || []).map(parseNum)
                               const cells: any[][] = b.props.cells || []
-                              const gapCol = b.props.colGap || 0
-                              const gapRow = b.props.rowGap || 0
+                              const gapCol = parseNum(b.props.colGap)
+                              const gapRow = parseNum(b.props.rowGap)
+                              const expandedRows = b.props.expandedRows || false
+                              const expandedRowHeight = parseNum(b.props.expandedRowHeight || 34)
+                              const expandedDividerWidth = parseNum(b.props.expandedDividerWidth || 0.5)
+                              const expandedDividerColor = b.props.expandedDividerColor || 'rgba(255, 255, 255, 0.2)'
+                              const expandedPadding = 4
+                              const expandedTopGap = 6
+                              const expandedLanguages = b.props.expandedLanguages || [
+                                { code: 'lb', label: 'Lebanese', emoji: '🇱🇧', active: false },
+                                { code: 'fr', label: 'French', emoji: '🇫🇷', active: false },
+                                { code: 'en', label: 'English', emoji: '🇬🇧', active: false }
+                              ]
 
                               let width = 0
                               const colOffsets: number[] = [0]
@@ -2188,6 +2305,9 @@ export default function TemplateBuilder() {
                               const rowOffsets: number[] = [0]
                               for (let i = 0; i < rows.length; i++) {
                                 height += (rows[i] || 0)
+                                if (expandedRows) {
+                                  height += (expandedRowHeight + expandedPadding + expandedTopGap)
+                                }
                                 rowOffsets[i + 1] = height
                                 height += gapRow
                               }
@@ -2198,53 +2318,192 @@ export default function TemplateBuilder() {
                                   position: 'relative',
                                   width,
                                   height,
-                                  display: 'grid',
-                                  gridTemplateColumns: cols.map(w => `${Math.max(1, Math.round(w))}px`).join(' '),
-                                  gridTemplateRows: rows.map(h => `${Math.max(1, Math.round(h))}px`).join(' '),
+                                  // When expanded, we use flex col to stack row units. When not, we use grid.
+                                  display: expandedRows ? 'flex' : 'grid',
+                                  flexDirection: 'column',
+                                  gap: `${gapRow}px ${gapCol}px`,
+                                  gridTemplateColumns: !expandedRows ? cols.map(w => `${Math.max(1, Math.round(w))}px`).join(' ') : undefined,
+                                  gridTemplateRows: !expandedRows ? rows.map(h => `${Math.max(1, Math.round(h))}px`).join(' ') : undefined,
                                   overflow: 'visible',
-                                  rowGap: gapRow,
-                                  columnGap: gapCol,
                                   background: (gapRow > 0 || gapCol > 0) ? 'transparent' : (b.props.backgroundColor || 'transparent'),
                                   borderRadius: (gapRow > 0 || gapCol > 0) ? 0 : (b.props.borderRadius || 0)
                                 }}>
-                                  {cells.flatMap((row, ri) => row.map((cell, ci) => {
-                                    const bl = cell?.borders?.l; const br = cell?.borders?.r; const bt = cell?.borders?.t; const bb = cell?.borders?.b
-                                    
-                                    const radius = b.props.borderRadius || 0
-                                    const isFirstCol = ci === 0
-                                    const isLastCol = ci === cols.length - 1
-                                    const isFirstRow = ri === 0
-                                    const isLastRow = ri === rows.length - 1
-                                    const treatAsCards = gapRow > 0
-                                    
-                                    const style: React.CSSProperties = {
-                                      background: cell?.fill || ((treatAsCards && b.props.backgroundColor) ? b.props.backgroundColor : 'transparent'),
-                                      borderLeft: bl?.width ? `${bl.width}px solid ${bl.color || '#000'}` : 'none',
-                                      borderRight: br?.width ? `${br.width}px solid ${br.color || '#000'}` : 'none',
-                                      borderTop: bt?.width ? `${bt.width}px solid ${bt.color || '#000'}` : 'none',
-                                      borderBottom: bb?.width ? `${bb.width}px solid ${bb.color || '#000'}` : 'none',
-                                      padding: 4, 
-                                      boxSizing: 'border-box',
-                                      borderTopLeftRadius: (isFirstCol && (treatAsCards || isFirstRow)) ? radius : 0,
-                                      borderBottomLeftRadius: (isFirstCol && (treatAsCards || isLastRow)) ? radius : 0,
-                                      borderTopRightRadius: (isLastCol && (treatAsCards || isFirstRow)) ? radius : 0,
-                                      borderBottomRightRadius: (isLastCol && (treatAsCards || isLastRow)) ? radius : 0,
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      overflow: 'hidden'
-                                    }
-                                    const isSel = selectedIndex === idx && selectedCell && selectedCell.ri === ri && selectedCell.ci === ci
-                                    return (
-                                      <div key={`${ri}-${ci}`} style={{ ...style, outline: isSel ? '2px solid #6c5ce7' : 'none' }}
-                                        onMouseDown={(ev) => { ev.stopPropagation() }}
-                                        onClick={(ev) => { ev.stopPropagation(); setSelectedIndex(idx); setSelectedCell({ ri, ci }) }}
-                                      >
-                                        {cell?.text && <div style={{ fontSize: cell.fontSize || 12, color: cell.color || '#000', whiteSpace: 'pre-wrap' }}>{cell.text}</div>}
-                                      </div>
-                                    )
-                                  }))}
+                                  {!expandedRows ? (
+                                    /* Standard grid-based rendering when NOT expanded */
+                                    cells.flatMap((row, ri) => row.map((cell, ci) => {
+                                      const bl = cell?.borders?.l; const br = cell?.borders?.r; const bt = cell?.borders?.t; const bb = cell?.borders?.b
+
+                                      const radius = b.props.borderRadius || 0
+                                      const isFirstCol = ci === 0
+                                      const isLastCol = ci === cols.length - 1
+                                      const isFirstRow = ri === 0
+                                      const isLastRow = ri === rows.length - 1
+                                      const treatAsCards = gapRow > 0
+
+                                      const style: React.CSSProperties = {
+                                        background: cell?.fill || ((treatAsCards && b.props.backgroundColor) ? b.props.backgroundColor : 'transparent'),
+                                        borderLeft: bl?.width ? `${bl.width}px solid ${bl.color || '#000'}` : 'none',
+                                        borderRight: br?.width ? `${br.width}px solid ${br.color || '#000'}` : 'none',
+                                        borderTop: bt?.width ? `${bt.width}px solid ${bt.color || '#000'}` : 'none',
+                                        borderBottom: bb?.width ? `${bb.width}px solid ${bb.color || '#000'}` : 'none',
+                                        padding: 15,
+                                        boxSizing: 'border-box',
+                                        borderTopLeftRadius: (isFirstCol && (treatAsCards || isFirstRow)) ? radius : 0,
+                                        borderBottomLeftRadius: (isFirstCol && (treatAsCards || isLastRow)) ? radius : 0,
+                                        borderTopRightRadius: (isLastCol && (treatAsCards || isFirstRow)) ? radius : 0,
+                                        borderBottomRightRadius: (isLastCol && (treatAsCards || isLastRow)) ? radius : 0,
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        overflow: 'hidden'
+                                      }
+                                      const isSel = selectedIndex === idx && selectedCell && selectedCell.ri === ri && selectedCell.ci === ci
+                                      return (
+                                        <div key={`${ri}-${ci}`} style={{ ...style, outline: isSel ? '2px solid #6c5ce7' : 'none' }}
+                                          onMouseDown={(ev) => { ev.stopPropagation() }}
+                                          onClick={(ev) => { ev.stopPropagation(); setSelectedIndex(idx); setSelectedCell({ ri, ci }) }}
+                                        >
+                                          {cell?.text && <div style={{ fontSize: cell.fontSize || 12, color: cell.color || '#000', whiteSpace: 'pre-wrap' }}>{cell.text}</div>}
+                                        </div>
+                                      )
+                                    }))
+                                  ) : (
+                                    /* Flex Column rendering for Expanded Rows */
+                                    cells.map((row, ri) => {
+                                      const radius = b.props.borderRadius || 0
+                                      const isFirstRow = ri === 0
+                                      const isLastRow = ri === rows.length - 1
+                                      const treatAsCards = gapRow > 0
+                                      const rowBgColor = row[0]?.fill || b.props.backgroundColor || '#f8f9fa'
+                                      const mainRowHeight = rows[ri] || 40
+
+                                      return (
+                                        <div key={`row-unit-${ri}`} style={{ position: 'relative', display: 'flex', flexDirection: 'column' }}>
+
+                                          {/* Main Row Grid */}
+                                          <div style={{
+                                            display: 'grid',
+                                            gridTemplateColumns: cols.map(w => `${Math.max(1, Math.round(w))}px`).join(' '),
+                                            columnGap: gapCol,
+                                            height: mainRowHeight
+                                          }}>
+                                            {row.map((cell, ci) => {
+                                              const bl = cell?.borders?.l; const br = cell?.borders?.r; const bt = cell?.borders?.t; const bb = cell?.borders?.b
+                                              const isFirstCol = ci === 0
+                                              const isLastCol = ci === cols.length - 1
+
+                                              const style: React.CSSProperties = {
+                                                background: cell?.fill || ((treatAsCards && b.props.backgroundColor) ? b.props.backgroundColor : 'transparent'),
+                                                borderLeft: bl?.width ? `${bl.width}px solid ${bl.color || '#000'}` : 'none',
+                                                borderRight: br?.width ? `${br.width}px solid ${br.color || '#000'}` : 'none',
+                                                borderTop: bt?.width ? `${bt.width}px solid ${bt.color || '#000'}` : 'none',
+                                                // When expanded, bottom border is usually handled by the expanded div bottom, 
+                                                // but if you want main row to have border it's fine. 
+                                                // Usually we remove it to merge with expansion.
+                                                borderBottom: 'none',
+                                                padding: 15,
+                                                boxSizing: 'border-box',
+                                                borderTopLeftRadius: (isFirstCol && (treatAsCards || isFirstRow)) ? radius : 0,
+                                                borderTopRightRadius: (isLastCol && (treatAsCards || isFirstRow)) ? radius : 0,
+                                                borderBottomLeftRadius: 0,
+                                                borderBottomRightRadius: 0,
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                overflow: 'hidden'
+                                              }
+                                              const isSel = selectedIndex === idx && selectedCell && selectedCell.ri === ri && selectedCell.ci === ci
+                                              return (
+                                                <div key={`cell-${ri}-${ci}`} style={{ ...style, outline: isSel ? '2px solid #6c5ce7' : 'none' }}
+                                                  onMouseDown={(ev) => { ev.stopPropagation() }}
+                                                  onClick={(ev) => { ev.stopPropagation(); setSelectedIndex(idx); setSelectedCell({ ri, ci }) }}
+                                                >
+                                                  {cell?.text && <div style={{ fontSize: cell.fontSize || 12, color: cell.color || '#000', whiteSpace: 'pre-wrap' }}>{cell.text}</div>}
+                                                </div>
+                                              )
+                                            })}
+                                          </div>
+
+                                          {/* Expanded Row Section */}
+                                          <div style={{
+                                            background: rowBgColor,
+                                            borderBottomLeftRadius: (treatAsCards || isLastRow) ? radius : 0,
+                                            borderBottomRightRadius: (treatAsCards || isLastRow) ? radius : 0,
+                                            height: expandedRowHeight,
+                                            position: 'relative',
+                                            paddingBottom: expandedPadding
+                                          }}>
+                                            {/* Divider Line */}
+                                            <div style={{
+                                              position: 'absolute', top: 0, left: 0, right: 0,
+                                              height: expandedDividerWidth,
+                                              background: expandedDividerColor,
+                                              margin: '0 15px'
+                                            }} />
+
+                                            {/* Language Toggles */}
+                                            <div style={{
+                                              height: '100%',
+                                              display: 'flex',
+                                              alignItems: 'flex-start',
+                                              paddingLeft: 15,
+                                              paddingTop: expandedTopGap,
+                                              gap: 8
+                                            }}>
+                                              {expandedLanguages.map((lang: any, li: number) => {
+                                                const size = Math.max(12, Math.min(expandedRowHeight - 12, 20))
+                                                const getEmoji = (item: any) => {
+                                                  const e = item.emoji
+                                                  if (e && e.length >= 2) return e
+                                                  const c = (item.code || '').toLowerCase()
+                                                  if (c === 'lb' || c === 'ar') return '🇱🇧'
+                                                  if (c === 'fr') return '🇫🇷'
+                                                  if (c === 'en' || c === 'uk' || c === 'gb') return '🇬🇧'
+                                                  return '🏳️'
+                                                }
+                                                const emoji = getEmoji(lang)
+                                                const appleEmojiUrl = `https://emojicdn.elk.sh/${emoji}?style=apple`
+                                                const toggleKey = `table_${idx}_row_${ri}_lang_${li}`
+                                                const isActive = previewData[toggleKey] === 'true'
+
+                                                return (
+                                                  <div
+                                                    key={li}
+                                                    title={lang.label}
+                                                    style={{
+                                                      width: size,
+                                                      height: size,
+                                                      minWidth: size,
+                                                      borderRadius: '50%',
+                                                      background: isActive ? '#fff' : 'rgba(255, 255, 255, 0.5)',
+                                                      border: isActive ? '0.5px solid #fff' : '1px solid rgba(0, 0, 0, 0.1)',
+                                                      display: 'flex',
+                                                      alignItems: 'center',
+                                                      justifyContent: 'center',
+                                                      cursor: 'pointer',
+                                                      transition: 'all 0.2s ease',
+                                                      transform: isActive ? 'scale(1.1)' : 'scale(1)',
+                                                      boxShadow: 'none',
+                                                      opacity: isActive ? 1 : 0.6
+                                                    }}
+                                                    onClick={(ev) => {
+                                                      ev.stopPropagation()
+                                                      setPreviewData({ ...previewData, [toggleKey]: isActive ? 'false' : 'true' })
+                                                    }}
+                                                    onMouseDown={(ev) => ev.stopPropagation()}
+                                                  >
+                                                    <img src={appleEmojiUrl} style={{ width: size * 0.7, height: size * 0.7, objectFit: 'contain' }} alt="" />
+                                                  </div>
+                                                )
+                                              })}
+                                            </div>
+                                          </div>
+                                        </div>
+                                      )
+                                    })
+                                  )}
+
+                                  {/* Resize Handles */}
                                   {cols.map((_, i) => (
-                                    <div key={`col-h-${i}`} style={{ position: 'absolute', left: Math.max(0, (colOffsets[i + 1] || 0) - 3), top: 0, width: 6, height, cursor: 'col-resize' }}
+                                    <div key={`col-h-${i}`} style={{ position: 'absolute', left: Math.max(0, (colOffsets[i + 1] || 0) - 3), top: 0, width: 6, height, cursor: 'col-resize', zIndex: 10 }}
                                       onMouseDown={(ev) => {
                                         ev.stopPropagation()
                                         const startX = ev.clientX
@@ -2262,7 +2521,7 @@ export default function TemplateBuilder() {
                                     />
                                   ))}
                                   {rows.map((_, i) => (
-                                    <div key={`row-h-${i}`} style={{ position: 'absolute', left: 0, top: Math.max(0, (rowOffsets[i + 1] || 0) - 3), width, height: 6, cursor: 'row-resize' }}
+                                    <div key={`row-h-${i}`} style={{ position: 'absolute', left: 0, top: Math.max(0, (rowOffsets[i + 1] || 0) - 3 - gapRow * (expandedRows ? 0 : 0)), width, height: 6, cursor: 'row-resize', zIndex: 10 }}
                                       onMouseDown={(ev) => {
                                         ev.stopPropagation()
                                         const startY = ev.clientY
@@ -2283,7 +2542,7 @@ export default function TemplateBuilder() {
                               )
                             })()
                           )}
-                          {['image', 'text', 'dynamic_text', 'student_info', 'student_photo', 'category_title', 'competency_list', 'signature', 'signature_box', 'promotion_info', 'language_toggle'].includes(b.type) && selectedIndex === idx && selectedPage === pageIndex && (
+                          {['image', 'text', 'dynamic_text', 'student_info', 'student_photo', 'category_title', 'competency_list', 'signature', 'signature_box', 'promotion_info', 'language_toggle', 'language_toggle_v2'].includes(b.type) && selectedIndex === idx && selectedPage === pageIndex && (
                             <>
                               {['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'].map((dir) => {
                                 const style: React.CSSProperties = {
@@ -2303,8 +2562,8 @@ export default function TemplateBuilder() {
                                       ev.stopPropagation()
                                       const startX = ev.clientX
                                       const startY = ev.clientY
-                                      const startW = b.props.width || (b.type === 'text' ? 120 : (b.type === 'language_toggle' ? 80 : 120))
-                                      const startH = b.props.height || (b.type === 'text' ? 60 : (b.type === 'language_toggle' ? 200 : 120))
+                                      const startW = b.props.width || (b.type === 'text' ? 120 : (b.type === 'language_toggle' ? 80 : (b.type === 'language_toggle_v2' ? 300 : 120)))
+                                      const startH = b.props.height || (b.type === 'text' ? 60 : (b.type === 'language_toggle' ? 200 : (b.type === 'language_toggle_v2' ? 100 : 120)))
                                       const startXPos = b.props.x || 0
                                       const startYPos = b.props.y || 0
 
@@ -2830,7 +3089,7 @@ export default function TemplateBuilder() {
                           </div>
                         </div>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8 }}>
-                           <div>
+                          <div>
                             <label style={{ fontSize: 11, display: 'block', marginBottom: 4, fontWeight: 600, color: '#6c757d' }}>Rayon (px)</label>
                             <input
                               type="number"
@@ -2848,7 +3107,7 @@ export default function TemplateBuilder() {
                               style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '2px solid #e9ecef', fontSize: 13 }}
                             />
                           </div>
-                           <div>
+                          <div>
                             <label style={{ fontSize: 11, display: 'block', marginBottom: 4, fontWeight: 600, color: '#6c757d' }}>Esp. Cols</label>
                             <input
                               type="number"
@@ -2859,47 +3118,171 @@ export default function TemplateBuilder() {
                           </div>
                         </div>
 
+                        {/* Expand Table Section */}
                         <div style={{ marginTop: 12, borderTop: '1px solid #e9ecef', paddingTop: 12 }}>
-                           <div style={{ fontSize: 11, fontWeight: 700, color: '#6c757d', marginBottom: 8, textTransform: 'uppercase' }}>Bordures Globales</div>
-                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
-                              <div>
-                                <label style={{ fontSize: 11, display: 'block', marginBottom: 4, fontWeight: 600, color: '#6c757d' }}>Couleur</label>
-                                <input type="color" value={globalBorderColor} onChange={e => setGlobalBorderColor(e.target.value)} style={{ width: '100%', height: 38, padding: 4, borderRadius: 6, border: '2px solid #e9ecef', cursor: 'pointer' }} />
+                          <div style={{ fontSize: 11, fontWeight: 700, color: '#6c757d', marginBottom: 8, textTransform: 'uppercase' }}>
+                            Expansion des Lignes
+                          </div>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginBottom: 8 }}>
+                            <input
+                              type="checkbox"
+                              checked={tpl.pages[selectedPage].blocks[selectedIndex].props.expandedRows || false}
+                              onChange={e => updateSelectedTable(p => ({ ...p, expandedRows: e.target.checked }))}
+                              style={{ width: 18, height: 18, cursor: 'pointer' }}
+                            />
+                            <span style={{ fontSize: 13, fontWeight: 500 }}>Activer l'expansion des lignes</span>
+                          </label>
+                          {tpl.pages[selectedPage].blocks[selectedIndex].props.expandedRows && (
+                            <div style={{ padding: 12, background: '#f0f4ff', borderRadius: 8, marginTop: 8 }}>
+                              <div style={{ fontSize: 11, color: '#6c757d', marginBottom: 8 }}>
+                                💡 Chaque ligne affichera une zone d'expansion avec les toggles de langue (V2) en dessous.
                               </div>
-                              <div>
-                                <label style={{ fontSize: 11, display: 'block', marginBottom: 4, fontWeight: 600, color: '#6c757d' }}>Épaisseur</label>
-                                <input type="number" value={globalBorderWidth} onChange={e => setGlobalBorderWidth(Number(e.target.value))} style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '2px solid #e9ecef', fontSize: 13 }} />
+                              <div style={{ display: 'grid', gap: 8 }}>
+                                <div>
+                                  <label style={{ fontSize: 11, display: 'block', marginBottom: 4, fontWeight: 600, color: '#6c757d' }}>Hauteur zone expansion</label>
+                                  <input
+                                    type="number"
+                                    value={tpl.pages[selectedPage].blocks[selectedIndex].props.expandedRowHeight || 34}
+                                    onChange={e => updateSelectedTable(p => ({ ...p, expandedRowHeight: Number(e.target.value) }))}
+                                    style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '2px solid #e9ecef', fontSize: 13 }}
+                                  />
+                                </div>
+                                <div>
+                                  <label style={{ fontSize: 11, display: 'block', marginBottom: 4, fontWeight: 600, color: '#6c757d' }}>Épaisseur ligne séparatrice</label>
+                                  <input
+                                    type="number"
+                                    value={tpl.pages[selectedPage].blocks[selectedIndex].props.expandedDividerWidth || 0.5}
+                                    onChange={e => updateSelectedTable(p => ({ ...p, expandedDividerWidth: Number(e.target.value) }))}
+                                    style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '2px solid #e9ecef', fontSize: 13 }}
+                                  />
+                                </div>
+                                <div>
+                                  <label style={{ fontSize: 11, display: 'block', marginBottom: 4, fontWeight: 600, color: '#6c757d' }}>Couleur ligne séparatrice</label>
+                                  <div style={{ display: 'flex', gap: 4 }}>
+                                    <input
+                                      type="color"
+                                      value={tpl.pages[selectedPage].blocks[selectedIndex].props.expandedDividerColor || '#ffffff'}
+                                      onChange={e => updateSelectedTable(p => ({ ...p, expandedDividerColor: e.target.value }))}
+                                      style={{ height: 38, width: 40, padding: 0, border: '1px solid #ddd', borderRadius: 4, cursor: 'pointer' }}
+                                    />
+                                    <input
+                                      type="text"
+                                      value={tpl.pages[selectedPage].blocks[selectedIndex].props.expandedDividerColor || 'rgba(255, 255, 255, 0.5)'}
+                                      onChange={e => updateSelectedTable(p => ({ ...p, expandedDividerColor: e.target.value }))}
+                                      style={{ flex: 1, padding: 8, borderRadius: 8, border: '1px solid #ddd' }}
+                                    />
+                                  </div>
+                                </div>
+                                <div className="note" style={{ marginTop: 4 }}>
+                                  Les toggles de langue V2 seront configurés automatiquement pour chaque ligne.
+                                  Vous pouvez personnaliser les langues disponibles ci-dessous:
+                                </div>
+                                <div style={{ display: 'grid', gap: 8 }}>
+                                  <div style={{ fontSize: 11, fontWeight: 600, color: '#6c757d' }}>Langues pour les toggles:</div>
+                                  {((tpl.pages[selectedPage].blocks[selectedIndex].props.expandedLanguages || [
+                                    { code: 'lb', label: 'Lebanese', emoji: '🇱🇧', active: false },
+                                    { code: 'fr', label: 'French', emoji: '🇫🇷', active: false },
+                                    { code: 'en', label: 'English', emoji: '🇬🇧', active: false }
+                                  ]) as any[]).map((lang: any, i: number) => (
+                                    <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: 8, background: '#fff', borderRadius: 6 }}>
+                                      <select
+                                        value={lang.code}
+                                        onChange={e => {
+                                          const langData: Record<string, any> = {
+                                            'en': { code: 'en', label: 'English', emoji: '🇬🇧' },
+                                            'fr': { code: 'fr', label: 'Français', emoji: '🇫🇷' },
+                                            'ar': { code: 'ar', label: 'العربية', emoji: '🇱🇧' },
+                                            'lb': { code: 'lb', label: 'Lebanese', emoji: '🇱🇧' }
+                                          }
+                                          const langs = [...(tpl.pages[selectedPage].blocks[selectedIndex].props.expandedLanguages || [
+                                            { code: 'lb', label: 'Lebanese', emoji: '🇱🇧', active: false },
+                                            { code: 'fr', label: 'French', emoji: '🇫🇷', active: false },
+                                            { code: 'en', label: 'English', emoji: '🇬🇧', active: false }
+                                          ])]
+                                          langs[i] = { ...langs[i], ...langData[e.target.value] }
+                                          updateSelectedTable(p => ({ ...p, expandedLanguages: langs }))
+                                        }}
+                                        style={{ padding: 6, borderRadius: 6, border: '1px solid #ddd', flex: 1 }}
+                                      >
+                                        <option value="en">English</option>
+                                        <option value="fr">Français</option>
+                                        <option value="ar">العربية</option>
+                                        <option value="lb">Lebanese</option>
+                                      </select>
+                                      <button
+                                        className="btn secondary"
+                                        onClick={() => {
+                                          const langs = (tpl.pages[selectedPage].blocks[selectedIndex].props.expandedLanguages || [
+                                            { code: 'lb', label: 'Lebanese', emoji: '🇱🇧', active: false },
+                                            { code: 'fr', label: 'French', emoji: '🇫🇷', active: false },
+                                            { code: 'en', label: 'English', emoji: '🇬🇧', active: false }
+                                          ]).filter((_: any, idx: number) => idx !== i)
+                                          updateSelectedTable(p => ({ ...p, expandedLanguages: langs }))
+                                        }}
+                                        style={{ padding: '4px 8px', background: '#ef4444', color: '#fff' }}
+                                      >✕</button>
+                                    </div>
+                                  ))}
+                                  <button
+                                    className="btn secondary"
+                                    onClick={() => {
+                                      const langs = [...(tpl.pages[selectedPage].blocks[selectedIndex].props.expandedLanguages || [
+                                        { code: 'lb', label: 'Lebanese', emoji: '🇱🇧', active: false },
+                                        { code: 'fr', label: 'French', emoji: '🇫🇷', active: false },
+                                        { code: 'en', label: 'English', emoji: '🇬🇧', active: false }
+                                      ])]
+                                      langs.push({ code: 'en', label: 'English', emoji: '🇬🇧', active: false })
+                                      updateSelectedTable(p => ({ ...p, expandedLanguages: langs }))
+                                    }}
+                                    style={{ padding: '6px 12px', fontSize: 12 }}
+                                  >+ Ajouter une langue</button>
+                                </div>
                               </div>
-                           </div>
-                           <div style={{ display: 'flex', gap: 8 }}>
-                             <button className="btn secondary" style={{ flex: 1, fontSize: 12 }} onClick={() => {
-                               updateSelectedTable(p => ({
-                                 ...p,
-                                 cells: (p.cells || []).map((row: any[]) =>
-                                   row.map((cell: any) => ({
-                                     ...cell,
-                                     borders: {
-                                       l: { color: globalBorderColor, width: globalBorderWidth },
-                                       r: { color: globalBorderColor, width: globalBorderWidth },
-                                       t: { color: globalBorderColor, width: globalBorderWidth },
-                                       b: { color: globalBorderColor, width: globalBorderWidth }
-                                     }
-                                   }))
-                                 )
-                               }))
-                             }}>Appliquer tout</button>
-                             <button className="btn secondary" style={{ flex: 1, fontSize: 12, color: '#e53e3e', borderColor: '#fed7d7', background: '#fff5f5' }} onClick={() => {
-                               updateSelectedTable(p => ({
-                                 ...p,
-                                 cells: (p.cells || []).map((row: any[]) =>
-                                   row.map((cell: any) => ({
-                                     ...cell,
-                                     borders: { l: { width: 0 }, r: { width: 0 }, t: { width: 0 }, b: { width: 0 } }
-                                   }))
-                                 )
-                               }))
-                             }}>Supprimer tout</button>
-                           </div>
+                            </div>
+                          )}
+                        </div>
+
+                        <div style={{ marginTop: 12, borderTop: '1px solid #e9ecef', paddingTop: 12 }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: '#6c757d', marginBottom: 8, textTransform: 'uppercase' }}>Bordures Globales</div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+                            <div>
+                              <label style={{ fontSize: 11, display: 'block', marginBottom: 4, fontWeight: 600, color: '#6c757d' }}>Couleur</label>
+                              <input type="color" value={globalBorderColor} onChange={e => setGlobalBorderColor(e.target.value)} style={{ width: '100%', height: 38, padding: 4, borderRadius: 6, border: '2px solid #e9ecef', cursor: 'pointer' }} />
+                            </div>
+                            <div>
+                              <label style={{ fontSize: 11, display: 'block', marginBottom: 4, fontWeight: 600, color: '#6c757d' }}>Épaisseur</label>
+                              <input type="number" value={globalBorderWidth} onChange={e => setGlobalBorderWidth(Number(e.target.value))} style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '2px solid #e9ecef', fontSize: 13 }} />
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', gap: 8 }}>
+                            <button className="btn secondary" style={{ flex: 1, fontSize: 12 }} onClick={() => {
+                              updateSelectedTable(p => ({
+                                ...p,
+                                cells: (p.cells || []).map((row: any[]) =>
+                                  row.map((cell: any) => ({
+                                    ...cell,
+                                    borders: {
+                                      l: { color: globalBorderColor, width: globalBorderWidth },
+                                      r: { color: globalBorderColor, width: globalBorderWidth },
+                                      t: { color: globalBorderColor, width: globalBorderWidth },
+                                      b: { color: globalBorderColor, width: globalBorderWidth }
+                                    }
+                                  }))
+                                )
+                              }))
+                            }}>Appliquer tout</button>
+                            <button className="btn secondary" style={{ flex: 1, fontSize: 12, color: '#e53e3e', borderColor: '#fed7d7', background: '#fff5f5' }} onClick={() => {
+                              updateSelectedTable(p => ({
+                                ...p,
+                                cells: (p.cells || []).map((row: any[]) =>
+                                  row.map((cell: any) => ({
+                                    ...cell,
+                                    borders: { l: { width: 0 }, r: { width: 0 }, t: { width: 0 }, b: { width: 0 } }
+                                  }))
+                                )
+                              }))
+                            }}>Supprimer tout</button>
+                          </div>
                         </div>
                       </div>
                       <div>
@@ -3054,26 +3437,26 @@ export default function TemplateBuilder() {
                       borderRadius: 10,
                       marginBottom: 8
                     }}>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
-                          <div>
-                            <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Largeur</label>
-                            <input
-                              type="number"
-                              value={tpl.pages[selectedPage].blocks[selectedIndex].props.width || 0}
-                              onChange={e => updateSelected({ width: Number(e.target.value) })}
-                              style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '2px solid #e9ecef', fontSize: 13 }}
-                            />
-                          </div>
-                          <div>
-                            <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Hauteur</label>
-                            <input
-                              type="number"
-                              value={tpl.pages[selectedPage].blocks[selectedIndex].props.height || 0}
-                              onChange={e => updateSelected({ height: Number(e.target.value) })}
-                              style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '2px solid #e9ecef', fontSize: 13 }}
-                            />
-                          </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+                        <div>
+                          <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Largeur</label>
+                          <input
+                            type="number"
+                            value={tpl.pages[selectedPage].blocks[selectedIndex].props.width || 0}
+                            onChange={e => updateSelected({ width: Number(e.target.value) })}
+                            style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '2px solid #e9ecef', fontSize: 13 }}
+                          />
                         </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Hauteur</label>
+                          <input
+                            type="number"
+                            value={tpl.pages[selectedPage].blocks[selectedIndex].props.height || 0}
+                            onChange={e => updateSelected({ height: Number(e.target.value) })}
+                            style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '2px solid #e9ecef', fontSize: 13 }}
+                          />
+                        </div>
+                      </div>
                     </div>
                   )}
                   {tpl.pages[selectedPage].blocks[selectedIndex].type === 'category_title' && (
@@ -3282,6 +3665,130 @@ export default function TemplateBuilder() {
                       <button className="btn secondary" onClick={() => {
                         const items = [...(tpl.pages[selectedPage].blocks[selectedIndex].props.items || [])]
                         items.push({ code: 'en', label: 'English', logo: 'https://upload.wikimedia.org/wikipedia/commons/a/a4/Flag_of_the_United_States.svg', active: false })
+                        updateSelected({ items })
+                      }}>+ Ajouter une langue</button>
+                    </div>
+                  )}
+                  {tpl.pages[selectedPage].blocks[selectedIndex].type === 'language_toggle_v2' && (
+                    <div style={{ display: 'grid', gap: 8 }}>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <div style={{ flex: 1 }}>
+                          <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Largeur</label>
+                          <input placeholder="Largeur" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.width || 300} onChange={e => updateSelected({ width: Number(e.target.value) })} style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Hauteur</label>
+                          <input placeholder="Hauteur" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.height || 100} onChange={e => updateSelected({ height: Number(e.target.value) })} style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <div style={{ flex: 1 }}>
+                          <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Couleur Fond</label>
+                          <div style={{ display: 'flex', gap: 4 }}>
+                            <input type="color" value={tpl.pages[selectedPage].blocks[selectedIndex].props.backgroundColor || '#1e3a8a'} onChange={e => updateSelected({ backgroundColor: e.target.value })} style={{ height: 38, width: 40, padding: 0, border: '1px solid #ddd', borderRadius: 4 }} />
+                            <input type="text" value={tpl.pages[selectedPage].blocks[selectedIndex].props.backgroundColor || '#1e3a8a'} onChange={e => updateSelected({ backgroundColor: e.target.value })} style={{ flex: 1, padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+                          </div>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <div style={{ flex: 1 }}>
+                          <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Rayon (Border Radius)</label>
+                          <input placeholder="Rayon" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.borderRadius || 12} onChange={e => updateSelected({ borderRadius: Number(e.target.value) })} style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Padding</label>
+                          <input placeholder="Padding" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.padding || 24} onChange={e => updateSelected({ padding: Number(e.target.value) })} style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <div style={{ flex: 1 }}>
+                          <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Espace (Gap)</label>
+                          <input placeholder="Espacement" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.spacing || 12} onChange={e => updateSelected({ spacing: Number(e.target.value) })} style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Direction</label>
+                          <select
+                            value={tpl.pages[selectedPage].blocks[selectedIndex].props.direction || 'row'}
+                            onChange={e => updateSelected({ direction: e.target.value })}
+                            style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #ddd' }}
+                          >
+                            <option value="column">Vertical</option>
+                            <option value="row">Horizontal</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="note">Langues ({(tpl.pages[selectedPage].blocks[selectedIndex].props.items || []).length})</div>
+                      {((tpl.pages[selectedPage].blocks[selectedIndex].props.items || []) as any[]).map((it: any, i: number) => (
+                        <div key={i} className="card" style={{ padding: 8, background: '#f9f9f9' }}>
+                          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                            <select value={it.code || 'en'} onChange={e => {
+                              const items = [...(tpl.pages[selectedPage].blocks[selectedIndex].props.items || [])]
+                              const langData: Record<string, any> = {
+                                'en': { code: 'en', label: 'English', emoji: '🇬🇧', logo: 'https://flagcdn.com/gb.svg' },
+                                'fr': { code: 'fr', label: 'Français', emoji: '🇫🇷', logo: 'https://flagcdn.com/fr.svg' },
+                                'ar': { code: 'ar', label: 'العربية', emoji: '🇱🇧', logo: 'https://flagcdn.com/lb.svg' },
+                                'lb': { code: 'lb', label: 'Lebanese', emoji: '🇱🇧', logo: 'https://flagcdn.com/lb.svg' }
+                              }
+                              items[i] = { ...items[i], ...langData[e.target.value] }
+                              updateSelected({ items })
+                            }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', flex: 1 }}>
+                              <option value="en">English</option>
+                              <option value="fr">Français</option>
+                              <option value="ar">العربية</option>
+                              <option value="lb">Lebanese</option>
+                            </select>
+                            <button className="btn secondary" onClick={() => {
+                              const items = [...(tpl.pages[selectedPage].blocks[selectedIndex].props.items || [])]
+                              items[i] = { ...items[i], active: !items[i].active }
+                              updateSelected({ items })
+                            }} style={{ padding: '4px 12px' }}>{it.active ? 'Actif' : 'Inactif'}</button>
+                            <button className="btn secondary" onClick={() => {
+                              const items = (tpl.pages[selectedPage].blocks[selectedIndex].props.items || []).filter((_: any, idx: number) => idx !== i)
+                              updateSelected({ items })
+                            }} style={{ padding: '4px 8px', background: '#ef4444', color: '#fff' }}>✕</button>
+                          </div>
+                          <input placeholder="Label (optionnel)" value={it.label || ''} onChange={e => {
+                            const items = [...(tpl.pages[selectedPage].blocks[selectedIndex].props.items || [])]
+                            items[i] = { ...items[i], label: e.target.value }
+                            updateSelected({ items })
+                          }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', width: '100%', marginBottom: 8 }} />
+                          <input placeholder="Logo URL (optionnel)" value={it.logo || ''} onChange={e => {
+                            const items = [...(tpl.pages[selectedPage].blocks[selectedIndex].props.items || [])]
+                            items[i] = { ...items[i], logo: e.target.value }
+                            updateSelected({ items })
+                          }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', width: '100%', marginBottom: 8 }} />
+                          <input placeholder="Emoji" value={it.emoji || ''} onChange={e => {
+                            const items = [...(tpl.pages[selectedPage].blocks[selectedIndex].props.items || [])]
+                            items[i] = { ...items[i], emoji: e.target.value }
+                            updateSelected({ items })
+                          }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', width: '100%' }} />
+                          <div style={{ marginTop: 8 }}>
+                            <div style={{ fontSize: 11, fontWeight: 600, color: '#6c757d', marginBottom: 4 }}>Niveaux assignés:</div>
+                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                              {levels.map(l => (
+                                <label key={l.name} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, cursor: 'pointer' }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={(it.levels || []).includes(l.name)}
+                                    onChange={e => {
+                                      const items = [...(tpl.pages[selectedPage].blocks[selectedIndex].props.items || [])]
+                                      const currentLevels = items[i].levels || []
+                                      if (e.target.checked) items[i] = { ...items[i], levels: [...currentLevels, l.name] }
+                                      else items[i] = { ...items[i], levels: currentLevels.filter((x: string) => x !== l.name) }
+                                      updateSelected({ items })
+                                    }}
+                                  />
+                                  {l.name}
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                      <button className="btn secondary" onClick={() => {
+                        const items = [...(tpl.pages[selectedPage].blocks[selectedIndex].props.items || [])]
+                        items.push({ code: 'en', label: 'English', emoji: '🇬🇧', logo: 'https://flagcdn.com/gb.svg', active: false })
                         updateSelected({ items })
                       }}>+ Ajouter une langue</button>
                     </div>

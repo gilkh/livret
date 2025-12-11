@@ -447,6 +447,88 @@ export default function TeacherTemplateEditor() {
                                     })}
                                 </div>
                             )}
+                            {b.type === 'language_toggle_v2' && (
+                                <div style={{
+                                  display: 'flex',
+                                  flexDirection: (b.props.direction as any) || 'row',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  gap: b.props.spacing || 12,
+                                  background: b.props.backgroundColor || 'transparent',
+                                  borderRadius: b.props.borderRadius || 12,
+                                  padding: b.props.padding || 8,
+                                  width: b.props.width,
+                                  height: b.props.height,
+                                  boxSizing: 'border-box'
+                                }}>
+                                    {(b.props.items || []).map((it: any, i: number) => {
+                                        // Check level and language
+                                        const isLevelAllowed = !it.levels || it.levels.length === 0 || (student?.level && it.levels.includes(student.level));
+                                        const isLanguageAllowed = (() => {
+                                            const code = it.code
+                                            if (isProfPolyvalent) {
+                                                return code === 'fr'
+                                            }
+                                            return allowedLanguages.length === 0 || (code && allowedLanguages.includes(code))
+                                        })();
+                                        const isAllowed = isLevelAllowed && isLanguageAllowed;
+                                        
+                                        const size = 40
+                                        const getEmoji = (item: any) => {
+                                            const e = item.emoji
+                                            if (e && e.length >= 2) return e
+                                            const c = (item.code || '').toLowerCase()
+                                            if (c === 'lb' || c === 'ar') return '🇱🇧'
+                                            if (c === 'fr') return '🇫🇷'
+                                            if (c === 'en' || c === 'uk' || c === 'gb') return '🇬🇧'
+                                            return '🏳️'
+                                        }
+                                        const emoji = getEmoji(it)
+                                        const appleEmojiUrl = `https://emojicdn.elk.sh/${emoji}?style=apple`
+                                        return (
+                                            <div 
+                                                key={i}  
+                                                title={it.label}
+                                                style={{ 
+                                                    width: size, 
+                                                    height: size, 
+                                                    minWidth: size,
+                                                    borderRadius: '50%', 
+                                                    background: it.active ? '#fff' : 'rgba(255, 255, 255, 0.5)',
+                                                    border: it.active ? '2px solid #2563eb' : '1px solid rgba(0, 0, 0, 0.1)',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    cursor: (canEdit && isAllowed) ? 'pointer' : 'not-allowed', 
+                                                    boxShadow: it.active ? '0 0 0 2px rgba(37, 99, 235, 0.2)' : 'none',
+                                                    transition: 'all 0.2s ease',
+                                                    transform: it.active ? 'scale(1.1)' : 'scale(1)',
+                                                    opacity: (canEdit && isAllowed) ? (it.active ? 1 : 0.6) : 0.4,
+                                                    pointerEvents: (canEdit && isAllowed) ? 'auto' : 'none',
+                                                    filter: 'none'
+                                                }}
+                                                onClick={(e) => {
+                                                    e.stopPropagation()
+                                                    if (!canEdit || !isAllowed) return
+                                                    const newItems = [...(b.props.items || [])]
+                                                    newItems[i] = { ...newItems[i], active: !newItems[i].active }
+                                                    updateLanguageToggle(actualPageIndex, idx, newItems)
+                                                }}
+                                                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.2)'}
+                                                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)'}
+                                            >
+                                                {emoji ? (
+                                                    <img src={appleEmojiUrl} style={{ width: size * 0.75, height: size * 0.75, objectFit: 'contain' }} alt="" />
+                                                ) : it.logo ? (
+                                                    <img src={fixUrl(it.logo)} style={{ width: size * 0.75, height: size * 0.75, objectFit: 'contain' }} alt="" />
+                                                ) : (
+                                                    <span style={{ fontSize: 20, lineHeight: 1 }}>{getEmoji(it)}</span>
+                                                )}
+                                            </div>
+                                        )
+                                    })}
+                                </div>
+                            )}
                                 {b.type === 'line' && <div style={{ width: b.props.x2 || 100, height: b.props.strokeWidth || 2, background: b.props.stroke || '#b2bec3' }} />}
                                 {b.type === 'arrow' && <div style={{ width: b.props.x2 || 100, height: b.props.strokeWidth || 2, background: b.props.stroke || '#6c5ce7', position: 'relative' }}><div style={{ position: 'absolute', right: 0, top: -6, width: 0, height: 0, borderTop: '8px solid transparent', borderBottom: '8px solid transparent', borderLeft: `12px solid ${b.props.stroke || '#6c5ce7'}` }} /></div>}
                                 {b.type === 'dynamic_text' && <div style={{ color: b.props.color, fontSize: b.props.fontSize }}>{(() => {

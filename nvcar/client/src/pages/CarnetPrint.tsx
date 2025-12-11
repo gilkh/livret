@@ -82,7 +82,7 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' }) {
                          if (assignment && assignment.data) {
                              templateData.pages.forEach((page: any, pIdx: number) => {
                                  page.blocks.forEach((block: any, bIdx: number) => {
-                                     if (block.type === 'language_toggle') {
+                                     if (['language_toggle', 'language_toggle_v2'].includes(block.type)) {
                                          const key = `language_toggle_${pIdx}_${bIdx}`
                                          if (assignment.data[key]) {
                                              block.props.items = assignment.data[key]
@@ -348,7 +348,7 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' }) {
                                                         borderRight: ci < row.length - 1 ? '1px solid #ddd' : 'none',
                                                         borderBottom: ri < b.props.cells.length - 1 ? '1px solid #ddd' : 'none',
                                                         background: cell.fill || 'transparent',
-                                                        padding: 4,
+                                                        padding: 15,
                                                         fontSize: cell.fontSize || 12,
                                                         color: cell.color || '#333',
                                                         display: 'flex',

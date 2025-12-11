@@ -136,7 +136,7 @@ teacherTemplatesRouter.get('/template-assignments/:assignmentId', requireAuth(['
                     const parts = key.split('_')
                     const pageIdx = parseInt(parts[2])
                     const blockIdx = parseInt(parts[3])
-                    if (versionedTemplate.pages[pageIdx]?.blocks[blockIdx]?.type === 'language_toggle') {
+                    if (['language_toggle', 'language_toggle_v2'].includes(versionedTemplate.pages[pageIdx]?.blocks[blockIdx]?.type)) {
                         versionedTemplate.pages[pageIdx].blocks[blockIdx].props.items = value
                     }
                 }
@@ -252,7 +252,7 @@ teacherTemplatesRouter.patch('/template-assignments/:assignmentId/language-toggl
         const block = page.blocks[blockIndex]
         if (!block) return res.status(400).json({ error: 'invalid_block_index' })
 
-        if (block.type !== 'language_toggle') {
+        if (!['language_toggle', 'language_toggle_v2'].includes(block.type)) {
             return res.status(403).json({ error: 'can_only_edit_language_toggle' })
         }
 
