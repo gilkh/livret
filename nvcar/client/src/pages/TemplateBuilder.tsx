@@ -33,6 +33,8 @@ export default function TemplateBuilder() {
   const [scale, setScale] = useState(1)
   const [snap, setSnap] = useState(true)
   const [selectedCell, setSelectedCell] = useState<{ ri: number; ci: number } | null>(null)
+  const [globalBorderColor, setGlobalBorderColor] = useState('#000000')
+  const [globalBorderWidth, setGlobalBorderWidth] = useState(1)
   const [list, setList] = useState<Template[]>([])
   const [saveStatus, setSaveStatus] = useState('')
   const [continuousScroll, setContinuousScroll] = useState(true)
@@ -2170,23 +2172,66 @@ export default function TemplateBuilder() {
                               const cols: number[] = b.props.columnWidths || []
                               const rows: number[] = b.props.rowHeights || []
                               const cells: any[][] = b.props.cells || []
-                              const width = cols.reduce((a, c) => a + (c || 0), 0)
-                              const height = rows.reduce((a, r) => a + (r || 0), 0)
+                              const gapCol = b.props.colGap || 0
+                              const gapRow = b.props.rowGap || 0
+
+                              let width = 0
                               const colOffsets: number[] = [0]
-                              for (let i = 0; i < cols.length; i++) colOffsets[i + 1] = colOffsets[i] + (cols[i] || 0)
+                              for (let i = 0; i < cols.length; i++) {
+                                width += (cols[i] || 0)
+                                colOffsets[i + 1] = width
+                                width += gapCol
+                              }
+                              if (cols.length > 0) width -= gapCol
+
+                              let height = 0
                               const rowOffsets: number[] = [0]
-                              for (let i = 0; i < rows.length; i++) rowOffsets[i + 1] = rowOffsets[i] + (rows[i] || 0)
+                              for (let i = 0; i < rows.length; i++) {
+                                height += (rows[i] || 0)
+                                rowOffsets[i + 1] = height
+                                height += gapRow
+                              }
+                              if (rows.length > 0) height -= gapRow
+
                               return (
-                                <div style={{ position: 'relative', width, height, display: 'grid', gridTemplateColumns: cols.map(w => `${Math.max(1, Math.round(w))}px`).join(' '), gridTemplateRows: rows.map(h => `${Math.max(1, Math.round(h))}px`).join(' ') }}>
+                                <div style={{
+                                  position: 'relative',
+                                  width,
+                                  height,
+                                  display: 'grid',
+                                  gridTemplateColumns: cols.map(w => `${Math.max(1, Math.round(w))}px`).join(' '),
+                                  gridTemplateRows: rows.map(h => `${Math.max(1, Math.round(h))}px`).join(' '),
+                                  overflow: 'visible',
+                                  rowGap: gapRow,
+                                  columnGap: gapCol,
+                                  background: (gapRow > 0 || gapCol > 0) ? 'transparent' : (b.props.backgroundColor || 'transparent'),
+                                  borderRadius: (gapRow > 0 || gapCol > 0) ? 0 : (b.props.borderRadius || 0)
+                                }}>
                                   {cells.flatMap((row, ri) => row.map((cell, ci) => {
                                     const bl = cell?.borders?.l; const br = cell?.borders?.r; const bt = cell?.borders?.t; const bb = cell?.borders?.b
+                                    
+                                    const radius = b.props.borderRadius || 0
+                                    const isFirstCol = ci === 0
+                                    const isLastCol = ci === cols.length - 1
+                                    const isFirstRow = ri === 0
+                                    const isLastRow = ri === rows.length - 1
+                                    const treatAsCards = gapRow > 0
+                                    
                                     const style: React.CSSProperties = {
-                                      background: cell?.fill || 'transparent',
+                                      background: cell?.fill || ((treatAsCards && b.props.backgroundColor) ? b.props.backgroundColor : 'transparent'),
                                       borderLeft: bl?.width ? `${bl.width}px solid ${bl.color || '#000'}` : 'none',
                                       borderRight: br?.width ? `${br.width}px solid ${br.color || '#000'}` : 'none',
                                       borderTop: bt?.width ? `${bt.width}px solid ${bt.color || '#000'}` : 'none',
                                       borderBottom: bb?.width ? `${bb.width}px solid ${bb.color || '#000'}` : 'none',
-                                      padding: 4, boxSizing: 'border-box'
+                                      padding: 4, 
+                                      boxSizing: 'border-box',
+                                      borderTopLeftRadius: (isFirstCol && (treatAsCards || isFirstRow)) ? radius : 0,
+                                      borderBottomLeftRadius: (isFirstCol && (treatAsCards || isLastRow)) ? radius : 0,
+                                      borderTopRightRadius: (isLastCol && (treatAsCards || isFirstRow)) ? radius : 0,
+                                      borderBottomRightRadius: (isLastCol && (treatAsCards || isLastRow)) ? radius : 0,
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      overflow: 'hidden'
                                     }
                                     const isSel = selectedIndex === idx && selectedCell && selectedCell.ri === ri && selectedCell.ci === ci
                                     return (
@@ -2783,6 +2828,78 @@ export default function TemplateBuilder() {
                               style={{ width: '100%', height: 38, padding: 4, borderRadius: 6, border: '2px solid #e9ecef', cursor: 'pointer' }}
                             />
                           </div>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8 }}>
+                           <div>
+                            <label style={{ fontSize: 11, display: 'block', marginBottom: 4, fontWeight: 600, color: '#6c757d' }}>Rayon (px)</label>
+                            <input
+                              type="number"
+                              value={tpl.pages[selectedPage].blocks[selectedIndex].props.borderRadius || 0}
+                              onChange={e => updateSelectedTable(p => ({ ...p, borderRadius: Number(e.target.value) }))}
+                              style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '2px solid #e9ecef', fontSize: 13 }}
+                            />
+                          </div>
+                          <div>
+                            <label style={{ fontSize: 11, display: 'block', marginBottom: 4, fontWeight: 600, color: '#6c757d' }}>Esp. Lignes</label>
+                            <input
+                              type="number"
+                              value={tpl.pages[selectedPage].blocks[selectedIndex].props.rowGap || 0}
+                              onChange={e => updateSelectedTable(p => ({ ...p, rowGap: Number(e.target.value) }))}
+                              style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '2px solid #e9ecef', fontSize: 13 }}
+                            />
+                          </div>
+                           <div>
+                            <label style={{ fontSize: 11, display: 'block', marginBottom: 4, fontWeight: 600, color: '#6c757d' }}>Esp. Cols</label>
+                            <input
+                              type="number"
+                              value={tpl.pages[selectedPage].blocks[selectedIndex].props.colGap || 0}
+                              onChange={e => updateSelectedTable(p => ({ ...p, colGap: Number(e.target.value) }))}
+                              style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '2px solid #e9ecef', fontSize: 13 }}
+                            />
+                          </div>
+                        </div>
+
+                        <div style={{ marginTop: 12, borderTop: '1px solid #e9ecef', paddingTop: 12 }}>
+                           <div style={{ fontSize: 11, fontWeight: 700, color: '#6c757d', marginBottom: 8, textTransform: 'uppercase' }}>Bordures Globales</div>
+                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+                              <div>
+                                <label style={{ fontSize: 11, display: 'block', marginBottom: 4, fontWeight: 600, color: '#6c757d' }}>Couleur</label>
+                                <input type="color" value={globalBorderColor} onChange={e => setGlobalBorderColor(e.target.value)} style={{ width: '100%', height: 38, padding: 4, borderRadius: 6, border: '2px solid #e9ecef', cursor: 'pointer' }} />
+                              </div>
+                              <div>
+                                <label style={{ fontSize: 11, display: 'block', marginBottom: 4, fontWeight: 600, color: '#6c757d' }}>Épaisseur</label>
+                                <input type="number" value={globalBorderWidth} onChange={e => setGlobalBorderWidth(Number(e.target.value))} style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '2px solid #e9ecef', fontSize: 13 }} />
+                              </div>
+                           </div>
+                           <div style={{ display: 'flex', gap: 8 }}>
+                             <button className="btn secondary" style={{ flex: 1, fontSize: 12 }} onClick={() => {
+                               updateSelectedTable(p => ({
+                                 ...p,
+                                 cells: (p.cells || []).map((row: any[]) =>
+                                   row.map((cell: any) => ({
+                                     ...cell,
+                                     borders: {
+                                       l: { color: globalBorderColor, width: globalBorderWidth },
+                                       r: { color: globalBorderColor, width: globalBorderWidth },
+                                       t: { color: globalBorderColor, width: globalBorderWidth },
+                                       b: { color: globalBorderColor, width: globalBorderWidth }
+                                     }
+                                   }))
+                                 )
+                               }))
+                             }}>Appliquer tout</button>
+                             <button className="btn secondary" style={{ flex: 1, fontSize: 12, color: '#e53e3e', borderColor: '#fed7d7', background: '#fff5f5' }} onClick={() => {
+                               updateSelectedTable(p => ({
+                                 ...p,
+                                 cells: (p.cells || []).map((row: any[]) =>
+                                   row.map((cell: any) => ({
+                                     ...cell,
+                                     borders: { l: { width: 0 }, r: { width: 0 }, t: { width: 0 }, b: { width: 0 } }
+                                   }))
+                                 )
+                               }))
+                             }}>Supprimer tout</button>
+                           </div>
                         </div>
                       </div>
                       <div>

@@ -621,35 +621,76 @@ export default function TeacherTemplateEditor() {
                                     </div>
                                 )}
                                 {b.type === 'table' && (
-                                    <div style={{ 
-                                        display: 'inline-block',
-                                        border: '1px solid #ddd'
-                                    }}>
-                                        {(b.props.cells || []).map((row: any[], ri: number) => (
-                                            <div key={ri} style={{ display: 'flex' }}>
-                                                {row.map((cell: any, ci: number) => (
-                                                    <div 
-                                                        key={ci}
-                                                        style={{ 
-                                                            width: b.props.columnWidths?.[ci] || 100,
-                                                            height: b.props.rowHeights?.[ri] || 40,
-                                                            borderRight: ci < row.length - 1 ? '1px solid #ddd' : 'none',
-                                                            borderBottom: ri < b.props.cells.length - 1 ? '1px solid #ddd' : 'none',
-                                                            background: cell.fill || 'transparent',
-                                                            padding: 4,
-                                                            fontSize: cell.fontSize || 12,
-                                                            color: cell.color || '#333',
-                                                            display: 'flex',
-                                                            alignItems: 'center',
-                                                            overflow: 'hidden'
-                                                        }}
-                                                    >
-                                                        {cell.text}
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        ))}
-                                    </div>
+                                    (() => {
+                                      const cols: number[] = b.props.columnWidths || []
+                                      const rows: number[] = b.props.rowHeights || []
+                                      const cells: any[][] = b.props.cells || []
+                                      const gapCol = b.props.colGap || 0
+                                      const gapRow = b.props.rowGap || 0
+        
+                                      let width = 0
+                                      for (let i = 0; i < cols.length; i++) {
+                                        width += (cols[i] || 0)
+                                        width += gapCol
+                                      }
+                                      if (cols.length > 0) width -= gapCol
+        
+                                      let height = 0
+                                      for (let i = 0; i < rows.length; i++) {
+                                        height += (rows[i] || 0)
+                                        height += gapRow
+                                      }
+                                      if (rows.length > 0) height -= gapRow
+        
+                                      return (
+                                        <div style={{
+                                          position: 'relative',
+                                          width,
+                                          height,
+                                          display: 'grid',
+                                          gridTemplateColumns: cols.map(w => `${Math.max(1, Math.round(w))}px`).join(' '),
+                                          gridTemplateRows: rows.map(h => `${Math.max(1, Math.round(h))}px`).join(' '),
+                                          overflow: 'visible',
+                                          rowGap: gapRow,
+                                          columnGap: gapCol,
+                                          background: (gapRow > 0 || gapCol > 0) ? 'transparent' : (b.props.backgroundColor || 'transparent'),
+                                          borderRadius: (gapRow > 0 || gapCol > 0) ? 0 : (b.props.borderRadius || 0)
+                                        }}>
+                                          {cells.flatMap((row, ri) => row.map((cell, ci) => {
+                                            const bl = cell?.borders?.l; const br = cell?.borders?.r; const bt = cell?.borders?.t; const bb = cell?.borders?.b
+                                            
+                                            const radius = b.props.borderRadius || 0
+                                            const isFirstCol = ci === 0
+                                            const isLastCol = ci === cols.length - 1
+                                            const isFirstRow = ri === 0
+                                            const isLastRow = ri === rows.length - 1
+                                            const treatAsCards = gapRow > 0
+                                            
+                                            const style: React.CSSProperties = {
+                                              background: cell?.fill || ((treatAsCards && b.props.backgroundColor) ? b.props.backgroundColor : 'transparent'),
+                                              borderLeft: bl?.width ? `${bl.width}px solid ${bl.color || '#000'}` : 'none',
+                                              borderRight: br?.width ? `${br.width}px solid ${br.color || '#000'}` : 'none',
+                                              borderTop: bt?.width ? `${bt.width}px solid ${bt.color || '#000'}` : 'none',
+                                              borderBottom: bb?.width ? `${bb.width}px solid ${bb.color || '#000'}` : 'none',
+                                              padding: 4, 
+                                              boxSizing: 'border-box',
+                                              borderTopLeftRadius: (isFirstCol && (treatAsCards || isFirstRow)) ? radius : 0,
+                                              borderBottomLeftRadius: (isFirstCol && (treatAsCards || isLastRow)) ? radius : 0,
+                                              borderTopRightRadius: (isLastCol && (treatAsCards || isFirstRow)) ? radius : 0,
+                                               borderBottomRightRadius: (isLastCol && (treatAsCards || isLastRow)) ? radius : 0,
+                                               display: 'flex',
+                                               alignItems: 'center',
+                                               overflow: 'hidden'
+                                             }
+                                             return (
+                                               <div key={`${ri}-${ci}`} style={style}>
+                                                 {cell?.text && <div style={{ fontSize: cell.fontSize || 12, color: cell.color || '#000', whiteSpace: 'pre-wrap' }}>{cell.text}</div>}
+                                               </div>
+                                             )
+                                           }))}
+                                        </div>
+                                      )
+                                    })()
                                 )}
                                 {b.type === 'qr' && (
                                     <img 
