@@ -55,6 +55,45 @@ const fs_1 = __importDefault(require("fs"));
 const archiver = require('archiver');
 const auth_1 = require("../auth");
 exports.pdfRouter = (0, express_1.Router)();
+const imgCache = new Map();
+const fetchImage = async (url) => {
+    if (imgCache.has(url))
+        return imgCache.get(url);
+    try {
+        const r = await axios_1.default.get(url, { responseType: 'arraybuffer' });
+        const buf = Buffer.from(r.data);
+        imgCache.set(url, buf);
+        return buf;
+    }
+    catch (e) {
+        return null;
+    }
+};
+const getV1FlagUrl = (code) => {
+    const c = (code || '').toLowerCase();
+    if (c === 'en' || c === 'uk' || c === 'gb')
+        return 'https://flagcdn.com/w80/us.png';
+    if (c === 'fr')
+        return 'https://flagcdn.com/w80/fr.png';
+    if (c === 'ar' || c === 'lb')
+        return 'https://flagcdn.com/w80/lb.png';
+    return null;
+};
+const getV2EmojiUrl = (item) => {
+    let emoji = item.emoji;
+    if (!emoji || emoji.length < 2) {
+        const c = (item.code || '').toLowerCase();
+        if (c === 'lb' || c === 'ar')
+            emoji = '🇱🇧';
+        else if (c === 'fr')
+            emoji = '🇫🇷';
+        else if (c === 'en' || c === 'uk' || c === 'gb')
+            emoji = '🇬🇧';
+        else
+            emoji = '🏳️';
+    }
+    return `https://emojicdn.elk.sh/${emoji}?style=apple`;
+};
 exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', 'TEACHER']), async (req, res) => {
     const { id } = req.params;
     const { templateId, pwd } = req.query;
@@ -139,7 +178,7 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
             .replace(/\{student\.lastName\}/g, String(student.lastName))
             .replace(/\{student\.dob\}/g, new Date(student.dateOfBirth).toLocaleDateString())
             .replace(/\{class\.name\}/g, classDoc ? String(classDoc.name) : '');
-        const drawBlock = async (b) => {
+        const drawBlock = async (b, blockIdx = 0) => {
             if (b.type === 'text') {
                 if (b.props?.color)
                     doc.fillColor(b.props.color);
@@ -282,21 +321,33 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
             else if (b.type === 'table') {
                 const x0 = px(b.props?.x || 50), y0 = py(b.props?.y || 50);
                 const cols = (b.props?.columnWidths || []).map((cw) => sx(cw));
-                const rows = (b.props?.rowHeights || []).map((rh) => sy(rh));
+                const expandedRows = b.props.expandedRows || false;
+                const expandedH = expandedRows ? sy(b.props.expandedRowHeight || 34) : 0;
+                const expandedDividerColor = b.props.expandedDividerColor || '#ddd';
+                const rawRows = (b.props?.rowHeights || []).map((rh) => sy(rh));
+                const rowOffsets = [0];
+                for (let i = 0; i < rawRows.length; i++) {
+                    rowOffsets[i + 1] = rowOffsets[i] + (rawRows[i] || 0) + expandedH;
+                }
                 const cells = b.props?.cells || [];
                 const colOffsets = [0];
                 for (let i = 0; i < cols.length; i++)
                     colOffsets[i + 1] = colOffsets[i] + (cols[i] || 0);
-                const rowOffsets = [0];
-                for (let i = 0; i < rows.length; i++)
-                    rowOffsets[i + 1] = rowOffsets[i] + (rows[i] || 0);
-                for (let ri = 0; ri < rows.length; ri++) {
+                const defaultLangs = [
+                    { code: 'lb', label: 'Lebanese', emoji: '🇱🇧', active: false },
+                    { code: 'fr', label: 'French', emoji: '🇫🇷', active: false },
+                    { code: 'en', label: 'English', emoji: '🇬🇧', active: false }
+                ];
+                const expandedLanguages = b.props.expandedLanguages || defaultLangs;
+                const toggleStyle = b.props.expandedToggleStyle || 'v2';
+                for (let ri = 0; ri < rawRows.length; ri++) {
+                    const rowBgColor = cells?.[ri]?.[0]?.fill || b.props.backgroundColor || '#f8f9fa';
                     for (let ci = 0; ci < cols.length; ci++) {
                         const cell = cells?.[ri]?.[ci] || {};
                         const cx = x0 + colOffsets[ci];
                         const cy = y0 + rowOffsets[ri];
                         const w = cols[ci] || 0;
-                        const h = rows[ri] || 0;
+                        const h = rawRows[ri] || 0;
                         if (cell.fill && cell.fill !== 'transparent') {
                             doc.save();
                             doc.fillColor(cell.fill);
@@ -322,6 +373,62 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
                             doc.fontSize(cell.fontSize || 12);
                             doc.text(cell.text, cx + 4, cy + 4, { width: Math.max(0, w - 8) });
                             doc.restore();
+                        }
+                    }
+                    if (expandedRows) {
+                        const cx = x0;
+                        const cy = y0 + rowOffsets[ri] + (rawRows[ri] || 0);
+                        const totalW = colOffsets[colOffsets.length - 1];
+                        if (rowBgColor && rowBgColor !== 'transparent') {
+                            doc.save();
+                            doc.fillColor(rowBgColor);
+                            doc.rect(cx, cy, totalW, expandedH).fill();
+                            doc.restore();
+                        }
+                        doc.save();
+                        doc.strokeColor(expandedDividerColor).lineWidth(0.5);
+                        doc.moveTo(cx + 10, cy).lineTo(cx + totalW - 10, cy).stroke();
+                        doc.restore();
+                        const toggleKey = `table_${blockIdx}_row_${ri}`;
+                        const rowLanguages = b.props.rowLanguages?.[ri] || expandedLanguages;
+                        const toggleData = assignmentData?.[toggleKey] || rowLanguages;
+                        let tx = cx + 15;
+                        const ty = cy + (expandedH - 12) / 2;
+                        const size = Math.min(expandedH - 5, 12);
+                        for (const lang of toggleData) {
+                            const isActive = lang.active;
+                            let url = null;
+                            if (toggleStyle === 'v1') {
+                                url = getV1FlagUrl(lang.code);
+                            }
+                            else {
+                                url = getV2EmojiUrl(lang);
+                            }
+                            if (url) {
+                                try {
+                                    const buf = await fetchImage(url);
+                                    if (buf) {
+                                        doc.save();
+                                        doc.circle(tx + size / 2, ty + size / 2, size / 2).clip();
+                                        doc.image(buf, tx, ty, { width: size, height: size });
+                                        doc.restore();
+                                        if (isActive) {
+                                            doc.save();
+                                            doc.strokeColor('#6c5ce7').lineWidth(1);
+                                            doc.circle(tx + size / 2, ty + size / 2, size / 2).stroke();
+                                            doc.restore();
+                                        }
+                                        else {
+                                            doc.save();
+                                            doc.opacity(0.4);
+                                            doc.fillColor('#fff').circle(tx + size / 2, ty + size / 2, size / 2).fill();
+                                            doc.restore();
+                                        }
+                                    }
+                                }
+                                catch { }
+                            }
+                            tx += size + 10;
                         }
                     }
                 }
@@ -569,10 +676,10 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
                 }
                 doc.fillColor('#2d3436');
             }
-            else if (b.type === 'language_toggle') {
+            else if (b.type === 'language_toggle' || b.type === 'language_toggle_v2') {
                 const items = b.props?.items || [];
-                // Filter items by level
                 const filteredItems = items.filter(it => !it.levels || it.levels.length === 0 || !level || it.levels.includes(level));
+                const useEmoji = b.type === 'language_toggle_v2' || b.props?.style === 'v2' || filteredItems.some(it => it.emoji);
                 const r = sr(b.props?.radius || 40);
                 const size = r * 2;
                 const spacing = sx(b.props?.spacing || 12);
@@ -581,17 +688,29 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
                 for (const it of filteredItems) {
                     doc.save();
                     doc.circle(x + r, y + r, r).fill('#ddd');
-                    if (it?.logo) {
-                        try {
+                    try {
+                        let buf = null;
+                        if (useEmoji) {
+                            const url = getV2EmojiUrl(it);
+                            const fetched = await fetchImage(url);
+                            if (fetched)
+                                buf = fetched;
+                        }
+                        else if (it?.logo) {
                             const url = String(it.logo).startsWith('http') ? it.logo : `http://localhost:4000${it.logo}`;
                             const rimg = await axios_1.default.get(url, { responseType: 'arraybuffer' });
-                            const buf = Buffer.from(rimg.data);
+                            buf = Buffer.from(rimg.data);
+                        }
+                        else if (it?.code) {
+                            const url = getV1FlagUrl(it.code);
+                            const fetched = url ? await fetchImage(url) : null;
+                            if (fetched)
+                                buf = fetched;
+                        }
+                        if (buf)
                             doc.image(buf, x, y, { width: size, height: size });
-                        }
-                        catch {
-                            // keep gray circle
-                        }
                     }
+                    catch { }
                     if (!it?.active) {
                         doc.opacity(0.4);
                         doc.rect(x, y, size, size).fill('#000');
@@ -652,10 +771,11 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
             }
             if (page?.title)
                 doc.fontSize(18).fillColor('#333').text(page.title);
-            const blocksOrdered = [...(page?.blocks || [])].sort((a, b) => ((a?.props?.z ?? 0) - (b?.props?.z ?? 0)));
-            for (const b of blocksOrdered) {
-                await drawBlock(b);
-                if (!b.props?.x && !b.props?.y)
+            const blocksWithIdx = (page?.blocks || []).map((b, i) => ({ b, i }));
+            const blocksOrdered = blocksWithIdx.sort((itemA, itemB) => ((itemA.b?.props?.z ?? 0) - (itemB.b?.props?.z ?? 0)));
+            for (const item of blocksOrdered) {
+                await drawBlock(item.b, item.i);
+                if (!item.b.props?.x && !item.b.props?.y)
                     doc.moveDown(0.4);
             }
         }
@@ -755,7 +875,7 @@ exports.pdfRouter.get('/class/:classId/batch', (0, auth_1.requireAuth)(['ADMIN',
                         .replace(/\{student\.lastName\}/g, String(s.lastName))
                         .replace(/\{student\.dob\}/g, new Date(s.dateOfBirth).toLocaleDateString())
                         .replace(/\{class\.name\}/g, classDoc ? String(classDoc.name) : '');
-                    const drawBlock = async (b) => {
+                    const drawBlock = async (b, blockIdx = 0) => {
                         if (Array.isArray(b?.props?.levels) && b.props.levels.length > 0 && level && !b.props.levels.includes(level))
                             return;
                         if (b.type === 'text') {
@@ -1071,9 +1191,10 @@ exports.pdfRouter.get('/class/:classId/batch', (0, auth_1.requireAuth)(['ADMIN',
                             }
                             doc.fillColor('#2d3436');
                         }
-                        else if (b.type === 'language_toggle') {
+                        else if (b.type === 'language_toggle' || b.type === 'language_toggle_v2') {
                             const items = b.props?.items || [];
                             const filteredItems = items.filter(it => !it.levels || it.levels.length === 0 || !level || it.levels.includes(level));
+                            const useEmoji = b.type === 'language_toggle_v2' || b.props?.style === 'v2' || filteredItems.some(it => it.emoji);
                             const r2 = sr(b.props?.radius || 40);
                             const size2 = r2 * 2;
                             const spacing2 = sx(b.props?.spacing || 12);
@@ -1082,15 +1203,29 @@ exports.pdfRouter.get('/class/:classId/batch', (0, auth_1.requireAuth)(['ADMIN',
                             for (const it of filteredItems) {
                                 doc.save();
                                 doc.circle(x + r2, y + r2, r2).fill('#ddd');
-                                if (it?.logo) {
-                                    try {
+                                try {
+                                    let buf = null;
+                                    if (useEmoji) {
+                                        const url = getV2EmojiUrl(it);
+                                        const fetched = await fetchImage(url);
+                                        if (fetched)
+                                            buf = fetched;
+                                    }
+                                    else if (it?.logo) {
                                         const url = String(it.logo).startsWith('http') ? it.logo : `http://localhost:4000${it.logo}`;
                                         const rimg = await axios_1.default.get(url, { responseType: 'arraybuffer' });
-                                        const buf = Buffer.from(rimg.data);
-                                        doc.image(buf, x, y, { width: size2, height: size2 });
+                                        buf = Buffer.from(rimg.data);
                                     }
-                                    catch { }
+                                    else if (it?.code) {
+                                        const url = getV1FlagUrl(it.code);
+                                        const fetched = url ? await fetchImage(url) : null;
+                                        if (fetched)
+                                            buf = fetched;
+                                    }
+                                    if (buf)
+                                        doc.image(buf, x, y, { width: size2, height: size2 });
                                 }
+                                catch { }
                                 if (!it?.active) {
                                     doc.opacity(0.4);
                                     doc.rect(x, y, size2, size2).fill('#000');
@@ -1103,21 +1238,33 @@ exports.pdfRouter.get('/class/:classId/batch', (0, auth_1.requireAuth)(['ADMIN',
                         else if (b.type === 'table') {
                             const x0 = px(b.props?.x || 50), y0 = py(b.props?.y || 50);
                             const cols = (b.props?.columnWidths || []).map((cw) => sx(cw));
-                            const rows = (b.props?.rowHeights || []).map((rh) => sy(rh));
+                            const expandedRows = b.props.expandedRows || false;
+                            const expandedH = expandedRows ? sy(b.props.expandedRowHeight || 34) : 0;
+                            const expandedDividerColor = b.props.expandedDividerColor || '#ddd';
+                            const rawRows = (b.props?.rowHeights || []).map((rh) => sy(rh));
+                            const rowOffsets = [0];
+                            for (let i = 0; i < rawRows.length; i++) {
+                                rowOffsets[i + 1] = rowOffsets[i] + (rawRows[i] || 0) + expandedH;
+                            }
                             const cells = b.props?.cells || [];
                             const colOffsets = [0];
                             for (let i = 0; i < cols.length; i++)
                                 colOffsets[i + 1] = colOffsets[i] + (cols[i] || 0);
-                            const rowOffsets = [0];
-                            for (let i = 0; i < rows.length; i++)
-                                rowOffsets[i + 1] = rowOffsets[i] + (rows[i] || 0);
-                            for (let ri = 0; ri < rows.length; ri++) {
+                            const defaultLangs = [
+                                { code: 'lb', label: 'Lebanese', emoji: '🇱🇧', active: false },
+                                { code: 'fr', label: 'French', emoji: '🇫🇷', active: false },
+                                { code: 'en', label: 'English', emoji: '🇬🇧', active: false }
+                            ];
+                            const expandedLanguages = b.props.expandedLanguages || defaultLangs;
+                            const toggleStyle = b.props.expandedToggleStyle || 'v2';
+                            for (let ri = 0; ri < rawRows.length; ri++) {
+                                const rowBgColor = cells?.[ri]?.[0]?.fill || b.props.backgroundColor || '#f8f9fa';
                                 for (let ci = 0; ci < cols.length; ci++) {
                                     const cell = cells?.[ri]?.[ci] || {};
                                     const cx = x0 + colOffsets[ci];
                                     const cy = y0 + rowOffsets[ri];
                                     const w = cols[ci] || 0;
-                                    const h = rows[ri] || 0;
+                                    const h = rawRows[ri] || 0;
                                     if (cell.fill && cell.fill !== 'transparent') {
                                         doc.save();
                                         doc.fillColor(cell.fill);
@@ -1143,6 +1290,62 @@ exports.pdfRouter.get('/class/:classId/batch', (0, auth_1.requireAuth)(['ADMIN',
                                         doc.fontSize(cell.fontSize || 12);
                                         doc.text(cell.text, cx + 4, cy + 4, { width: Math.max(0, w - 8) });
                                         doc.restore();
+                                    }
+                                }
+                                if (expandedRows) {
+                                    const cx = x0;
+                                    const cy = y0 + rowOffsets[ri] + (rawRows[ri] || 0);
+                                    const totalW = colOffsets[colOffsets.length - 1];
+                                    if (rowBgColor && rowBgColor !== 'transparent') {
+                                        doc.save();
+                                        doc.fillColor(rowBgColor);
+                                        doc.rect(cx, cy, totalW, expandedH).fill();
+                                        doc.restore();
+                                    }
+                                    doc.save();
+                                    doc.strokeColor(expandedDividerColor).lineWidth(0.5);
+                                    doc.moveTo(cx + 10, cy).lineTo(cx + totalW - 10, cy).stroke();
+                                    doc.restore();
+                                    const toggleKey = `table_${blockIdx}_row_${ri}`;
+                                    const rowLanguages = b.props.rowLanguages?.[ri] || expandedLanguages;
+                                    const toggleData = assignmentData?.[toggleKey] || rowLanguages;
+                                    let tx = cx + 15;
+                                    const ty = cy + (expandedH - 12) / 2;
+                                    const size = Math.min(expandedH - 5, 12);
+                                    for (const lang of toggleData) {
+                                        const isActive = lang.active;
+                                        let url = null;
+                                        if (toggleStyle === 'v1') {
+                                            url = getV1FlagUrl(lang.code);
+                                        }
+                                        else {
+                                            url = getV2EmojiUrl(lang);
+                                        }
+                                        if (url) {
+                                            try {
+                                                const buf = await fetchImage(url);
+                                                if (buf) {
+                                                    doc.save();
+                                                    doc.circle(tx + size / 2, ty + size / 2, size / 2).clip();
+                                                    doc.image(buf, tx, ty, { width: size, height: size });
+                                                    doc.restore();
+                                                    if (isActive) {
+                                                        doc.save();
+                                                        doc.strokeColor('#6c5ce7').lineWidth(1);
+                                                        doc.circle(tx + size / 2, ty + size / 2, size / 2).stroke();
+                                                        doc.restore();
+                                                    }
+                                                    else {
+                                                        doc.save();
+                                                        doc.opacity(0.4);
+                                                        doc.fillColor('#fff').circle(tx + size / 2, ty + size / 2, size / 2).fill();
+                                                        doc.restore();
+                                                    }
+                                                }
+                                            }
+                                            catch { }
+                                        }
+                                        tx += size + 10;
                                     }
                                 }
                             }
@@ -1251,10 +1454,11 @@ exports.pdfRouter.get('/class/:classId/batch', (0, auth_1.requireAuth)(['ADMIN',
                         }
                         if (page?.title)
                             doc.fontSize(18).fillColor('#333').text(page.title);
-                        const blocksOrdered = [...(page?.blocks || [])].sort((a, b) => ((a?.props?.z ?? 0) - (b?.props?.z ?? 0)));
-                        for (const b of blocksOrdered) {
-                            await drawBlock(b);
-                            if (!b.props?.x && !b.props?.y)
+                        const blocksWithIdx = (page?.blocks || []).map((b, i) => ({ b, i }));
+                        const blocksOrdered = blocksWithIdx.sort((itemA, itemB) => ((itemA.b?.props?.z ?? 0) - (itemB.b?.props?.z ?? 0)));
+                        for (const item of blocksOrdered) {
+                            await drawBlock(item.b, item.i);
+                            if (!item.b.props?.x && !item.b.props?.y)
                                 doc.moveDown(0.4);
                         }
                     }

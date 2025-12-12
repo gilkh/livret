@@ -1988,7 +1988,6 @@ export default function TemplateBuilder() {
                                   <div key={i} style={{ width: size, height: size, borderRadius: '50%', overflow: 'hidden', position: 'relative', cursor: 'pointer', boxShadow: it.active ? '0 0 0 2px #6c5ce7' : 'none' }}
                                     onClick={(ev) => { ev.stopPropagation(); const pages = [...tpl.pages]; const page = { ...pages[selectedPage] }; const blocks = [...page.blocks]; const items = [...(blocks[idx].props.items || [])]; items[i] = { ...items[i], active: !items[i].active }; blocks[idx] = { ...blocks[idx], props: { ...blocks[idx].props, items } }; pages[selectedPage] = { ...page, blocks }; setTpl({ ...tpl, pages }) }}>
                                     {it.logo ? <img src={it.logo} style={{ width: '100%', height: '100%', objectFit: 'cover', filter: it.active ? 'brightness(1.1)' : 'brightness(0.6)' }} /> : <div style={{ width: '100%', height: '100%', background: '#ddd' }} />}
-                                    <div style={{ position: 'absolute', bottom: 2, left: 0, right: 0, textAlign: 'center', fontSize: b.props.fontSize || 10, color: '#fff', textShadow: '0 1px 2px rgba(0,0,0,0.6)' }}>{it.label || it.code}</div>
                                   </div>
                                 )
                               })}
@@ -2471,8 +2470,35 @@ export default function TemplateBuilder() {
                                             }}>
                                               {(() => {
                                                 const rowLangs = b.props.rowLanguages?.[ri] || expandedLanguages
+                                                const toggleStyle = b.props.expandedToggleStyle || 'v2'
+
                                                 return rowLangs.map((lang: any, li: number) => {
                                                   const size = Math.max(12, Math.min(expandedRowHeight - 12, 20))
+                                                  const toggleKey = `table_${idx}_row_${ri}_lang_${li}`
+                                                  const isActive = previewData[toggleKey] === 'true'
+
+                                                  if (toggleStyle === 'v1') {
+                                                      const logo = lang.logo || (() => {
+                                                          const c = (lang.code || '').toLowerCase()
+                                                          if (c === 'en' || c === 'uk' || c === 'gb') return 'https://upload.wikimedia.org/wikipedia/commons/a/a4/Flag_of_the_United_States.svg'
+                                                          if (c === 'fr') return 'https://upload.wikimedia.org/wikipedia/en/c/c3/Flag_of_France.svg'
+                                                          if (c === 'ar' || c === 'lb') return 'https://upload.wikimedia.org/wikipedia/commons/5/59/Flag_of_Lebanon.svg'
+                                                          return ''
+                                                      })()
+                                                      
+                                                      return (
+                                                        <div key={li} style={{ width: size, height: size, borderRadius: '50%', overflow: 'hidden', position: 'relative', cursor: 'pointer', boxShadow: isActive ? '0 0 0 2px #6c5ce7' : 'none', opacity: isActive ? 1 : 0.6 }}
+                                                            onClick={(ev) => {
+                                                                ev.stopPropagation()
+                                                                setPreviewData({ ...previewData, [toggleKey]: isActive ? 'false' : 'true' })
+                                                            }}
+                                                            onMouseDown={(ev) => ev.stopPropagation()}
+                                                        >
+                                                            {logo ? <img src={logo} style={{ width: '100%', height: '100%', objectFit: 'cover', filter: isActive ? 'brightness(1.1)' : 'brightness(0.6)' }} /> : <div style={{ width: '100%', height: '100%', background: '#ddd' }} />}
+                                                        </div>
+                                                      )
+                                                  }
+
                                                   const getEmoji = (item: any) => {
                                                     const e = item.emoji
                                                     if (e && e.length >= 2) return e
@@ -2484,8 +2510,6 @@ export default function TemplateBuilder() {
                                                   }
                                                   const emoji = getEmoji(lang)
                                                   const appleEmojiUrl = `https://emojicdn.elk.sh/${emoji}?style=apple`
-                                                  const toggleKey = `table_${idx}_row_${ri}_lang_${li}`
-                                                  const isActive = previewData[toggleKey] === 'true'
 
                                                   return (
                                                     <div
@@ -3170,6 +3194,17 @@ export default function TemplateBuilder() {
                                     onChange={e => updateSelectedTable(p => ({ ...p, expandedRowHeight: Number(e.target.value) }))}
                                     style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '2px solid #e9ecef', fontSize: 13 }}
                                   />
+                                </div>
+                                <div>
+                                  <label style={{ fontSize: 11, display: 'block', marginBottom: 4, fontWeight: 600, color: '#6c757d' }}>Type de toggles</label>
+                                  <select
+                                    value={tpl.pages[selectedPage].blocks[selectedIndex].props.expandedToggleStyle || 'v2'}
+                                    onChange={e => updateSelectedTable(p => ({ ...p, expandedToggleStyle: e.target.value }))}
+                                    style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '2px solid #e9ecef', fontSize: 13 }}
+                                  >
+                                    <option value="v2">V2 (Emojis)</option>
+                                    <option value="v1">V1 (Drapeaux)</option>
+                                  </select>
                                 </div>
                                 <div>
                                   <label style={{ fontSize: 11, display: 'block', marginBottom: 4, fontWeight: 600, color: '#6c757d' }}>Épaisseur ligne séparatrice</label>

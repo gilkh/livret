@@ -424,9 +424,39 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                                                             const toggleKey = `table_${blockIdx}_row_${ri}`
                                                                             const rowLanguages = b.props.rowLanguages?.[ri] || expandedLanguages
                                                                             const toggleData = assignment?.data?.[toggleKey] || rowLanguages
+                                                                            const toggleStyle = b.props.expandedToggleStyle || 'v2'
 
                                                                             return toggleData.map((lang: any, li: number) => {
                                                                                 const size = Math.min(expandedRowHeight - 10, 12)
+                                                                                const isActive = lang.active
+
+                                                                                if (toggleStyle === 'v1') {
+                                                                                    const logo = lang.logo || (() => {
+                                                                                        const c = (lang.code || '').toLowerCase()
+                                                                                        if (c === 'en' || c === 'uk' || c === 'gb') return 'https://upload.wikimedia.org/wikipedia/commons/a/a4/Flag_of_the_United_States.svg'
+                                                                                        if (c === 'fr') return 'https://upload.wikimedia.org/wikipedia/en/c/c3/Flag_of_France.svg'
+                                                                                        if (c === 'ar' || c === 'lb') return 'https://upload.wikimedia.org/wikipedia/commons/5/59/Flag_of_Lebanon.svg'
+                                                                                        return ''
+                                                                                    })()
+
+                                                                                    return (
+                                                                                        <div
+                                                                                            key={li}
+                                                                                            style={{
+                                                                                                width: size,
+                                                                                                height: size,
+                                                                                                borderRadius: '50%',
+                                                                                                overflow: 'hidden',
+                                                                                                position: 'relative',
+                                                                                                boxShadow: isActive ? '0 0 0 2px #6c5ce7' : 'none',
+                                                                                                opacity: isActive ? 1 : 0.6
+                                                                                            }}
+                                                                                        >
+                                                                                            {logo ? <img src={logo} style={{ width: '100%', height: '100%', objectFit: 'cover', filter: isActive ? 'brightness(1.1)' : 'brightness(0.6)' }} alt="" /> : <div style={{ width: '100%', height: '100%', background: '#ddd' }} />}
+                                                                                        </div>
+                                                                                    )
+                                                                                }
+
                                                                                 const getEmoji = (item: any) => {
                                                                                     const e = item.emoji
                                                                                     if (e && e.length >= 2) return e
@@ -438,7 +468,6 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                                                                 }
                                                                                 const emoji = getEmoji(lang)
                                                                                 const appleEmojiUrl = `https://emojicdn.elk.sh/${emoji}?style=apple`
-                                                                                const isActive = lang.active
 
                                                                                 return (
                                                                                     <div

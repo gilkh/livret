@@ -481,7 +481,6 @@ export default function TeacherTemplateEditor() {
                                                 }}
                                             >
                                                 {it.logo ? <img src={fixUrl(it.logo)} style={{ width: '100%', height: '100%', objectFit: 'cover', filter: it.active ? 'brightness(1.1)' : 'brightness(0.6)' }} alt="" /> : <div style={{ width: '100%', height: '100%', background: '#ddd' }} />}
-                                                <div style={{ position: 'absolute', bottom: 2, left: 0, right: 0, textAlign: 'center', fontSize: 10, color: '#fff', textShadow: '0 1px 2px rgba(0,0,0,0.6)' }}>{it.label || it.code}</div>
                                             </div>
                                         )
                                     })}
@@ -749,6 +748,16 @@ export default function TeacherTemplateEditor() {
                                       const cells: any[][] = b.props.cells || []
                                       const gapCol = b.props.colGap || 0
                                       const gapRow = b.props.rowGap || 0
+                                      const expandedRows = b.props.expandedRows || false
+                                      const expandedRowHeight = b.props.expandedRowHeight || 34
+                                      const expandedDividerWidth = b.props.expandedDividerWidth || 0.5
+                                      const expandedDividerColor = b.props.expandedDividerColor || 'rgba(255, 255, 255, 0.5)'
+                                      const expandedLanguages = b.props.expandedLanguages || [
+                                        { code: 'lb', label: 'Lebanese', emoji: '🇱🇧', active: false },
+                                        { code: 'fr', label: 'French', emoji: '🇫🇷', active: false },
+                                        { code: 'en', label: 'English', emoji: '🇬🇧', active: false }
+                                      ]
+                                      const toggleStyle = b.props.expandedToggleStyle || 'v2'
         
                                       let width = 0
                                       for (let i = 0; i < cols.length; i++) {
@@ -760,6 +769,9 @@ export default function TeacherTemplateEditor() {
                                       let height = 0
                                       for (let i = 0; i < rows.length; i++) {
                                         height += (rows[i] || 0)
+                                        if (expandedRows) {
+                                            height += expandedRowHeight // Simplified calculation
+                                        }
                                         height += gapRow
                                       }
                                       if (rows.length > 0) height -= gapRow
@@ -768,48 +780,228 @@ export default function TeacherTemplateEditor() {
                                         <div style={{
                                           position: 'relative',
                                           width,
-                                          height,
-                                          display: 'grid',
-                                          gridTemplateColumns: cols.map(w => `${Math.max(1, Math.round(w))}px`).join(' '),
-                                          gridTemplateRows: rows.map(h => `${Math.max(1, Math.round(h))}px`).join(' '),
+                                          // Height is dynamic if expanded, or calculated
+                                          height: expandedRows ? 'auto' : height,
+                                          display: expandedRows ? 'flex' : 'grid',
+                                          flexDirection: 'column',
+                                          gridTemplateColumns: !expandedRows ? cols.map(w => `${Math.max(1, Math.round(w))}px`).join(' ') : undefined,
+                                          gridTemplateRows: !expandedRows ? rows.map(h => `${Math.max(1, Math.round(h))}px`).join(' ') : undefined,
                                           overflow: 'visible',
-                                          rowGap: gapRow,
-                                          columnGap: gapCol,
+                                          gap: !expandedRows ? `${gapRow}px ${gapCol}px` : 0,
                                           background: (gapRow > 0 || gapCol > 0) ? 'transparent' : (b.props.backgroundColor || 'transparent'),
                                           borderRadius: (gapRow > 0 || gapCol > 0) ? 0 : (b.props.borderRadius || 0)
                                         }}>
-                                          {cells.flatMap((row, ri) => row.map((cell, ci) => {
-                                            const bl = cell?.borders?.l; const br = cell?.borders?.r; const bt = cell?.borders?.t; const bb = cell?.borders?.b
-                                            
-                                            const radius = b.props.borderRadius || 0
-                                            const isFirstCol = ci === 0
-                                            const isLastCol = ci === cols.length - 1
-                                            const isFirstRow = ri === 0
-                                            const isLastRow = ri === rows.length - 1
-                                            const treatAsCards = gapRow > 0
-                                            
-                                            const style: React.CSSProperties = {
-                                              background: cell?.fill || ((treatAsCards && b.props.backgroundColor) ? b.props.backgroundColor : 'transparent'),
-                                              borderLeft: bl?.width ? `${bl.width}px solid ${bl.color || '#000'}` : 'none',
-                                              borderRight: br?.width ? `${br.width}px solid ${br.color || '#000'}` : 'none',
-                                              borderTop: bt?.width ? `${bt.width}px solid ${bt.color || '#000'}` : 'none',
-                                              borderBottom: bb?.width ? `${bb.width}px solid ${bb.color || '#000'}` : 'none',
-                                              padding: 4, 
-                                              boxSizing: 'border-box',
-                                              borderTopLeftRadius: (isFirstCol && (treatAsCards || isFirstRow)) ? radius : 0,
-                                              borderBottomLeftRadius: (isFirstCol && (treatAsCards || isLastRow)) ? radius : 0,
-                                              borderTopRightRadius: (isLastCol && (treatAsCards || isFirstRow)) ? radius : 0,
-                                               borderBottomRightRadius: (isLastCol && (treatAsCards || isLastRow)) ? radius : 0,
-                                               display: 'flex',
-                                               alignItems: 'center',
-                                               overflow: 'hidden'
-                                             }
-                                             return (
-                                               <div key={`${ri}-${ci}`} style={style}>
-                                                 {cell?.text && <div style={{ fontSize: cell.fontSize || 12, color: cell.color || '#000', whiteSpace: 'pre-wrap' }}>{cell.text}</div>}
-                                               </div>
-                                             )
-                                           }))}
+                                          {!expandedRows ? (
+                                              cells.flatMap((row, ri) => row.map((cell, ci) => {
+                                                const bl = cell?.borders?.l; const br = cell?.borders?.r; const bt = cell?.borders?.t; const bb = cell?.borders?.b
+                                                
+                                                const radius = b.props.borderRadius || 0
+                                                const isFirstCol = ci === 0
+                                                const isLastCol = ci === cols.length - 1
+                                                const isFirstRow = ri === 0
+                                                const isLastRow = ri === rows.length - 1
+                                                const treatAsCards = gapRow > 0
+                                                
+                                                const style: React.CSSProperties = {
+                                                  background: cell?.fill || ((treatAsCards && b.props.backgroundColor) ? b.props.backgroundColor : 'transparent'),
+                                                  borderLeft: bl?.width ? `${bl.width}px solid ${bl.color || '#000'}` : 'none',
+                                                  borderRight: br?.width ? `${br.width}px solid ${br.color || '#000'}` : 'none',
+                                                  borderTop: bt?.width ? `${bt.width}px solid ${bt.color || '#000'}` : 'none',
+                                                  borderBottom: bb?.width ? `${bb.width}px solid ${bb.color || '#000'}` : 'none',
+                                                  padding: 4, 
+                                                  boxSizing: 'border-box',
+                                                  borderTopLeftRadius: (isFirstCol && (treatAsCards || isFirstRow)) ? radius : 0,
+                                                  borderBottomLeftRadius: (isFirstCol && (treatAsCards || isLastRow)) ? radius : 0,
+                                                  borderTopRightRadius: (isLastCol && (treatAsCards || isFirstRow)) ? radius : 0,
+                                                   borderBottomRightRadius: (isLastCol && (treatAsCards || isLastRow)) ? radius : 0,
+                                                   display: 'flex',
+                                                   alignItems: 'center',
+                                                   overflow: 'hidden'
+                                                 }
+                                                 return (
+                                                   <div key={`${ri}-${ci}`} style={style}>
+                                                     {cell?.text && <div style={{ fontSize: cell.fontSize || 12, color: cell.color || '#000', whiteSpace: 'pre-wrap' }}>{cell.text}</div>}
+                                                   </div>
+                                                 )
+                                               }))
+                                          ) : (
+                                              cells.map((row, ri) => {
+                                                  const rowBgColor = row[0]?.fill || b.props.backgroundColor || '#f8f9fa'
+                                                  const isLastRow = ri === cells.length - 1
+                                                  const mainRowHeight = rows[ri] || 40
+
+                                                  return (
+                                                      <div key={ri} style={{ marginBottom: (expandedRows && !isLastRow) ? gapRow : 0 }}>
+                                                          {/* Main Row */}
+                                                          <div style={{ 
+                                                              display: 'grid',
+                                                              gridTemplateColumns: cols.map(w => `${Math.max(1, Math.round(w))}px`).join(' '),
+                                                              columnGap: gapCol,
+                                                              height: mainRowHeight
+                                                          }}>
+                                                              {row.map((cell: any, ci: number) => {
+                                                                  const bl = cell?.borders?.l; const br = cell?.borders?.r; const bt = cell?.borders?.t; const bb = cell?.borders?.b
+                                                                  const style: React.CSSProperties = {
+                                                                      background: cell?.fill || 'transparent',
+                                                                      borderLeft: bl?.width ? `${bl.width}px solid ${bl.color || '#000'}` : 'none',
+                                                                      borderRight: br?.width ? `${br.width}px solid ${br.color || '#000'}` : 'none',
+                                                                      borderTop: bt?.width ? `${bt.width}px solid ${bt.color || '#000'}` : 'none',
+                                                                      borderBottom: bb?.width ? `${bb.width}px solid ${bb.color || '#000'}` : 'none',
+                                                                      padding: 4, 
+                                                                      boxSizing: 'border-box',
+                                                                      display: 'flex',
+                                                                      alignItems: 'center',
+                                                                      overflow: 'hidden'
+                                                                  }
+                                                                  return (
+                                                                      <div key={ci} style={style}>
+                                                                          {cell?.text && <div style={{ fontSize: cell.fontSize || 12, color: cell.color || '#000', whiteSpace: 'pre-wrap' }}>{cell.text}</div>}
+                                                                      </div>
+                                                                  )
+                                                              })}
+                                                          </div>
+
+                                                          {/* Expanded Section */}
+                                                          <div style={{
+                                                              background: rowBgColor,
+                                                              borderBottom: !isLastRow ? '1px solid #ddd' : 'none',
+                                                              position: 'relative',
+                                                              height: expandedRowHeight
+                                                          }}>
+                                                              {/* Divider Line */}
+                                                              <div style={{
+                                                                  position: 'absolute', top: 0, left: 0, right: 0,
+                                                                  height: expandedDividerWidth,
+                                                                  background: expandedDividerColor,
+                                                                  margin: '0 15px'
+                                                              }} />
+
+                                                              {/* Language Toggles */}
+                                                              <div style={{
+                                                                  height: '100%',
+                                                                  display: 'flex',
+                                                                  alignItems: 'center',
+                                                                  paddingLeft: 15,
+                                                                  gap: 15
+                                                              }}>
+                                                                  {(() => {
+                                                                      const toggleKey = `table_${idx}_row_${ri}`
+                                                                      const rowLangs = b.props.rowLanguages?.[ri] || expandedLanguages
+                                                                      const currentItems = assignment?.data?.[toggleKey] || rowLangs
+
+                                                                      return currentItems.map((lang: any, li: number) => {
+                                                                          const size = Math.min(expandedRowHeight - 10, 12)
+                                                                          const isActive = lang.active
+
+                                                                          if (toggleStyle === 'v1') {
+                                                                              const logo = lang.logo || (() => {
+                                                                                  const c = (lang.code || '').toLowerCase()
+                                                                                  if (c === 'en' || c === 'uk' || c === 'gb') return 'https://upload.wikimedia.org/wikipedia/commons/a/a4/Flag_of_the_United_States.svg'
+                                                                                  if (c === 'fr') return 'https://upload.wikimedia.org/wikipedia/en/c/c3/Flag_of_France.svg'
+                                                                                  if (c === 'ar' || c === 'lb') return 'https://upload.wikimedia.org/wikipedia/commons/5/59/Flag_of_Lebanon.svg'
+                                                                                  return ''
+                                                                              })()
+
+                                                                              return (
+                                                                                  <div
+                                                                                      key={li}
+                                                                                      style={{
+                                                                                          width: size,
+                                                                                          height: size,
+                                                                                          borderRadius: '50%',
+                                                                                          overflow: 'hidden',
+                                                                                          position: 'relative',
+                                                                                          boxShadow: isActive ? '0 0 0 2px #6c5ce7' : 'none',
+                                                                                          opacity: (canEdit) ? (isActive ? 1 : 0.6) : 0.5,
+                                                                                          cursor: canEdit ? 'pointer' : 'default'
+                                                                                      }}
+                                                                                      onClick={async (e) => {
+                                                                                          e.stopPropagation()
+                                                                                          if (!canEdit) return
+                                                                                          
+                                                                                          const newItems = [...currentItems]
+                                                                                          newItems[li] = { ...newItems[li], active: !newItems[li].active }
+                                                                                          
+                                                                                          // Optimistic update
+                                                                                          if (assignment) {
+                                                                                              const newData = { ...assignment.data, [toggleKey]: newItems }
+                                                                                              setAssignment({ ...assignment, data: newData })
+                                                                                              try {
+                                                                                                  await api.patch(`/teacher/template-assignments/${assignment._id}/data`, { data: { [toggleKey]: newItems } })
+                                                                                                  emitAssignmentDataUpdate({ [toggleKey]: newItems })
+                                                                                              } catch (err) {
+                                                                                                  setError('Erreur sauvegarde')
+                                                                                              }
+                                                                                          }
+                                                                                      }}
+                                                                                  >
+                                                                                      {logo ? <img src={logo} style={{ width: '100%', height: '100%', objectFit: 'cover', filter: isActive ? 'brightness(1.1)' : 'brightness(0.6)' }} alt="" /> : <div style={{ width: '100%', height: '100%', background: '#ddd' }} />}
+                                                                                  </div>
+                                                                              )
+                                                                          }
+
+                                                                          const getEmoji = (item: any) => {
+                                                                              const e = item.emoji
+                                                                              if (e && e.length >= 2) return e
+                                                                              const c = (item.code || '').toLowerCase()
+                                                                              if (c === 'lb' || c === 'ar') return '🇱🇧'
+                                                                              if (c === 'fr') return '🇫🇷'
+                                                                              if (c === 'en' || c === 'uk' || c === 'gb') return '🇬🇧'
+                                                                              return '🏳️'
+                                                                          }
+                                                                          const emoji = getEmoji(lang)
+                                                                          const appleEmojiUrl = `https://emojicdn.elk.sh/${emoji}?style=apple`
+
+                                                                          return (
+                                                                              <div
+                                                                                  key={li}
+                                                                                  title={lang.label}
+                                                                                  style={{
+                                                                                      width: size,
+                                                                                      height: size,
+                                                                                      minWidth: size,
+                                                                                      borderRadius: '50%',
+                                                                                      background: isActive ? '#fff' : 'rgba(255, 255, 255, 0.5)',
+                                                                                      border: isActive ? '2px solid #2563eb' : '1px solid rgba(0, 0, 0, 0.1)',
+                                                                                      display: 'flex',
+                                                                                      alignItems: 'center',
+                                                                                      justifyContent: 'center',
+                                                                                      transform: isActive ? 'scale(1.1)' : 'scale(1)',
+                                                                                      boxShadow: isActive ? '0 0 0 2px rgba(37, 99, 235, 0.2)' : 'none',
+                                                                                      opacity: (canEdit) ? (isActive ? 1 : 0.6) : 0.5,
+                                                                                      cursor: canEdit ? 'pointer' : 'default'
+                                                                                  }}
+                                                                                  onClick={async (e) => {
+                                                                                      e.stopPropagation()
+                                                                                      if (!canEdit) return
+                                                                                      
+                                                                                      const newItems = [...currentItems]
+                                                                                      newItems[li] = { ...newItems[li], active: !newItems[li].active }
+                                                                                      
+                                                                                      // Optimistic update
+                                                                                      if (assignment) {
+                                                                                          const newData = { ...assignment.data, [toggleKey]: newItems }
+                                                                                          setAssignment({ ...assignment, data: newData })
+                                                                                          try {
+                                                                                              await api.patch(`/teacher/template-assignments/${assignment._id}/data`, { data: { [toggleKey]: newItems } })
+                                                                                              emitAssignmentDataUpdate({ [toggleKey]: newItems })
+                                                                                          } catch (err) {
+                                                                                              setError('Erreur sauvegarde')
+                                                                                          }
+                                                                                      }
+                                                                                  }}
+                                                                              >
+                                                                                  <img src={appleEmojiUrl} style={{ width: size * 0.7, height: size * 0.7, objectFit: 'contain' }} alt="" />
+                                                                              </div>
+                                                                          )
+                                                                      })
+                                                                  })()}
+                                                              </div>
+                                                          </div>
+                                                      </div>
+                                                  )
+                                              })
+                                          )}
                                         </div>
                                       )
                                     })()

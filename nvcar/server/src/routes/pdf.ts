@@ -18,6 +18,39 @@ import { requireAuth } from '../auth'
 
 export const pdfRouter = Router()
 
+const imgCache = new Map<string, Buffer>()
+const fetchImage = async (url: string) => {
+  if (imgCache.has(url)) return imgCache.get(url)
+  try {
+    const r = await axios.get(url, { responseType: 'arraybuffer' })
+    const buf = Buffer.from(r.data)
+    imgCache.set(url, buf)
+    return buf
+  } catch (e) {
+    return null
+  }
+}
+
+const getV1FlagUrl = (code: string) => {
+  const c = (code || '').toLowerCase()
+  if (c === 'en' || c === 'uk' || c === 'gb') return 'https://flagcdn.com/w80/us.png'
+  if (c === 'fr') return 'https://flagcdn.com/w80/fr.png'
+  if (c === 'ar' || c === 'lb') return 'https://flagcdn.com/w80/lb.png'
+  return null
+}
+
+const getV2EmojiUrl = (item: any) => {
+  let emoji = item.emoji
+  if (!emoji || emoji.length < 2) {
+    const c = (item.code || '').toLowerCase()
+    if (c === 'lb' || c === 'ar') emoji = '🇱🇧'
+    else if (c === 'fr') emoji = '🇫🇷'
+    else if (c === 'en' || c === 'uk' || c === 'gb') emoji = '🇬🇧'
+    else emoji = '🏳️'
+  }
+  return `https://emojicdn.elk.sh/${emoji}?style=apple`
+}
+
 pdfRouter.get('/student/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), async (req, res) => {
   const { id } = req.params
   const { templateId, pwd } = req.query as any
@@ -100,7 +133,7 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), asy
       .replace(/\{student\.lastName\}/g, String(student.lastName))
       .replace(/\{student\.dob\}/g, new Date(student.dateOfBirth).toLocaleDateString())
       .replace(/\{class\.name\}/g, classDoc ? String((classDoc as any).name) : '')
-    const drawBlock = async (b: any) => {
+    const drawBlock = async (b: any, blockIdx: number = 0) => {
       if (b.type === 'text') {
         if (b.props?.color) doc.fillColor(b.props.color)
         doc.fontSize(b.props?.size || b.props?.fontSize || 12)
@@ -190,20 +223,41 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), asy
       } else if (b.type === 'table') {
         const x0 = px(b.props?.x || 50), y0 = py(b.props?.y || 50)
         const cols: number[] = (b.props?.columnWidths || []).map((cw: number) => sx(cw))
-        const rows: number[] = (b.props?.rowHeights || []).map((rh: number) => sy(rh))
+        
+        const expandedRows = b.props.expandedRows || false
+        const expandedH = expandedRows ? sy(b.props.expandedRowHeight || 34) : 0
+        const expandedDividerColor = b.props.expandedDividerColor || '#ddd'
+        
+        const rawRows: number[] = (b.props?.rowHeights || []).map((rh: number) => sy(rh))
+        const rowOffsets: number[] = [0]
+        for (let i = 0; i < rawRows.length; i++) {
+             rowOffsets[i + 1] = rowOffsets[i] + (rawRows[i] || 0) + expandedH
+        }
+
         const cells: any[][] = b.props?.cells || []
         const colOffsets: number[] = [0]
         for (let i = 0; i < cols.length; i++) colOffsets[i + 1] = colOffsets[i] + (cols[i] || 0)
-        const rowOffsets: number[] = [0]
-        for (let i = 0; i < rows.length; i++) rowOffsets[i + 1] = rowOffsets[i] + (rows[i] || 0)
-        for (let ri = 0; ri < rows.length; ri++) {
+
+        const defaultLangs = [
+            { code: 'lb', label: 'Lebanese', emoji: '🇱🇧', active: false },
+            { code: 'fr', label: 'French', emoji: '🇫🇷', active: false },
+            { code: 'en', label: 'English', emoji: '🇬🇧', active: false }
+        ]
+        const expandedLanguages = b.props.expandedLanguages || defaultLangs
+        const toggleStyle = b.props.expandedToggleStyle || 'v2'
+
+        for (let ri = 0; ri < rawRows.length; ri++) {
+          const rowBgColor = cells?.[ri]?.[0]?.fill || b.props.backgroundColor || '#f8f9fa'
+
           for (let ci = 0; ci < cols.length; ci++) {
             const cell = cells?.[ri]?.[ci] || {}
             const cx = x0 + colOffsets[ci]
             const cy = y0 + rowOffsets[ri]
             const w = cols[ci] || 0
-            const h = rows[ri] || 0
+            const h = rawRows[ri] || 0
+            
             if (cell.fill && cell.fill !== 'transparent') { doc.save(); doc.fillColor(cell.fill); doc.rect(cx, cy, w, h).fill(); doc.restore() }
+            
             const drawSide = (sx: number, sy: number, ex: number, ey: number, side: any) => {
               if (!side?.width || !side?.color) return
               doc.save(); doc.strokeColor(side.color).lineWidth(side.width)
@@ -213,6 +267,7 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), asy
             drawSide(cx, cy + h, cx + w, cy + h, cell?.borders?.b)
             drawSide(cx, cy, cx, cy + h, cell?.borders?.l)
             drawSide(cx + w, cy, cx + w, cy + h, cell?.borders?.r)
+            
             if (cell.text) {
               doc.save()
               if (cell.color) doc.fillColor(cell.color)
@@ -221,8 +276,65 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), asy
               doc.restore()
             }
           }
-        }
-      } else if (b.type === 'student_info') {
+
+          if (expandedRows) {
+              const cx = x0
+              const cy = y0 + rowOffsets[ri] + (rawRows[ri] || 0)
+              const totalW = colOffsets[colOffsets.length - 1]
+              
+              if (rowBgColor && rowBgColor !== 'transparent') {
+                  doc.save(); doc.fillColor(rowBgColor); doc.rect(cx, cy, totalW, expandedH).fill(); doc.restore()
+              }
+              
+              doc.save()
+              doc.strokeColor(expandedDividerColor).lineWidth(0.5)
+              doc.moveTo(cx + 10, cy).lineTo(cx + totalW - 10, cy).stroke()
+              doc.restore()
+              
+              const toggleKey = `table_${blockIdx}_row_${ri}`
+              const rowLanguages = b.props.rowLanguages?.[ri] || expandedLanguages
+              const toggleData = assignmentData?.[toggleKey] || rowLanguages
+              
+              let tx = cx + 15
+              const ty = cy + (expandedH - 12) / 2
+              const size = Math.min(expandedH - 5, 12)
+              
+              for (const lang of toggleData) {
+                  const isActive = lang.active
+                  let url = null
+                  if (toggleStyle === 'v1') {
+                      url = getV1FlagUrl(lang.code)
+                  } else {
+                      url = getV2EmojiUrl(lang)
+                  }
+                  
+                  if (url) {
+                      try {
+                          const buf = await fetchImage(url)
+                          if (buf) {
+                              doc.save()
+                              doc.circle(tx + size/2, ty + size/2, size/2).clip()
+                              doc.image(buf, tx, ty, { width: size, height: size })
+                              doc.restore()
+                              
+                              if (isActive) {
+                                  doc.save()
+                                  doc.strokeColor('#6c5ce7').lineWidth(1)
+                                  doc.circle(tx + size/2, ty + size/2, size/2).stroke()
+                                  doc.restore()
+                              } else {
+                                  doc.save()
+                                  doc.opacity(0.4)
+                                  doc.fillColor('#fff').circle(tx + size/2, ty + size/2, size/2).fill()
+                                  doc.restore()
+                              }
+                          }
+                      } catch {}
+                  }
+                  tx += size + 10
+              }
+          }
+        }      } else if (b.type === 'student_info') {
         const fields: string[] = b.props?.fields || ['name', 'class']
         const x = b.props?.x, y = b.props?.y
         const lines: string[] = []
@@ -427,11 +539,10 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), asy
           doc.text(selectedValue)
         }
         doc.fillColor('#2d3436')
-      } else if (b.type === 'language_toggle') {
+      } else if (b.type === 'language_toggle' || b.type === 'language_toggle_v2') {
         const items: any[] = b.props?.items || []
-        // Filter items by level
         const filteredItems = items.filter(it => !it.levels || it.levels.length === 0 || !level || it.levels.includes(level))
-
+        const useEmoji = b.type === 'language_toggle_v2' || b.props?.style === 'v2' || filteredItems.some(it => it.emoji)
         const r = sr(b.props?.radius || 40)
         const size = r * 2
         const spacing = sx(b.props?.spacing || 12)
@@ -440,16 +551,23 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), asy
         for (const it of filteredItems) {
           doc.save()
           doc.circle(x + r, y + r, r).fill('#ddd')
-          if (it?.logo) {
-            try {
+          try {
+            let buf: Buffer | null = null
+            if (useEmoji) {
+              const url = getV2EmojiUrl(it)
+              const fetched = await fetchImage(url)
+              if (fetched) buf = fetched
+            } else if (it?.logo) {
               const url = String(it.logo).startsWith('http') ? it.logo : `http://localhost:4000${it.logo}`
               const rimg = await axios.get(url, { responseType: 'arraybuffer' })
-              const buf = Buffer.from(rimg.data)
-              doc.image(buf, x, y, { width: size, height: size })
-            } catch {
-              // keep gray circle
+              buf = Buffer.from(rimg.data)
+            } else if (it?.code) {
+              const url = getV1FlagUrl(it.code)
+              const fetched = url ? await fetchImage(url) : null
+              if (fetched) buf = fetched
             }
-          }
+            if (buf) doc.image(buf, x, y, { width: size, height: size })
+          } catch { }
           if (!it?.active) {
             doc.opacity(0.4)
             doc.rect(x, y, size, size).fill('#000')
@@ -509,10 +627,11 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), asy
         doc.restore()
       }
       if (page?.title) doc.fontSize(18).fillColor('#333').text(page.title)
-      const blocksOrdered = [...(page?.blocks || [])].sort((a: any, b: any) => ((a?.props?.z ?? 0) - (b?.props?.z ?? 0)))
-      for (const b of blocksOrdered) {
-        await drawBlock(b)
-        if (!b.props?.x && !b.props?.y) doc.moveDown(0.4)
+      const blocksWithIdx = (page?.blocks || []).map((b: any, i: number) => ({ b, i }))
+      const blocksOrdered = blocksWithIdx.sort((itemA: any, itemB: any) => ((itemA.b?.props?.z ?? 0) - (itemB.b?.props?.z ?? 0)))
+      for (const item of blocksOrdered) {
+        await drawBlock(item.b, item.i)
+        if (!item.b.props?.x && !item.b.props?.y) doc.moveDown(0.4)
       }
     }
   }
@@ -607,7 +726,7 @@ pdfRouter.get('/class/:classId/batch', requireAuth(['ADMIN', 'SUBADMIN']), async
             .replace(/\{student\.lastName\}/g, String(s.lastName))
             .replace(/\{student\.dob\}/g, new Date(s.dateOfBirth).toLocaleDateString())
             .replace(/\{class\.name\}/g, classDoc ? String((classDoc as any).name) : '')
-          const drawBlock = async (b: any) => {
+          const drawBlock = async (b: any, blockIdx: number = 0) => {
             if (Array.isArray(b?.props?.levels) && b.props.levels.length > 0 && level && !b.props.levels.includes(level)) return
             if (b.type === 'text') {
               if (b.props?.color) doc.fillColor(b.props.color)
@@ -835,9 +954,10 @@ pdfRouter.get('/class/:classId/batch', requireAuth(['ADMIN', 'SUBADMIN']), async
                 doc.text(selectedValue)
               }
               doc.fillColor('#2d3436')
-            } else if (b.type === 'language_toggle') {
+            } else if (b.type === 'language_toggle' || b.type === 'language_toggle_v2') {
               const items: any[] = b.props?.items || []
               const filteredItems = items.filter(it => !it.levels || it.levels.length === 0 || !level || it.levels.includes(level))
+              const useEmoji = b.type === 'language_toggle_v2' || b.props?.style === 'v2' || filteredItems.some(it => it.emoji)
               const r2 = sr(b.props?.radius || 40)
               const size2 = r2 * 2
               const spacing2 = sx(b.props?.spacing || 12)
@@ -846,14 +966,23 @@ pdfRouter.get('/class/:classId/batch', requireAuth(['ADMIN', 'SUBADMIN']), async
               for (const it of filteredItems) {
                 doc.save()
                 doc.circle(x + r2, y + r2, r2).fill('#ddd')
-                if (it?.logo) {
-                  try {
+                try {
+                  let buf: Buffer | null = null
+                  if (useEmoji) {
+                    const url = getV2EmojiUrl(it)
+                    const fetched = await fetchImage(url)
+                    if (fetched) buf = fetched
+                  } else if (it?.logo) {
                     const url = String(it.logo).startsWith('http') ? it.logo : `http://localhost:4000${it.logo}`
                     const rimg = await axios.get(url, { responseType: 'arraybuffer' })
-                    const buf = Buffer.from(rimg.data)
-                    doc.image(buf, x, y, { width: size2, height: size2 })
-                  } catch { }
-                }
+                    buf = Buffer.from(rimg.data)
+                  } else if (it?.code) {
+                    const url = getV1FlagUrl(it.code)
+                    const fetched = url ? await fetchImage(url) : null
+                    if (fetched) buf = fetched
+                  }
+                  if (buf) doc.image(buf, x, y, { width: size2, height: size2 })
+                } catch { }
                 if (!it?.active) {
                   doc.opacity(0.4)
                   doc.rect(x, y, size2, size2).fill('#000')
@@ -865,20 +994,41 @@ pdfRouter.get('/class/:classId/batch', requireAuth(['ADMIN', 'SUBADMIN']), async
             } else if (b.type === 'table') {
               const x0 = px(b.props?.x || 50), y0 = py(b.props?.y || 50)
               const cols: number[] = (b.props?.columnWidths || []).map((cw: number) => sx(cw))
-              const rows: number[] = (b.props?.rowHeights || []).map((rh: number) => sy(rh))
+              
+              const expandedRows = b.props.expandedRows || false
+              const expandedH = expandedRows ? sy(b.props.expandedRowHeight || 34) : 0
+              const expandedDividerColor = b.props.expandedDividerColor || '#ddd'
+              
+              const rawRows: number[] = (b.props?.rowHeights || []).map((rh: number) => sy(rh))
+              const rowOffsets: number[] = [0]
+              for (let i = 0; i < rawRows.length; i++) {
+                   rowOffsets[i + 1] = rowOffsets[i] + (rawRows[i] || 0) + expandedH
+              }
+
               const cells: any[][] = b.props?.cells || []
               const colOffsets: number[] = [0]
               for (let i = 0; i < cols.length; i++) colOffsets[i + 1] = colOffsets[i] + (cols[i] || 0)
-              const rowOffsets: number[] = [0]
-              for (let i = 0; i < rows.length; i++) rowOffsets[i + 1] = rowOffsets[i] + (rows[i] || 0)
-              for (let ri = 0; ri < rows.length; ri++) {
+
+              const defaultLangs = [
+                  { code: 'lb', label: 'Lebanese', emoji: '🇱🇧', active: false },
+                  { code: 'fr', label: 'French', emoji: '🇫🇷', active: false },
+                  { code: 'en', label: 'English', emoji: '🇬🇧', active: false }
+              ]
+              const expandedLanguages = b.props.expandedLanguages || defaultLangs
+              const toggleStyle = b.props.expandedToggleStyle || 'v2'
+
+              for (let ri = 0; ri < rawRows.length; ri++) {
+                const rowBgColor = cells?.[ri]?.[0]?.fill || b.props.backgroundColor || '#f8f9fa'
+
                 for (let ci = 0; ci < cols.length; ci++) {
                   const cell = cells?.[ri]?.[ci] || {}
                   const cx = x0 + colOffsets[ci]
                   const cy = y0 + rowOffsets[ri]
                   const w = cols[ci] || 0
-                  const h = rows[ri] || 0
+                  const h = rawRows[ri] || 0
+                  
                   if (cell.fill && cell.fill !== 'transparent') { doc.save(); doc.fillColor(cell.fill); doc.rect(cx, cy, w, h).fill(); doc.restore() }
+                  
                   const drawSide = (sx: number, sy: number, ex: number, ey: number, side: any) => {
                     if (!side?.width || !side?.color) return
                     doc.save(); doc.strokeColor(side.color).lineWidth(side.width)
@@ -888,6 +1038,7 @@ pdfRouter.get('/class/:classId/batch', requireAuth(['ADMIN', 'SUBADMIN']), async
                   drawSide(cx, cy + h, cx + w, cy + h, cell?.borders?.b)
                   drawSide(cx, cy, cx, cy + h, cell?.borders?.l)
                   drawSide(cx + w, cy, cx + w, cy + h, cell?.borders?.r)
+                  
                   if (cell.text) {
                     doc.save()
                     if (cell.color) doc.fillColor(cell.color)
@@ -895,6 +1046,64 @@ pdfRouter.get('/class/:classId/batch', requireAuth(['ADMIN', 'SUBADMIN']), async
                     doc.text(cell.text, cx + 4, cy + 4, { width: Math.max(0, w - 8) })
                     doc.restore()
                   }
+                }
+
+                if (expandedRows) {
+                    const cx = x0
+                    const cy = y0 + rowOffsets[ri] + (rawRows[ri] || 0)
+                    const totalW = colOffsets[colOffsets.length - 1]
+                    
+                    if (rowBgColor && rowBgColor !== 'transparent') {
+                        doc.save(); doc.fillColor(rowBgColor); doc.rect(cx, cy, totalW, expandedH).fill(); doc.restore()
+                    }
+                    
+                    doc.save()
+                    doc.strokeColor(expandedDividerColor).lineWidth(0.5)
+                    doc.moveTo(cx + 10, cy).lineTo(cx + totalW - 10, cy).stroke()
+                    doc.restore()
+                    
+                    const toggleKey = `table_${blockIdx}_row_${ri}`
+                    const rowLanguages = b.props.rowLanguages?.[ri] || expandedLanguages
+                    const toggleData = assignmentData?.[toggleKey] || rowLanguages
+                    
+                    let tx = cx + 15
+                    const ty = cy + (expandedH - 12) / 2
+                    const size = Math.min(expandedH - 5, 12)
+                    
+                    for (const lang of toggleData) {
+                        const isActive = lang.active
+                        let url = null
+                        if (toggleStyle === 'v1') {
+                            url = getV1FlagUrl(lang.code)
+                        } else {
+                            url = getV2EmojiUrl(lang)
+                        }
+                        
+                        if (url) {
+                            try {
+                                const buf = await fetchImage(url)
+                                if (buf) {
+                                    doc.save()
+                                    doc.circle(tx + size/2, ty + size/2, size/2).clip()
+                                    doc.image(buf, tx, ty, { width: size, height: size })
+                                    doc.restore()
+                                    
+                                    if (isActive) {
+                                        doc.save()
+                                        doc.strokeColor('#6c5ce7').lineWidth(1)
+                                        doc.circle(tx + size/2, ty + size/2, size/2).stroke()
+                                        doc.restore()
+                                    } else {
+                                        doc.save()
+                                        doc.opacity(0.4)
+                                        doc.fillColor('#fff').circle(tx + size/2, ty + size/2, size/2).fill()
+                                        doc.restore()
+                                    }
+                                }
+                            } catch {}
+                        }
+                        tx += size + 10
+                    }
                 }
               }
             } else if (b.type === 'signature_box') {
@@ -1002,10 +1211,11 @@ pdfRouter.get('/class/:classId/batch', requireAuth(['ADMIN', 'SUBADMIN']), async
               doc.restore()
             }
             if (page?.title) doc.fontSize(18).fillColor('#333').text(page.title)
-            const blocksOrdered = [...(page?.blocks || [])].sort((a: any, b: any) => ((a?.props?.z ?? 0) - (b?.props?.z ?? 0)))
-            for (const b of blocksOrdered) {
-              await drawBlock(b)
-              if (!b.props?.x && !b.props?.y) doc.moveDown(0.4)
+            const blocksWithIdx = (page?.blocks || []).map((b: any, i: number) => ({ b, i }))
+            const blocksOrdered = blocksWithIdx.sort((itemA: any, itemB: any) => ((itemA.b?.props?.z ?? 0) - (itemB.b?.props?.z ?? 0)))
+            for (const item of blocksOrdered) {
+              await drawBlock(item.b, item.i)
+              if (!item.b.props?.x && !item.b.props?.y) doc.moveDown(0.4)
             }
           }
         }

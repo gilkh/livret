@@ -248,6 +248,8 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                     {(b.props.text || '')
                                         .replace(/\{student\.firstName\}/g, student.firstName)
                                         .replace(/\{student\.lastName\}/g, student.lastName)
+                                        .replace(/\{student\.className\}/g, student.className || '')
+                                        .replace(/\{student\.level\}/g, student.level || '')
                                         .replace(/\{student\.dob\}/g, new Date(student.dateOfBirth).toLocaleDateString())
                                     }
                                 </div>
@@ -477,12 +479,35 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                                             }}>
                                                                 {(() => {
                                                                     const rowLangs = b.props.rowLanguages?.[ri] || expandedLanguages
-                                                                    return rowLangs.map((lang: any, li: number) => {
+                                                                    const toggleStyle = b.props.expandedToggleStyle || 'v2'
+                                                                    const toggleKey = `table_${idx}_row_${ri}`
+                                                                    const currentItems = assignment?.data?.[toggleKey] || rowLangs
+                                                                    return currentItems.map((lang: any, li: number) => {
                                                                         const size = Math.max(12, Math.min(expandedRowHeight - 12, 20))
-                                                                        const c = (lang.code || '').toLowerCase()
-                                                                        const emoji = c === 'fr' ? '🇫🇷' : (c === 'en' || c === 'uk' || c === 'gb') ? '🇬🇧' : (c === 'lb' || c === 'ar') ? '🇱🇧' : '🏳️'
-                                                                        const appleEmojiUrl = `https://emojicdn.elk.sh/${emoji}?style=apple`
                                                                         const isActive = !!lang.active
+                                                                        if (toggleStyle === 'v1') {
+                                                                            const logo = lang.logo || (() => {
+                                                                                const c = (lang.code || '').toLowerCase()
+                                                                                if (c === 'en' || c === 'uk' || c === 'gb') return 'https://upload.wikimedia.org/wikipedia/commons/a/a4/Flag_of_the_United_States.svg'
+                                                                                if (c === 'fr') return 'https://upload.wikimedia.org/wikipedia/en/c/c3/Flag_of_France.svg'
+                                                                                if (c === 'ar' || c === 'lb') return 'https://upload.wikimedia.org/wikipedia/commons/5/59/Flag_of_Lebanon.svg'
+                                                                                return ''
+                                                                            })()
+                                                                            return (
+                                                                                <div key={li} title={lang.label} style={{ width: size, height: size, minWidth: size, borderRadius: '50%', overflow: 'hidden', background: isActive ? '#fff' : 'rgba(255, 255, 255, 0.5)', border: isActive ? '0.5px solid #fff' : '1px solid rgba(0, 0, 0, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: 'none', opacity: isActive ? 1 : 0.6 }}>
+                                                                                    {logo ? <img src={logo} style={{ width: '100%', height: '100%', objectFit: 'cover', filter: isActive ? 'brightness(1.1)' : 'brightness(0.6)' }} alt="" /> : <div style={{ width: '100%', height: '100%', background: '#ddd' }} />}
+                                                                                </div>
+                                                                            )
+                                                                        }
+                                                                        const e = lang.emoji
+                                                                        const emoji = e && e.length >= 2 ? e : (() => {
+                                                                            const c = (lang.code || '').toLowerCase()
+                                                                            if (c === 'lb' || c === 'ar') return '🇱🇧'
+                                                                            if (c === 'fr') return '🇫🇷'
+                                                                            if (c === 'en' || c === 'uk' || c === 'gb') return '🇬🇧'
+                                                                            return '🏳️'
+                                                                        })()
+                                                                        const appleEmojiUrl = `https://emojicdn.elk.sh/${emoji}?style=apple`
                                                                         return (
                                                                             <div key={li} title={lang.label} style={{ width: size, height: size, minWidth: size, borderRadius: '50%', background: isActive ? '#fff' : 'rgba(255, 255, 255, 0.5)', border: isActive ? '0.5px solid #fff' : '1px solid rgba(0, 0, 0, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: 'none', opacity: isActive ? 1 : 0.6 }}>
                                                                                 <img src={appleEmojiUrl} style={{ width: size * 0.7, height: size * 0.7, objectFit: 'contain' }} alt="" />
