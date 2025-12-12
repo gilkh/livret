@@ -76,6 +76,7 @@ export default function App() {
         {/* Print route without auth/navbar for PDF generation */}
         <Route path="/print/carnet/:assignmentId" element={<CarnetPrint />} />
         <Route path="/print/saved/:savedId" element={<CarnetPrint mode="saved" />} />
+        <Route path="/print/preview/:templateId/student/:studentId" element={<CarnetPrint mode="preview" />} />
         <Route
           path="/"
           element={

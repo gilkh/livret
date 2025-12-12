@@ -1,13 +1,5 @@
 import 'dotenv/config'
 
-process.on('uncaughtException', (error) => {
-  console.error('Uncaught Exception:', error)
-})
-
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason)
-})
-
 import { createApp } from './app'
 import { repairRouter } from './routes/repair'
 import os from 'os'
@@ -17,12 +9,46 @@ import http from 'http'
 import fs from 'fs'
 import path from 'path'
 
+// Store server reference for graceful shutdown
+let server: https.Server | http.Server | null = null
+
+// Graceful shutdown function
+const gracefulShutdown = (signal: string) => {
+  console.log(`\nReceived ${signal}. Shutting down gracefully...`)
+  if (server) {
+    server.close(() => {
+      console.log('HTTP server closed')
+      process.exit(0)
+    })
+    // Force close after 5 seconds
+    setTimeout(() => {
+      console.log('Forcing shutdown...')
+      process.exit(1)
+    }, 5000)
+  } else {
+    process.exit(0)
+  }
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'))
+process.on('SIGINT', () => gracefulShutdown('SIGINT'))
+
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error)
+  // Don't exit for ECONNRESET or similar non-fatal errors
+  if ((error as any).code === 'ECONNRESET' || (error as any).code === 'EPIPE') {
+    return
+  }
+})
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason)
+})
+
 const port = process.env.PORT ? Number(process.env.PORT) : 4000
 const app = createApp()
 
 app.use('/api/repair', repairRouter)
-
-let server: https.Server | http.Server
 
 try {
   // Look for certs in ../certs relative to project root (server folder)
@@ -34,7 +60,7 @@ try {
   // so path is ../certs relative to server root.
   // from src: ../../certs
   const certPath = path.join(__dirname, '../../certs')
-  
+
   if (fs.existsSync(path.join(certPath, 'key.pem'))) {
     const key = fs.readFileSync(path.join(certPath, 'key.pem'))
     const cert = fs.readFileSync(path.join(certPath, 'cert.pem'))

@@ -81,7 +81,7 @@ exports.subAdminAssignmentsRouter.get('/progress', (0, auth_1.requireAuth)(['SUB
                 const assignmentData = assignment.data || {};
                 template.pages.forEach((page, pageIdx) => {
                     (page.blocks || []).forEach((block, blockIdx) => {
-                        if (block.type !== 'language_toggle')
+                        if (!['language_toggle', 'language_toggle_v2'].includes(block.type))
                             return;
                         const key = `language_toggle_${pageIdx}_${blockIdx}`;
                         const overrideItems = assignmentData[key];
@@ -625,7 +625,7 @@ exports.subAdminAssignmentsRouter.get('/teacher-progress', (0, auth_1.requireAut
                 };
                 template.pages.forEach((page, pageIdx) => {
                     (page.blocks || []).forEach((block, blockIdx) => {
-                        if (block.type === 'language_toggle') {
+                        if (['language_toggle', 'language_toggle_v2'].includes(block.type)) {
                             const key = `language_toggle_${pageIdx}_${blockIdx}`;
                             const overrideItems = assignmentData[key];
                             const items = overrideItems || block.props.items || [];

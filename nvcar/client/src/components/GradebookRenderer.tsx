@@ -383,7 +383,7 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                                                             borderBottom: (!expandedRows && !isLastRow) ? '1px solid #ddd' : 'none',
                                                                             background: cell.fill || 'transparent',
                                                                             padding: 15,
-                                                                            fontSize: cell.fontSize || 12,
+                                                                            fontSize: cell.fontSize || b.props.fontSize || 10,
                                                                             color: cell.color || '#333',
                                                                             display: 'flex',
                                                                             alignItems: 'center',
@@ -422,10 +422,11 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                                                         {(() => {
                                                                             // Get toggle states from assignment data
                                                                             const toggleKey = `table_${blockIdx}_row_${ri}`
-                                                                            const toggleData = assignment?.data?.[toggleKey] || expandedLanguages
+                                                                            const rowLanguages = b.props.rowLanguages?.[ri] || expandedLanguages
+                                                                            const toggleData = assignment?.data?.[toggleKey] || rowLanguages
 
                                                                             return toggleData.map((lang: any, li: number) => {
-                                                                                const size = Math.min(expandedRowHeight - 10, 24)
+                                                                                const size = Math.min(expandedRowHeight - 10, 12)
                                                                                 const getEmoji = (item: any) => {
                                                                                     const e = item.emoji
                                                                                     if (e && e.length >= 2) return e

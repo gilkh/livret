@@ -4,12 +4,6 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 require("dotenv/config");
-process.on('uncaughtException', (error) => {
-    console.error('Uncaught Exception:', error);
-});
-process.on('unhandledRejection', (reason, promise) => {
-    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-});
 const app_1 = require("./app");
 const repair_1 = require("./routes/repair");
 const os_1 = __importDefault(require("os"));
@@ -18,10 +12,41 @@ const https_1 = __importDefault(require("https"));
 const http_1 = __importDefault(require("http"));
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
+// Store server reference for graceful shutdown
+let server = null;
+// Graceful shutdown function
+const gracefulShutdown = (signal) => {
+    console.log(`\nReceived ${signal}. Shutting down gracefully...`);
+    if (server) {
+        server.close(() => {
+            console.log('HTTP server closed');
+            process.exit(0);
+        });
+        // Force close after 5 seconds
+        setTimeout(() => {
+            console.log('Forcing shutdown...');
+            process.exit(1);
+        }, 5000);
+    }
+    else {
+        process.exit(0);
+    }
+};
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('uncaughtException', (error) => {
+    console.error('Uncaught Exception:', error);
+    // Don't exit for ECONNRESET or similar non-fatal errors
+    if (error.code === 'ECONNRESET' || error.code === 'EPIPE') {
+        return;
+    }
+});
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
 const port = process.env.PORT ? Number(process.env.PORT) : 4000;
 const app = (0, app_1.createApp)();
 app.use('/api/repair', repair_1.repairRouter);
-let server;
 try {
     // Look for certs in ../certs relative to project root (server folder)
     // If running from src/index.ts via ts-node, __dirname is src

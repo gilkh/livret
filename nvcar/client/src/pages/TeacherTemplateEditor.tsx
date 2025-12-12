@@ -203,6 +203,29 @@ export default function TeacherTemplateEditor() {
         return null
     }
 
+    const handleExportPDF = async () => {
+        if (template && student) {
+            try {
+                const r = await api.get(`/pdf-v2/student/${student._id}`, {
+                    params: { templateId: template._id },
+                    responseType: 'blob'
+                })
+                const blob = new Blob([r.data], { type: 'application/pdf' })
+                const url = URL.createObjectURL(blob)
+                const a = document.createElement('a')
+                a.href = url
+                a.download = `carnet-${student.lastName}-${student.firstName}.pdf`
+                document.body.appendChild(a)
+                a.click()
+                a.remove()
+                URL.revokeObjectURL(url)
+            } catch (e: any) {
+                setError('Échec de l\'export PDF')
+                console.error(e)
+            }
+        }
+    }
+
     if (loading) return <div className="container"><div className="card"><div className="note">Chargement...</div></div></div>
     if (error && !template) return <div className="container"><div className="card"><div className="note" style={{ color: 'crimson' }}>{error}</div></div></div>
     if (!template) return <div className="container"><div className="card"><div className="note">Carnet introuvable</div></div></div>
@@ -278,6 +301,23 @@ export default function TeacherTemplateEditor() {
                             {isMyWorkCompleted ? 'Rouvrir' : 'Marquer comme terminé'}
                         </button>
                     )}
+                    <button 
+                        className="btn secondary"
+                        onClick={handleExportPDF}
+                        style={{
+                            marginLeft: 12,
+                            padding: '6px 12px',
+                            fontSize: 13,
+                            background: '#f1f5f9',
+                            color: '#475569',
+                            border: '1px solid #cbd5e1',
+                            cursor: 'pointer',
+                            borderRadius: 6,
+                            fontWeight: 500
+                        }}
+                    >
+                        📄 Export PDF
+                    </button>
                 </div>
 
                 {saveStatus && <div style={{ padding: '14px 20px', background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', color: 'white', borderRadius: 8, marginBottom: 16, fontWeight: 600, fontSize: 14, textAlign: 'center', boxShadow: '0 2px 8px rgba(16, 185, 129, 0.3)' }}>✓ {saveStatus}</div>}

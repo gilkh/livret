@@ -11,8 +11,8 @@ type Assignment = { _id: string; status: string; data?: any }
 const pageWidth = 800
 const pageHeight = 1120
 
-export default function CarnetPrint({ mode }: { mode?: 'saved' }) {
-    const { assignmentId, savedId } = useParams<{ assignmentId: string, savedId: string }>()
+export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
+    const { assignmentId, savedId, templateId, studentId } = useParams<{ assignmentId: string, savedId: string, templateId: string, studentId: string }>()
     const [searchParams] = useSearchParams()
     const token = searchParams.get('token')
     
@@ -39,6 +39,22 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' }) {
         // Initialize as not ready
         // @ts-ignore
         window.__READY_FOR_PDF__ = false
+        
+        const getRoleFromToken = (tok: string | null): string => {
+            try {
+                if (!tok) return ''
+                const parts = tok.split('.')
+                if (parts.length < 2) return ''
+                const b64url = parts[1]
+                const b64 = b64url.replace(/-/g, '+').replace(/_/g, '/')
+                const padded = b64 + '='.repeat((4 - (b64.length % 4 || 4)) % 4)
+                const payload = JSON.parse(atob(padded))
+                const effRole = payload.impersonateRole || payload.role
+                return String(effRole || '')
+            } catch {
+                return ''
+            }
+        }
         
         const loadData = async () => {
             try {
@@ -94,13 +110,70 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' }) {
 
                          setTemplate(templateData)
                     }
+                } else if (mode === 'preview' && templateId && studentId) {
+                    const sRes = await api.get(`/students/${studentId}`)
+                    const s = sRes.data
+                    let cls = ''
+                    if (Array.isArray(s.enrollments) && s.enrollments.length > 0) {
+                        const active = s.enrollments.find((e: any) => e.status === 'active')
+                        cls = (active || s.enrollments[s.enrollments.length - 1])?.className || ''
+                    }
+                    setStudent({
+                        _id: s._id,
+                        firstName: s.firstName,
+                        lastName: s.lastName,
+                        level: s.level,
+                        className: cls,
+                        dateOfBirth: s.dateOfBirth,
+                        avatarUrl: s.avatarUrl
+                    })
+                    const tRes = await api.get(`/templates/${templateId}`)
+                    setTemplate(tRes.data)
                 } else if (assignmentId) {
                     console.log('[CarnetPrint] Loading data for assignment:', assignmentId)
-                    const r = await api.get(`/subadmin/templates/${assignmentId}/review`)
-                    setTemplate(r.data.template)
-                    setStudent(r.data.student)
-                    setAssignment(r.data.assignment)
-                    setSignature(r.data.signature)
+                    let role = localStorage.getItem('role') || ''
+                    if (!role) role = getRoleFromToken(token)
+                    
+                    const isTeacher = role === 'TEACHER'
+                    const isAdmin = role === 'ADMIN'
+                    
+                    const endpoint = isTeacher
+                        ? `/teacher/template-assignments/${assignmentId}`
+                        : (isAdmin ? `/admin-extras/templates/${assignmentId}/review` : `/subadmin/templates/${assignmentId}/review`)
+                    const r = await api.get(endpoint)
+                    let templateData = r.data.template
+                    const assignmentData = r.data.assignment
+                    const studentData = r.data.student
+                    setStudent(studentData)
+                    setAssignment(assignmentData)
+                    if (!isTeacher) setSignature(r.data.signature)
+                    
+                    if (assignmentData?.templateVersion && templateData?.versionHistory) {
+                        const version = templateData.versionHistory.find((v: any) => v.version === assignmentData.templateVersion)
+                        if (version) {
+                            templateData = {
+                                ...templateData,
+                                pages: version.pages,
+                                variables: version.variables || {},
+                                watermark: version.watermark
+                            }
+                        }
+                    }
+                    
+                    if (assignmentData && assignmentData.data && templateData?.pages) {
+                        templateData.pages.forEach((page: any, pIdx: number) => {
+                            page.blocks.forEach((block: any, bIdx: number) => {
+                                if (['language_toggle', 'language_toggle_v2'].includes(block.type)) {
+                                    const key = `language_toggle_${pIdx}_${bIdx}`
+                                    if (assignmentData.data[key]) {
+                                        block.props.items = assignmentData.data[key]
+                                    }
+                                }
+                            })
+                        })
+                    }
+                    
+                    setTemplate(templateData)
                 }
                 
                 console.log('[CarnetPrint] Data loaded successfully')
@@ -168,10 +241,10 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' }) {
                     {page.blocks.map((b, idx) => (
                         <div key={idx} style={{ position: 'absolute', left: b.props.x || 0, top: b.props.y || 0, zIndex: b.props.z ?? idx }}>
                             {b.type === 'text' && (
-                                <div style={{ color: b.props.color, fontSize: b.props.fontSize }}>{b.props.text}</div>
+                                <div style={{ color: b.props.color, fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden', whiteSpace: 'pre-wrap' }}>{b.props.text}</div>
                             )}
                             {b.type === 'dynamic_text' && (
-                                <div style={{ color: b.props.color, fontSize: b.props.fontSize }}>
+                                <div style={{ color: b.props.color, fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden', whiteSpace: 'pre-wrap' }}>
                                     {(b.props.text || '')
                                         .replace(/\{student\.firstName\}/g, student.firstName)
                                         .replace(/\{student\.lastName\}/g, student.lastName)
@@ -189,34 +262,251 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' }) {
                                     </div>
                                 )
                             )}
+                            {b.type === 'student_info' && (
+                                <div style={{ color: b.props.color, fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden' }}>
+                                    {`${student.firstName} ${student.lastName}, ${student.className || 'Classe'}, ${student.dateOfBirth ? new Date(student.dateOfBirth).toLocaleDateString() : ''}`}
+                                </div>
+                            )}
+                            {b.type === 'category_title' && (
+                                <div style={{ color: b.props.color, fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden' }}>
+                                    {b.props.text || 'Titre catégorie'}
+                                </div>
+                            )}
                             {b.type === 'rect' && <div style={{ width: b.props.width, height: b.props.height, background: b.props.color, border: b.props.stroke ? `${b.props.strokeWidth || 1}px solid ${b.props.stroke}` : 'none', borderRadius: b.props.radius || 8 }} />}
                             {b.type === 'circle' && <div style={{ width: (b.props.radius || 60) * 2, height: (b.props.radius || 60) * 2, background: b.props.color, border: b.props.stroke ? `${b.props.strokeWidth || 1}px solid ${b.props.stroke}` : 'none', borderRadius: '50%' }} />}
                             {b.type === 'line' && <div style={{ width: b.props.x2 || 100, height: b.props.strokeWidth || 2, background: b.props.stroke || '#b2bec3' }} />}
                             {b.type === 'arrow' && <div style={{ width: b.props.x2 || 100, height: b.props.strokeWidth || 2, background: b.props.stroke || '#6c5ce7', position: 'relative' }}><div style={{ position: 'absolute', right: 0, top: -6, width: 0, height: 0, borderTop: '8px solid transparent', borderBottom: '8px solid transparent', borderLeft: `12px solid ${b.props.stroke || '#6c5ce7'}` }} /></div>}
                             
                             {b.type === 'language_toggle' && (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: b.props.spacing || 12 }}>
+                                <div style={{
+                                    display: 'flex',
+                                    flexDirection: (b.props.direction as any) || 'column',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: b.props.spacing || 12,
+                                    background: b.props.backgroundColor || 'transparent',
+                                    borderRadius: b.props.borderRadius || 12,
+                                    padding: b.props.padding || 8,
+                                    width: b.props.width,
+                                    height: b.props.height,
+                                    boxSizing: 'border-box'
+                                }}>
                                     {(b.props.items || []).map((it: any, i: number) => {
                                         const isAllowed = !(it.levels && it.levels.length > 0 && student?.level && !it.levels.includes(student.level));
                                         const r = b.props.radius || 40
                                         const size = r * 2
                                         return (
-                                            <div 
-                                                key={i}  
-                                                style={{ 
-                                                    width: size, 
-                                                    height: size, 
-                                                    borderRadius: '50%', 
-                                                    overflow: 'hidden', 
-                                                    position: 'relative',
-                                                    boxShadow: it.active ? '0 0 0 3px #6c5ce7' : '0 0 0 1px #ddd',
-                                                    opacity: isAllowed ? 0.9 : 0.5
-                                                }}
-                                            >
-                                                {it.logo ? <img src={it.logo} style={{ width: '100%', height: '100%', objectFit: 'cover', filter: it.active ? 'brightness(1.1)' : 'brightness(0.6)' }} alt="" /> : <div style={{ width: '100%', height: '100%', background: '#ddd' }} />}
+                                            <div key={i} style={{ width: size, height: size, borderRadius: '50%', overflow: 'hidden', position: 'relative', boxShadow: it.active ? '0 0 0 2px #6c5ce7' : 'none', opacity: isAllowed ? 0.9 : 0.5 }}>
+                                                {it.logo ? <img src={it.logo} style={{ width: '100%', height: '100%', objectFit: 'cover', filter: it.active ? 'brightness(1.1)' : 'brightness(0.6)' }} /> : <div style={{ width: '100%', height: '100%', background: '#ddd' }} />}
                                             </div>
                                         )
                                     })}
+                                </div>
+                            )}
+                            {b.type === 'language_toggle_v2' && (
+                                <div style={{
+                                    display: 'flex',
+                                    flexDirection: (b.props.direction as any) || 'row',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: b.props.spacing || 12,
+                                    background: b.props.backgroundColor || 'transparent',
+                                    borderRadius: b.props.borderRadius || 12,
+                                    padding: b.props.padding || 8,
+                                    width: b.props.width,
+                                    height: b.props.height,
+                                    boxSizing: 'border-box'
+                                }}>
+                                    {(b.props.items || []).map((it: any, i: number) => {
+                                        const size = 40
+                                        const e = (it.emoji || '').toLowerCase()
+                                        const emoji = e ? it.emoji : ((it.code || '').toLowerCase() === 'fr' ? '🇫🇷' : ((it.code || '').toLowerCase() === 'en' || (it.code || '').toLowerCase() === 'gb' || (it.code || '').toLowerCase() === 'uk') ? '🇬🇧' : ((it.code || '').toLowerCase() === 'lb' || (it.code || '').toLowerCase() === 'ar') ? '🇱🇧' : '🏳️')
+                                        const appleEmojiUrl = `https://emojicdn.elk.sh/${emoji}?style=apple`
+                                        return (
+                                            <div key={i} title={it.label} style={{ width: size, height: size, minWidth: size, borderRadius: '50%', background: it.active ? '#fff' : 'rgba(255, 255, 255, 0.5)', border: it.active ? '2px solid #2563eb' : '1px solid rgba(0, 0, 0, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: it.active ? '0 0 0 2px rgba(37, 99, 235, 0.2)' : 'none', opacity: it.active ? 1 : 0.5 }}>
+                                                <img src={appleEmojiUrl} style={{ width: size * 0.75, height: size * 0.75, objectFit: 'contain' }} alt="" />
+                                            </div>
+                                        )
+                                    })}
+                                </div>
+                            )}
+                            {b.type === 'table' && (() => {
+                                const parseNum = (v: any) => {
+                                    const n = typeof v === 'number' ? v : parseFloat(String(v || '0'))
+                                    return isNaN(n) ? 0 : n
+                                }
+                                const cols: number[] = (b.props.columnWidths || []).map(parseNum)
+                                const rows: number[] = (b.props.rowHeights || []).map(parseNum)
+                                const cells: any[][] = b.props.cells || []
+                                const gapCol = parseNum(b.props.colGap)
+                                const gapRow = parseNum(b.props.rowGap)
+                                const expandedRows = b.props.expandedRows || false
+                                const expandedRowHeight = parseNum(b.props.expandedRowHeight || 34)
+                                const expandedDividerWidth = parseNum(b.props.expandedDividerWidth || 0.5)
+                                const expandedDividerColor = b.props.expandedDividerColor || 'rgba(255, 255, 255, 0.2)'
+                                const expandedPadding = 4
+                                const expandedTopGap = 6
+                                const expandedLanguages = b.props.expandedLanguages || [
+                                    { code: 'lb', label: 'Lebanese', emoji: '🇱🇧', active: false },
+                                    { code: 'fr', label: 'French', emoji: '🇫🇷', active: false },
+                                    { code: 'en', label: 'English', emoji: '🇬🇧', active: false }
+                                ]
+                                let width = 0
+                                const colOffsets: number[] = [0]
+                                for (let i = 0; i < cols.length; i++) {
+                                    width += (cols[i] || 0)
+                                    colOffsets[i + 1] = width
+                                    width += gapCol
+                                }
+                                if (cols.length > 0) width -= gapCol
+                                let height = 0
+                                for (let i = 0; i < rows.length; i++) {
+                                    height += (rows[i] || 0)
+                                    if (expandedRows) {
+                                        height += (expandedRowHeight + expandedPadding + expandedTopGap)
+                                    }
+                                    height += gapRow
+                                }
+                                if (rows.length > 0) height -= gapRow
+                                return (
+                                    <div style={{
+                                        position: 'relative',
+                                        width,
+                                        height,
+                                        display: expandedRows ? 'flex' : 'grid',
+                                        flexDirection: 'column',
+                                        gap: `${gapRow}px ${gapCol}px`,
+                                        gridTemplateColumns: !expandedRows ? cols.map(w => `${Math.max(1, Math.round(w))}px`).join(' ') : undefined,
+                                        gridTemplateRows: !expandedRows ? rows.map(h => `${Math.max(1, Math.round(h))}px`).join(' ') : undefined,
+                                        overflow: 'visible',
+                                        background: (gapRow > 0 || gapCol > 0) ? 'transparent' : (b.props.backgroundColor || 'transparent'),
+                                        borderRadius: (gapRow > 0 || gapCol > 0) ? 0 : (b.props.borderRadius || 0)
+                                    }}>
+                                        {!expandedRows ? (
+                                            cells.flatMap((row, ri) => row.map((cell, ci) => {
+                                                const bl = cell?.borders?.l; const br = cell?.borders?.r; const bt = cell?.borders?.t; const bb = cell?.borders?.b
+                                                const radius = b.props.borderRadius || 0
+                                                const isFirstCol = ci === 0
+                                                const isLastCol = ci === cols.length - 1
+                                                const isFirstRow = ri === 0
+                                                const isLastRow = ri === rows.length - 1
+                                                const treatAsCards = gapRow > 0
+                                                const style: React.CSSProperties = {
+                                                    background: cell?.fill || ((treatAsCards && b.props.backgroundColor) ? b.props.backgroundColor : 'transparent'),
+                                                    borderLeft: bl?.width ? `${bl.width}px solid ${bl.color || '#000'}` : 'none',
+                                                    borderRight: br?.width ? `${br.width}px solid ${br.color || '#000'}` : 'none',
+                                                    borderTop: bt?.width ? `${bt.width}px solid ${bt.color || '#000'}` : 'none',
+                                                    borderBottom: bb?.width ? `${bb.width}px solid ${bb.color || '#000'}` : 'none',
+                                                    padding: 15,
+                                                    boxSizing: 'border-box',
+                                                    borderTopLeftRadius: (isFirstCol && (treatAsCards || isFirstRow)) ? radius : 0,
+                                                    borderBottomLeftRadius: (isFirstCol && (treatAsCards || isLastRow)) ? radius : 0,
+                                                    borderTopRightRadius: (isLastCol && (treatAsCards || isFirstRow)) ? radius : 0,
+                                                    borderBottomRightRadius: (isLastCol && (treatAsCards || isLastRow)) ? radius : 0,
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    overflow: 'hidden'
+                                                }
+                                                return (
+                                                    <div key={`${ri}-${ci}`} style={style}>
+                                                        {cell?.text && <div style={{ fontSize: cell.fontSize || 12, color: cell.color || '#000', whiteSpace: 'pre-wrap' }}>{cell.text}</div>}
+                                                    </div>
+                                                )
+                                            }))
+                                        ) : (
+                                            cells.map((row, ri) => {
+                                                const radius = b.props.borderRadius || 0
+                                                const isLastRow = ri === rows.length - 1
+                                                const treatAsCards = gapRow > 0
+                                                const rowBgColor = row[0]?.fill || b.props.backgroundColor || '#f8f9fa'
+                                                const mainRowHeight = rows[ri] || 40
+                                                return (
+                                                    <div key={`row-unit-${ri}`} style={{ position: 'relative', display: 'flex', flexDirection: 'column' }}>
+                                                        <div style={{
+                                                            display: 'grid',
+                                                            gridTemplateColumns: cols.map(w => `${Math.max(1, Math.round(w))}px`).join(' '),
+                                                            columnGap: gapCol,
+                                                            height: mainRowHeight
+                                                        }}>
+                                                            {row.map((cell, ci) => {
+                                                                const bl = cell?.borders?.l; const br = cell?.borders?.r; const bt = cell?.borders?.t
+                                                                const isFirstCol = ci === 0
+                                                                const isLastCol = ci === cols.length - 1
+                                                                const style: React.CSSProperties = {
+                                                                    background: cell?.fill || ((treatAsCards && b.props.backgroundColor) ? b.props.backgroundColor : 'transparent'),
+                                                                    borderLeft: bl?.width ? `${bl.width}px solid ${bl.color || '#000'}` : 'none',
+                                                                    borderRight: br?.width ? `${br.width}px solid ${br.color || '#000'}` : 'none',
+                                                                    borderTop: bt?.width ? `${bt.width}px solid ${bt.color || '#000'}` : 'none',
+                                                                    borderBottom: 'none',
+                                                                    padding: 15,
+                                                                    boxSizing: 'border-box',
+                                                                    borderTopLeftRadius: (isFirstCol) ? radius : 0,
+                                                                    borderTopRightRadius: (isLastCol) ? radius : 0,
+                                                                    display: 'flex',
+                                                                    alignItems: 'center',
+                                                                    overflow: 'hidden'
+                                                                }
+                                                                return (
+                                                                    <div key={`cell-${ri}-${ci}`} style={style}>
+                                                                        {cell?.text && <div style={{ fontSize: cell.fontSize || 12, color: cell.color || '#000', whiteSpace: 'pre-wrap' }}>{cell.text}</div>}
+                                                                    </div>
+                                                                )
+                                                            })}
+                                                        </div>
+                                                        <div style={{
+                                                            background: rowBgColor,
+                                                            borderBottomLeftRadius: (treatAsCards || isLastRow) ? radius : 0,
+                                                            borderBottomRightRadius: (treatAsCards || isLastRow) ? radius : 0,
+                                                            height: expandedRowHeight,
+                                                            position: 'relative',
+                                                            paddingBottom: expandedPadding
+                                                        }}>
+                                                            <div style={{
+                                                                position: 'absolute', top: 0, left: 0, right: 0,
+                                                                height: expandedDividerWidth,
+                                                                background: expandedDividerColor,
+                                                                margin: '0 15px'
+                                                            }} />
+                                                            <div style={{
+                                                                height: '100%',
+                                                                display: 'flex',
+                                                                alignItems: 'flex-start',
+                                                                paddingLeft: 15,
+                                                                paddingTop: expandedTopGap,
+                                                                gap: 8
+                                                            }}>
+                                                                {(() => {
+                                                                    const rowLangs = b.props.rowLanguages?.[ri] || expandedLanguages
+                                                                    return rowLangs.map((lang: any, li: number) => {
+                                                                        const size = Math.max(12, Math.min(expandedRowHeight - 12, 20))
+                                                                        const c = (lang.code || '').toLowerCase()
+                                                                        const emoji = c === 'fr' ? '🇫🇷' : (c === 'en' || c === 'uk' || c === 'gb') ? '🇬🇧' : (c === 'lb' || c === 'ar') ? '🇱🇧' : '🏳️'
+                                                                        const appleEmojiUrl = `https://emojicdn.elk.sh/${emoji}?style=apple`
+                                                                        const isActive = !!lang.active
+                                                                        return (
+                                                                            <div key={li} title={lang.label} style={{ width: size, height: size, minWidth: size, borderRadius: '50%', background: isActive ? '#fff' : 'rgba(255, 255, 255, 0.5)', border: isActive ? '0.5px solid #fff' : '1px solid rgba(0, 0, 0, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: 'none', opacity: isActive ? 1 : 0.6 }}>
+                                                                                <img src={appleEmojiUrl} style={{ width: size * 0.7, height: size * 0.7, objectFit: 'contain' }} alt="" />
+                                                                            </div>
+                                                                        )
+                                                                    })
+                                                                })()}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                )
+                                            })
+                                        )}
+                                    </div>
+                                )
+                            })()}
+                            {b.type === 'signature' && (
+                                <div style={{ fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden' }}>
+                                    {(b.props.labels || []).join(' / ')}
+                                </div>
+                            )}
+                            {b.type === 'signature_box' && (
+                                <div style={{ width: b.props.width || 200, height: b.props.height || 80, border: '1px solid #000', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#999' }}>
+                                    {b.props.label || 'Signature'}
                                 </div>
                             )}
                             
@@ -335,34 +625,7 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' }) {
                                 </div>
                             )}
                             
-                            {b.type === 'table' && (
-                                <div style={{ display: 'inline-block', border: '1px solid #ddd' }}>
-                                    {(b.props.cells || []).map((row: any[], ri: number) => (
-                                        <div key={ri} style={{ display: 'flex' }}>
-                                            {row.map((cell: any, ci: number) => (
-                                                <div 
-                                                    key={ci}
-                                                    style={{ 
-                                                        width: b.props.columnWidths?.[ci] || 100,
-                                                        height: b.props.rowHeights?.[ri] || 40,
-                                                        borderRight: ci < row.length - 1 ? '1px solid #ddd' : 'none',
-                                                        borderBottom: ri < b.props.cells.length - 1 ? '1px solid #ddd' : 'none',
-                                                        background: cell.fill || 'transparent',
-                                                        padding: 15,
-                                                        fontSize: cell.fontSize || 12,
-                                                        color: cell.color || '#333',
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        overflow: 'hidden'
-                                                    }}
-                                                >
-                                                    {cell.text}
-                                                </div>
-                                            ))}
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
+                            
                             
                             {b.type === 'qr' && (
                                 <img 

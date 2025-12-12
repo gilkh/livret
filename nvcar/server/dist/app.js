@@ -141,6 +141,16 @@ const createApp = () => {
         }
     })
         .catch(e => console.error('mongo error', e));
+    // Global error handling middleware - must be last
+    app.use((err, req, res, next) => {
+        console.error('Unhandled error:', err);
+        if (!res.headersSent) {
+            res.status(500).json({
+                error: 'internal_server_error',
+                message: process.env.NODE_ENV === 'development' ? err.message : 'An unexpected error occurred'
+            });
+        }
+    });
     return app;
 };
 exports.createApp = createApp;

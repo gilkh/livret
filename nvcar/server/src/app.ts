@@ -37,14 +37,14 @@ import { adminExtrasRouter } from './routes/adminExtras'
 
 export const createApp = () => {
   const app = express()
-  
+
   // Allow all origins with credentials
   app.use(cors({
     origin: true,
     credentials: true,
     exposedHeaders: ['Content-Disposition']
   }))
-  
+
   app.use(bodyParser.json({ limit: '50mb' }))
   app.use(bodyParser.urlencoded({ limit: '50mb', extended: true }))
 
@@ -108,5 +108,17 @@ export const createApp = () => {
       }
     })
     .catch(e => console.error('mongo error', e))
+
+  // Global error handling middleware - must be last
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    console.error('Unhandled error:', err)
+    if (!res.headersSent) {
+      res.status(500).json({
+        error: 'internal_server_error',
+        message: process.env.NODE_ENV === 'development' ? err.message : 'An unexpected error occurred'
+      })
+    }
+  })
+
   return app
 }

@@ -28,7 +28,8 @@ const getBrowser = async () => {
             '--disable-accelerated-2d-canvas',
             '--no-first-run',
             '--no-zygote',
-            '--disable-gpu'
+            '--disable-gpu',
+            '--ignore-certificate-errors'
         ]
     });
     browserInstance.on('disconnected', () => {
@@ -89,17 +90,40 @@ exports.pdfPuppeteerRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN',
         });
         // Set viewport for consistent rendering
         await page.setViewport({ width: 800, height: 1120 });
-        // Set authentication cookie so React can access the API
+        const forwardedProto = String(req.headers['x-forwarded-proto'] || '');
+        const forwardedHost = String(req.headers['x-forwarded-host'] || '');
+        const originHeader = String(req.headers['origin'] || '');
+        const refererHeader = String(req.headers['referer'] || '');
+        let frontendUrl = process.env.FRONTEND_URL || '';
+        if (!frontendUrl) {
+            if (forwardedProto && forwardedHost) {
+                frontendUrl = `${forwardedProto}://${forwardedHost}`;
+            }
+            else if (originHeader) {
+                frontendUrl = originHeader;
+            }
+            else if (refererHeader) {
+                try {
+                    frontendUrl = new URL(refererHeader).origin;
+                }
+                catch { }
+            }
+        }
+        if (!frontendUrl)
+            frontendUrl = 'https://localhost:5173';
         if (token) {
+            let cookieDomain = 'localhost';
+            try {
+                cookieDomain = new URL(frontendUrl).hostname;
+            }
+            catch { }
             await page.setCookie({
                 name: 'token',
                 value: token,
-                domain: 'localhost',
+                domain: cookieDomain,
                 path: '/'
             });
         }
-        // Build URL to load the carnet from frontend
-        const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
         const printUrl = `${frontendUrl}/print/carnet/${assignment._id}?token=${token}`;
         console.log('[PDF] Loading page:', printUrl);
         await page.goto(printUrl, {
@@ -162,6 +186,96 @@ exports.pdfPuppeteerRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN',
         });
     }
 });
+exports.pdfPuppeteerRouter.get('/preview/:templateId/:studentId', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', 'TEACHER']), async (req, res) => {
+    let page = null;
+    try {
+        const { templateId, studentId } = req.params;
+        let token = '';
+        if (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
+            token = req.headers.authorization.slice('Bearer '.length);
+        }
+        else if (req.query.token) {
+            token = String(req.query.token);
+        }
+        const student = await Student_1.Student.findById(studentId).lean();
+        if (!student)
+            return res.status(404).json({ error: 'student_not_found' });
+        const template = await GradebookTemplate_1.GradebookTemplate.findById(templateId).lean();
+        if (!template)
+            return res.status(404).json({ error: 'template_not_found' });
+        const browser = await getBrowser();
+        page = await browser.newPage();
+        page.on('console', (msg) => { console.log('[BROWSER LOG]', msg.text()); });
+        page.on('pageerror', (err) => { console.error('[PAGE ERROR]', err); });
+        page.on('requestfailed', (req) => { console.error('[FAILED REQUEST]', req.url(), req.failure()); });
+        await page.setViewport({ width: 800, height: 1120 });
+        const forwardedProto = String(req.headers['x-forwarded-proto'] || '');
+        const forwardedHost = String(req.headers['x-forwarded-host'] || '');
+        const originHeader = String(req.headers['origin'] || '');
+        const refererHeader = String(req.headers['referer'] || '');
+        let frontendUrl = process.env.FRONTEND_URL || '';
+        if (!frontendUrl) {
+            if (forwardedProto && forwardedHost) {
+                frontendUrl = `${forwardedProto}://${forwardedHost}`;
+            }
+            else if (originHeader) {
+                frontendUrl = originHeader;
+            }
+            else if (refererHeader) {
+                try {
+                    frontendUrl = new URL(refererHeader).origin;
+                }
+                catch { }
+            }
+        }
+        if (!frontendUrl)
+            frontendUrl = 'https://localhost:5173';
+        if (token) {
+            let cookieDomain = 'localhost';
+            try {
+                cookieDomain = new URL(frontendUrl).hostname;
+            }
+            catch { }
+            await page.setCookie({ name: 'token', value: token, domain: cookieDomain, path: '/' });
+        }
+        const printUrl = `${frontendUrl}/print/preview/${templateId}/student/${studentId}?token=${token}`;
+        await page.goto(printUrl, { waitUntil: 'networkidle0', timeout: 60000 });
+        await page.waitForFunction(() => {
+            // @ts-ignore
+            return window.__READY_FOR_PDF__ === true;
+        }, { timeout: 30000 });
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        const pdfBuffer = await page.pdf({
+            format: 'A4',
+            printBackground: true,
+            margin: { top: 0, right: 0, bottom: 0, left: 0 }
+        });
+        await page.close();
+        page = null;
+        if (!pdfBuffer || pdfBuffer.length === 0) {
+            throw new Error('Generated PDF buffer is empty');
+        }
+        res.set({
+            'Content-Type': 'application/pdf',
+            'Content-Disposition': `attachment; filename="carnet-${student.lastName}-${student.firstName}.pdf"`,
+            'Content-Length': pdfBuffer.length.toString()
+        });
+        res.end(pdfBuffer);
+    }
+    catch (error) {
+        if (page) {
+            try {
+                await page.close();
+            }
+            catch { }
+        }
+        res.status(500).json({
+            error: 'pdf_generation_failed',
+            message: error.message,
+            details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        });
+    }
+});
 // Generate PDF for Saved Gradebook
 exports.pdfPuppeteerRouter.get('/saved/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', 'TEACHER']), async (req, res) => {
     let page = null;
@@ -196,15 +310,40 @@ exports.pdfPuppeteerRouter.get('/saved/:id', (0, auth_1.requireAuth)(['ADMIN', '
             console.error('[FAILED REQUEST]', req.url(), req.failure());
         });
         await page.setViewport({ width: 800, height: 1120 });
+        const forwardedProto = String(req.headers['x-forwarded-proto'] || '');
+        const forwardedHost = String(req.headers['x-forwarded-host'] || '');
+        const originHeader = String(req.headers['origin'] || '');
+        const refererHeader = String(req.headers['referer'] || '');
+        let frontendUrl = process.env.FRONTEND_URL || '';
+        if (!frontendUrl) {
+            if (forwardedProto && forwardedHost) {
+                frontendUrl = `${forwardedProto}://${forwardedHost}`;
+            }
+            else if (originHeader) {
+                frontendUrl = originHeader;
+            }
+            else if (refererHeader) {
+                try {
+                    frontendUrl = new URL(refererHeader).origin;
+                }
+                catch { }
+            }
+        }
+        if (!frontendUrl)
+            frontendUrl = 'https://localhost:5173';
         if (token) {
+            let cookieDomain = 'localhost';
+            try {
+                cookieDomain = new URL(frontendUrl).hostname;
+            }
+            catch { }
             await page.setCookie({
                 name: 'token',
                 value: token,
-                domain: 'localhost',
+                domain: cookieDomain,
                 path: '/'
             });
         }
-        const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
         const printUrl = `${frontendUrl}/print/saved/${saved._id}?token=${token}`;
         console.log('[PDF] Loading page:', printUrl);
         await page.goto(printUrl, {

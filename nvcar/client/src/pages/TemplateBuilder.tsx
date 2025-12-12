@@ -707,7 +707,11 @@ export default function TemplateBuilder() {
     }
   }
 
-  const previewUrl = tpl._id && studentId ? `/pdf/student/${studentId}?templateId=${tpl._id}` : ''
+  const previewUrl = tpl._id && studentId ? (() => {
+    const token = localStorage.getItem('token')
+    const base = (api.defaults.baseURL || '').replace(/\/$/, '')
+    return `${base}/pdf-v2/student/${studentId}?templateId=${tpl._id}&token=${token}`
+  })() : ''
   const bulkUrl = tpl._id && classId ? `/pdf/class/${classId}/batch?templateId=${tpl._id}` : ''
 
   const refreshGallery = async () => { try { const r = await api.get('/media/list'); setGallery(r.data) } catch { } }
@@ -1566,18 +1570,35 @@ export default function TemplateBuilder() {
           </select>
 
           {previewUrl && (
-            <a
+            <button
               className="btn secondary"
-              href={previewUrl}
-              target="_blank"
+              onClick={async () => {
+                try {
+                  const r = await api.get(`/pdf-v2/preview/${tpl._id}/${studentId}`, {
+                    responseType: 'blob'
+                  })
+                  const stu = students.find(s => s._id === studentId)
+                  const name = stu ? `carnet-${stu.lastName}-${stu.firstName}.pdf` : 'carnet.pdf'
+                  const blob = new Blob([r.data], { type: 'application/pdf' })
+                  const url = URL.createObjectURL(blob)
+                  const a = document.createElement('a')
+                  a.href = url
+                  a.download = name
+                  document.body.appendChild(a)
+                  a.click()
+                  a.remove()
+                  URL.revokeObjectURL(url)
+                } catch (e) {
+                  setError('Échec de l\'export PDF')
+                }
+              }}
               style={{
                 padding: '8px 16px',
-                fontSize: 14,
-                textDecoration: 'none'
+                fontSize: 14
               }}
             >
-              👁️ Aperçu PDF
-            </a>
+              📄 Exporter en PDF
+            </button>
           )}
 
           {bulkUrl && (
@@ -2448,52 +2469,55 @@ export default function TemplateBuilder() {
                                               paddingTop: expandedTopGap,
                                               gap: 8
                                             }}>
-                                              {expandedLanguages.map((lang: any, li: number) => {
-                                                const size = Math.max(12, Math.min(expandedRowHeight - 12, 20))
-                                                const getEmoji = (item: any) => {
-                                                  const e = item.emoji
-                                                  if (e && e.length >= 2) return e
-                                                  const c = (item.code || '').toLowerCase()
-                                                  if (c === 'lb' || c === 'ar') return '🇱🇧'
-                                                  if (c === 'fr') return '🇫🇷'
-                                                  if (c === 'en' || c === 'uk' || c === 'gb') return '🇬🇧'
-                                                  return '🏳️'
-                                                }
-                                                const emoji = getEmoji(lang)
-                                                const appleEmojiUrl = `https://emojicdn.elk.sh/${emoji}?style=apple`
-                                                const toggleKey = `table_${idx}_row_${ri}_lang_${li}`
-                                                const isActive = previewData[toggleKey] === 'true'
+                                              {(() => {
+                                                const rowLangs = b.props.rowLanguages?.[ri] || expandedLanguages
+                                                return rowLangs.map((lang: any, li: number) => {
+                                                  const size = Math.max(12, Math.min(expandedRowHeight - 12, 20))
+                                                  const getEmoji = (item: any) => {
+                                                    const e = item.emoji
+                                                    if (e && e.length >= 2) return e
+                                                    const c = (item.code || '').toLowerCase()
+                                                    if (c === 'lb' || c === 'ar') return '🇱🇧'
+                                                    if (c === 'fr') return '🇫🇷'
+                                                    if (c === 'en' || c === 'uk' || c === 'gb') return '🇬🇧'
+                                                    return '🏳️'
+                                                  }
+                                                  const emoji = getEmoji(lang)
+                                                  const appleEmojiUrl = `https://emojicdn.elk.sh/${emoji}?style=apple`
+                                                  const toggleKey = `table_${idx}_row_${ri}_lang_${li}`
+                                                  const isActive = previewData[toggleKey] === 'true'
 
-                                                return (
-                                                  <div
-                                                    key={li}
-                                                    title={lang.label}
-                                                    style={{
-                                                      width: size,
-                                                      height: size,
-                                                      minWidth: size,
-                                                      borderRadius: '50%',
-                                                      background: isActive ? '#fff' : 'rgba(255, 255, 255, 0.5)',
-                                                      border: isActive ? '0.5px solid #fff' : '1px solid rgba(0, 0, 0, 0.1)',
-                                                      display: 'flex',
-                                                      alignItems: 'center',
-                                                      justifyContent: 'center',
-                                                      cursor: 'pointer',
-                                                      transition: 'all 0.2s ease',
-                                                      transform: isActive ? 'scale(1.1)' : 'scale(1)',
-                                                      boxShadow: 'none',
-                                                      opacity: isActive ? 1 : 0.6
-                                                    }}
-                                                    onClick={(ev) => {
-                                                      ev.stopPropagation()
-                                                      setPreviewData({ ...previewData, [toggleKey]: isActive ? 'false' : 'true' })
-                                                    }}
-                                                    onMouseDown={(ev) => ev.stopPropagation()}
-                                                  >
-                                                    <img src={appleEmojiUrl} style={{ width: size * 0.7, height: size * 0.7, objectFit: 'contain' }} alt="" />
-                                                  </div>
-                                                )
-                                              })}
+                                                  return (
+                                                    <div
+                                                      key={li}
+                                                      title={lang.label}
+                                                      style={{
+                                                        width: size,
+                                                        height: size,
+                                                        minWidth: size,
+                                                        borderRadius: '50%',
+                                                        background: isActive ? '#fff' : 'rgba(255, 255, 255, 0.5)',
+                                                        border: isActive ? '0.5px solid #fff' : '1px solid rgba(0, 0, 0, 0.1)',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        cursor: 'pointer',
+                                                        transition: 'all 0.2s ease',
+                                                        transform: isActive ? 'scale(1.1)' : 'scale(1)',
+                                                        boxShadow: 'none',
+                                                        opacity: isActive ? 1 : 0.6
+                                                      }}
+                                                      onClick={(ev) => {
+                                                        ev.stopPropagation()
+                                                        setPreviewData({ ...previewData, [toggleKey]: isActive ? 'false' : 'true' })
+                                                      }}
+                                                      onMouseDown={(ev) => ev.stopPropagation()}
+                                                    >
+                                                      <img src={appleEmojiUrl} style={{ width: size * 0.7, height: size * 0.7, objectFit: 'contain' }} alt="" />
+                                                    </div>
+                                                  )
+                                                })
+                                              })()}
                                             </div>
                                           </div>
                                         </div>
@@ -3337,14 +3361,26 @@ export default function TemplateBuilder() {
                               const rows = [...(tpl.pages[selectedPage].blocks[selectedIndex].props.rowHeights || [])]
                               rows[i] = Number(e.target.value)
                               updateSelectedTable(p => ({ ...p, rowHeights: rows }))
-                            }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', width: 120 }} />
+                            }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', width: 120, marginRight: 8 }} />
+                            {tpl.pages[selectedPage].blocks[selectedIndex].props.expandedRows && (
+                              <button
+                                className="btn secondary"
+                                title="Configurer les langues de cette ligne"
+                                style={{ padding: '8px 10px', background: '#f0f4ff', color: '#6c5ce7', marginRight: 8, fontSize: 16 }}
+                                onClick={() => setSelectedCell({ ri: i, ci: 0 })}
+                              >
+                                🌍
+                              </button>
+                            )}
                             <button className="btn secondary" onClick={() => {
                               const props = tpl.pages[selectedPage].blocks[selectedIndex].props
                               const rows = [...(props.rowHeights || [])]
                               if (!rows.length) return
                               rows.splice(i, 1)
                               const cells = (props.cells || []).filter((_: any, ri: number) => ri !== i)
-                              updateSelectedTable(p => ({ ...p, rowHeights: rows, cells }))
+                              const rowLanguages = [...(props.rowLanguages || [])]
+                              if (rowLanguages.length > i) rowLanguages.splice(i, 1)
+                              updateSelectedTable(p => ({ ...p, rowHeights: rows, cells, rowLanguages }))
                               if (selectedCell) {
                                 if (selectedCell.ri === i) setSelectedCell(null)
                                 else if (selectedCell.ri > i) setSelectedCell({ ri: selectedCell.ri - 1, ci: selectedCell.ci })
@@ -3361,7 +3397,12 @@ export default function TemplateBuilder() {
                             const cells = [...(props.cells || [])]
                             rows.push(40)
                             cells.push(newRow)
-                            updateSelectedTable(p => ({ ...p, rowHeights: rows, cells }))
+                            // Maintain rowLanguages array length
+                            const rowLanguages = [...(props.rowLanguages || [])]
+                            // Ensure it's at least as long as rows before pushing? No, just match length.
+                            // If rowLanguages was shorter than rows (sparse), we just ignore.
+                            // But accurate maintenance:
+                            updateSelectedTable(p => ({ ...p, rowHeights: rows, cells, rowLanguages }))
                           }}>Ajouter ligne</button>
                           <button className="btn secondary" onClick={() => {
                             const props = tpl.pages[selectedPage].blocks[selectedIndex].props
@@ -3369,12 +3410,102 @@ export default function TemplateBuilder() {
                             if (!rows.length) return
                             rows.pop()
                             const cells = (props.cells || []).slice(0, rows.length)
-                            updateSelectedTable(p => ({ ...p, rowHeights: rows, cells }))
+                            const rowLanguages = (props.rowLanguages || []).slice(0, rows.length)
+                            updateSelectedTable(p => ({ ...p, rowHeights: rows, cells, rowLanguages }))
                           }}>Supprimer ligne</button>
                         </div>
                       </div>
                       {selectedCell && (
                         <div>
+                          {/* Row Expansion Config for this cell's row */}
+                          {tpl.pages[selectedPage].blocks[selectedIndex].props.expandedRows && (
+                            <div style={{ marginBottom: 12, borderBottom: '1px solid #e9ecef', paddingBottom: 12 }}>
+                              <div className="note" style={{ fontWeight: 600, color: '#6c5ce7' }}>
+                                Expansion Ligne {selectedCell.ri + 1}
+                              </div>
+                              {(() => {
+                                const props = tpl.pages[selectedPage].blocks[selectedIndex].props
+                                const myRowLangs = props.rowLanguages?.[selectedCell.ri]
+                                const globalLangs = props.expandedLanguages || [
+                                  { code: 'lb', label: 'Lebanese', emoji: '🇱🇧', active: false },
+                                  { code: 'fr', label: 'French', emoji: '🇫🇷', active: false },
+                                  { code: 'en', label: 'English', emoji: '🇬🇧', active: false }
+                                ]
+                                const currentLangs = myRowLangs || globalLangs
+                                const isCustom = !!myRowLangs
+
+                                return (
+                                  <div style={{ display: 'grid', gap: 8 }}>
+                                    {!isCustom ? (
+                                      <div style={{ fontSize: 11, color: '#666', fontStyle: 'italic' }}>
+                                        Utilise les paramètres globaux ({currentLangs.length} langues).
+                                        <button className="btn secondary" style={{ marginLeft: 8, padding: '2px 8px', fontSize: 10 }} onClick={() => {
+                                          updateSelectedTable(p => {
+                                            const rl = [...(p.rowLanguages || [])]
+                                            // Fill with undefined if sparse
+                                            while (rl.length <= selectedCell.ri) { rl.push(undefined) }
+                                            rl[selectedCell.ri] = JSON.parse(JSON.stringify(globalLangs))
+                                            return { ...p, rowLanguages: rl }
+                                          })
+                                        }}>Personnaliser pour cette ligne</button>
+                                      </div>
+                                    ) : (
+                                      <div>
+                                        <div style={{ fontSize: 11, color: '#2ecc71', marginBottom: 6, fontWeight: 600 }}>
+                                          ✓ Personnalisé pour cette ligne
+                                          <button className="btn secondary" style={{ marginLeft: 8, padding: '2px 8px', fontSize: 10, color: '#e74c3c' }} onClick={() => {
+                                            updateSelectedTable(p => {
+                                              const rl = [...(p.rowLanguages || [])]
+                                              if (rl.length > selectedCell.ri) rl[selectedCell.ri] = undefined
+                                              return { ...p, rowLanguages: rl }
+                                            })
+                                          }}>Rétablir Global</button>
+                                        </div>
+                                        {/* Language Editor for Row */}
+                                        <div style={{ display: 'grid', gap: 6 }}>
+                                          {currentLangs.map((lang: any, i: number) => (
+                                            <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: 4, background: '#f8f9fa', borderRadius: 4 }}>
+                                              <div style={{ fontSize: 16 }}>{lang.emoji}</div>
+                                              <div style={{ fontSize: 11, flex: 1 }}>{lang.label}</div>
+                                              <button className="btn secondary" style={{ padding: '2px 6px', fontSize: 10, color: '#e74c3c' }} onClick={() => {
+                                                updateSelectedTable(p => {
+                                                  const rl = [...(p.rowLanguages || [])]
+                                                  const rowL = [...(rl[selectedCell.ri] || [])]
+                                                  rowL.splice(i, 1)
+                                                  rl[selectedCell.ri] = rowL
+                                                  return { ...p, rowLanguages: rl }
+                                                })
+                                              }}>✕</button>
+                                            </div>
+                                          ))}
+                                          <div style={{ display: 'flex', gap: 4 }}>
+                                            {/* Quick Add Buttons */}
+                                            {[
+                                              { code: 'en', label: 'English', emoji: '🇬🇧' },
+                                              { code: 'fr', label: 'Français', emoji: '🇫🇷' },
+                                              { code: 'ar', label: 'العربية', emoji: '🇱🇧' },
+                                              { code: 'lb', label: 'Lebanese', emoji: '🇱🇧' }
+                                            ].filter(x => !currentLangs.find((l: any) => l.code === x.code)).map(opt => (
+                                              <button key={opt.code} className="btn secondary" style={{ padding: '2px 6px', fontSize: 10 }} onClick={() => {
+                                                updateSelectedTable(p => {
+                                                  const rl = [...(p.rowLanguages || [])]
+                                                  const rowL = [...(rl[selectedCell.ri] || [])]
+                                                  rowL.push({ ...opt, active: false })
+                                                  rl[selectedCell.ri] = rowL
+                                                  return { ...p, rowLanguages: rl }
+                                                })
+                                              }}>+ {opt.code.toUpperCase()}</button>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                )
+                              })()}
+                            </div>
+                          )}
+
                           <div className="note">Cellule: ligne {selectedCell.ri + 1}, colonne {selectedCell.ci + 1}</div>
                           {(() => {
                             const props = tpl.pages[selectedPage].blocks[selectedIndex].props
