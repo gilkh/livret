@@ -1,0 +1,455 @@
+.users-page {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 2rem 1.5rem;
+}
+
+.users-header {
+  margin-bottom: 2rem;
+}
+
+.users-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1.5rem;
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+}
+
+.search-group {
+  flex: 1;
+  min-width: 220px;
+}
+
+.search-input {
+  width: 100%;
+  padding: 0.6rem 0.85rem;
+  border-radius: 999px;
+  border: 1px solid #dfe6e9;
+  font-size: 0.9rem;
+  outline: none;
+  transition: all 0.2s;
+  background-color: #fdfdfd;
+}
+
+.search-input:focus {
+  border-color: #6c5ce7;
+  box-shadow: 0 0 0 3px rgba(108, 92, 231, 0.1);
+}
+
+.users-stats {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.users-stat-chip {
+  font-size: 0.8rem;
+  padding: 0.3rem 0.7rem;
+  border-radius: 999px;
+  background: #f5f6fa;
+  color: #636e72;
+  border: 1px solid #dfe6e9;
+}
+
+.users-title {
+  font-size: 2rem;
+  font-weight: 700;
+  margin: 0 0 0.5rem 0;
+  color: #2d3436;
+}
+
+.users-description {
+  color: #636e72;
+  font-size: 1rem;
+}
+
+.tabs-container {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 2rem;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.tab-button {
+  padding: 1rem 1.5rem;
+  background: none;
+  border: none;
+  border-bottom: 3px solid transparent;
+  color: #636e72;
+  font-weight: 500;
+  cursor: pointer;
+  font-size: 1rem;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.tab-count {
+  font-size: 0.75rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: #f5f6fa;
+  color: #636e72;
+  border: 1px solid #e5e7eb;
+}
+
+.tab-button:hover {
+  color: #2d3436;
+  background-color: rgba(0, 0, 0, 0.02);
+}
+
+.tab-button.active {
+  color: #6c5ce7;
+  border-bottom-color: #6c5ce7;
+  background-color: rgba(108, 92, 231, 0.05);
+}
+
+.tab-button.active.microsoft {
+  color: #0078d4;
+  border-bottom-color: #0078d4;
+  background-color: rgba(0, 120, 212, 0.05);
+}
+
+.add-user-card {
+  background: white;
+  border-radius: 12px;
+  padding: 1.5rem;
+  margin-bottom: 2rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  border: 1px solid #eee;
+}
+
+.add-user-header {
+  margin-bottom: 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.add-user-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin: 0;
+  color: #2d3436;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1.25rem;
+  align-items: end;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.form-label {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #636e72;
+}
+
+.form-input {
+  padding: 0.75rem;
+  border: 1px solid #dfe6e9;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  transition: all 0.2s;
+}
+
+.form-input:focus {
+  border-color: #6c5ce7;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(108, 92, 231, 0.1);
+}
+
+.form-select {
+  padding: 0.75rem;
+  border: 1px solid #dfe6e9;
+  border-radius: 8px;
+  background-color: white;
+  font-size: 0.95rem;
+}
+
+.btn-add {
+  height: 46px;
+  background: #6c5ce7;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.btn-add:hover {
+  background: #5b4bc4;
+  transform: translateY(-1px);
+}
+
+/* Modern Card Design */
+.users-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1.5rem;
+}
+
+.user-card {
+  background: white;
+  border-radius: 16px;
+  border: 1px solid rgba(0,0,0,0.06);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+}
+
+.user-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 24px rgba(0,0,0,0.08);
+  border-color: rgba(0,0,0,0.0);
+}
+
+.user-card-top {
+  padding: 1.25rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  height: 80px;
+}
+
+.user-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  color: white;
+  font-size: 1.1rem;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+  border: 2px solid white;
+}
+
+.user-role-badge {
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 20px;
+  background: white;
+  border: 1px solid;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.microsoft-badge {
+  background: white;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+}
+
+.user-card-content {
+  padding: 0 1.25rem 1.25rem 1.25rem;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.user-identity {
+  margin-top: -10px;
+}
+
+.user-name-input {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #2d3436;
+  border: none;
+  width: 100%;
+  background: transparent;
+  padding: 4px 0;
+  margin-bottom: 4px;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+}
+
+.user-name-input:hover, .user-name-input:focus {
+  border-bottom-color: #dfe6e9;
+  outline: none;
+}
+
+.user-name-input:focus {
+  border-bottom-color: #6c5ce7;
+}
+
+.user-email-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #636e72;
+  font-size: 0.85rem;
+  cursor: pointer;
+  width: fit-content;
+  padding: 2px 6px 2px 0;
+  border-radius: 4px;
+  transition: background 0.2s;
+}
+
+.user-email-row:hover {
+  background: rgba(0,0,0,0.03);
+}
+
+.user-email-text {
+  max-width: 180px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.copy-icon {
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.user-email-row:hover .copy-icon {
+  opacity: 0.6;
+}
+
+.last-login {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  color: #b2bec3;
+  margin-top: 6px;
+}
+
+.user-actions-area {
+  margin-top: auto;
+  padding-top: 1rem;
+  border-top: 1px solid #f1f2f6;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.password-reset-group {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: center;
+}
+
+.input-icon {
+  position: absolute;
+  left: 8px;
+  color: #b2bec3;
+  pointer-events: none;
+}
+
+.reset-input {
+  width: 100%;
+  padding: 8px 8px 8px 28px;
+  border: 1px solid #f1f2f6;
+  background: #f8f9fa;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  transition: all 0.2s;
+}
+
+.reset-input:focus {
+  background: white;
+  border-color: #6c5ce7;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(108, 92, 231, 0.1);
+}
+
+.card-buttons {
+  display: flex;
+  gap: 6px;
+}
+
+.btn-action {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: none;
+  background: #f5f6fa;
+  color: #636e72;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-action:hover {
+  background: #dfe6e9;
+  color: #2d3436;
+}
+
+.btn-action.active {
+  background: #e3fcef;
+  color: #00b894;
+}
+
+.btn-action.danger:hover {
+  background: #fff1f0;
+  color: #ff4d4f;
+}
+
+.btn-icon-action.primary {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  border: none;
+  background: #6c5ce7;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  position: absolute;
+  right: 4px;
+}
+
+.btn-icon-action.primary:hover {
+  background: #5b4bc4;
+}
+
+.role-select {
+  padding: 6px 12px;
+  border-radius: 20px;
+  border: 1px solid;
+  font-size: 0.8rem;
+  font-weight: 600;
+  background: white;
+  outline: none;
+  cursor: pointer;
+}
+
+/* Specific styles for Outlook Cards */
+.outlook-card .user-card-top {
+  border-bottom: 1px solid #f0f7ff;
+  margin-bottom: 1rem;
+}

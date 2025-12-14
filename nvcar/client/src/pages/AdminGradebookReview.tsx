@@ -7,8 +7,15 @@ import { GradebookRenderer } from '../components/GradebookRenderer'
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
 type Template = { _id?: string; name: string; pages: Page[] }
-type Student = { _id: string; firstName: string; lastName: string; level?: string; dateOfBirth: Date }
-type Assignment = { _id: string; status: string; data?: any }
+type Student = { _id: string; firstName: string; lastName: string; level?: string; dateOfBirth: Date; className?: string }
+type Assignment = { 
+    _id: string; 
+    status: string; 
+    data?: any;
+    isCompleted?: boolean;
+    isCompletedSem1?: boolean;
+    isCompletedSem2?: boolean;
+}
 
 const pageWidth = 800
 const pageHeight = 1120

@@ -44,6 +44,7 @@ export default function TemplateBuilder() {
   const [rightPanelView, setRightPanelView] = useState<'properties' | 'slides'>('properties')
   const [deleteConfirmations, setDeleteConfirmations] = useState<{ [id: string]: number }>({})
   const [activeGuides, setActiveGuides] = useState<{ type: 'x' | 'y', pos: number }[]>([])
+  const [clipboard, setClipboard] = useState<Block[] | null>(null)
 
   // Undo/Redo History State
   const [history, setHistory] = useState<Template[]>([])
@@ -301,6 +302,16 @@ export default function TemplateBuilder() {
         e.preventDefault()
         redo()
       }
+      // Copy: Ctrl+C
+      if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
+        e.preventDefault()
+        copySelection()
+      }
+      // Paste: Ctrl+V
+      if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
+        e.preventDefault()
+        pasteFromClipboard()
+      }
       // Delete
       if ((e.key === 'Delete' || e.key === 'Backspace') && !['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName) && !(e.target as HTMLElement).isContentEditable) {
         if (selectedIndex !== null || selectedIndices.length > 0) {
@@ -320,7 +331,7 @@ export default function TemplateBuilder() {
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [historyIndex, history, viewMode, undo, redo, tpl, selectedPage, selectedIndex, selectedIndices])
+  }, [historyIndex, history, viewMode, undo, redo, tpl, selectedPage, selectedIndex, selectedIndices, clipboard])
 
   // Modal state
   const [showCreateModal, setShowCreateModal] = useState(false)
@@ -467,6 +478,72 @@ export default function TemplateBuilder() {
     blocks[selectedIndex] = { ...blocks[selectedIndex], props: nextProps }
     pages[selectedPage] = { ...page, blocks }
     updateTpl({ ...tpl, pages })
+  }
+
+  const copySelection = () => {
+    if (selectedIndex === null && selectedIndices.length === 0) return
+
+    const page = tpl.pages[selectedPage]
+    const blocksToCopy: Block[] = []
+
+    const indices = new Set(selectedIndices)
+    if (selectedIndex !== null) indices.add(selectedIndex)
+
+    indices.forEach(idx => {
+      if (page.blocks[idx]) {
+        blocksToCopy.push(JSON.parse(JSON.stringify(page.blocks[idx])))
+      }
+    })
+
+    setClipboard(blocksToCopy)
+  }
+
+  const pasteFromClipboard = () => {
+    if (!clipboard || clipboard.length === 0) return
+
+    const pages = [...tpl.pages]
+    const page = { ...pages[selectedPage] }
+
+    // Calculate z-index start
+    const zList = (page.blocks || []).map(bb => (bb.props?.z ?? 0))
+    let nextZ = (zList.length ? Math.max(...zList) : 0) + 1
+
+    // Get current max dropdown number
+    const allDropdowns = getAllDropdowns()
+    let maxDropdownNum = allDropdowns.reduce((max, d) => Math.max(max, d.block.props.dropdownNumber || 0), 0)
+
+    const newBlocks = clipboard.map(block => {
+      const newProps = JSON.parse(JSON.stringify(block.props))
+      // Offset
+      newProps.x = (newProps.x || 0) + 20
+      newProps.y = (newProps.y || 0) + 20
+      newProps.z = nextZ++
+
+      // Handle dropdown numbering
+      if (block.type === 'dropdown') {
+        maxDropdownNum++
+        newProps.dropdownNumber = maxDropdownNum
+      }
+      return { type: block.type, props: newProps }
+    })
+
+    const blocks = [...page.blocks, ...newBlocks]
+    pages[selectedPage] = { ...page, blocks }
+
+    updateTpl({ ...tpl, pages })
+
+    // Select the pasted blocks
+    const firstNewIndex = page.blocks.length
+    const newSelectedIndices = newBlocks.map((_, i) => firstNewIndex + i)
+
+    if (newSelectedIndices.length === 1) {
+      setSelectedIndex(newSelectedIndices[0])
+      setSelectedIndices([])
+    } else {
+      setSelectedIndex(null)
+      setSelectedIndices(newSelectedIndices)
+    }
+    setSelectedCell(null)
   }
 
   const onDrag = (e: React.MouseEvent, pageIndex: number, idx: number) => {
@@ -1510,6 +1587,15 @@ export default function TemplateBuilder() {
             />
             <span>Magnétisme</span>
           </label>
+
+          <button
+            className="btn secondary"
+            onClick={pasteFromClipboard}
+            disabled={!clipboard || clipboard.length === 0}
+            style={{ fontSize: 13, padding: '8px 14px', opacity: (!clipboard || clipboard.length === 0) ? 0.5 : 1 }}
+          >
+            📋 Coller
+          </button>
 
           <button
             className="btn secondary"
@@ -4171,6 +4257,7 @@ export default function TemplateBuilder() {
                   )}
                   <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
                     <button className="btn secondary" onClick={duplicateBlock} style={{ flex: 1 }}>Dupliquer le bloc</button>
+                    <button className="btn secondary" onClick={copySelection} style={{ flex: 1 }}>Copier</button>
                     <button className="btn secondary" onClick={() => {
                       const pages = [...tpl.pages]
                       const page = { ...pages[selectedPage] }

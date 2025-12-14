@@ -26,7 +26,9 @@ export default function TeacherTemplateEditor() {
     const [canEdit, setCanEdit] = useState(false)
     const [allowedLanguages, setAllowedLanguages] = useState<string[]>([])
     const [isProfPolyvalent, setIsProfPolyvalent] = useState(false)
-    const [isMyWorkCompleted, setIsMyWorkCompleted] = useState(false)
+    const [isMyWorkCompleted, setIsMyWorkCompleted] = useState(false) // Keep for backward compat if needed, or remove?
+    const [isMyWorkCompletedSem1, setIsMyWorkCompletedSem1] = useState(false)
+    const [isMyWorkCompletedSem2, setIsMyWorkCompletedSem2] = useState(false)
     const [activeSemester, setActiveSemester] = useState<number>(1)
 
     const socket = useSocket()
@@ -105,6 +107,8 @@ export default function TeacherTemplateEditor() {
                 setAllowedLanguages(r.data.allowedLanguages || [])
                 setIsProfPolyvalent(r.data.isProfPolyvalent || false)
                 setIsMyWorkCompleted(r.data.isMyWorkCompleted || false)
+                setIsMyWorkCompletedSem1(r.data.isMyWorkCompletedSem1 || false)
+                setIsMyWorkCompletedSem2(r.data.isMyWorkCompletedSem2 || false)
                 setActiveSemester(r.data.activeSemester || 1)
             } catch (e: any) {
                 setError('Impossible de charger le carnet')
@@ -162,15 +166,24 @@ export default function TeacherTemplateEditor() {
         }
     }
 
-    const toggleCompletion = async () => {
+    const toggleCompletionSem = async (semester: number) => {
         if (!assignment) return
         try {
             setSaveStatus('Enregistrement...')
-            const action = isMyWorkCompleted ? 'unmark-done' : 'mark-done'
-            const r = await api.post(`/teacher/templates/${assignmentId}/${action}`)
+            const isCompleted = semester === 1 ? isMyWorkCompletedSem1 : isMyWorkCompletedSem2
+            const action = isCompleted ? 'unmark-done' : 'mark-done'
+            const r = await api.post(`/teacher/templates/${assignmentId}/${action}`, { semester })
             setAssignment(r.data)
-            setIsMyWorkCompleted(!isMyWorkCompleted)
-            setSaveStatus(isMyWorkCompleted ? 'Rouvert avec succès' : 'Terminé avec succès ✓')
+            
+            if (semester === 1) {
+                setIsMyWorkCompletedSem1(!isCompleted)
+                // Sync legacy
+                setIsMyWorkCompleted(!isCompleted)
+            } else {
+                setIsMyWorkCompletedSem2(!isCompleted)
+            }
+
+            setSaveStatus(!isCompleted ? 'Terminé avec succès ✓' : 'Rouvert avec succès')
             setTimeout(() => setSaveStatus(''), 3000)
         } catch (e: any) {
             setError('Erreur lors de la mise à jour du statut')
@@ -282,24 +295,49 @@ export default function TeacherTemplateEditor() {
                         {assignment?.status === 'signed' && '✔️ Signé'}
                         {!['draft', 'in_progress', 'completed', 'signed'].includes(assignment?.status || '') && assignment?.status}
                     </div>
-                    {canEdit && assignment?.status !== 'signed' && (
-                        <button
-                            className="btn"
-                            onClick={toggleCompletion}
-                            style={{
-                                marginLeft: 12,
-                                padding: '6px 12px',
-                                fontSize: 13,
-                                background: isMyWorkCompleted ? '#fff' : '#10b981',
-                                color: isMyWorkCompleted ? '#ef4444' : '#fff',
-                                border: isMyWorkCompleted ? '1px solid #ef4444' : 'none',
-                                cursor: 'pointer',
-                                borderRadius: 6,
-                                fontWeight: 500
-                            }}
-                        >
-                            {isMyWorkCompleted ? 'Rouvrir' : 'Marquer comme terminé'}
-                        </button>
+                    {canEdit && (
+                        <>
+                            <button
+                                className="btn"
+                                onClick={() => toggleCompletionSem(1)}
+                                disabled={activeSemester !== 1}
+                                style={{
+                                    marginLeft: 12,
+                                    padding: '6px 12px',
+                                    fontSize: 13,
+                                    background: activeSemester !== 1 ? '#e2e8f0' : (isMyWorkCompletedSem1 ? '#fff' : '#10b981'),
+                                    color: activeSemester !== 1 ? '#94a3b8' : (isMyWorkCompletedSem1 ? '#ef4444' : '#fff'),
+                                    border: activeSemester !== 1 ? '1px solid #cbd5e1' : (isMyWorkCompletedSem1 ? '1px solid #ef4444' : 'none'),
+                                    cursor: activeSemester !== 1 ? 'not-allowed' : 'pointer',
+                                    borderRadius: 6,
+                                    fontWeight: 500,
+                                    opacity: activeSemester !== 1 ? 0.7 : 1
+                                }}
+                                title={activeSemester !== 1 ? "Le semestre 1 n'est pas actif" : ""}
+                            >
+                                {isMyWorkCompletedSem1 ? '❌ Rouvrir Sem 1' : '✅ Terminer Sem 1'}
+                            </button>
+                            <button
+                                className="btn"
+                                onClick={() => toggleCompletionSem(2)}
+                                disabled={activeSemester !== 2}
+                                style={{
+                                    marginLeft: 8,
+                                    padding: '6px 12px',
+                                    fontSize: 13,
+                                    background: activeSemester !== 2 ? '#e2e8f0' : (isMyWorkCompletedSem2 ? '#fff' : '#10b981'),
+                                    color: activeSemester !== 2 ? '#94a3b8' : (isMyWorkCompletedSem2 ? '#ef4444' : '#fff'),
+                                    border: activeSemester !== 2 ? '1px solid #cbd5e1' : (isMyWorkCompletedSem2 ? '1px solid #ef4444' : 'none'),
+                                    cursor: activeSemester !== 2 ? 'not-allowed' : 'pointer',
+                                    borderRadius: 6,
+                                    fontWeight: 500,
+                                    opacity: activeSemester !== 2 ? 0.7 : 1
+                                }}
+                                title={activeSemester !== 2 ? "Le semestre 2 n'est pas actif" : ""}
+                            >
+                                {isMyWorkCompletedSem2 ? '❌ Rouvrir Sem 2' : '✅ Terminer Sem 2'}
+                            </button>
+                        </>
                     )}
                     <button
                         className="btn secondary"

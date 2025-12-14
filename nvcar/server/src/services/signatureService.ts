@@ -46,6 +46,25 @@ export const signTemplateAssignment = async ({
         throw new Error('already_signed')
     }
 
+    // Check completion status for the requested semester
+    // standard -> Sem 1
+    // end_of_year -> Sem 2
+    if (type === 'standard') {
+        if (!(assignment as any).isCompletedSem1) {
+             // For backward compatibility, check isCompleted if isCompletedSem1 is undefined?
+             // But we just added it.
+             // If data is old, isCompletedSem1 might be missing.
+             // We can fallback to assignment.isCompleted
+             if (!(assignment as any).isCompletedSem1 && !assignment.isCompleted) {
+                 throw new Error('not_completed_sem1')
+             }
+        }
+    } else if (type === 'end_of_year') {
+        if (!(assignment as any).isCompletedSem2) {
+            throw new Error('not_completed_sem2')
+        }
+    }
+
     // Create signature
     // Note: We allow passing signatureUrl (used by Admin)
     // If not passed, it relies on signerId link (used by SubAdmin)

@@ -9,7 +9,11 @@ const templateAssignmentSchema = new Schema({
         type: [{
             teacherId: String,
             completed: Boolean,
-            completedAt: Date
+            completedAt: Date,
+            completedSem1: Boolean,
+            completedAtSem1: Date,
+            completedSem2: Boolean,
+            completedAtSem2: Date
         }], 
         default: [] 
     },
@@ -19,6 +23,10 @@ const templateAssignmentSchema = new Schema({
     isCompleted: { type: Boolean, default: false },
     completedAt: { type: Date },
     completedBy: { type: String },
+    isCompletedSem1: { type: Boolean, default: false },
+    completedAtSem1: { type: Date },
+    isCompletedSem2: { type: Boolean, default: false },
+    completedAtSem2: { type: Date },
     data: { type: Schema.Types.Mixed, default: {} },
 })
 

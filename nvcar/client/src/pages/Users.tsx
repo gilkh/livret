@@ -2,9 +2,251 @@ import { useEffect, useState } from 'react'
 import api, { impersonationApi } from '../api'
 import Modal from '../components/Modal'
 import Toast, { ToastType } from '../components/Toast'
+import { 
+  Mail, 
+  Trash2, 
+  Key, 
+  LogIn, 
+  Calendar, 
+  Shield, 
+  Plus,
+  Users as UsersIcon,
+  Copy,
+  MoreVertical,
+  Check
+} from 'lucide-react'
+import './Users.css'
 
 type User = { _id: string; email: string; role: 'ADMIN'|'SUBADMIN'|'TEACHER'|'AEFE'; displayName: string }
 type OutlookUser = { _id: string; email: string; role: 'ADMIN'|'SUBADMIN'|'TEACHER'|'AEFE'; displayName?: string; lastLogin?: string }
+
+const getInitials = (name: string) => {
+  return name
+    .split(' ')
+    .map(n => n[0])
+    .join('')
+    .substring(0, 2)
+    .toUpperCase()
+}
+
+// Helper component for Local User Card
+const UserCard = ({ 
+  user, 
+  roleStyle, 
+  onUpdateName, 
+  onDelete, 
+  onResetPassword, 
+  onImpersonate, 
+  impersonatingId 
+}: {
+  user: User,
+  roleStyle: any,
+  onUpdateName: (id: string, name: string) => void,
+  onDelete: (id: string) => void,
+  onResetPassword: (id: string, pass: string) => void,
+  onImpersonate: (user: User) => void,
+  impersonatingId: string | null
+}) => {
+  const [name, setName] = useState(user.displayName || '')
+  const [password, setPassword] = useState('')
+  const [copied, setCopied] = useState(false)
+
+  // Sync local state with prop when prop changes (e.g. after reload)
+  useEffect(() => {
+    setName(user.displayName || '')
+  }, [user.displayName])
+
+  const handleBlur = () => {
+    if (name !== (user.displayName || '')) {
+      onUpdateName(user._id, name)
+    }
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.currentTarget.blur()
+    }
+  }
+
+  const handleReset = () => {
+    if (!password) return
+    onResetPassword(user._id, password)
+    setPassword('')
+  }
+
+  const copyEmail = () => {
+    navigator.clipboard.writeText(user.email)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  return (
+    <div className="user-card">
+      <div className="user-card-top" style={{ background: `linear-gradient(to right, ${roleStyle.bg}, #ffffff)` }}>
+         <div className="user-avatar" style={{ backgroundColor: roleStyle.color }}>
+            {getInitials(name || user.email)}
+         </div>
+         <div className="user-role-badge" style={{ color: roleStyle.color, borderColor: roleStyle.border }}>
+           {user.role}
+         </div>
+      </div>
+      
+      <div className="user-card-content">
+        <div className="user-identity">
+           <input
+            className="user-name-input"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onBlur={handleBlur}
+            onKeyDown={handleKeyDown}
+            placeholder="Nom d'affichage"
+            title="Cliquez pour modifier"
+          />
+          <div className="user-email-row" onClick={copyEmail} title="Copier l'email">
+             <span className="user-email-text">{user.email}</span>
+             {copied ? <Check size={12} color="#10B981" /> : <Copy size={12} className="copy-icon" />}
+          </div>
+        </div>
+
+        <div className="user-actions-area">
+          <div className="password-reset-group">
+            <Key size={14} className="input-icon" />
+            <input 
+              className="reset-input"
+              placeholder="Reset pwd..." 
+              type="password" 
+              value={password} 
+              onChange={e => setPassword(e.target.value)} 
+            />
+            {password && (
+              <button 
+                className="btn-icon-action primary"
+                onClick={handleReset}
+                title="Valider le nouveau mot de passe"
+              >
+                <Check size={14} />
+              </button>
+            )}
+          </div>
+
+          <div className="card-buttons">
+            {user.role !== 'ADMIN' && (
+              <button 
+                className={`btn-action ${impersonatingId === user._id ? 'active' : ''}`}
+                onClick={() => onImpersonate(user)}
+                disabled={impersonatingId === user._id}
+                title="Se connecter en tant que..."
+              >
+                <LogIn size={16} />
+                <span>Login</span>
+              </button>
+            )}
+            
+            <button 
+              className="btn-action danger"
+              onClick={() => onDelete(user._id)}
+              title="Supprimer"
+            >
+              <Trash2 size={16} />
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Helper component for Outlook User Card
+const OutlookUserCard = ({ 
+  user, 
+  roleStyle, 
+  onUpdateName, 
+  onDelete, 
+  onUpdateRole
+}: {
+  user: OutlookUser,
+  roleStyle: any,
+  onUpdateName: (id: string, name: string) => void,
+  onDelete: (id: string) => void,
+  onUpdateRole: (id: string, role: string) => void
+}) => {
+  const [name, setName] = useState(user.displayName || '')
+  const [copied, setCopied] = useState(false)
+
+  useEffect(() => {
+    setName(user.displayName || '')
+  }, [user.displayName])
+
+  const handleBlur = () => {
+    if (name !== (user.displayName || '')) {
+      onUpdateName(user._id, name)
+    }
+  }
+
+  const copyEmail = () => {
+    navigator.clipboard.writeText(user.email)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  return (
+    <div className="user-card outlook-card">
+      <div className="user-card-top" style={{ background: `linear-gradient(to right, #f0f7ff, #ffffff)` }}>
+         <div className="user-avatar" style={{ backgroundColor: '#0078d4' }}>
+            {getInitials(name || user.email)}
+         </div>
+         <div className="microsoft-badge">
+            <img src="https://upload.wikimedia.org/wikipedia/commons/4/44/Microsoft_logo.svg" alt="Microsoft" style={{ width: 14, height: 14 }} />
+         </div>
+      </div>
+
+      <div className="user-card-content">
+        <div className="user-identity">
+           <input
+            className="user-name-input"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onBlur={handleBlur}
+            onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+            placeholder="Nom d'affichage"
+          />
+          <div className="user-email-row" onClick={copyEmail} title="Copier l'email">
+             <span className="user-email-text">{user.email}</span>
+             {copied ? <Check size={12} color="#10B981" /> : <Copy size={12} className="copy-icon" />}
+          </div>
+          {user.lastLogin && (
+             <div className="last-login">
+                <Calendar size={12} />
+                {new Date(user.lastLogin).toLocaleDateString('fr-FR')}
+             </div>
+          )}
+        </div>
+
+        <div className="user-actions-area">
+           <select 
+             className="role-select"
+             value={user.role}
+             onChange={e => onUpdateRole(user._id, e.target.value)}
+             style={{ color: roleStyle.color, borderColor: roleStyle.border }}
+           >
+             <option value="TEACHER">Enseignant</option>
+             <option value="SUBADMIN">Préfet</option>
+             <option value="AEFE">RPP ET DIRECTION</option>
+             <option value="ADMIN">Admin</option>
+           </select>
+           
+           <button 
+              className="btn-action danger" 
+              onClick={() => onDelete(user._id)}
+              title="Supprimer"
+           >
+              <Trash2 size={16} />
+           </button>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 export default function Users() {
   const [users, setUsers] = useState<User[]>([])
@@ -12,7 +254,6 @@ export default function Users() {
   const [password, setPassword] = useState('')
   const [role, setRole] = useState<'ADMIN'|'SUBADMIN'|'TEACHER'|'AEFE'>('TEACHER')
   const [displayName, setDisplayName] = useState('')
-  const [resetMap, setResetMap] = useState<Record<string, string>>({})
   const [impersonating, setImpersonating] = useState<string | null>(null)
 
   // Outlook Users state
@@ -21,6 +262,7 @@ export default function Users() {
   const [outlookRole, setOutlookRole] = useState<'ADMIN'|'SUBADMIN'|'TEACHER'|'AEFE'>('TEACHER')
   const [outlookDisplayName, setOutlookDisplayName] = useState('')
   const [activeTab, setActiveTab] = useState<'local' | 'microsoft'>('local')
+  const [searchTerm, setSearchTerm] = useState('')
   const [toast, setToast] = useState<{message: string, type: ToastType} | null>(null)
   const [confirmModal, setConfirmModal] = useState<{
       isOpen: boolean,
@@ -54,130 +296,50 @@ export default function Users() {
   }
 
   const renderRoleSection = (role: 'ADMIN'|'SUBADMIN'|'TEACHER'|'AEFE', userList: (User|OutlookUser)[], isOutlook: boolean) => {
-    const filteredUsers = userList.filter(u => u.role === role)
+    const term = searchTerm.trim().toLowerCase()
+    const baseUsers = userList.filter(u => u.role === role)
+    const filteredUsers = term
+      ? baseUsers.filter(u => {
+          const name = (u as User).displayName || (u as OutlookUser).displayName || ''
+          return name.toLowerCase().includes(term) || u.email.toLowerCase().includes(term)
+        })
+      : baseUsers
     if (filteredUsers.length === 0) return null
 
     const roleStyle = getRoleColor(role)
 
     return (
-      <div style={{ marginBottom: 24 }}>
-        <h4 style={{ 
-          borderBottom: `2px solid ${roleStyle.border}`, 
-          paddingBottom: 8, 
-          marginBottom: 16,
-          color: roleStyle.color,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8
-        }}>
-          {getRoleLabel(role)}s
-          <span style={{ 
-            fontSize: '0.8rem', 
-            background: roleStyle.bg, 
-            padding: '2px 8px', 
-            borderRadius: 12 
-          }}>{filteredUsers.length}</span>
+      <div className="role-section" key={role}>
+        <h4 className="role-header" style={{ borderBottomColor: roleStyle.border }}>
+          <span style={{ color: roleStyle.color }} className="role-title">{getRoleLabel(role)}s</span>
+          <span className="role-count" style={{ background: roleStyle.bg, color: roleStyle.color }}>
+            {filteredUsers.length}
+          </span>
         </h4>
         
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 16 }}>
+        <div className="users-grid">
           {filteredUsers.map(u => (
-            <div key={u._id} className="card" style={{ padding: 16, borderTop: `4px solid ${roleStyle.color}` }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
-                <div style={{ fontWeight: 600, fontSize: '1.05rem' }}>
-                  {isOutlook ? (
-                     <input
-                        defaultValue={(u as OutlookUser).displayName || ''}
-                        onBlur={(e) => {
-                            if (e.target.value !== ((u as OutlookUser).displayName || '')) {
-                                updateOutlookUserDisplayName(u._id, e.target.value)
-                            }
-                        }}
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter') e.currentTarget.blur()
-                        }}
-                        placeholder="Nom d'affichage"
-                        style={{ border: 'none', borderBottom: '1px dashed #ccc', width: '100%', padding: '2px 0' }}
-                     />
-                  ) : (
-                    <input
-                        defaultValue={u.displayName || ''}
-                        onBlur={(e) => {
-                            if (e.target.value !== (u.displayName || '')) {
-                                updateUserDisplayName(u._id, e.target.value)
-                            }
-                        }}
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter') e.currentTarget.blur()
-                        }}
-                        placeholder="Nom d'affichage"
-                        style={{ border: 'none', borderBottom: '1px dashed #ccc', width: '100%', padding: '2px 0' }}
-                     />
-                  )}
-                </div>
-              </div>
-              
-              <div style={{ color: '#666', fontSize: '0.9rem', marginBottom: 16, wordBreak: 'break-all' }}>
-                {u.email}
-              </div>
-
-              {isOutlook && (u as OutlookUser).lastLogin && (
-                 <div style={{ fontSize: '0.75rem', color: '#999', marginBottom: 12 }}>
-                    Dernière connexion: {new Date((u as OutlookUser).lastLogin!).toLocaleDateString('fr-FR')}
-                 </div>
-              )}
-
-              <div style={{ paddingTop: 12, borderTop: '1px solid #f0f0f0', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {!isOutlook && (
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <input 
-                        placeholder="Nouveau mot de passe" 
-                        type="password" 
-                        value={resetMap[u._id] || ''} 
-                        onChange={e => setResetMap({ ...resetMap, [u._id]: e.target.value })} 
-                        style={{ padding: '6px', borderRadius: 4, border: '1px solid #ddd', fontSize: '0.85rem', flex: 1 }} 
-                    />
-                    <button className="btn secondary" onClick={() => resetPassword(u._id)} style={{ padding: '6px 10px', fontSize: '0.8rem' }}>Reset</button>
-                  </div>
-                )}
-
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
-                   {isOutlook ? (
-                      <select 
-                        value={u.role}
-                        onChange={e => updateOutlookUserRole(u._id, e.target.value)}
-                        style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #ccc', fontSize: '0.85rem' }}
-                      >
-                        <option value="TEACHER">Enseignant</option>
-                        <option value="SUBADMIN">Préfet</option>
-                        <option value="AEFE">RPP ET DIRECTION</option>
-                        <option value="ADMIN">Admin</option>
-                      </select>
-                   ) : (
-                     <div>
-                        {u.role !== 'ADMIN' && (
-                            <button 
-                            className="btn" 
-                            onClick={() => viewAsUser(u)}
-                            disabled={impersonating === u._id}
-                            style={{ backgroundColor: '#4CAF50', padding: '4px 8px', fontSize: '0.8rem', marginRight: 8 }}
-                            title="Se connecter en tant que..."
-                            >
-                            {impersonating === u._id ? '...' : 'Login As'}
-                            </button>
-                        )}
-                     </div>
-                   )}
-                   
-                   <button 
-                      className="btn secondary" 
-                      onClick={() => isOutlook ? deleteOutlookUser(u._id) : deleteUser(u._id)} 
-                      style={{ background: '#fff1f0', color: '#cf1322', border: '1px solid #ffa39e', padding: '4px 8px', fontSize: '0.8rem' }}
-                   >
-                      Supprimer
-                   </button>
-                </div>
-              </div>
-            </div>
+            isOutlook ? (
+              <OutlookUserCard
+                key={u._id}
+                user={u as OutlookUser}
+                roleStyle={roleStyle}
+                onUpdateName={updateOutlookUserDisplayName}
+                onDelete={deleteOutlookUser}
+                onUpdateRole={updateOutlookUserRole}
+              />
+            ) : (
+              <UserCard
+                key={u._id}
+                user={u as User}
+                roleStyle={roleStyle}
+                onUpdateName={updateUserDisplayName}
+                onDelete={deleteUser}
+                onResetPassword={resetPassword}
+                onImpersonate={viewAsUser}
+                impersonatingId={impersonating}
+              />
+            )
           ))}
         </div>
       </div>
@@ -203,24 +365,39 @@ export default function Users() {
     loadOutlookUsers()
   }, [])
 
+  const localCount = users.length
+  const outlookCount = outlookUsers.length
+
   const createUser = async () => {
-    await api.post('/users', { email, password, role, displayName })
-    setEmail(''); setPassword(''); setDisplayName(''); setRole('TEACHER')
-    await load()
+    if (!email || !password) {
+      showToast('Email et mot de passe requis', 'error')
+      return
+    }
+    try {
+      await api.post('/users', { email, password, role, displayName })
+      setEmail(''); setPassword(''); setDisplayName(''); setRole('TEACHER')
+      await load()
+      showToast('Utilisateur créé avec succès', 'success')
+    } catch (e) {
+      showToast('Erreur lors de la création', 'error')
+    }
   }
 
-  const resetPassword = async (id: string) => {
-    const pwd = resetMap[id] || ''
+  const resetPassword = async (id: string, pwd: string) => {
     if (!pwd) return
-    await api.patch(`/users/${id}/password`, { password: pwd })
-    const next = { ...resetMap }; delete next[id]; setResetMap(next)
+    try {
+      await api.patch(`/users/${id}/password`, { password: pwd })
+      showToast('Mot de passe réinitialisé', 'success')
+    } catch (e) {
+      showToast('Erreur lors de la réinitialisation', 'error')
+    }
   }
 
   const deleteUser = (id: string) => {
     setConfirmModal({
         isOpen: true,
         title: 'Confirmer la suppression',
-        content: 'Êtes-vous sûr de vouloir supprimer cet utilisateur ?',
+        content: 'Êtes-vous sûr de vouloir supprimer cet utilisateur ? Cette action est irréversible.',
         onConfirm: async () => {
             await api.delete(`/users/${id}`)
             await load()
@@ -289,10 +466,6 @@ export default function Users() {
   const updateOutlookUserDisplayName = async (id: string, displayName: string) => {
     try {
       await api.patch(`/outlook-users/${id}`, { displayName })
-      // Don't reload to avoid losing focus if we were typing, 
-      // but here we use onBlur so it's fine.
-      // Actually, reloading might reset the input if we use defaultValue.
-      // Let's just reload to be safe and consistent.
       await loadOutlookUsers()
       showToast('Nom mis à jour', 'success')
     } catch (e) {
@@ -302,7 +475,7 @@ export default function Users() {
 
   const viewAsUser = async (user: User) => {
     if (user.role === 'ADMIN') {
-      showToast('Cannot impersonate another admin', 'error')
+      showToast('Impossible d\'imiter un autre administrateur', 'error')
       return
     }
     
@@ -323,26 +496,23 @@ export default function Users() {
       // Open in new tab with the impersonation token
       const newWindow = window.open('about:blank', '_blank')
       if (newWindow) {
-        // Store the impersonation data in the new window's sessionStorage
-        // This ensures the admin session in localStorage remains untouched in the original tab
         newWindow.sessionStorage.setItem('token', data.token)
         newWindow.sessionStorage.setItem('role', user.role)
         newWindow.sessionStorage.setItem('displayName', user.displayName)
         
-        // Navigate to the target URL
         newWindow.location.href = window.location.origin + targetUrl
       }
       
       setImpersonating(null)
     } catch (error) {
       console.error('Failed to impersonate:', error)
-      showToast('Failed to impersonate user', 'error')
+      showToast('Échec de l\'imitation', 'error')
       setImpersonating(null)
     }
   }
 
   return (
-    <div className="container">
+    <div className="users-page">
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
       <Modal 
           isOpen={!!confirmModal}
@@ -357,73 +527,87 @@ export default function Users() {
       >
           {confirmModal?.content}
       </Modal>
-      <div style={{ marginBottom: 32 }}>
-        <h2 className="title" style={{ fontSize: '2rem', marginBottom: 8 }}>Gestion des utilisateurs</h2>
-        <p className="note">Gérez les accès et les rôles des utilisateurs de la plateforme.</p>
+      
+      <div className="users-header">
+        <h2 className="users-title">Gestion des utilisateurs</h2>
+        <p className="users-description">Gérez les accès et les rôles des utilisateurs de la plateforme.</p>
       </div>
 
-      <div style={{ display: 'flex', gap: 16, marginBottom: 24, borderBottom: '1px solid #e0e0e0' }}>
+      <div className="users-toolbar">
+        <div className="search-group">
+          <input
+            className="search-input"
+            type="text"
+            placeholder="Rechercher par nom ou email..."
+            value={searchTerm}
+            onChange={e => setSearchTerm(e.target.value)}
+          />
+        </div>
+        <div className="users-stats">
+          <span className="users-stat-chip">
+            Locaux: {localCount}
+          </span>
+          <span className="users-stat-chip">
+            Microsoft: {outlookCount}
+          </span>
+        </div>
+      </div>
+
+      <div className="tabs-container">
         <button 
+          className={`tab-button ${activeTab === 'local' ? 'active' : ''}`}
           onClick={() => setActiveTab('local')}
-          style={{
-            padding: '12px 24px',
-            background: 'none',
-            border: 'none',
-            borderBottom: activeTab === 'local' ? '3px solid #1890ff' : '3px solid transparent',
-            color: activeTab === 'local' ? '#1890ff' : '#666',
-            fontWeight: activeTab === 'local' ? 600 : 400,
-            cursor: 'pointer',
-            fontSize: '1.1rem',
-            transition: 'all 0.2s'
-          }}
         >
-          👤 Comptes Locaux
+          <UsersIcon size={18} />
+          Comptes Locaux
+          <span className="tab-count">{localCount}</span>
         </button>
         <button 
+          className={`tab-button ${activeTab === 'microsoft' ? 'active microsoft' : ''}`}
           onClick={() => setActiveTab('microsoft')}
-          style={{
-            padding: '12px 24px',
-            background: 'none',
-            border: 'none',
-            borderBottom: activeTab === 'microsoft' ? '3px solid #0078d4' : '3px solid transparent',
-            color: activeTab === 'microsoft' ? '#0078d4' : '#666',
-            fontWeight: activeTab === 'microsoft' ? 600 : 400,
-            cursor: 'pointer',
-            fontSize: '1.1rem',
-            transition: 'all 0.2s'
-          }}
         >
-          🔐 Comptes Microsoft
+          <img src="https://upload.wikimedia.org/wikipedia/commons/4/44/Microsoft_logo.svg" alt="Microsoft" style={{ width: 18, height: 18 }} />
+          Comptes Microsoft
+          <span className="tab-count">{outlookCount}</span>
         </button>
       </div>
 
       {activeTab === 'local' && (
         <div className="animate-fade-in">
-          <div className="card" style={{ marginBottom: 32, background: '#f9f9f9', border: '1px dashed #d9d9d9' }}>
-            <h3 style={{ marginTop: 0, marginBottom: 16 }}>Ajouter un utilisateur local</h3>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, alignItems: 'end' }}>
-                <div>
-                    <label className="note" style={{ display: 'block', marginBottom: 4 }}>Email</label>
-                    <input placeholder="user@school.com" value={email} onChange={e => setEmail(e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: 6, border: '1px solid #d9d9d9' }} />
+          <div className="add-user-card">
+            <div className="add-user-header">
+              <div style={{ background: '#e3f2fd', padding: 8, borderRadius: 8, color: '#1976d2' }}>
+                <Plus size={20} />
+              </div>
+              <h3 className="add-user-title">Ajouter un utilisateur local</h3>
+            </div>
+            
+            <div className="form-grid">
+                <div className="form-group">
+                    <label className="form-label">Email</label>
+                    <input className="form-input" placeholder="user@school.com" value={email} onChange={e => setEmail(e.target.value)} />
                 </div>
-                <div>
-                    <label className="note" style={{ display: 'block', marginBottom: 4 }}>Mot de passe</label>
-                    <input placeholder="••••••••" type="password" value={password} onChange={e => setPassword(e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: 6, border: '1px solid #d9d9d9' }} />
+                <div className="form-group">
+                    <label className="form-label">Mot de passe</label>
+                    <input className="form-input" placeholder="••••••••" type="password" value={password} onChange={e => setPassword(e.target.value)} />
                 </div>
-                <div>
-                    <label className="note" style={{ display: 'block', marginBottom: 4 }}>Nom affiché</label>
-                    <input placeholder="John Doe" value={displayName} onChange={e => setDisplayName(e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: 6, border: '1px solid #d9d9d9' }} />
+                <div className="form-group">
+                    <label className="form-label">Nom affiché</label>
+                    <input className="form-input" placeholder="John Doe" value={displayName} onChange={e => setDisplayName(e.target.value)} />
                 </div>
-                <div>
-                    <label className="note" style={{ display: 'block', marginBottom: 4 }}>Rôle</label>
-                    <select value={role} onChange={e => setRole(e.target.value as any)} style={{ width: '100%', padding: '10px', borderRadius: 6, border: '1px solid #d9d9d9', backgroundColor: 'white' }}>
+                <div className="form-group">
+                    <label className="form-label">Rôle</label>
+                    <select className="form-select" value={role} onChange={e => setRole(e.target.value as any)}>
                       <option value="ADMIN">Admin</option>
                       <option value="SUBADMIN">Préfet</option>
                       <option value="AEFE">RPP ET DIRECTION</option>
                       <option value="TEACHER">Enseignant</option>
                     </select>
                 </div>
-                <button className="btn" onClick={createUser} style={{ height: 42 }}>+ Créer</button>
+                <button className="btn-add" onClick={createUser}>
+                  <Plus size={18} />
+                  Créer
+                </button>
             </div>
           </div>
 
@@ -436,30 +620,39 @@ export default function Users() {
 
       {activeTab === 'microsoft' && (
         <div className="animate-fade-in">
-           <div className="card" style={{ marginBottom: 32, background: '#f0f7ff', border: '1px dashed #bae7ff' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-                <h3 style={{ margin: 0 }}>Ajouter un utilisateur Outlook</h3>
-                <span className="note">Les utilisateurs se connectent avec leur compte Microsoft</span>
+           <div className="add-user-card" style={{ background: '#f0f7ff', borderColor: '#bae7ff' }}>
+            <div className="add-user-header">
+              <div style={{ background: 'white', padding: 8, borderRadius: 8 }}>
+                <img src="https://upload.wikimedia.org/wikipedia/commons/4/44/Microsoft_logo.svg" alt="Microsoft" style={{ width: 20, height: 20 }} />
+              </div>
+              <div>
+                <h3 className="add-user-title">Ajouter un utilisateur Outlook</h3>
+                <span className="users-description" style={{ fontSize: '0.9rem' }}>Les utilisateurs se connectent avec leur compte Microsoft</span>
+              </div>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, alignItems: 'end' }}>
-                <div>
-                    <label className="note" style={{ display: 'block', marginBottom: 4 }}>Email Outlook</label>
-                    <input placeholder="user@outlook.com" value={outlookEmail} onChange={e => setOutlookEmail(e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: 6, border: '1px solid #d9d9d9' }} />
+            
+            <div className="form-grid">
+                <div className="form-group">
+                    <label className="form-label">Email Outlook</label>
+                    <input className="form-input" placeholder="user@outlook.com" value={outlookEmail} onChange={e => setOutlookEmail(e.target.value)} />
                 </div>
-                <div>
-                    <label className="note" style={{ display: 'block', marginBottom: 4 }}>Nom (Optionnel)</label>
-                    <input placeholder="John Doe" value={outlookDisplayName} onChange={e => setOutlookDisplayName(e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: 6, border: '1px solid #d9d9d9' }} />
+                <div className="form-group">
+                    <label className="form-label">Nom (Optionnel)</label>
+                    <input className="form-input" placeholder="John Doe" value={outlookDisplayName} onChange={e => setOutlookDisplayName(e.target.value)} />
                 </div>
-                <div>
-                    <label className="note" style={{ display: 'block', marginBottom: 4 }}>Rôle</label>
-                    <select value={outlookRole} onChange={e => setOutlookRole(e.target.value as any)} style={{ width: '100%', padding: '10px', borderRadius: 6, border: '1px solid #d9d9d9', backgroundColor: 'white' }}>
+                <div className="form-group">
+                    <label className="form-label">Rôle</label>
+                    <select className="form-select" value={outlookRole} onChange={e => setOutlookRole(e.target.value as any)}>
                       <option value="ADMIN">Admin</option>
                       <option value="SUBADMIN">Préfet</option>
                       <option value="AEFE">RPP ET DIRECTION</option>
                       <option value="TEACHER">Enseignant</option>
                     </select>
                 </div>
-                <button className="btn" onClick={addOutlookUser} style={{ height: 42, backgroundColor: '#0078d4' }}>+ Autoriser</button>
+                <button className="btn-add" onClick={addOutlookUser} style={{ backgroundColor: '#0078d4' }}>
+                  <Plus size={18} />
+                  Autoriser
+                </button>
             </div>
           </div>
 

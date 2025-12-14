@@ -271,7 +271,7 @@ export default function SubAdminStudents() {
                         <button 
                             className="btn" 
                             onClick={handleAssign}
-                            disabled={!targetClassId || (selectedStudent && targetClassId === selectedStudent.classId)}
+                            disabled={!targetClassId || (selectedStudent?.classId === targetClassId)}
                         >
                             Enregistrer
                         </button>
