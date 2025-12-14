@@ -39,6 +39,9 @@ import AdminOnlineUsers from './pages/AdminOnlineUsers'
 import AdminAllGradebooks from './pages/AdminAllGradebooks'
 import AdminGradebookReview from './pages/AdminGradebookReview'
 import AdminSignatures from './pages/AdminSignatures'
+import AdminGlobalPermissions from './pages/AdminGlobalPermissions'
+import AdminNavigationVisibility from './pages/AdminNavigationVisibility'
+import AdminStudentPromotions from './pages/AdminStudentPromotions'
 import SystemAlertBanner from './components/SystemAlertBanner'
 
 const RequireAuth = ({ children }: { children: JSX.Element }) => {
@@ -386,6 +389,30 @@ export default function App() {
           element={
             <RequireAuth>
               <AdminPermissions />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/admin/global-permissions"
+          element={
+            <RequireAuth>
+              <AdminGlobalPermissions />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/admin/navigation-visibility"
+          element={
+            <RequireAuth>
+              <AdminNavigationVisibility />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/admin/student-promotions"
+          element={
+            <RequireAuth>
+              <AdminStudentPromotions />
             </RequireAuth>
           }
         />

@@ -8,6 +8,10 @@
   --warning: #ffeaa7;
 }
 
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
 html, body, #root { height: 100%; }
 body { margin: 0; font-family: 'Poppins', system-ui, sans-serif; background: var(--bg); color: var(--text); }
 

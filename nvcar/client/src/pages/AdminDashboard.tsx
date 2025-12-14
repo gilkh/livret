@@ -1,138 +1,188 @@
 import { Link } from 'react-router-dom'
+import { 
+  BarChart3, 
+  School, 
+  Users, 
+  Image, 
+  PenTool, 
+  FolderOpen, 
+  Link as LinkIcon, 
+  ScrollText, 
+  Lightbulb, 
+  TrendingUp, 
+  Key, 
+  Globe, 
+  Eye, 
+  GraduationCap, 
+  Activity 
+} from 'lucide-react'
+import DashboardCard from '../components/DashboardCard'
+import './AdminDashboard.css'
 
 export default function AdminDashboard() {
   return (
-    <div className="container">
-      <div style={{ marginBottom: 32 }}>
-        <h2 className="title" style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>Admin Dashboard</h2>
-        <p className="note" style={{ fontSize: '1rem' }}>Welcome back. Manage your school resources and users from here.</p>
-      </div>
+    <div className="admin-dashboard">
+      <header className="dashboard-header">
+        <h1 className="dashboard-title">Tableau de Bord</h1>
+        <p className="dashboard-subtitle">Bienvenue dans l'espace d'administration. Gérez les ressources scolaires, les utilisateurs et les carnets.</p>
+      </header>
       
-      <div className="grid2" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 24 }}>
+      <div className="dashboard-content">
         
-        {/* Analytics - NEW */}
-        <div className="card" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-            <div style={{ background: '#e0e7ff', padding: 12, borderRadius: 12, fontSize: 24 }}>📊</div>
-            <h3 style={{ margin: 0 }}>Analytics</h3>
+        {/* Section: Vue d'ensemble */}
+        <section className="dashboard-section">
+          <h2 className="section-title">Vue d'ensemble</h2>
+          <div className="dashboard-grid">
+            <DashboardCard
+              title="Analytics"
+              description="Vue d'ensemble et statistiques."
+              icon={BarChart3}
+              to="/admin/analytics"
+              color="#e0e7ff"
+              iconColor="#4f46e5"
+            />
+            <DashboardCard
+              title="Progression"
+              description="Suivi global de l'avancement."
+              icon={TrendingUp}
+              to="/admin/progress"
+              color="#ecfeff"
+              iconColor="#0891b2"
+            />
+            <DashboardCard
+              title="En Ligne"
+              description="Utilisateurs actifs en temps réel."
+              icon={Activity}
+              to="/admin/online-users"
+              color="#f0fdf4"
+              iconColor="#15803d"
+            />
+             <DashboardCard
+              title="Logs"
+              description="Historique des actions."
+              icon={ScrollText}
+              to="/admin/audit-logs"
+              color="#f5f5f5"
+              iconColor="#595959"
+            />
           </div>
-          <p className="note" style={{ marginBottom: 24, flex: 1 }}>Vue d'ensemble et statistiques.</p>
-          <Link className="btn" to="/admin/analytics" style={{ textAlign: 'center' }}>Voir les stats</Link>
-        </div>
+        </section>
 
-        {/* Structure Scolaire (was Ressource) */}
-        <div className="card" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-            <div style={{ background: '#eef2ff', padding: 12, borderRadius: 12, fontSize: 24 }}>🏫</div>
-            <h3 style={{ margin: 0 }}>Structure Scolaire</h3>
+        {/* Section: Gestion Scolaire */}
+        <section className="dashboard-section">
+          <h2 className="section-title">Gestion Scolaire</h2>
+          <div className="dashboard-grid">
+            <DashboardCard
+              title="Structure"
+              description="Années, classes et élèves."
+              icon={School}
+              to="/admin/ressource"
+              color="#eef2ff"
+              iconColor="#4338ca"
+            />
+            <DashboardCard
+              title="Utilisateurs"
+              description="Enseignants et admins."
+              icon={Users}
+              to="/admin/users"
+              color="#fff0f6"
+              iconColor="#db2777"
+            />
+            <DashboardCard
+              title="Assignations"
+              description="Affectations enseignants."
+              icon={LinkIcon}
+              color="#fff7e6"
+              iconColor="#d46b08"
+            >
+              <div className="dashboard-toolbar">
+                <Link className="dashboard-btn dashboard-btn-primary" to="/admin/assignments">Créer</Link>
+                <Link className="dashboard-btn dashboard-btn-secondary" to="/admin/assignment-list">Voir</Link>
+              </div>
+            </DashboardCard>
+             <DashboardCard
+              title="Passage Élèves"
+              description="Promotions annuelles."
+              icon={GraduationCap}
+              to="/admin/student-promotions"
+              color="#ffedd5"
+              iconColor="#c2410c"
+            />
           </div>
-          <p className="note" style={{ marginBottom: 24, flex: 1 }}>Années, Classes, Élèves.</p>
-          <Link className="btn" to="/admin/ressource" style={{ textAlign: 'center' }}>Gérer la structure</Link>
-        </div>
+        </section>
 
-        {/* User Management */}
-        <div className="card" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-            <div style={{ background: '#fff0f6', padding: 12, borderRadius: 12, fontSize: 24 }}>👥</div>
-            <h3 style={{ margin: 0 }}>Utilisateurs</h3>
+        {/* Section: Contenu & Carnets */}
+        <section className="dashboard-section">
+          <h2 className="section-title">Contenu & Carnets</h2>
+          <div className="dashboard-grid">
+            <DashboardCard
+              title="Templates"
+              description="Éditeur de modèles."
+              icon={PenTool}
+              to="/admin/template-builder"
+              color="#f0f9ff"
+              iconColor="#0284c7"
+            />
+            <DashboardCard
+              title="Carnets"
+              description="Carnets sauvegardés."
+              icon={FolderOpen}
+              to="/admin/gradebooks"
+              color="#f6ffed"
+              iconColor="#52c41a"
+            />
+             <DashboardCard
+              title="Supervision"
+              description="Accès global aux carnets."
+              icon={Globe}
+              to="/admin/global-permissions"
+              color="#e0f2fe"
+              iconColor="#0369a1"
+            />
+            <DashboardCard
+              title="Média"
+              description="Bibliothèque de fichiers."
+              icon={Image}
+              to="/admin/media"
+              color="#fdf4ff"
+              iconColor="#c026d3"
+            />
           </div>
-          <p className="note" style={{ marginBottom: 24, flex: 1 }}>Enseignants, Admins, Sous-admins.</p>
-          <Link className="btn" to="/admin/users" style={{ textAlign: 'center' }}>Gérer les utilisateurs</Link>
-        </div>
+        </section>
 
-        {/* Media Management - NEW LINK */}
-        <div className="card" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-            <div style={{ background: '#fdf4ff', padding: 12, borderRadius: 12, fontSize: 24 }}>🖼️</div>
-            <h3 style={{ margin: 0 }}>Média</h3>
+        {/* Section: Administration */}
+        <section className="dashboard-section">
+          <h2 className="section-title">Administration</h2>
+          <div className="dashboard-grid">
+            <DashboardCard
+              title="Permissions"
+              description="Droits des sous-admins."
+              icon={Key}
+              to="/admin/permissions"
+              color="#fffbeb"
+              iconColor="#b45309"
+            />
+            <DashboardCard
+              title="Menu"
+              description="Visibilité navigation."
+              icon={Eye}
+              to="/admin/navigation-visibility"
+              color="#f3e8ff"
+              iconColor="#7e22ce"
+            />
+            <DashboardCard
+              title="Suggestions"
+              description="Retours enseignants."
+              icon={Lightbulb}
+              to="/admin/suggestions"
+              color="#fdf2f8"
+              iconColor="#be185d"
+            />
           </div>
-          <p className="note" style={{ marginBottom: 24, flex: 1 }}>Bibliothèque d'images et fichiers.</p>
-          <Link className="btn" to="/admin/media" style={{ textAlign: 'center' }}>Gérer les médias</Link>
-        </div>
+        </section>
 
-        {/* Template Builder */}
-        <div className="card" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-            <div style={{ background: '#f0f9ff', padding: 12, borderRadius: 12, fontSize: 24 }}>✏️</div>
-            <h3 style={{ margin: 0 }}>Templates</h3>
-          </div>
-          <p className="note" style={{ marginBottom: 24, flex: 1 }}>Créer et éditer les modèles de carnets.</p>
-          <Link className="btn" to="/admin/template-builder" style={{ textAlign: 'center' }}>Éditeur visuel</Link>
-        </div>
-
-        {/* Saved Gradebooks */}
-        <div className="card" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-            <div style={{ background: '#f6ffed', padding: 12, borderRadius: 12, fontSize: 24 }}>📂</div>
-            <h3 style={{ margin: 0 }}>Carnets</h3>
-          </div>
-          <p className="note" style={{ marginBottom: 24, flex: 1 }}>Voir et gérer les carnets sauvegardés.</p>
-          <Link className="btn" to="/admin/gradebooks" style={{ textAlign: 'center' }}>Ouvrir</Link>
-        </div>
-
-        {/* Assignments */}
-        <div className="card" style={{ display: 'flex', flexDirection: 'column', height: '100%', gridColumn: 'span 1' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-            <div style={{ background: '#fff7e6', padding: 12, borderRadius: 12, fontSize: 24 }}>🔗</div>
-            <h3 style={{ margin: 0 }}>Assignations</h3>
-          </div>
-          <p className="note" style={{ marginBottom: 24, flex: 1 }}>Gérer enseignants, carnets, sous-admins.</p>
-          <div className="toolbar" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <Link className="btn" to="/admin/assignments" style={{ textAlign: 'center' }}>Créer</Link>
-            <Link className="btn secondary" to="/admin/assignment-list" style={{ textAlign: 'center' }}>Voir tout</Link>
-          </div>
-        </div>
-
-        {/* Audit Logs */}
-        <div className="card" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-            <div style={{ background: '#f5f5f5', padding: 12, borderRadius: 12, fontSize: 24 }}>📜</div>
-            <h3 style={{ margin: 0 }}>Logs</h3>
-          </div>
-          <p className="note" style={{ marginBottom: 24, flex: 1 }}>Suivi des actions utilisateurs.</p>
-          <Link className="btn" to="/admin/audit-logs" style={{ textAlign: 'center' }}>Voir les logs</Link>
-        </div>
-
-        {/* Suggestions */}
-        <div className="card" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-            <div style={{ background: '#fdf2f8', padding: 12, borderRadius: 12, fontSize: 24 }}>💡</div>
-            <h3 style={{ margin: 0 }}>Suggestions</h3>
-          </div>
-          <p className="note" style={{ marginBottom: 24, flex: 1 }}>Voir les suggestions des enseignants.</p>
-          <Link className="btn" to="/admin/suggestions" style={{ textAlign: 'center' }}>Voir</Link>
-        </div>
-
-        {/* Progress - NEW */}
-        <div className="card" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-            <div style={{ background: '#ecfeff', padding: 12, borderRadius: 12, fontSize: 24 }}>📈</div>
-            <h3 style={{ margin: 0 }}>Progression</h3>
-          </div>
-          <p className="note" style={{ marginBottom: 24, flex: 1 }}>Suivi global des classes et enseignants.</p>
-          <Link className="btn" to="/admin/progress" style={{ textAlign: 'center' }}>Voir la progression</Link>
-        </div>
-
-        {/* Permissions - NEW */}
-        <div className="card" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-            <div style={{ background: '#fffbeb', padding: 12, borderRadius: 12, fontSize: 24 }}>🔑</div>
-            <h3 style={{ margin: 0 }}>Permissions</h3>
-          </div>
-          <p className="note" style={{ marginBottom: 24, flex: 1 }}>Gérer les droits des sous-admins.</p>
-          <Link className="btn" to="/admin/permissions" style={{ textAlign: 'center' }}>Gérer</Link>
-        </div>
-
-        {/* Online Users - NEW */}
-        <div className="card" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-            <div style={{ background: '#f0fdf4', padding: 12, borderRadius: 12, fontSize: 24 }}>🟢</div>
-            <h3 style={{ margin: 0 }}>En Ligne</h3>
-          </div>
-          <p className="note" style={{ marginBottom: 24, flex: 1 }}>Utilisateurs actifs et alertes.</p>
-          <Link className="btn" to="/admin/online-users" style={{ textAlign: 'center' }}>Gérer</Link>
-        </div>
       </div>
     </div>
   )
 }
+

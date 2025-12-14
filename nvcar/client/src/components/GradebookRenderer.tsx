@@ -87,15 +87,24 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                         {page.blocks.map((b, blockIdx) => (
                             <div key={blockIdx} style={{ position: 'absolute', left: b.props.x || 0, top: b.props.y || 0, zIndex: b.props.z ?? blockIdx }}>
                                 {b.type === 'text' && (
-                                    <div style={{ color: b.props.color, fontSize: b.props.fontSize }}>{b.props.text}</div>
+                                    <div style={{ color: b.props.color, fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden', whiteSpace: 'pre-wrap' }}>{b.props.text}</div>
                                 )}
                                 {b.type === 'dynamic_text' && (
-                                    <div style={{ color: b.props.color, fontSize: b.props.fontSize }}>
-                                        {(b.props.text || '')
-                                            .replace(/\{student\.firstName\}/g, student.firstName)
-                                            .replace(/\{student\.lastName\}/g, student.lastName)
-                                            .replace(/\{student\.dob\}/g, new Date(student.dateOfBirth).toLocaleDateString())
-                                        }
+                                    <div style={{ color: b.props.color, fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden', whiteSpace: 'pre-wrap' }}>
+                                        {(() => {
+                                            let text = b.props.text || ''
+                                            if (student) {
+                                                text = text.replace(/{student.firstName}/g, student.firstName)
+                                                    .replace(/{student.lastName}/g, student.lastName)
+                                                    .replace(/{student.dob}/g, new Date(student.dateOfBirth).toLocaleDateString())
+                                            }
+                                            if (assignment?.data) {
+                                                Object.entries(assignment.data).forEach(([k, v]) => {
+                                                    text = text.replace(new RegExp(`{${k}}`, 'g'), String(v))
+                                                })
+                                            }
+                                            return text
+                                        })()}
                                     </div>
                                 )}
 
@@ -163,8 +172,8 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                     </div>
                                 )}
                                 {b.type === 'image' && <img src={b.props.url} style={{ width: b.props.width || 120, height: b.props.height || 120, borderRadius: 8 }} alt="" />}
-                                {b.type === 'rect' && <div style={{ width: b.props.width, height: b.props.height, background: b.props.color, border: b.props.stroke ? `${b.props.strokeWidth || 1}px solid ${b.props.stroke}` : 'none', borderRadius: b.props.radius || 8 }} />}
-                                {b.type === 'circle' && <div style={{ width: (b.props.radius || 60) * 2, height: (b.props.radius || 60) * 2, background: b.props.color, border: b.props.stroke ? `${b.props.strokeWidth || 1}px solid ${b.props.stroke}` : 'none', borderRadius: '50%' }} />}
+                                {b.type === 'rect' && <div style={{ width: b.props.width, height: b.props.height, background: b.props.color, borderRadius: b.props.radius || 8, border: b.props.stroke ? `${b.props.strokeWidth || 1}px solid ${b.props.stroke}` : 'none' }} />}
+                                {b.type === 'circle' && <div style={{ width: (b.props.radius || 60) * 2, height: (b.props.radius || 60) * 2, background: b.props.color, borderRadius: '50%', border: b.props.stroke ? `${b.props.strokeWidth || 1}px solid ${b.props.stroke}` : 'none' }} />}
                                 {b.type === 'line' && <div style={{ width: b.props.x2 || 100, height: b.props.strokeWidth || 2, background: b.props.stroke || '#b2bec3' }} />}
                                 {b.type === 'arrow' && <div style={{ width: b.props.x2 || 100, height: b.props.strokeWidth || 2, background: b.props.stroke || '#6c5ce7', position: 'relative' }}><div style={{ position: 'absolute', right: 0, top: -6, width: 0, height: 0, borderTop: '8px solid transparent', borderBottom: '8px solid transparent', borderLeft: `12px solid ${b.props.stroke || '#6c5ce7'}` }} /></div>}
 
@@ -379,8 +388,10 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                                                         style={{
                                                                             width: b.props.columnWidths?.[ci] || 100,
                                                                             height: b.props.rowHeights?.[ri] || 40,
-                                                                            borderRight: ci < row.length - 1 ? '1px solid #ddd' : 'none',
-                                                                            borderBottom: (!expandedRows && !isLastRow) ? '1px solid #ddd' : 'none',
+                                                                            borderLeft: cell.borders?.l?.width ? `${cell.borders.l.width}px solid ${cell.borders.l.color || '#000'}` : 'none',
+                                                                            borderRight: cell.borders?.r?.width ? `${cell.borders.r.width}px solid ${cell.borders.r.color || '#000'}` : 'none',
+                                                                            borderTop: cell.borders?.t?.width ? `${cell.borders.t.width}px solid ${cell.borders.t.color || '#000'}` : 'none',
+                                                                            borderBottom: cell.borders?.b?.width ? `${cell.borders.b.width}px solid ${cell.borders.b.color || '#000'}` : 'none',
                                                                             background: cell.fill || 'transparent',
                                                                             padding: 15,
                                                                             fontSize: cell.fontSize || b.props.fontSize || 10,
@@ -399,7 +410,7 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                                             {expandedRows && (
                                                                 <div style={{
                                                                     background: rowBgColor,
-                                                                    borderBottom: !isLastRow ? '1px solid #ddd' : 'none',
+                                                                    borderBottom: 'none',
                                                                     position: 'relative',
                                                                     height: expandedRowHeight
                                                                 }}>
@@ -541,6 +552,11 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                         )}
                                     </div>
                                 )}
+
+                                {b.type === 'student_info' && <div style={{ color: b.props.color, fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden' }}>{student ? `${student.firstName} ${student.lastName}, ${student.className || 'Classe'}, ${student.dateOfBirth ? new Date(student.dateOfBirth).toLocaleDateString() : 'Date'}` : 'Nom, Classe, Naissance'}</div>}
+                                {b.type === 'category_title' && <div style={{ color: b.props.color, fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden' }}>Titre catégorie</div>}
+                                {b.type === 'competency_list' && <div style={{ color: b.props.color, fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden' }}>Liste des compétences</div>}
+                                {b.type === 'signature' && <div style={{ fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden' }}>{(b.props.labels || []).join(' / ')}</div>}
                             </div>
                         ))}
                     </div>

@@ -31,6 +31,8 @@ export default function TemplateBuilder() {
   const [selectedIndices, setSelectedIndices] = useState<number[]>([])
   const [gallery, setGallery] = useState<{ name: string, path: string, type: string }[]>([])
   const [scale, setScale] = useState(1)
+  const [autoFit, setAutoFit] = useState(true)
+  const canvasContainerRef = useRef<HTMLDivElement>(null)
   const [snap, setSnap] = useState(true)
   const [selectedCell, setSelectedCell] = useState<{ ri: number; ci: number } | null>(null)
   const [globalBorderColor, setGlobalBorderColor] = useState('#000000')
@@ -132,6 +134,25 @@ export default function TemplateBuilder() {
       isUndoRedoAction.current = false
     }
   }
+
+  // Auto-fit Logic
+  useEffect(() => {
+    if (!autoFit || !canvasContainerRef.current) return
+    const ro = new ResizeObserver(entries => {
+      for (const entry of entries) {
+        const w = entry.contentRect.width
+        if (w > 0) {
+          const availableW = w - 48 // 24px gap on each side
+          const newScale = availableW / pageWidth
+          // Cap minimal scale to avoid disappearance, and maybe max scale to avoid hugeness?
+          // Let's just fit width.
+          setScale(Math.max(0.1, newScale))
+        }
+      }
+    })
+    ro.observe(canvasContainerRef.current)
+    return () => ro.disconnect()
+  }, [autoFit])
 
   // Initialize history with initial tpl
   useEffect(() => {
@@ -1501,28 +1522,26 @@ export default function TemplateBuilder() {
             {continuousScroll ? '📄 Vue page par page' : '📜 Vue continue'}
           </button>
 
-          <label style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-            padding: '8px 14px',
-            background: '#f8f9fa',
-            borderRadius: 8,
-            fontSize: 14,
-            minWidth: 200
-          }}>
-            <span>🔍 Zoom</span>
-            <input
-              type="range"
-              min={0.5}
-              max={2}
-              step={0.1}
-              value={scale}
-              onChange={e => setScale(parseFloat(e.target.value))}
-              style={{ flex: 1 }}
-            />
-            <span style={{ fontWeight: 600, minWidth: 45, textAlign: 'right' }}>{Math.round(scale * 100)}%</span>
-          </label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#f8f9fa', padding: '8px 14px', borderRadius: 8 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', paddingRight: 10, borderRight: '1px solid #dee2e6' }}>
+              <input type="checkbox" checked={autoFit} onChange={e => setAutoFit(e.target.checked)} />
+              <span style={{ fontSize: 13, fontWeight: 500 }}>Auto</span>
+            </label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 200 }}>
+              <span style={{ fontSize: 14 }}>🔍 Zoom</span>
+              <input
+                type="range"
+                min={0.5}
+                max={2}
+                step={0.1}
+                value={scale}
+                disabled={autoFit}
+                onChange={e => setScale(parseFloat(e.target.value))}
+                style={{ flex: 1, opacity: autoFit ? 0.5 : 1, cursor: autoFit ? 'not-allowed' : 'pointer' }}
+              />
+              <span style={{ fontWeight: 600, minWidth: 45, textAlign: 'right', fontSize: 14 }}>{Math.round(scale * 100)}%</span>
+            </div>
+          </div>
 
           <div style={{ flex: 1 }} />
 
@@ -1692,7 +1711,7 @@ export default function TemplateBuilder() {
       </div>
 
       {/* Main Editor Grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: '240px minmax(0, 1fr) 300px', gap: 16, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '260px minmax(0, 1fr) 300px', gap: 24, alignItems: 'start' }}>
         {/* Left Panel - Blocks Palette */}
         <div
           style={{
@@ -1703,7 +1722,8 @@ export default function TemplateBuilder() {
             background: '#fff',
             borderRadius: 16,
             padding: '24px 20px',
-            boxShadow: '0 2px 12px rgba(0,0,0,0.08)'
+            boxShadow: '0 2px 12px rgba(0,0,0,0.08)',
+            overflowX: 'hidden'
           }}
         >
           <h3 style={{
@@ -1840,7 +1860,7 @@ export default function TemplateBuilder() {
         </div>
 
         {/* Center Panel - Canvas */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 24, alignItems: 'flex-start', minWidth: 0, overflowX: 'auto', paddingBottom: 24 }}>
+        <div ref={canvasContainerRef} style={{ display: 'flex', flexDirection: 'column', gap: 24, alignItems: 'flex-start', minWidth: 0, overflowX: autoFit ? 'hidden' : 'auto', paddingBottom: 24 }}>
           {(continuousScroll ? tpl.pages : [tpl.pages[selectedPage]]).map((page, i) => {
             const pageIndex = continuousScroll ? i : selectedPage
             return (
@@ -2307,9 +2327,9 @@ export default function TemplateBuilder() {
                               const expandedPadding = 4
                               const expandedTopGap = 6
                               const expandedLanguages = b.props.expandedLanguages || [
-                                { code: 'lb', label: 'Lebanese', emoji: '🇱🇧', active: false },
                                 { code: 'fr', label: 'French', emoji: '🇫🇷', active: false },
-                                { code: 'en', label: 'English', emoji: '🇬🇧', active: false }
+                                { code: 'en', label: 'English', emoji: '🇬🇧', active: false },
+                                { code: 'ar', label: 'Lebanese', emoji: '🇱🇧', active: false }
                               ]
 
                               let width = 0
@@ -2474,29 +2494,57 @@ export default function TemplateBuilder() {
 
                                                 return rowLangs.map((lang: any, li: number) => {
                                                   const size = Math.max(12, Math.min(expandedRowHeight - 12, 20))
-                                                  const toggleKey = `table_${idx}_row_${ri}_lang_${li}`
-                                                  const isActive = previewData[toggleKey] === 'true'
+                                                  const isActive = lang.active
+
+                                                  const onToggle = (ev: any) => {
+                                                    ev.stopPropagation()
+                                                    const pages = [...tpl.pages]
+                                                    const page = { ...pages[selectedPage] }
+                                                    const blocks = [...page.blocks]
+                                                    const block = { ...blocks[idx] }
+                                                    const props = { ...block.props }
+
+                                                    const isCustom = props.rowLanguages && props.rowLanguages[ri]
+                                                    if (isCustom) {
+                                                      const rl = [...(props.rowLanguages || [])]
+                                                      const rowL = [...(rl[ri] || [])]
+                                                      rowL[li] = { ...rowL[li], active: !isActive }
+                                                      rl[ri] = rowL
+                                                      props.rowLanguages = rl
+                                                    } else {
+                                                      const el = [...(props.expandedLanguages || [
+                                                        { code: 'fr', label: 'French', emoji: '🇫🇷', active: false },
+                                                        { code: 'en', label: 'English', emoji: '🇬🇧', active: false },
+                                                        { code: 'ar', label: 'Lebanese', emoji: '🇱🇧', active: false }
+                                                      ])]
+                                                      el[li] = { ...el[li], active: !isActive }
+                                                      props.expandedLanguages = el
+                                                    }
+
+                                                    block.props = props
+                                                    blocks[idx] = block
+                                                    page.blocks = blocks
+                                                    pages[selectedPage] = page
+                                                    setTpl({ ...tpl, pages })
+                                                  }
 
                                                   if (toggleStyle === 'v1') {
-                                                      const logo = lang.logo || (() => {
-                                                          const c = (lang.code || '').toLowerCase()
-                                                          if (c === 'en' || c === 'uk' || c === 'gb') return 'https://upload.wikimedia.org/wikipedia/commons/a/a4/Flag_of_the_United_States.svg'
-                                                          if (c === 'fr') return 'https://upload.wikimedia.org/wikipedia/en/c/c3/Flag_of_France.svg'
-                                                          if (c === 'ar' || c === 'lb') return 'https://upload.wikimedia.org/wikipedia/commons/5/59/Flag_of_Lebanon.svg'
-                                                          return ''
-                                                      })()
-                                                      
-                                                      return (
-                                                        <div key={li} style={{ width: size, height: size, borderRadius: '50%', overflow: 'hidden', position: 'relative', cursor: 'pointer', boxShadow: isActive ? '0 0 0 2px #6c5ce7' : 'none', opacity: isActive ? 1 : 0.6 }}
-                                                            onClick={(ev) => {
-                                                                ev.stopPropagation()
-                                                                setPreviewData({ ...previewData, [toggleKey]: isActive ? 'false' : 'true' })
-                                                            }}
-                                                            onMouseDown={(ev) => ev.stopPropagation()}
-                                                        >
-                                                            {logo ? <img src={logo} style={{ width: '100%', height: '100%', objectFit: 'cover', filter: isActive ? 'brightness(1.1)' : 'brightness(0.6)' }} /> : <div style={{ width: '100%', height: '100%', background: '#ddd' }} />}
-                                                        </div>
-                                                      )
+                                                    const logo = lang.logo || (() => {
+                                                      const c = (lang.code || '').toLowerCase()
+                                                      if (c === 'en' || c === 'uk' || c === 'gb') return 'https://upload.wikimedia.org/wikipedia/commons/a/a4/Flag_of_the_United_States.svg'
+                                                      if (c === 'fr') return 'https://upload.wikimedia.org/wikipedia/en/c/c3/Flag_of_France.svg'
+                                                      if (c === 'ar' || c === 'lb') return 'https://upload.wikimedia.org/wikipedia/commons/5/59/Flag_of_Lebanon.svg'
+                                                      return ''
+                                                    })()
+
+                                                    return (
+                                                      <div key={li} style={{ width: size, height: size, borderRadius: '50%', overflow: 'hidden', position: 'relative', cursor: 'pointer', boxShadow: isActive ? '0 0 0 2px #6c5ce7' : 'none', opacity: isActive ? 1 : 0.6 }}
+                                                        onClick={onToggle}
+                                                        onMouseDown={(ev) => ev.stopPropagation()}
+                                                      >
+                                                        {logo ? <img src={logo} style={{ width: '100%', height: '100%', objectFit: 'cover', filter: isActive ? 'brightness(1.1)' : 'brightness(0.6)' }} /> : <div style={{ width: '100%', height: '100%', background: '#ddd' }} />}
+                                                      </div>
+                                                    )
                                                   }
 
                                                   const getEmoji = (item: any) => {
@@ -2531,10 +2579,7 @@ export default function TemplateBuilder() {
                                                         boxShadow: 'none',
                                                         opacity: isActive ? 1 : 0.6
                                                       }}
-                                                      onClick={(ev) => {
-                                                        ev.stopPropagation()
-                                                        setPreviewData({ ...previewData, [toggleKey]: isActive ? 'false' : 'true' })
-                                                      }}
+                                                      onClick={onToggle}
                                                       onMouseDown={(ev) => ev.stopPropagation()}
                                                     >
                                                       <img src={appleEmojiUrl} style={{ width: size * 0.7, height: size * 0.7, objectFit: 'contain' }} alt="" />
@@ -2670,7 +2715,8 @@ export default function TemplateBuilder() {
             background: '#fff',
             borderRadius: 16,
             padding: '24px 20px',
-            boxShadow: '0 2px 12px rgba(0,0,0,0.08)'
+            boxShadow: '0 2px 12px rgba(0,0,0,0.08)',
+            overflowX: 'hidden'
           }}
         >
           <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
@@ -3232,70 +3278,7 @@ export default function TemplateBuilder() {
                                     />
                                   </div>
                                 </div>
-                                <div className="note" style={{ marginTop: 4 }}>
-                                  Les toggles de langue V2 seront configurés automatiquement pour chaque ligne.
-                                  Vous pouvez personnaliser les langues disponibles ci-dessous:
-                                </div>
-                                <div style={{ display: 'grid', gap: 8 }}>
-                                  <div style={{ fontSize: 11, fontWeight: 600, color: '#6c757d' }}>Langues pour les toggles:</div>
-                                  {((tpl.pages[selectedPage].blocks[selectedIndex].props.expandedLanguages || [
-                                    { code: 'lb', label: 'Lebanese', emoji: '🇱🇧', active: false },
-                                    { code: 'fr', label: 'French', emoji: '🇫🇷', active: false },
-                                    { code: 'en', label: 'English', emoji: '🇬🇧', active: false }
-                                  ]) as any[]).map((lang: any, i: number) => (
-                                    <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: 8, background: '#fff', borderRadius: 6 }}>
-                                      <select
-                                        value={lang.code}
-                                        onChange={e => {
-                                          const langData: Record<string, any> = {
-                                            'en': { code: 'en', label: 'English', emoji: '🇬🇧' },
-                                            'fr': { code: 'fr', label: 'Français', emoji: '🇫🇷' },
-                                            'ar': { code: 'ar', label: 'العربية', emoji: '🇱🇧' },
-                                            'lb': { code: 'lb', label: 'Lebanese', emoji: '🇱🇧' }
-                                          }
-                                          const langs = [...(tpl.pages[selectedPage].blocks[selectedIndex].props.expandedLanguages || [
-                                            { code: 'lb', label: 'Lebanese', emoji: '🇱🇧', active: false },
-                                            { code: 'fr', label: 'French', emoji: '🇫🇷', active: false },
-                                            { code: 'en', label: 'English', emoji: '🇬🇧', active: false }
-                                          ])]
-                                          langs[i] = { ...langs[i], ...langData[e.target.value] }
-                                          updateSelectedTable(p => ({ ...p, expandedLanguages: langs }))
-                                        }}
-                                        style={{ padding: 6, borderRadius: 6, border: '1px solid #ddd', flex: 1 }}
-                                      >
-                                        <option value="en">English</option>
-                                        <option value="fr">Français</option>
-                                        <option value="ar">العربية</option>
-                                        <option value="lb">Lebanese</option>
-                                      </select>
-                                      <button
-                                        className="btn secondary"
-                                        onClick={() => {
-                                          const langs = (tpl.pages[selectedPage].blocks[selectedIndex].props.expandedLanguages || [
-                                            { code: 'lb', label: 'Lebanese', emoji: '🇱🇧', active: false },
-                                            { code: 'fr', label: 'French', emoji: '🇫🇷', active: false },
-                                            { code: 'en', label: 'English', emoji: '🇬🇧', active: false }
-                                          ]).filter((_: any, idx: number) => idx !== i)
-                                          updateSelectedTable(p => ({ ...p, expandedLanguages: langs }))
-                                        }}
-                                        style={{ padding: '4px 8px', background: '#ef4444', color: '#fff' }}
-                                      >✕</button>
-                                    </div>
-                                  ))}
-                                  <button
-                                    className="btn secondary"
-                                    onClick={() => {
-                                      const langs = [...(tpl.pages[selectedPage].blocks[selectedIndex].props.expandedLanguages || [
-                                        { code: 'lb', label: 'Lebanese', emoji: '🇱🇧', active: false },
-                                        { code: 'fr', label: 'French', emoji: '🇫🇷', active: false },
-                                        { code: 'en', label: 'English', emoji: '🇬🇧', active: false }
-                                      ])]
-                                      langs.push({ code: 'en', label: 'English', emoji: '🇬🇧', active: false })
-                                      updateSelectedTable(p => ({ ...p, expandedLanguages: langs }))
-                                    }}
-                                    style={{ padding: '6px 12px', fontSize: 12 }}
-                                  >+ Ajouter une langue</button>
-                                </div>
+
                               </div>
                             </div>
                           )}
@@ -3345,255 +3328,391 @@ export default function TemplateBuilder() {
                         </div>
                       </div>
                       <div>
-                        <div className="note">Colonnes</div>
-                        {(tpl.pages[selectedPage].blocks[selectedIndex].props.columnWidths || []).map((w: number, i: number) => (
-                          <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                            <div>#{i + 1}</div>
-                            <input type="number" value={Math.round(w)} onChange={e => {
-                              const cols = [...(tpl.pages[selectedPage].blocks[selectedIndex].props.columnWidths || [])]
-                              cols[i] = Number(e.target.value)
-                              updateSelectedTable(p => ({ ...p, columnWidths: cols }))
-                            }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', width: 120 }} />
-                            <button className="btn secondary" onClick={() => {
+                        <div style={{
+                          padding: '14px',
+                          background: '#fff',
+                          border: '1px solid #e2e8f0',
+                          borderRadius: 10,
+                          marginBottom: 8
+                        }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: '#6c757d', marginBottom: 10, textTransform: 'uppercase' }}>Colonnes</div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            {(tpl.pages[selectedPage].blocks[selectedIndex].props.columnWidths || []).map((w: number, i: number) => (
+                              <div key={i} style={{ display: 'grid', gridTemplateColumns: '24px 1fr 32px', gap: 8, alignItems: 'center' }}>
+                                <div style={{ fontSize: 12, color: '#64748b', fontWeight: 500 }}>#{i + 1}</div>
+                                <input
+                                  type="number"
+                                  value={Math.round(w)}
+                                  onChange={e => {
+                                    const cols = [...(tpl.pages[selectedPage].blocks[selectedIndex].props.columnWidths || [])]
+                                    cols[i] = Number(e.target.value)
+                                    updateSelectedTable(p => ({ ...p, columnWidths: cols }))
+                                  }}
+                                  style={{
+                                    width: '100%',
+                                    padding: '6px 10px',
+                                    borderRadius: 6,
+                                    border: '1px solid #e2e8f0',
+                                    fontSize: 13,
+                                    outline: 'none',
+                                    transition: 'border-color 0.2s'
+                                  }}
+                                  onFocus={e => e.target.style.borderColor = '#667eea'}
+                                  onBlur={e => e.target.style.borderColor = '#e2e8f0'}
+                                />
+                                <button
+                                  className="btn secondary"
+                                  onClick={() => {
+                                    const props = tpl.pages[selectedPage].blocks[selectedIndex].props
+                                    const cols = [...(props.columnWidths || [])]
+                                    if (!cols.length) return
+                                    const cells = (props.cells || []).map((row: any[]) => row.filter((_: any, ci: number) => ci !== i))
+                                    cols.splice(i, 1)
+                                    updateSelectedTable(p => ({ ...p, columnWidths: cols, cells }))
+                                    if (selectedCell) {
+                                      if (selectedCell.ci === i) setSelectedCell(null)
+                                      else if (selectedCell.ci > i) setSelectedCell({ ri: selectedCell.ri, ci: selectedCell.ci - 1 })
+                                    }
+                                  }}
+                                  style={{
+                                    padding: '6px',
+                                    color: '#ef4444',
+                                    border: '1px solid #fee2e2',
+                                    background: '#fef2f2',
+                                    borderRadius: 6,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    cursor: 'pointer'
+                                  }}
+                                  title="Supprimer la colonne"
+                                >
+                                  🗑️
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                          <div className="toolbar" style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                            <button className="btn secondary" style={{ flex: 1, padding: '8px', fontSize: 12, justifyContent: 'center' }} onClick={() => {
                               const props = tpl.pages[selectedPage].blocks[selectedIndex].props
                               const cols = [...(props.columnWidths || [])]
-                              if (!cols.length) return
-                              const cells = (props.cells || []).map((row: any[]) => row.filter((_: any, ci: number) => ci !== i))
-                              cols.splice(i, 1)
-                              updateSelectedTable(p => ({ ...p, columnWidths: cols, cells }))
-                              if (selectedCell) {
-                                if (selectedCell.ci === i) setSelectedCell(null)
-                                else if (selectedCell.ci > i) setSelectedCell({ ri: selectedCell.ri, ci: selectedCell.ci - 1 })
-                              }
-                            }}>Supprimer</button>
-                          </div>
-                        ))}
-                        <div className="toolbar" style={{ display: 'flex', gap: 8 }}>
-                          <button className="btn secondary" onClick={() => {
-                            const props = tpl.pages[selectedPage].blocks[selectedIndex].props
-                            const cols = [...(props.columnWidths || [])]
-                            const rows = [...(props.rowHeights || [])]
-                            const cells = (props.cells || []).map((row: any[]) => [...row, { text: '', fontSize: 12, color: '#000', fill: 'transparent', borders: { l: {}, r: {}, t: {}, b: {} } }])
-                            cols.push(120)
-                            updateSelectedTable(p => ({ ...p, columnWidths: cols, cells }))
-                          }}>Ajouter colonne</button>
-                          <button className="btn secondary" onClick={() => {
-                            const props = tpl.pages[selectedPage].blocks[selectedIndex].props
-                            const cols = [...(props.columnWidths || [])]
-                            if (!cols.length) return
-                            cols.pop()
-                            const cells = (props.cells || []).map((row: any[]) => row.slice(0, cols.length))
-                            updateSelectedTable(p => ({ ...p, columnWidths: cols, cells }))
-                          }}>Supprimer colonne</button>
-                        </div>
-                      </div>
-                      <div>
-                        <div className="note">Lignes</div>
-                        {(tpl.pages[selectedPage].blocks[selectedIndex].props.rowHeights || []).map((h: number, i: number) => (
-                          <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                            <div>#{i + 1}</div>
-                            <input type="number" value={Math.round(h)} onChange={e => {
-                              const rows = [...(tpl.pages[selectedPage].blocks[selectedIndex].props.rowHeights || [])]
-                              rows[i] = Number(e.target.value)
-                              updateSelectedTable(p => ({ ...p, rowHeights: rows }))
-                            }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', width: 120, marginRight: 8 }} />
-                            {tpl.pages[selectedPage].blocks[selectedIndex].props.expandedRows && (
-                              <button
-                                className="btn secondary"
-                                title="Configurer les langues de cette ligne"
-                                style={{ padding: '8px 10px', background: '#f0f4ff', color: '#6c5ce7', marginRight: 8, fontSize: 16 }}
-                                onClick={() => setSelectedCell({ ri: i, ci: 0 })}
-                              >
-                                🌍
-                              </button>
-                            )}
-                            <button className="btn secondary" onClick={() => {
-                              const props = tpl.pages[selectedPage].blocks[selectedIndex].props
                               const rows = [...(props.rowHeights || [])]
-                              if (!rows.length) return
-                              rows.splice(i, 1)
-                              const cells = (props.cells || []).filter((_: any, ri: number) => ri !== i)
-                              const rowLanguages = [...(props.rowLanguages || [])]
-                              if (rowLanguages.length > i) rowLanguages.splice(i, 1)
-                              updateSelectedTable(p => ({ ...p, rowHeights: rows, cells, rowLanguages }))
-                              if (selectedCell) {
-                                if (selectedCell.ri === i) setSelectedCell(null)
-                                else if (selectedCell.ri > i) setSelectedCell({ ri: selectedCell.ri - 1, ci: selectedCell.ci })
-                              }
-                            }}>Supprimer</button>
+                              const cells = (props.cells || []).map((row: any[]) => [...row, { text: '', fontSize: 12, color: '#000', fill: 'transparent', borders: { l: {}, r: {}, t: {}, b: {} } }])
+                              cols.push(120)
+                              updateSelectedTable(p => ({ ...p, columnWidths: cols, cells }))
+                            }}>+ Ajouter colonne</button>
                           </div>
-                        ))}
-                        <div className="toolbar" style={{ display: 'flex', gap: 8 }}>
-                          <button className="btn secondary" onClick={() => {
-                            const props = tpl.pages[selectedPage].blocks[selectedIndex].props
-                            const rows = [...(props.rowHeights || [])]
-                            const cols = [...(props.columnWidths || [])]
-                            const newRow = cols.map(() => ({ text: '', fontSize: 12, color: '#000', fill: 'transparent', borders: { l: {}, r: {}, t: {}, b: {} } }))
-                            const cells = [...(props.cells || [])]
-                            rows.push(40)
-                            cells.push(newRow)
-                            // Maintain rowLanguages array length
-                            const rowLanguages = [...(props.rowLanguages || [])]
-                            // Ensure it's at least as long as rows before pushing? No, just match length.
-                            // If rowLanguages was shorter than rows (sparse), we just ignore.
-                            // But accurate maintenance:
-                            updateSelectedTable(p => ({ ...p, rowHeights: rows, cells, rowLanguages }))
-                          }}>Ajouter ligne</button>
-                          <button className="btn secondary" onClick={() => {
-                            const props = tpl.pages[selectedPage].blocks[selectedIndex].props
-                            const rows = [...(props.rowHeights || [])]
-                            if (!rows.length) return
-                            rows.pop()
-                            const cells = (props.cells || []).slice(0, rows.length)
-                            const rowLanguages = (props.rowLanguages || []).slice(0, rows.length)
-                            updateSelectedTable(p => ({ ...p, rowHeights: rows, cells, rowLanguages }))
-                          }}>Supprimer ligne</button>
                         </div>
-                      </div>
-                      {selectedCell && (
+
                         <div>
-                          {/* Row Expansion Config for this cell's row */}
-                          {tpl.pages[selectedPage].blocks[selectedIndex].props.expandedRows && (
-                            <div style={{ marginBottom: 12, borderBottom: '1px solid #e9ecef', paddingBottom: 12 }}>
-                              <div className="note" style={{ fontWeight: 600, color: '#6c5ce7' }}>
-                                Expansion Ligne {selectedCell.ri + 1}
-                              </div>
+                          <div style={{
+                            padding: '14px',
+                            background: '#fff',
+                            border: '1px solid #e2e8f0',
+                            borderRadius: 10,
+                            marginBottom: 8
+                          }}>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: '#6c757d', marginBottom: 10, textTransform: 'uppercase' }}>Lignes</div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                              {(tpl.pages[selectedPage].blocks[selectedIndex].props.rowHeights || []).map((h: number, i: number) => (
+                                <div key={i} style={{ marginBottom: 4, paddingBottom: 8, borderBottom: i < (tpl.pages[selectedPage].blocks[selectedIndex].props.rowHeights || []).length - 1 ? '1px dashed #f1f5f9' : 'none' }}>
+                                  <div style={{ display: 'grid', gridTemplateColumns: '24px 1fr 32px', gap: 8, alignItems: 'center', marginBottom: 4 }}>
+                                    <div style={{ fontWeight: 500, fontSize: 12, color: '#64748b' }}>#{i + 1}</div>
+                                    <input
+                                      type="number"
+                                      value={Math.round(h)}
+                                      onChange={e => {
+                                        const rows = [...(tpl.pages[selectedPage].blocks[selectedIndex].props.rowHeights || [])]
+                                        rows[i] = Number(e.target.value)
+                                        updateSelectedTable(p => ({ ...p, rowHeights: rows }))
+                                      }}
+                                      style={{
+                                        width: '100%',
+                                        padding: '6px 10px',
+                                        borderRadius: 6,
+                                        border: '1px solid #e2e8f0',
+                                        fontSize: 13,
+                                        outline: 'none',
+                                        transition: 'border-color 0.2s'
+                                      }}
+                                      onFocus={e => e.target.style.borderColor = '#667eea'}
+                                      onBlur={e => e.target.style.borderColor = '#e2e8f0'}
+                                      title="Hauteur de la ligne"
+                                    />
+
+                                    <button
+                                      className="btn secondary"
+                                      onClick={() => {
+                                        const props = tpl.pages[selectedPage].blocks[selectedIndex].props
+                                        const rows = [...(props.rowHeights || [])]
+                                        if (!rows.length) return
+                                        rows.splice(i, 1)
+                                        const cells = (props.cells || []).filter((_: any, ri: number) => ri !== i)
+                                        const rowLanguages = [...(props.rowLanguages || [])]
+                                        if (rowLanguages.length > i) rowLanguages.splice(i, 1)
+                                        updateSelectedTable(p => ({ ...p, rowHeights: rows, cells, rowLanguages }))
+                                        if (selectedCell) {
+                                          if (selectedCell.ri === i) setSelectedCell(null)
+                                          else if (selectedCell.ri > i) setSelectedCell({ ri: selectedCell.ri - 1, ci: selectedCell.ci })
+                                        }
+                                      }}
+                                      style={{
+                                        padding: '6px',
+                                        color: '#ef4444',
+                                        border: '1px solid #fee2e2',
+                                        background: '#fef2f2',
+                                        borderRadius: 6,
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        cursor: 'pointer'
+                                      }}
+                                      title="Supprimer la ligne"
+                                    >
+                                      🗑️
+                                    </button>
+                                  </div>
+
+                                  {/* Row Language Editor Inline */}
+                                  {tpl.pages[selectedPage].blocks[selectedIndex].props.expandedRows && (
+                                    <div style={{ marginLeft: 32 }}>
+                                      {(() => {
+                                        const props = tpl.pages[selectedPage].blocks[selectedIndex].props
+                                        const rowIdx = i // Capture current index
+                                        const myRowLangs = props.rowLanguages?.[rowIdx]
+                                        const globalLangs = props.expandedLanguages || [
+                                          { code: 'fr', label: 'French', emoji: '🇫🇷', active: false },
+                                          { code: 'en', label: 'English', emoji: '🇬🇧', active: false },
+                                          { code: 'ar', label: 'Lebanese', emoji: '🇱🇧', active: false }
+                                        ]
+                                        const currentLangs = myRowLangs || globalLangs
+                                        const isCustom = !!myRowLangs
+
+                                        return (
+                                          <div style={{ marginTop: 4 }}>
+                                            return (
+                                            <div style={{ marginTop: 4 }}>
+                                              <div style={{ borderRadius: 6, background: '#f0fff4', border: '1px solid #c6f6d5', padding: 8 }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                                                  <div style={{ fontSize: 11, color: '#276749', fontWeight: 600 }}>
+                                                    Langues ({currentLangs.length})
+                                                  </div>
+                                                  {isCustom && (
+                                                    <button className="btn secondary" style={{
+                                                      padding: '2px 6px',
+                                                      fontSize: 10,
+                                                      color: '#c53030',
+                                                      background: '#fff',
+                                                      border: '1px solid #feb2b2',
+                                                      borderRadius: 4
+                                                    }} onClick={() => {
+                                                      updateSelectedTable(p => {
+                                                        const rl = [...(p.rowLanguages || [])]
+                                                        if (rl.length > rowIdx) rl[rowIdx] = undefined
+                                                        return { ...p, rowLanguages: rl }
+                                                      })
+                                                    }}>Rétablir Global</button>
+                                                  )}
+                                                </div>
+
+                                                {/* List of Langs for Row */}
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                                  {currentLangs.map((lang: any, li: number) => (
+                                                    <div key={li} style={{
+                                                      display: 'grid',
+                                                      gridTemplateColumns: 'auto 1fr 40px auto',
+                                                      gap: 4,
+                                                      alignItems: 'center',
+                                                      padding: 4,
+                                                      background: '#fff',
+                                                      borderRadius: 4,
+                                                      border: '1px solid #e2e8f0'
+                                                    }}>
+                                                      <input
+                                                        type="text"
+                                                        value={lang.emoji}
+                                                        onChange={e => {
+                                                          updateSelectedTable(p => {
+                                                            const rl = [...(p.rowLanguages || [])]
+                                                            // Initialize from current if not custom yet
+                                                            const rowL = rl[rowIdx] ? [...rl[rowIdx]] : JSON.parse(JSON.stringify(currentLangs))
+                                                            rowL[li] = { ...rowL[li], emoji: e.target.value }
+                                                            rl[rowIdx] = rowL
+                                                            return { ...p, rowLanguages: rl }
+                                                          })
+                                                        }}
+                                                        style={{ width: 24, textAlign: 'center', padding: 2, borderRadius: 3, border: '1px solid #ddd', fontSize: 12 }}
+                                                      />
+                                                      <input
+                                                        type="text"
+                                                        value={lang.label}
+                                                        onChange={e => {
+                                                          updateSelectedTable(p => {
+                                                            const rl = [...(p.rowLanguages || [])]
+                                                            const rowL = rl[rowIdx] ? [...rl[rowIdx]] : JSON.parse(JSON.stringify(currentLangs))
+                                                            rowL[li] = { ...rowL[li], label: e.target.value }
+                                                            rl[rowIdx] = rowL
+                                                            return { ...p, rowLanguages: rl }
+                                                          })
+                                                        }}
+                                                        style={{ width: '100%', padding: '2px 4px', borderRadius: 3, border: '1px solid #ddd', fontSize: 11 }}
+                                                      />
+                                                      <select
+                                                        value={lang.level || ''}
+                                                        onChange={e => {
+                                                          updateSelectedTable(p => {
+                                                            const rl = [...(p.rowLanguages || [])]
+                                                            const rowL = rl[rowIdx] ? [...rl[rowIdx]] : JSON.parse(JSON.stringify(currentLangs))
+                                                            rowL[li] = { ...rowL[li], level: e.target.value }
+                                                            rl[rowIdx] = rowL
+                                                            return { ...p, rowLanguages: rl }
+                                                          })
+                                                        }}
+                                                        title="Niveau"
+                                                        style={{ width: '100%', padding: '0px', borderRadius: 3, border: '1px solid #ddd', fontSize: 10, height: 22 }}
+                                                      >
+                                                        <option value="">-</option>
+                                                        <option value="PS">PS</option>
+                                                        <option value="MS">MS</option>
+                                                        <option value="GS">GS</option>
+                                                      </select>
+                                                      <button style={{ background: 'none', border: 'none', color: '#e53e3e', cursor: 'pointer', fontSize: 10 }} onClick={() => {
+                                                        updateSelectedTable(p => {
+                                                          const rl = [...(p.rowLanguages || [])]
+                                                          const rowL = rl[rowIdx] ? [...rl[rowIdx]] : JSON.parse(JSON.stringify(currentLangs))
+                                                          rowL.splice(li, 1)
+                                                          rl[rowIdx] = rowL
+                                                          return { ...p, rowLanguages: rl }
+                                                        })
+                                                      }}>✕</button>
+                                                    </div>
+                                                  ))}
+
+                                                  {/* Quick Add Dropdown */}
+                                                  <div style={{ marginTop: 2 }}>
+                                                    <select
+                                                      value=""
+                                                      onChange={(e) => {
+                                                        const val = e.target.value
+                                                        if (!val) return
+                                                        updateSelectedTable(p => {
+                                                          const rl = [...(p.rowLanguages || [])]
+                                                          const rowL = rl[rowIdx] ? [...rl[rowIdx]] : JSON.parse(JSON.stringify(currentLangs))
+                                                          let newLang = { code: 'new', label: 'New', emoji: '🏳️', active: false }
+
+                                                          if (val === 'fr') newLang = { code: 'fr', label: 'French', emoji: '🇫🇷', active: false }
+                                                          else if (val === 'en') newLang = { code: 'en', label: 'English', emoji: '🇬🇧', active: false }
+                                                          else if (val === 'lb') newLang = { code: 'lb', label: 'Lebanese', emoji: '🇱🇧', active: false }
+
+                                                          rowL.push(newLang)
+                                                          rl[rowIdx] = rowL
+                                                          return { ...p, rowLanguages: rl }
+                                                        })
+                                                      }}
+                                                      style={{
+                                                        width: '100%',
+                                                        padding: '4px',
+                                                        fontSize: 11,
+                                                        border: '1px solid #bee3f8',
+                                                        background: '#ebf8ff',
+                                                        color: '#3182ce',
+                                                        borderRadius: 3,
+                                                        cursor: 'pointer'
+                                                      }}
+                                                    >
+                                                      <option value="">+ Ajouter langue...</option>
+                                                      <option value="fr">🇫🇷 French</option>
+                                                      <option value="en">🇬🇧 English</option>
+                                                      <option value="ar">🇱🇧 Lebanese</option>
+                                                    </select>
+                                                  </div>
+                                                </div>
+                                              </div>
+                                            </div>
+                                            )
+                                          </div>
+                                        )
+                                      })()}
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                            <div className="toolbar" style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                              <button className="btn secondary" style={{ flex: 1, padding: '8px', fontSize: 12, justifyContent: 'center' }} onClick={() => {
+                                const props = tpl.pages[selectedPage].blocks[selectedIndex].props
+                                const rows = [...(props.rowHeights || [])]
+                                const cols = [...(props.columnWidths || [])]
+                                const newRow = cols.map(() => ({ text: '', fontSize: 12, color: '#000', fill: 'transparent', borders: { l: {}, r: {}, t: {}, b: {} } }))
+                                const cells = [...(props.cells || [])]
+                                rows.push(40)
+                                cells.push(newRow)
+                                // Maintain rowLanguages array length
+                                const rowLanguages = [...(props.rowLanguages || [])]
+                                // Ensure it's at least as long as rows before pushing? No, just match length.
+                                // If rowLanguages was shorter than rows (sparse), we just ignore.
+                                // But accurate maintenance:
+                                updateSelectedTable(p => ({ ...p, rowHeights: rows, cells, rowLanguages }))
+                              }}>+ Ajouter ligne</button>
+                            </div>
+                          </div>
+                          {selectedCell && (
+                            <div>
+                              <div className="note">Cellule: ligne {selectedCell.ri + 1}, colonne {selectedCell.ci + 1}</div>
                               {(() => {
                                 const props = tpl.pages[selectedPage].blocks[selectedIndex].props
-                                const myRowLangs = props.rowLanguages?.[selectedCell.ri]
-                                const globalLangs = props.expandedLanguages || [
-                                  { code: 'lb', label: 'Lebanese', emoji: '🇱🇧', active: false },
-                                  { code: 'fr', label: 'French', emoji: '🇫🇷', active: false },
-                                  { code: 'en', label: 'English', emoji: '🇬🇧', active: false }
-                                ]
-                                const currentLangs = myRowLangs || globalLangs
-                                const isCustom = !!myRowLangs
-
+                                const cell = props.cells?.[selectedCell.ri]?.[selectedCell.ci] || {}
                                 return (
                                   <div style={{ display: 'grid', gap: 8 }}>
-                                    {!isCustom ? (
-                                      <div style={{ fontSize: 11, color: '#666', fontStyle: 'italic' }}>
-                                        Utilise les paramètres globaux ({currentLangs.length} langues).
-                                        <button className="btn secondary" style={{ marginLeft: 8, padding: '2px 8px', fontSize: 10 }} onClick={() => {
-                                          updateSelectedTable(p => {
-                                            const rl = [...(p.rowLanguages || [])]
-                                            // Fill with undefined if sparse
-                                            while (rl.length <= selectedCell.ri) { rl.push(undefined) }
-                                            rl[selectedCell.ri] = JSON.parse(JSON.stringify(globalLangs))
-                                            return { ...p, rowLanguages: rl }
-                                          })
-                                        }}>Personnaliser pour cette ligne</button>
-                                      </div>
-                                    ) : (
-                                      <div>
-                                        <div style={{ fontSize: 11, color: '#2ecc71', marginBottom: 6, fontWeight: 600 }}>
-                                          ✓ Personnalisé pour cette ligne
-                                          <button className="btn secondary" style={{ marginLeft: 8, padding: '2px 8px', fontSize: 10, color: '#e74c3c' }} onClick={() => {
+                                    <textarea rows={3} placeholder="Texte" value={cell.text || ''} onChange={e => {
+                                      updateSelectedTable(p => {
+                                        const cells = p.cells.map((row: any[], ri: number) => row.map((c: any, ci: number) => (ri === selectedCell.ri && ci === selectedCell.ci ? { ...c, text: e.target.value } : c)))
+                                        return { ...p, cells }
+                                      })
+                                    }} style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+                                    <input type="number" placeholder="Taille police" value={cell.fontSize || 12} onChange={e => {
+                                      updateSelectedTable(p => {
+                                        const cells = p.cells.map((row: any[], ri: number) => row.map((c: any, ci: number) => (ri === selectedCell.ri && ci === selectedCell.ci ? { ...c, fontSize: Number(e.target.value) } : c)))
+                                        return { ...p, cells }
+                                      })
+                                    }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+                                    <input placeholder="Couleur texte" value={cell.color || ''} onChange={e => {
+                                      updateSelectedTable(p => {
+                                        const cells = p.cells.map((row: any[], ri: number) => row.map((c: any, ci: number) => (ri === selectedCell.ri && ci === selectedCell.ci ? { ...c, color: e.target.value } : c)))
+                                        return { ...p, cells }
+                                      })
+                                    }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+                                    <input placeholder="Fond" value={cell.fill || ''} onChange={e => {
+                                      updateSelectedTable(p => {
+                                        const cells = p.cells.map((row: any[], ri: number) => row.map((c: any, ci: number) => (ri === selectedCell.ri && ci === selectedCell.ci ? { ...c, fill: e.target.value } : c)))
+                                        return { ...p, cells }
+                                      })
+                                    }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+                                    <div className="toolbar" style={{ display: 'grid', gap: 8 }}>
+                                      {(['l', 'r', 't', 'b'] as const).map(side => (
+                                        <div key={side} style={{ display: 'flex', gap: 8 }}>
+                                          <input placeholder={`Bordure ${side} couleur`} value={(cell.borders?.[side]?.color || '')} onChange={e => {
                                             updateSelectedTable(p => {
-                                              const rl = [...(p.rowLanguages || [])]
-                                              if (rl.length > selectedCell.ri) rl[selectedCell.ri] = undefined
-                                              return { ...p, rowLanguages: rl }
+                                              const cells = p.cells.map((row: any[], ri: number) => row.map((c: any, ci: number) => (ri === selectedCell.ri && ci === selectedCell.ci ? { ...c, borders: { ...c.borders, [side]: { ...(c.borders?.[side] || {}), color: e.target.value } } } : c)))
+                                              return { ...p, cells }
                                             })
-                                          }}>Rétablir Global</button>
+                                          }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', flex: 1 }} />
+                                          <input placeholder={`Bordure ${side} largeur`} type="number" value={Number(cell.borders?.[side]?.width || 0)} onChange={e => {
+                                            updateSelectedTable(p => {
+                                              const cells = p.cells.map((row: any[], ri: number) => row.map((c: any, ci: number) => (ri === selectedCell.ri && ci === selectedCell.ci ? { ...c, borders: { ...c.borders, [side]: { ...(c.borders?.[side] || {}), width: Number(e.target.value) } } } : c)))
+                                              return { ...p, cells }
+                                            })
+                                          }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', width: 120 }} />
                                         </div>
-                                        {/* Language Editor for Row */}
-                                        <div style={{ display: 'grid', gap: 6 }}>
-                                          {currentLangs.map((lang: any, i: number) => (
-                                            <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: 4, background: '#f8f9fa', borderRadius: 4 }}>
-                                              <div style={{ fontSize: 16 }}>{lang.emoji}</div>
-                                              <div style={{ fontSize: 11, flex: 1 }}>{lang.label}</div>
-                                              <button className="btn secondary" style={{ padding: '2px 6px', fontSize: 10, color: '#e74c3c' }} onClick={() => {
-                                                updateSelectedTable(p => {
-                                                  const rl = [...(p.rowLanguages || [])]
-                                                  const rowL = [...(rl[selectedCell.ri] || [])]
-                                                  rowL.splice(i, 1)
-                                                  rl[selectedCell.ri] = rowL
-                                                  return { ...p, rowLanguages: rl }
-                                                })
-                                              }}>✕</button>
-                                            </div>
-                                          ))}
-                                          <div style={{ display: 'flex', gap: 4 }}>
-                                            {/* Quick Add Buttons */}
-                                            {[
-                                              { code: 'en', label: 'English', emoji: '🇬🇧' },
-                                              { code: 'fr', label: 'Français', emoji: '🇫🇷' },
-                                              { code: 'ar', label: 'العربية', emoji: '🇱🇧' },
-                                              { code: 'lb', label: 'Lebanese', emoji: '🇱🇧' }
-                                            ].filter(x => !currentLangs.find((l: any) => l.code === x.code)).map(opt => (
-                                              <button key={opt.code} className="btn secondary" style={{ padding: '2px 6px', fontSize: 10 }} onClick={() => {
-                                                updateSelectedTable(p => {
-                                                  const rl = [...(p.rowLanguages || [])]
-                                                  const rowL = [...(rl[selectedCell.ri] || [])]
-                                                  rowL.push({ ...opt, active: false })
-                                                  rl[selectedCell.ri] = rowL
-                                                  return { ...p, rowLanguages: rl }
-                                                })
-                                              }}>+ {opt.code.toUpperCase()}</button>
-                                            ))}
-                                          </div>
-                                        </div>
-                                      </div>
-                                    )}
+                                      ))}
+                                    </div>
                                   </div>
                                 )
                               })()}
                             </div>
                           )}
-
-                          <div className="note">Cellule: ligne {selectedCell.ri + 1}, colonne {selectedCell.ci + 1}</div>
-                          {(() => {
-                            const props = tpl.pages[selectedPage].blocks[selectedIndex].props
-                            const cell = props.cells?.[selectedCell.ri]?.[selectedCell.ci] || {}
-                            return (
-                              <div style={{ display: 'grid', gap: 8 }}>
-                                <textarea rows={3} placeholder="Texte" value={cell.text || ''} onChange={e => {
-                                  updateSelectedTable(p => {
-                                    const cells = p.cells.map((row: any[], ri: number) => row.map((c: any, ci: number) => (ri === selectedCell.ri && ci === selectedCell.ci ? { ...c, text: e.target.value } : c)))
-                                    return { ...p, cells }
-                                  })
-                                }} style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
-                                <input type="number" placeholder="Taille police" value={cell.fontSize || 12} onChange={e => {
-                                  updateSelectedTable(p => {
-                                    const cells = p.cells.map((row: any[], ri: number) => row.map((c: any, ci: number) => (ri === selectedCell.ri && ci === selectedCell.ci ? { ...c, fontSize: Number(e.target.value) } : c)))
-                                    return { ...p, cells }
-                                  })
-                                }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
-                                <input placeholder="Couleur texte" value={cell.color || ''} onChange={e => {
-                                  updateSelectedTable(p => {
-                                    const cells = p.cells.map((row: any[], ri: number) => row.map((c: any, ci: number) => (ri === selectedCell.ri && ci === selectedCell.ci ? { ...c, color: e.target.value } : c)))
-                                    return { ...p, cells }
-                                  })
-                                }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
-                                <input placeholder="Fond" value={cell.fill || ''} onChange={e => {
-                                  updateSelectedTable(p => {
-                                    const cells = p.cells.map((row: any[], ri: number) => row.map((c: any, ci: number) => (ri === selectedCell.ri && ci === selectedCell.ci ? { ...c, fill: e.target.value } : c)))
-                                    return { ...p, cells }
-                                  })
-                                }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
-                                <div className="toolbar" style={{ display: 'grid', gap: 8 }}>
-                                  {(['l', 'r', 't', 'b'] as const).map(side => (
-                                    <div key={side} style={{ display: 'flex', gap: 8 }}>
-                                      <input placeholder={`Bordure ${side} couleur`} value={(cell.borders?.[side]?.color || '')} onChange={e => {
-                                        updateSelectedTable(p => {
-                                          const cells = p.cells.map((row: any[], ri: number) => row.map((c: any, ci: number) => (ri === selectedCell.ri && ci === selectedCell.ci ? { ...c, borders: { ...c.borders, [side]: { ...(c.borders?.[side] || {}), color: e.target.value } } } : c)))
-                                          return { ...p, cells }
-                                        })
-                                      }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', flex: 1 }} />
-                                      <input placeholder={`Bordure ${side} largeur`} type="number" value={Number(cell.borders?.[side]?.width || 0)} onChange={e => {
-                                        updateSelectedTable(p => {
-                                          const cells = p.cells.map((row: any[], ri: number) => row.map((c: any, ci: number) => (ri === selectedCell.ri && ci === selectedCell.ci ? { ...c, borders: { ...c.borders, [side]: { ...(c.borders?.[side] || {}), width: Number(e.target.value) } } } : c)))
-                                          return { ...p, cells }
-                                        })
-                                      }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', width: 120 }} />
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            )
-                          })()}
                         </div>
-                      )}
+                      </div>
                     </div>
                   )}
                   {tpl.pages[selectedPage].blocks[selectedIndex].type === 'student_photo' && (
@@ -4076,6 +4195,6 @@ export default function TemplateBuilder() {
           )}
         </div>
       </div>
-    </div>
+    </div >
   )
 }
