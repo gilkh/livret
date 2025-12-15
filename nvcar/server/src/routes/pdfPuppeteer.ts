@@ -20,6 +20,8 @@ const getBrowser = async () => {
   console.log('[PDF] Launching new browser instance...')
   browserInstance = await puppeteer.launch({
     headless: true,
+    // @ts-ignore - available at runtime, not in older type defs
+    ignoreHTTPSErrors: true,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
@@ -103,21 +105,28 @@ pdfPuppeteerRouter.get('/student/:id', requireAuth(['ADMIN','SUBADMIN','TEACHER'
     // Set viewport for consistent rendering
     await page.setViewport({ width: 800, height: 1120 })
     
-    const forwardedProto = String(req.headers['x-forwarded-proto'] || '')
-    const forwardedHost = String(req.headers['x-forwarded-host'] || '')
-    const originHeader = String(req.headers['origin'] || '')
-    const refererHeader = String(req.headers['referer'] || '')
-    let frontendUrl = process.env.FRONTEND_URL || ''
-    if (!frontendUrl) {
-      if (forwardedProto && forwardedHost) {
-        frontendUrl = `${forwardedProto}://${forwardedHost}`
-      } else if (originHeader) {
-        frontendUrl = originHeader
-      } else if (refererHeader) {
-        try { frontendUrl = new URL(refererHeader).origin } catch {}
+    let frontendUrl = process.env.FRONTEND_URL || 'https://localhost:5173'
+    try {
+      const u = new URL(frontendUrl)
+      if (u.hostname === 'localhost' && u.port === '5173' && u.protocol === 'http:') {
+        u.protocol = 'https:'
+        frontendUrl = u.toString().replace(/\/$/, '')
       }
-    }
-    if (!frontendUrl) frontendUrl = 'https://localhost:5173'
+    } catch {}
+    try {
+      const u = new URL(frontendUrl)
+      if (u.hostname === 'localhost' && u.port === '5173' && u.protocol === 'http:') {
+        u.protocol = 'https:'
+        frontendUrl = u.toString().replace(/\/$/, '')
+      }
+    } catch {}
+    try {
+      const u = new URL(frontendUrl)
+      if (u.hostname === 'localhost' && u.port === '5173' && u.protocol === 'http:') {
+        u.protocol = 'https:'
+        frontendUrl = u.toString().replace(/\/$/, '')
+      }
+    } catch {}
     
     if (token) {
       let cookieDomain = 'localhost'
@@ -267,6 +276,8 @@ pdfPuppeteerRouter.get('/preview/:templateId/:studentId', requireAuth(['ADMIN','
     })
     res.end(pdfBuffer)
   } catch (error: any) {
+    console.error('[PDF] Preview PDF generation error:', error.message)
+    console.error('[PDF] Preview stack:', error.stack)
     if (page) {
       try { await page.close() } catch {}
     }

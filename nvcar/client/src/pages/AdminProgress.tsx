@@ -32,6 +32,14 @@ type ClassProgress = {
         percentage: number
     }
     byCategory: CategoryProgress[]
+    teachersCheck?: {
+        polyvalent: string[]
+        english: string[]
+        arabic: string[]
+        hasPolyvalent: boolean
+        hasEnglish: boolean
+        hasArabic: boolean
+    }
 }
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d'];
@@ -216,6 +224,55 @@ export default function AdminProgress() {
                 {!loading && !error && classes.length === 0 && (
                     <div className="note" style={{ textAlign: 'center', padding: 24 }}>
                         Aucune classe trouvée.
+                    </div>
+                )}
+
+                {!loading && !error && classes.length > 0 && (
+                    <div style={{ marginBottom: 40 }}>
+                        <h3 style={{ fontSize: 20, color: '#334155', marginBottom: 20 }}>
+                            📋 Vérification des Enseignants
+                        </h3>
+                        <div style={{ overflowX: 'auto', background: 'white', borderRadius: 12, border: '1px solid #e2e8f0' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                <thead>
+                                    <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                                        <th style={{ padding: '12px 24px', textAlign: 'left', fontSize: 14, color: '#64748b' }}>Classe</th>
+                                        <th style={{ padding: '12px 24px', textAlign: 'left', fontSize: 14, color: '#64748b' }}>Arabe</th>
+                                        <th style={{ padding: '12px 24px', textAlign: 'left', fontSize: 14, color: '#64748b' }}>Anglais</th>
+                                        <th style={{ padding: '12px 24px', textAlign: 'left', fontSize: 14, color: '#64748b' }}>Polyvalent</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {classes.sort((a, b) => a.className.localeCompare(b.className)).map(cls => {
+                                        const check = cls.teachersCheck || { 
+                                            polyvalent: [], english: [], arabic: [], 
+                                            hasPolyvalent: false, hasEnglish: false, hasArabic: false 
+                                        }
+                                        
+                                        // Helper for cell style
+                                        const getCellStyle = (hasTeacher: boolean) => {
+                                            if (!hasTeacher) return { background: '#fef2f2', color: '#dc2626' } // Pink red
+                                            return {}
+                                        }
+
+                                        return (
+                                            <tr key={cls.classId} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                                <td style={{ padding: '12px 24px', fontWeight: 500 }}>{cls.className}</td>
+                                                <td style={{ padding: '12px 24px', ...getCellStyle(check.hasArabic) }}>
+                                                    {check.arabic.join(', ') || '-'}
+                                                </td>
+                                                <td style={{ padding: '12px 24px', ...getCellStyle(check.hasEnglish) }}>
+                                                    {check.english.join(', ') || '-'}
+                                                </td>
+                                                <td style={{ padding: '12px 24px', ...getCellStyle(check.hasPolyvalent) }}>
+                                                    {check.polyvalent.join(', ') || '-'}
+                                                </td>
+                                            </tr>
+                                        )
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 )}
 

@@ -50,6 +50,14 @@ export default function AdminDashboard() {
               iconColor="#0891b2"
             />
             <DashboardCard
+              title="Compétences"
+              description="Stats par compétence."
+              icon={BarChart3}
+              to="/admin/skill-analytics"
+              color="#fef3c7"
+              iconColor="#d97706"
+            />
+            <DashboardCard
               title="En Ligne"
               description="Utilisateurs actifs en temps réel."
               icon={Activity}

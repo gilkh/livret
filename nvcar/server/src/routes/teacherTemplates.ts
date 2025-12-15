@@ -8,6 +8,7 @@ import { Student } from '../models/Student'
 import { Enrollment } from '../models/Enrollment'
 import { ClassModel } from '../models/Class'
 import { SchoolYear } from '../models/SchoolYear'
+import { StudentAcquiredSkill } from '../models/StudentAcquiredSkill'
 import { logAudit } from '../utils/auditLogger'
 
 export const teacherTemplatesRouter = Router()
@@ -679,6 +680,75 @@ teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data', require
                 { studentId: assignment.studentId, status: 'active' }, // Only update active enrollment
                 { $set: { promotionStatus: status } }
             )
+        }
+
+        // SNAPSHOT LOGIC: Save acquired skills to reliable storage
+        // Check if any updated keys relate to expanded tables (format: table_PAGE_BLOCK_row_ROW)
+        if (Object.keys(data).some(k => k.startsWith('table_'))) {
+            try {
+                // Fetch template if needed (we might not have it loaded fully)
+                const template = await GradebookTemplate.findById(assignment.templateId).lean()
+                
+                if (template) {
+                    for (const [key, value] of Object.entries(data)) {
+                        // Key format: table_{pageIdx}_{blockIdx}_row_{rowIdx}
+                        // Regex to parse: table_(\d+)_(\d+)_row_(\d+)
+                        const match = key.match(/^table_(\d+)_(\d+)_row_(\d+)$/)
+                        
+                        if (match && Array.isArray(value)) {
+                            const pageIdx = parseInt(match[1])
+                            const blockIdx = parseInt(match[2])
+                            const rowIdx = parseInt(match[3])
+                            
+                            // Navigate to the block
+                            const page = template.pages[pageIdx]
+                            if (page) {
+                                const block = page.blocks[blockIdx]
+                                if (block && block.props && block.props.cells) {
+                                    // Get the text from the row. Assuming the text is in the first cell of the row.
+                                    // Structure: cells is array of rows, each row is array of cells.
+                                    const row = block.props.cells[rowIdx]
+                                    if (row && row.length > 0) {
+                                        // The text might be in the first cell
+                                        const cellText = row[0]?.text
+                                        
+                                        if (cellText) {
+                                            // Extract active languages
+                                            // Value is array of { code, active, ... }
+                                            const activeLangs = value
+                                                .filter((v: any) => v.active)
+                                                .map((v: any) => v.code)
+                                            
+                                            // Upsert snapshot
+                                            await StudentAcquiredSkill.findOneAndUpdate(
+                                                { 
+                                                    studentId: assignment.studentId, 
+                                                    templateId: assignment.templateId,
+                                                    sourceKey: key 
+                                                },
+                                                {
+                                                    studentId: assignment.studentId,
+                                                    templateId: assignment.templateId,
+                                                    assignmentId: assignment._id,
+                                                    skillText: cellText,
+                                                    languages: activeLangs,
+                                                    sourceKey: key,
+                                                    recordedAt: new Date(),
+                                                    recordedBy: teacherId
+                                                },
+                                                { upsert: true }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (err) {
+                console.error('Error saving skill snapshot:', err)
+                // Do not fail the request if snapshot fails, just log it
+            }
         }
 
         res.json(updated)

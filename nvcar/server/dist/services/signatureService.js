@@ -41,7 +41,7 @@ const getNextLevel = async (current) => {
         return 'EB1';
     return null;
 };
-const signTemplateAssignment = async ({ templateAssignmentId, signerId, type = 'standard', signatureUrl, req }) => {
+const signTemplateAssignment = async ({ templateAssignmentId, signerId, type = 'standard', signatureUrl, req, level }) => {
     // Get the template assignment
     const assignment = await TemplateAssignment_1.TemplateAssignment.findById(templateAssignmentId);
     if (!assignment) {
@@ -50,6 +50,10 @@ const signTemplateAssignment = async ({ templateAssignmentId, signerId, type = '
     // Check if already signed in the active school year
     const activeYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
     const query = { templateAssignmentId, type };
+    // Scope uniqueness check by level if provided
+    if (level) {
+        query.level = level;
+    }
     if (activeYear) {
         let thresholdDate = activeYear.startDate;
         // Try to find previous school year to determine the "gap"
@@ -102,7 +106,8 @@ const signTemplateAssignment = async ({ templateAssignmentId, signerId, type = '
         signedAt: new Date(),
         status: 'signed',
         type,
-        signatureUrl
+        signatureUrl,
+        level
     });
     // Persist signature metadata in assignment data
     {
@@ -124,7 +129,8 @@ const signTemplateAssignment = async ({ templateAssignmentId, signerId, type = '
                     signedAt: now,
                     subAdminId: signerId,
                     schoolYearId: activeYear ? String(activeYear._id) : undefined,
-                    schoolYearName: yearName
+                    schoolYearName: yearName,
+                    level
                 }
             }
         });
@@ -194,7 +200,7 @@ const signTemplateAssignment = async ({ templateAssignmentId, signerId, type = '
     return signature;
 };
 exports.signTemplateAssignment = signTemplateAssignment;
-const unsignTemplateAssignment = async ({ templateAssignmentId, signerId, type, req }) => {
+const unsignTemplateAssignment = async ({ templateAssignmentId, signerId, type, req, level }) => {
     // Get assignment
     const assignment = await TemplateAssignment_1.TemplateAssignment.findById(templateAssignmentId);
     if (!assignment) {
@@ -203,6 +209,8 @@ const unsignTemplateAssignment = async ({ templateAssignmentId, signerId, type, 
     const query = { templateAssignmentId };
     if (type)
         query.type = type;
+    if (level)
+        query.level = level;
     await TemplateSignature_1.TemplateSignature.deleteMany(query);
     // If removing end_of_year signature, remove promotion data
     if (type === 'end_of_year') {
@@ -220,10 +228,14 @@ const unsignTemplateAssignment = async ({ templateAssignmentId, signerId, type, 
     if (assignment.data && Array.isArray(assignment.data.signatures)) {
         const before = assignment.data.signatures;
         const after = before.filter((s) => {
-            if (type) {
-                return !(String(s.subAdminId) === String(signerId) && String(s.type) === String(type));
+            let match = String(s.subAdminId) === String(signerId);
+            if (match && type) {
+                match = String(s.type) === String(type);
             }
-            return String(s.subAdminId) !== String(signerId);
+            if (match && level) {
+                match = s.level === level;
+            }
+            return !match;
         });
         if (after.length !== before.length) {
             ;

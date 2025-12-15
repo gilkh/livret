@@ -10,6 +10,7 @@ import { GradebookTemplate } from '../models/GradebookTemplate'
 import { SystemAlert } from '../models/SystemAlert'
 import { RoleScope } from '../models/RoleScope'
 import { SubAdminAssignment } from '../models/SubAdminAssignment'
+import { OutlookUser } from '../models/OutlookUser'
 import { TemplateSignature } from '../models/TemplateSignature'
 import { Student } from '../models/Student'
 import { AdminSignature } from '../models/AdminSignature'
@@ -34,8 +35,12 @@ adminExtrasRouter.get('/progress', requireAuth(['ADMIN']), async (req, res) => {
         }).lean()
 
         const teacherIds = [...new Set(teacherAssignments.map(ta => ta.teacherId))]
-        const teachers = await User.find({ _id: { $in: teacherIds } }).lean()
-        const teacherMap = new Map(teachers.map(t => [String(t._id), t]))
+        const [users, outlookUsers] = await Promise.all([
+            User.find({ _id: { $in: teacherIds } }).lean(),
+            OutlookUser.find({ _id: { $in: teacherIds } }).lean()
+        ])
+        const allTeachers = [...users, ...outlookUsers]
+        const teacherMap = new Map(allTeachers.map(t => [String(t._id), t]))
 
         const enrollments = await Enrollment.find({
             classId: { $in: classIds },
@@ -53,9 +58,31 @@ adminExtrasRouter.get('/progress', requireAuth(['ADMIN']), async (req, res) => {
 
         const classesResult = classes.map(cls => {
             const clsId = String(cls._id)
-            const clsTeachers = teacherAssignments
-                .filter(ta => ta.classId === clsId)
-                .map(ta => teacherMap.get(ta.teacherId)?.displayName || 'Unknown')
+            
+            const clsTeacherAssignments = teacherAssignments.filter(ta => ta.classId === clsId)
+            const clsTeachers = clsTeacherAssignments.map(ta => teacherMap.get(ta.teacherId)?.displayName || 'Unknown')
+
+            // Categorize teachers
+            const polyvalentTeachers: string[] = []
+            const englishTeachers: string[] = []
+            const arabicTeachers: string[] = []
+
+            clsTeacherAssignments.forEach(ta => {
+                const teacherName = teacherMap.get(ta.teacherId)?.displayName || 'Unknown'
+                const langs = ta.languages || []
+
+                if (ta.isProfPolyvalent) {
+                    polyvalentTeachers.push(teacherName)
+                } 
+                
+                if (langs.includes('ar')) {
+                    arabicTeachers.push(teacherName)
+                } 
+                
+                if (langs.includes('en')) {
+                    englishTeachers.push(teacherName)
+                }
+            })
 
             const clsEnrollments = enrollments.filter(e => e.classId === clsId)
             const clsStudentIds = new Set(clsEnrollments.map(e => e.studentId))
@@ -115,6 +142,14 @@ adminExtrasRouter.get('/progress', requireAuth(['ADMIN']), async (req, res) => {
                     total: totalCompetencies,
                     filled: filledCompetencies,
                     percentage: totalCompetencies > 0 ? Math.round((filledCompetencies / totalCompetencies) * 100) : 0
+                },
+                teachersCheck: {
+                    polyvalent: polyvalentTeachers,
+                    english: englishTeachers,
+                    arabic: arabicTeachers,
+                    hasPolyvalent: polyvalentTeachers.length > 0,
+                    hasEnglish: englishTeachers.length > 0,
+                    hasArabic: arabicTeachers.length > 0
                 },
                 byCategory: Object.values(categoryStats).map(stat => ({
                     name: stat.name,

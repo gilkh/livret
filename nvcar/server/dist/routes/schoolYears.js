@@ -8,6 +8,8 @@ const TemplateAssignment_1 = require("../models/TemplateAssignment");
 const SavedGradebook_1 = require("../models/SavedGradebook");
 const Enrollment_1 = require("../models/Enrollment");
 const Class_1 = require("../models/Class");
+const Student_1 = require("../models/Student");
+const StudentCompetencyStatus_1 = require("../models/StudentCompetencyStatus");
 exports.schoolYearsRouter = (0, express_1.Router)();
 exports.schoolYearsRouter.get('/', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', 'AEFE', 'TEACHER']), async (req, res) => {
     const list = await SchoolYear_1.SchoolYear.find({}).sort({ startDate: -1 }).lean();
@@ -76,6 +78,9 @@ exports.schoolYearsRouter.post('/:id/archive', (0, auth_1.requireAuth)(['ADMIN']
     }).lean();
     // 4. Create SavedGradebooks
     let savedCount = 0;
+    // Pre-fetch students
+    const students = await Student_1.Student.find({ _id: { $in: studentIds } }).lean();
+    const studentMap = new Map(students.map(s => [String(s._id), s]));
     for (const assignment of assignments) {
         const enrollment = enrollments.find(e => e.studentId === assignment.studentId);
         if (!enrollment || !enrollment.classId)
@@ -83,13 +88,24 @@ exports.schoolYearsRouter.post('/:id/archive', (0, auth_1.requireAuth)(['ADMIN']
         const cls = await Class_1.ClassModel.findById(enrollment.classId).lean();
         if (!cls)
             continue;
+        const student = studentMap.get(assignment.studentId);
+        if (!student)
+            continue;
+        const statuses = await StudentCompetencyStatus_1.StudentCompetencyStatus.find({ studentId: assignment.studentId }).lean();
+        const snapshotData = {
+            student: student,
+            enrollment: enrollment,
+            statuses: statuses,
+            assignment: assignment,
+            className: cls.name
+        };
         await SavedGradebook_1.SavedGradebook.create({
             studentId: assignment.studentId,
             schoolYearId: id,
             level: cls.level || 'Sans niveau',
             classId: enrollment.classId,
             templateId: assignment.templateId,
-            data: assignment.data,
+            data: snapshotData,
             createdAt: new Date()
         });
         savedCount++;

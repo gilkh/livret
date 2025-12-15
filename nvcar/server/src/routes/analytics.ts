@@ -2,47 +2,180 @@ import { Router } from 'express'
 import { User } from '../models/User'
 import { ClassModel } from '../models/Class'
 import { Student } from '../models/Student'
+import { Enrollment } from '../models/Enrollment'
 import { TemplateAssignment } from '../models/TemplateAssignment'
 import { AuditLog } from '../models/AuditLog'
+import { StudentAcquiredSkill } from '../models/StudentAcquiredSkill'
+import { GradebookTemplate } from '../models/GradebookTemplate'
 
 export const analyticsRouter = Router()
 
 analyticsRouter.get('/', async (req, res) => {
   try {
     const [
-      totalUsers,
+      userCount,
+      classCount,
+      studentCount,
       usersByRole,
-      totalClasses,
-      totalStudents,
       assignmentsByStatus,
       recentActivity
     ] = await Promise.all([
       User.countDocuments(),
+      ClassModel.countDocuments(),
+      Student.countDocuments(),
       User.aggregate([
         { $group: { _id: '$role', count: { $sum: 1 } } }
       ]),
-      ClassModel.countDocuments(),
-      Student.countDocuments(),
       TemplateAssignment.aggregate([
         { $group: { _id: '$status', count: { $sum: 1 } } }
       ]),
-      AuditLog.find().sort({ timestamp: -1 }).limit(10)
+      AuditLog.find().sort({ timestamp: -1 }).limit(10).lean()
     ])
+
+    const formatDistribution = (agg: any[]) => 
+      agg.reduce((acc, curr) => ({ ...acc, [curr._id || 'unknown']: curr.count }), {})
 
     res.json({
       counts: {
-        users: totalUsers,
-        classes: totalClasses,
-        students: totalStudents,
+        users: userCount,
+        classes: classCount,
+        students: studentCount
       },
       distribution: {
-        usersByRole: usersByRole.reduce((acc: any, curr: { _id: string, count: number }) => ({ ...acc, [curr._id]: curr.count }), {}),
-        assignmentsByStatus: assignmentsByStatus.reduce((acc: any, curr: { _id: string, count: number }) => ({ ...acc, [curr._id]: curr.count }), {})
+        usersByRole: formatDistribution(usersByRole),
+        assignmentsByStatus: formatDistribution(assignmentsByStatus)
       },
       recentActivity
     })
   } catch (error) {
     console.error('Error fetching analytics:', error)
     res.status(500).json({ error: 'Failed to fetch analytics' })
+  }
+})
+
+analyticsRouter.get('/skills/:templateId', async (req, res) => {
+  try {
+    const { templateId } = req.params
+    const { yearId, level, classId } = req.query
+
+    // Get full template to find all potential skills
+    const template = await GradebookTemplate.findById(templateId).lean()
+    if (!template) return res.status(404).json({ error: 'Template not found' })
+
+    // Determine Filtered Student IDs
+    let studentQuery: any = {}
+    
+    if (yearId || level || classId) {
+        let enrollmentQuery: any = {}
+        
+        if (yearId) enrollmentQuery.schoolYearId = yearId
+        if (classId) enrollmentQuery.classId = classId
+        
+        // If level is provided but not classId, find all classes in that level
+        if (level && !classId) {
+            const classes = await ClassModel.find({ level, ...(yearId ? { schoolYearId: yearId } : {}) }).select('_id')
+            const classIds = classes.map(c => c._id.toString())
+            enrollmentQuery.classId = { $in: classIds }
+        }
+
+        const enrollments = await Enrollment.find(enrollmentQuery).distinct('studentId')
+        studentQuery.studentId = { $in: enrollments }
+    }
+
+    // Get total assignments count for this template (denominator)
+    const totalAssigned = await TemplateAssignment.countDocuments({ 
+        templateId,
+        ...(Object.keys(studentQuery).length > 0 ? { studentId: studentQuery.studentId } : {})
+    })
+
+    // Initialize stats for all skills defined in the template
+    const skillStats: Record<string, { 
+      skillText: string, 
+      totalStudents: number, 
+      allowedLanguages?: string[], // New field
+      languages: Record<string, number> 
+    }> = {}
+
+    // Scan template for skills (extended tables)
+    if (template.pages && Array.isArray(template.pages)) {
+      template.pages.forEach((page: any) => {
+        if (page.blocks && Array.isArray(page.blocks)) {
+          page.blocks.forEach((block: any) => {
+            // Look for tables with expanded rows (where skills are defined)
+            if (block.type === 'table' && block.props?.expandedRows) {
+              const cells = block.props.cells || []
+              const rowLanguages = block.props.rowLanguages || []
+              const expandedLanguages = block.props.expandedLanguages || []
+
+              cells.forEach((row: any[], ri: number) => {
+                // Assuming skill text is in the first cell of the row
+                const text = row[0]?.text
+                if (text && typeof text === 'string' && text.trim()) {
+                  const trimmed = text.trim()
+                  
+                  // Determine allowed languages for this specific row
+                  // Logic matches TemplateBuilder: rowLanguages[ri] || expandedLanguages
+                  const rowLangs = rowLanguages[ri] || expandedLanguages
+                  const allowedCodes = rowLangs ? rowLangs.map((l: any) => l.code) : []
+
+                  if (!skillStats[trimmed]) {
+                    skillStats[trimmed] = {
+                      skillText: trimmed,
+                      totalStudents: 0,
+                      allowedLanguages: allowedCodes,
+                      languages: {}
+                    }
+                  } else {
+                     // If duplicate skill text exists, ensure allowedLanguages is set
+                     if (!skillStats[trimmed].allowedLanguages) {
+                         skillStats[trimmed].allowedLanguages = allowedCodes
+                     }
+                  }
+                }
+              })
+            }
+          })
+        }
+      })
+    }
+
+    // Fetch all acquired skills for this template
+    // Only fetch records where at least one language is acquired (languages array not empty)
+    const records = await StudentAcquiredSkill.find({ 
+      templateId,
+      languages: { $exists: true, $not: { $size: 0 } },
+      ...(Object.keys(studentQuery).length > 0 ? { studentId: studentQuery.studentId } : {})
+    }).lean()
+
+    // Process records
+    for (const record of records) {
+      const text = record.skillText ? record.skillText.trim() : ''
+      if (!text) continue
+
+      if (!skillStats[text]) {
+        // This handles cases where a skill was recorded but might have been removed from the template later
+        // Or if the template parsing missed it. We show it anyway.
+        skillStats[text] = {
+          skillText: text,
+          totalStudents: 0,
+          languages: {}
+        }
+      }
+
+      skillStats[text].totalStudents++
+
+      for (const lang of record.languages) {
+        if (!skillStats[text].languages[lang]) {
+            skillStats[text].languages[lang] = 0
+        }
+        skillStats[text].languages[lang]++
+      }
+    }
+
+    res.json({ templateName: template.name, totalAssigned, stats: Object.values(skillStats) })
+
+  } catch (error) {
+    console.error('Error fetching skill analytics:', error)
+    res.status(500).json({ error: 'Failed to fetch skill analytics' })
   }
 })

@@ -10,6 +10,7 @@ const templateSignatureSchema = new mongoose_1.Schema({
     status: { type: String, enum: ['signed', 'exported'], default: 'signed' },
     type: { type: String, enum: ['standard', 'end_of_year'], default: 'standard' },
     signatureUrl: { type: String },
+    level: { type: String },
 });
 // Index for quick lookup
 templateSignatureSchema.index({ templateAssignmentId: 1 });

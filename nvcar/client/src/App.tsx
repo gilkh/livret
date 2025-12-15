@@ -42,6 +42,7 @@ import AdminSignatures from './pages/AdminSignatures'
 import AdminGlobalPermissions from './pages/AdminGlobalPermissions'
 import AdminNavigationVisibility from './pages/AdminNavigationVisibility'
 import AdminStudentPromotions from './pages/AdminStudentPromotions'
+import AdminSkillAnalytics from './pages/AdminSkillAnalytics'
 import SystemAlertBanner from './components/SystemAlertBanner'
 
 const RequireAuth = ({ children }: { children: JSX.Element }) => {
@@ -165,6 +166,14 @@ export default function App() {
           element={
             <RequireAuth>
               <AdminAssignmentList />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/admin/skill-analytics"
+          element={
+            <RequireAuth>
+              <AdminSkillAnalytics />
             </RequireAuth>
           }
         />

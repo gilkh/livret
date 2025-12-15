@@ -397,7 +397,9 @@ exports.subAdminTemplatesRouter.get('/pending-signatures', (0, auth_1.requireAut
         }).lean();
         // Get signature information for all assignments
         const assignmentIds = templateAssignments.map(a => String(a._id));
-        const signatures = await TemplateSignature_1.TemplateSignature.find({ templateAssignmentId: { $in: assignmentIds } }).lean();
+        const signatures = await TemplateSignature_1.TemplateSignature.find({ templateAssignmentId: { $in: assignmentIds } })
+            .sort({ signedAt: -1 })
+            .lean();
         const signatureMap = new Map();
         signatures.forEach(s => {
             const key = String(s.templateAssignmentId);
@@ -414,25 +416,56 @@ exports.subAdminTemplatesRouter.get('/pending-signatures', (0, auth_1.requireAut
         ]);
         const templateMap = new Map(templates.map(t => [String(t._id), t]));
         const studentMap = new Map(students.map(s => [String(s._id), s]));
-        const promotedSet = new Set(students
-            .filter(s => Array.isArray(s.promotions) && s.promotions.some(p => {
-            const promotionYearId = String(p.schoolYearId);
-            const activeYearId = String(activeSchoolYear?._id);
-            // Check if promotion matches current year OR if it was done recently (e.g. today) regardless of year ID mapping
-            // But year ID check is safest.
-            // Also check if p.toLevel is populated, implying a successful promotion record.
-            return promotionYearId === activeYearId;
-        }))
-            .map(s => String(s._id)));
+        const promotionDateMap = new Map();
+        students.forEach(s => {
+            if (Array.isArray(s.promotions)) {
+                const relevantPromotions = s.promotions.filter(p => {
+                    const promotionYearId = String(p.schoolYearId);
+                    const activeYearId = String(activeSchoolYear?._id);
+                    return promotionYearId === activeYearId;
+                });
+                if (relevantPromotions.length > 0) {
+                    const latest = relevantPromotions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
+                    if (latest && latest.date) {
+                        promotionDateMap.set(String(s._id), new Date(latest.date));
+                    }
+                }
+            }
+        });
         const enrichedAssignments = templateAssignments.map((assignment) => {
             const template = templateMap.get(String(assignment.templateId));
             const student = studentMap.get(String(assignment.studentId));
-            const assignmentSignatures = signatureMap.get(String(assignment._id)) || [];
-            const standardSig = assignmentSignatures.find(s => s.type === 'standard' || !s.type);
-            const finalSig = assignmentSignatures.find(s => s.type === 'end_of_year');
             const classId = studentClassMap.get(String(assignment.studentId));
             const classInfo = classId ? classMap.get(classId) : null;
-            const isPromoted = promotedSet.has(String(assignment.studentId));
+            const level = classInfo?.level;
+            const levelStartDate = promotionDateMap.get(String(assignment.studentId));
+            const assignmentSignatures = signatureMap.get(String(assignment._id)) || [];
+            // Helper to find relevant signature
+            const findSig = (type) => {
+                return assignmentSignatures.find(s => {
+                    // Type check
+                    if (type === 'standard') {
+                        if (s.type && s.type !== 'standard')
+                            return false;
+                    }
+                    else {
+                        if (s.type !== type)
+                            return false;
+                    }
+                    // Level check
+                    if (s.level && level && s.level !== level)
+                        return false;
+                    // Date check (reject signatures older than promotion)
+                    if (levelStartDate && s.signedAt) {
+                        if (new Date(s.signedAt).getTime() < levelStartDate.getTime())
+                            return false;
+                    }
+                    return true;
+                });
+            };
+            const standardSig = findSig('standard');
+            const finalSig = findSig('end_of_year');
+            const isPromoted = promotionDateMap.has(String(assignment.studentId));
             return {
                 _id: assignment._id,
                 studentId: assignment.studentId,
@@ -630,6 +663,14 @@ exports.subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote',
             status: 'active',
             // classId is optional
         });
+        // NEW: Create a new template assignment for the next year, copying data from the previous one
+        // This ensures the gradebook "follows" the student
+        if (assignment) {
+            // Strategy:
+            // We rely on checkAndAssignTemplates which is usually called when assigning a class.
+            // But if we want to ensure data persistence, we can leave it to the teacher assignment logic
+            // which we updated in templateUtils.ts to copy data from the most recent assignment.
+        }
         // Update student staging (Decoupling Fix)
         student.nextLevel = calculatedNextLevel;
         // Do NOT update student.level or student.schoolYearId yet
@@ -902,37 +943,30 @@ exports.subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', (0
         if (!authorized) {
             return res.status(403).json({ error: 'not_authorized' });
         }
-        // Check if already signed in the active school year
         const activeSchoolYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
-        const sigQuery = { templateAssignmentId, type };
-        if (activeSchoolYear) {
-            let thresholdDate = activeSchoolYear.startDate;
-            // Try to find previous school year to determine the "gap"
-            const previousYear = await SchoolYear_1.SchoolYear.findOne({ endDate: { $lt: activeSchoolYear.startDate } })
-                .sort({ endDate: -1 })
-                .lean();
-            if (previousYear) {
-                thresholdDate = previousYear.endDate;
-            }
-            // Use the later of endDate or current date as the upper bound
-            const now = new Date();
-            const endDate = new Date(activeSchoolYear.endDate);
-            const upperBound = now > endDate ? now : endDate;
-            // CRITICAL FIX: If current date is before the threshold (future school year),
-            // use one year ago as the threshold
-            const oneYearAgo = new Date(now);
-            oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
-            const effectiveThreshold = new Date(thresholdDate) > now ? oneYearAgo : new Date(thresholdDate);
-            sigQuery.signedAt = { $gt: effectiveThreshold, $lte: upperBound };
-        }
-        const existing = await TemplateSignature_1.TemplateSignature.findOne(sigQuery).lean();
-        if (existing) {
-            return res.status(400).json({ error: 'already_signed' });
-        }
         // Check for Semester 2 requirement for end_of_year signature
         if (type === 'end_of_year' && !canBypass) {
             if (!activeSchoolYear || activeSchoolYear.activeSemester !== 2) {
                 return res.status(400).json({ error: 'semester_2_required', message: 'Semester 2 must be active to sign end of year' });
+            }
+        }
+        // Get student level for signature scoping
+        let signatureLevel = '';
+        const studentForSig = await Student_1.Student.findById(assignment.studentId).lean();
+        if (studentForSig) {
+            signatureLevel = studentForSig.level || '';
+            // Try to refine with class level
+            if (activeSchoolYear) {
+                const enrollment = await Enrollment_1.Enrollment.findOne({
+                    studentId: assignment.studentId,
+                    schoolYearId: activeSchoolYear._id,
+                    status: 'active'
+                }).lean();
+                if (enrollment && enrollment.classId) {
+                    const cls = await Class_1.ClassModel.findById(enrollment.classId).lean();
+                    if (cls && cls.level)
+                        signatureLevel = cls.level;
+                }
             }
         }
         try {
@@ -940,7 +974,8 @@ exports.subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', (0
                 templateAssignmentId,
                 signerId: subAdminId,
                 type: type,
-                req
+                req,
+                level: signatureLevel
             });
         }
         catch (e) {
@@ -1004,12 +1039,33 @@ exports.subAdminTemplatesRouter.delete('/templates/:templateAssignmentId/sign', 
             return res.status(403).json({ error: 'not_authorized' });
         }
         const type = req.body.type || req.query.type || 'standard';
+        // Get student level for signature scoping
+        let signatureLevel = '';
+        const studentForSig = await Student_1.Student.findById(assignment.studentId).lean();
+        if (studentForSig) {
+            signatureLevel = studentForSig.level || '';
+            // Try to refine with class level
+            const activeSchoolYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
+            if (activeSchoolYear) {
+                const enrollment = await Enrollment_1.Enrollment.findOne({
+                    studentId: assignment.studentId,
+                    schoolYearId: activeSchoolYear._id,
+                    status: 'active'
+                }).lean();
+                if (enrollment && enrollment.classId) {
+                    const cls = await Class_1.ClassModel.findById(enrollment.classId).lean();
+                    if (cls && cls.level)
+                        signatureLevel = cls.level;
+                }
+            }
+        }
         try {
             await (0, signatureService_1.unsignTemplateAssignment)({
                 templateAssignmentId,
                 signerId: subAdminId,
                 type,
-                req
+                req,
+                level: signatureLevel
             });
         }
         catch (e) {
@@ -1080,11 +1136,96 @@ exports.subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', (
         }
         // Get template and signature (no change history for sub-admin)
         const template = await GradebookTemplate_1.GradebookTemplate.findById(assignment.templateId).lean();
-        let signatures = await TemplateSignature_1.TemplateSignature.find({ templateAssignmentId }).lean();
-        const allSignatures = [...signatures]; // Backup for history
+        let signatures = await TemplateSignature_1.TemplateSignature.find({ templateAssignmentId })
+            .sort({ signedAt: -1 })
+            .lean();
+        const allSignatures = [...signatures];
+        // Get student level and class name (Moved up for signature filtering)
+        let level = student?.level || '';
+        let className = '';
+        if (student) {
+            // Get active school year to ensure we get the CURRENT enrollment
+            const activeSchoolYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
+            if (activeSchoolYear) {
+                const enrollment = await Enrollment_1.Enrollment.findOne({
+                    studentId: assignment.studentId,
+                    schoolYearId: activeSchoolYear._id,
+                    status: 'active'
+                }).lean();
+                if (enrollment && enrollment.classId) {
+                    const classDoc = await Class_1.ClassModel.findById(enrollment.classId).lean();
+                    if (classDoc) {
+                        level = classDoc.level || student.level || '';
+                        className = classDoc.name || '';
+                    }
+                }
+            }
+        }
+        // Calculate level start date from promotions to filter out signatures from previous levels
+        let levelStartDate = null;
+        if (student && Array.isArray(student.promotions) && level) {
+            // Find the promotion that put the student in the current level
+            // We sort by date desc to get the latest promotion to this level (though usually unique)
+            const relevantPromo = student.promotions
+                .filter((p) => p.toLevel === level)
+                .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
+            if (relevantPromo && relevantPromo.date) {
+                levelStartDate = new Date(relevantPromo.date);
+                console.log(`[/review] Found promotion to ${level} at ${levelStartDate}`);
+            }
+        }
         console.log('[/review] All signatures for assignment:', templateAssignmentId, signatures.map(s => ({
-            id: s._id, type: s.type, signedAt: s.signedAt, subAdminId: s.subAdminId
+            id: s._id, type: s.type, signedAt: s.signedAt, subAdminId: s.subAdminId, level: s.level
         })));
+        const allSchoolYears = await SchoolYear_1.SchoolYear.find({}).lean();
+        const resolveSchoolYearName = (date) => {
+            if (!date)
+                return '';
+            const d = new Date(date);
+            if (!Number.isFinite(d.getTime()))
+                return '';
+            if (allSchoolYears && allSchoolYears.length > 0) {
+                const match = allSchoolYears.find(y => {
+                    if (!y.startDate || !y.endDate)
+                        return false;
+                    const start = new Date(y.startDate).getTime();
+                    const end = new Date(y.endDate).getTime();
+                    const t = d.getTime();
+                    return t >= start && t <= end;
+                });
+                if (match && match.name)
+                    return String(match.name);
+            }
+            const year = d.getFullYear();
+            const month = d.getMonth();
+            const startYear = month >= 8 ? year : year - 1;
+            return `${startYear}/${startYear + 1}`;
+        };
+        const existingDataSignatures = Array.isArray(assignment.data?.signatures)
+            ? [...assignment.data.signatures]
+            : [];
+        const mergedDataSignatures = [...existingDataSignatures];
+        allSignatures.forEach(sig => {
+            const already = mergedDataSignatures.some((s) => {
+                const sameSubAdmin = String(s.subAdminId) === String(sig.subAdminId);
+                const sameType = String(s.type || 'standard') === String(sig.type || 'standard');
+                const sa = s.signedAt ? new Date(s.signedAt).getTime() : 0;
+                const sb = sig.signedAt ? new Date(sig.signedAt).getTime() : 0;
+                return sameSubAdmin && sameType && sa === sb;
+            });
+            if (already)
+                return;
+            mergedDataSignatures.push({
+                type: sig.type,
+                signedAt: sig.signedAt,
+                subAdminId: sig.subAdminId,
+                schoolYearId: undefined,
+                schoolYearName: resolveSchoolYearName(sig.signedAt),
+                level: sig.level,
+            });
+        });
+        assignment.data = assignment.data || {};
+        assignment.data.signatures = mergedDataSignatures;
         // Filter signatures by active school year
         const activeSchoolYearForSig = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
         console.log('[/review] Active school year:', activeSchoolYearForSig ? {
@@ -1128,7 +1269,24 @@ exports.subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', (
                 // Filter: signedAt must be after threshold and before/at upperBound
                 const isValid = d > threshold && d <= end;
                 console.log(`[/review] Signature ${s._id} signedAt=${s.signedAt} (${d}) threshold=${effectiveThreshold} (${threshold}) upperBound=${upperBound} (${end}) isValid=${isValid}`);
-                return isValid;
+                if (!isValid)
+                    return false;
+                // Filter by level if present in signature
+                if (s.level && level) {
+                    if (s.level !== level) {
+                        console.log(`[/review] Signature ${s._id} rejected: level mismatch (sig=${s.level}, student=${level})`);
+                        return false;
+                    }
+                }
+                // Filter by promotion date (reject signatures older than current level start)
+                if (levelStartDate && s.signedAt) {
+                    const sigDate = new Date(s.signedAt).getTime();
+                    if (sigDate < levelStartDate.getTime()) {
+                        console.log(`[/review] Signature ${s._id} rejected: predates promotion to ${level} (sig=${s.signedAt}, promo=${levelStartDate})`);
+                        return false;
+                    }
+                }
+                return true;
             });
         }
         console.log('[/review] Filtered signatures:', signatures.map(s => ({ id: s._id, type: s.type })));
@@ -1137,27 +1295,7 @@ exports.subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', (
         console.log('[/review] signature:', signature ? { id: signature._id, type: signature.type } : 'none');
         console.log('[/review] finalSignature:', finalSignature ? { id: finalSignature._id, type: finalSignature.type } : 'none');
         const isSignedByMe = signature && signature.subAdminId === subAdminId;
-        // Get student level and class name
-        let level = student?.level || '';
-        let className = '';
-        if (student) {
-            // Get active school year to ensure we get the CURRENT enrollment
-            const activeSchoolYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
-            if (activeSchoolYear) {
-                const enrollment = await Enrollment_1.Enrollment.findOne({
-                    studentId: assignment.studentId,
-                    schoolYearId: activeSchoolYear._id,
-                    status: 'active'
-                }).lean();
-                if (enrollment && enrollment.classId) {
-                    const classDoc = await Class_1.ClassModel.findById(enrollment.classId).lean();
-                    if (classDoc) {
-                        level = classDoc.level || student.level || '';
-                        className = classDoc.name || '';
-                    }
-                }
-            }
-        }
+        // Level and className already calculated above
         // Merge assignment data into template (for language toggles, dropdowns, etc.)
         const versionedTemplate = JSON.parse(JSON.stringify(template));
         if (assignment.data) {

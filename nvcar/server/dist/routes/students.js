@@ -431,6 +431,24 @@ exports.studentsRouter.post('/:studentId/promote', (0, auth_1.requireAuth)(['ADM
                 status: 'active',
                 // classId is optional, will be assigned later
             });
+            // NEW: Create a new template assignment for the next year, copying data from the previous one
+            // This ensures the gradebook "follows" the student
+            if (assignment) {
+                // Check if template exists for next level?
+                // For now, we assume the same template might be used or a new one assigned later.
+                // BUT the user wants the "same one that was worked on".
+                // This implies we should clone the assignment for the new year/level?
+                // OR, simply create a new assignment with the SAME template and COPIED data.
+                // Let's create a new assignment for the student, but we don't know the teacher yet.
+                // We'll leave assignedTeachers empty for now.
+                // However, usually assignments are created when students are added to a class (checkAndAssignTemplates).
+                // If we create it here, we might pre-empt that.
+                // Strategy:
+                // We will NOT create the assignment here immediately because we don't know the class yet.
+                // Instead, we will rely on `checkAndAssignTemplates` which is called when the student is assigned to a class.
+                // WE MUST MODIFY `checkAndAssignTemplates` or the place where new assignments are created
+                // to look for a previous assignment and copy its data.
+            }
         }
         // Record promotion in assignment data
         if (assignment) {

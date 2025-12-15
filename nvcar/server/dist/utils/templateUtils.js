@@ -45,6 +45,26 @@ async function checkAndAssignTemplates(studentId, level, schoolYearId, classId, 
             if (!template)
                 continue;
             if (!exists) {
+                // NEW: Check for previous year assignment data to copy over
+                // We look for a "SavedGradebook" or a previous "TemplateAssignment" for the PREVIOUS level/year.
+                // However, we want the data to persist.
+                // If we find a previous assignment for this student (regardless of template ID? or maybe same template ID if it persists?),
+                // we should copy the `data` field.
+                // Actually, the user requirement is: "modified on the same one that was worked on in the previous years"
+                // This implies the data should carry over.
+                let initialData = {};
+                // Find the most recent assignment for this student (any template, or matching template?)
+                // If the template changes between years (e.g. EB4 -> EB5), the structure might be different.
+                // But usually, teachers want to keep comments or specific tracking data.
+                // Let's try to find the MOST RECENT assignment for this student
+                const lastAssignment = await TemplateAssignment_1.TemplateAssignment.findOne({ studentId })
+                    .sort({ assignedAt: -1 })
+                    .lean();
+                if (lastAssignment && lastAssignment.data) {
+                    initialData = lastAssignment.data;
+                    // We might need to clear specific fields that are year-specific?
+                    // For now, we copy everything as requested.
+                }
                 await TemplateAssignment_1.TemplateAssignment.create({
                     templateId,
                     templateVersion: template.currentVersion || 1,
@@ -53,6 +73,7 @@ async function checkAndAssignTemplates(studentId, level, schoolYearId, classId, 
                     assignedBy: userId,
                     assignedAt: new Date(),
                     status: 'draft',
+                    data: initialData // Initialize with previous data
                 });
             }
             else {

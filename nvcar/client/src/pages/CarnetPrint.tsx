@@ -203,8 +203,8 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
     
     // Signal ready after render is complete
     useEffect(() => {
-        if (!loading && template && student) {
-            console.log('[CarnetPrint] Rendering complete, signaling ready for PDF')
+        if (!loading) {
+            console.log('[CarnetPrint] Rendering/Loading complete, signaling ready for PDF')
             // Small delay to ensure all images/fonts are loaded
             setTimeout(() => {
                 // @ts-ignore
@@ -212,7 +212,7 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                 console.log('[CarnetPrint] Ready for PDF generation')
             }, 500)
         }
-    }, [loading, template, student])
+    }, [loading, template, student, error])
 
     if (loading) return <div style={{ padding: 20 }}>Chargement...</div>
     if (error) return <div style={{ padding: 20, color: 'red' }}>{error}</div>
