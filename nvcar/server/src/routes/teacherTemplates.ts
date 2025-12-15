@@ -543,10 +543,14 @@ teacherTemplatesRouter.get('/classes/:classId/assignments', requireAuth(['TEACHE
             // But for the list view, we want to show if THIS teacher is done
             const myCompletion = (assignment as any).teacherCompletions?.find((tc: any) => tc.teacherId === teacherId)
             const isMyWorkCompleted = !!myCompletion?.completed
+            const isMyWorkCompletedSem1 = !!myCompletion?.completedSem1
+            const isMyWorkCompletedSem2 = !!myCompletion?.completedSem2
 
             return {
                 ...assignment,
                 isCompleted: isMyWorkCompleted, // Override for frontend
+                isCompletedSem1: isMyWorkCompletedSem1,
+                isCompletedSem2: isMyWorkCompletedSem2,
                 isGlobalCompleted: assignment.isCompleted, // Keep original just in case
                 template,
                 student,

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import api from '../api'
 import { useSocket } from '../context/SocketContext'
+import { useLevels } from '../context/LevelContext'
 
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
@@ -31,6 +32,7 @@ export default function TeacherTemplateEditor() {
     const [isMyWorkCompletedSem2, setIsMyWorkCompletedSem2] = useState(false)
     const [activeSemester, setActiveSemester] = useState<number>(1)
 
+    const { levels } = useLevels()
     const socket = useSocket()
 
     const fixUrl = (url: string) => {
@@ -192,6 +194,17 @@ export default function TeacherTemplateEditor() {
     }
 
     const getNextLevel = (current: string) => {
+        if (!current) return null
+        
+        // Use dynamic levels if available
+        if (levels && levels.length > 0) {
+            const currentLvl = levels.find(l => l.name === current)
+            if (currentLvl) {
+                const nextLvl = levels.find(l => l.order === currentLvl.order + 1)
+                if (nextLvl) return nextLvl.name
+            }
+        }
+
         const c = (current || '').toUpperCase()
         if (c === 'TPS') return 'PS'
         if (c === 'PS') return 'MS'

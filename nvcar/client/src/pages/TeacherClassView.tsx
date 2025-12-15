@@ -7,6 +7,8 @@ type Assignment = {
     _id: string
     studentId: string
     isCompleted?: boolean
+    isCompletedSem1?: boolean
+    isCompletedSem2?: boolean
     template?: { name: string }
     student?: Student
 }
@@ -227,7 +229,27 @@ export default function TeacherClassView() {
                                                 }}
                                                 >
                                                     <span style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Ouvrir</span>
-                                                    {a.isCompleted ? <span style={{ color: '#10b981' }}>✓</span> : <span style={{ color: '#6c5ce7' }}>→</span>}
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                        <div style={{ display: 'flex', gap: 2 }}>
+                                                            <span style={{ 
+                                                                fontSize: 10, 
+                                                                padding: '2px 4px', 
+                                                                borderRadius: 4, 
+                                                                background: a.isCompletedSem1 ? '#10b981' : '#f1f5f9', 
+                                                                color: a.isCompletedSem1 ? 'white' : '#94a3b8',
+                                                                fontWeight: 600
+                                                            }}>S1</span>
+                                                            <span style={{ 
+                                                                fontSize: 10, 
+                                                                padding: '2px 4px', 
+                                                                borderRadius: 4, 
+                                                                background: a.isCompletedSem2 ? '#10b981' : '#f1f5f9', 
+                                                                color: a.isCompletedSem2 ? 'white' : '#94a3b8',
+                                                                fontWeight: 600
+                                                            }}>S2</span>
+                                                        </div>
+                                                        {a.isCompleted ? <span style={{ color: '#10b981' }}>✓</span> : <span style={{ color: '#6c5ce7' }}>→</span>}
+                                                    </div>
                                                 </div>
                                             </Link>
                                         ))}

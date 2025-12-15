@@ -1,4 +1,5 @@
 import React from 'react'
+import { useLevels } from '../context/LevelContext'
 
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
@@ -19,7 +20,20 @@ interface GradebookRendererProps {
 }
 
 export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, student, assignment, signature, finalSignature, visiblePages }) => {
+    const { levels } = useLevels()
+
     const getNextLevel = (current: string) => {
+        if (!current) return ''
+        
+        // Use dynamic levels if available
+        if (levels && levels.length > 0) {
+            const currentLvl = levels.find(l => l.name === current)
+            if (currentLvl) {
+                const nextLvl = levels.find(l => l.order === currentLvl.order + 1)
+                if (nextLvl) return nextLvl.name
+            }
+        }
+
         const c = (current || '').toUpperCase()
         if (c === 'TPS') return 'PS'
         if (c === 'PS') return 'MS'
@@ -42,6 +56,136 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
         if (/\bKG2\b/.test(label)) return 'KG2'
         if (/\bKG3\b/.test(label)) return 'KG3'
         return null
+    }
+
+    const isSignedForLevel = (level: string, type: 'standard' | 'end_of_year') => {
+        // 1. Check if the "main" signature passed matches (for backward compatibility or current year)
+        // Note: signature/finalSignature objects don't carry level info directly, 
+        // but if they exist, they usually correspond to the "current active context".
+        // However, relying on them alone is what caused the bug (hiding previous years).
+        
+        // 2. Check historical signatures in assignment data
+        const history = assignment?.data?.signatures || []
+        if (Array.isArray(history)) {
+            // We need to find if there is a signature of 'type' 
+            // where the student was in 'level' at that time.
+            // But signatures in data don't store "level". They store "schoolYearId".
+            // We need to map SchoolYear -> Level for this student.
+            
+            // Fortunately, 'promotions' in assignment data might help?
+            // Or we can infer level if the signature date matches a period where student was in that level?
+            // But we don't have full student history here easily (only current student object).
+            
+            // Hack/Heuristic: 
+            // If the block is for level X (e.g. PS), and we have a signature in history...
+            // We can assume that if there is *any* signature of type T in the history 
+            // that is NOT the current active one (which might be null), it might be valid for X?
+            // No, that's dangerous.
+            
+            // Better approach:
+            // The assignment data stores signatures with `schoolYearName`.
+            // We can try to match schoolYearName or ID.
+            // But we don't know which year corresponds to PS for this student without fetching more data.
+            
+            // Alternative:
+            // Trust that `assignment.data.signatures` contains ALL signatures.
+            // If we have a signature of type T, we assume it's valid for *some* level.
+            // If the block is level-specific, how do we know WHICH signature corresponds to it?
+            
+            // Let's look at `assignment.data.promotions`.
+            // It maps `year` (name) -> `from` (level).
+            // So if we have a signature with `schoolYearName` = "2023/2024",
+            // and a promotion saying in "2023/2024" student went from PS->MS (or was in PS?),
+            // we can link them.
+            
+            // Promotion structure: { from: "PS", to: "MS", year: "2023/2024", date: ... }
+            // Signature structure: { type: "standard", signedAt: ..., schoolYearName: "2023/2024" }
+            
+            // If we find a signature for year Y, and we know in year Y the student was in Level L,
+            // then that signature "unlocks" Level L blocks.
+            
+            const promotions = assignment?.data?.promotions || []
+            
+            // Check if any signature matches the criteria
+            return history.some((sig: any) => {
+                if (sig.type !== type) return false
+                
+                // Find level for this signature's year
+                // Strategy 1: Match by schoolYearName
+                if (sig.schoolYearName) {
+                    // Find a promotion/record for this year
+                    // Note: "Promotion" record usually records the END of the year (Passage en ...).
+                    // So `from` level is the level of that year.
+                    const promo = promotions.find((p: any) => p.year === sig.schoolYearName)
+                    if (promo && promo.from === level) return true
+                    
+                    // What if there is no promotion record (e.g. current year, or very old data)?
+                    // If it's the current year, `signature` prop (the passed prop) handles it?
+                    // But we want to handle *past* years here.
+                }
+                
+                // Strategy 2: If we can't link year->level, we might default to TRUE if
+                // the signature exists and is "old enough"? No.
+                
+                return false
+            })
+        }
+        
+        return false
+    }
+
+    // Helper to check if a block should be visible based on signatures
+    const isBlockVisible = (b: Block) => {
+        const blockLevel = getBlockLevel(b)
+        
+        // Case 1: Block has NO specific level (generic)
+        if (!blockLevel) {
+            // Use current active signature state
+            if (b.props.period === 'mid-year' && !signature && !b.props.field?.includes('signature')) return false
+            if (b.props.period === 'end-year' && !finalSignature && !b.props.field?.includes('signature')) return false
+            return true
+        }
+        
+        // Case 2: Block HAS a level
+        // Check if we have a signature for that level
+        // We check BOTH the current `signature` prop (if it matches level) AND history.
+        
+        let isSignedStandard = false
+        let isSignedFinal = false
+        
+        // Check current props
+        // If current student level matches block level, use current props
+        if (student?.level === blockLevel) {
+            if (signature) isSignedStandard = true
+            if (finalSignature) isSignedFinal = true
+        }
+        
+        // Check history
+        if (!isSignedStandard || !isSignedFinal) {
+             const history = assignment?.data?.signatures || []
+             const promotions = assignment?.data?.promotions || []
+             
+             history.forEach((sig: any) => {
+                 // Try to match signature year to level
+                 if (sig.schoolYearName) {
+                     const promo = promotions.find((p: any) => p.year === sig.schoolYearName)
+                     // If promo found and 'from' level matches block level, this signature counts!
+                     if (promo && promo.from === blockLevel) {
+                         if (sig.type === 'standard' || !sig.type) isSignedStandard = true
+                         if (sig.type === 'end_of_year') isSignedFinal = true
+                     }
+                 }
+             })
+             
+             // Fallback: If no promotion data linked, but we have signatures...
+             // This is tricky. If we have a signature but don't know the level, we can't be sure.
+             // But usually, promotions are recorded when signing end_of_year.
+        }
+
+        if (b.props.period === 'mid-year' && !isSignedStandard && !b.props.field?.includes('signature') && b.type !== 'signature_box' && b.type !== 'final_signature_box') return false
+        if (b.props.period === 'end-year' && !isSignedFinal && !b.props.field?.includes('signature') && b.type !== 'signature_box' && b.type !== 'final_signature_box') return false
+        
+        return true
     }
 
     return (
@@ -120,7 +264,8 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                         padding: b.props.padding || 8,
                                         width: b.props.width,
                                         height: b.props.height,
-                                        boxSizing: 'border-box'
+                                        boxSizing: 'border-box',
+                                        ...((!isBlockVisible(b)) ? { display: 'none' } : {})
                                     }}>
                                         {(() => {
                                             const toggleKeyOriginal = `language_toggle_${originalPageIdx}_${blockIdx}`
@@ -215,7 +360,10 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                 )}
 
                                 {b.type === 'dropdown' && (
-                                    <div style={{ width: b.props.width || 200 }}>
+                                    <div style={{
+                                        width: b.props.width || 200,
+                                        ...((!isBlockVisible(b)) ? { display: 'none' } : {})
+                                    }}>
                                         <div style={{ fontSize: 10, fontWeight: 'bold', color: '#6c5ce7', marginBottom: 2 }}>
                                             {b.props.dropdownNumber && `Dropdown #${b.props.dropdownNumber}`}
                                         </div>
@@ -276,19 +424,21 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                     }}>
                                         {(() => {
                                             // Level filtering: if block has a specific level, check if it matches student's level
-                                            if (b.props.level && student?.level && b.props.level !== student.level) {
-                                                return null
-                                            }
+                                            // EDIT: We do NOT filter by level if it's a cumulative gradebook (i.e. we want to show PS blocks even if student is MS)
+                                            // The old logic was: if (b.props.level && student?.level && b.props.level !== student.level) return null
+                                            // We remove this to allow cumulative display.
+                                            // However, we still need to respect signature visibility.
+                                            
+                                            // Check visibility using our new helper
+                                            if (!isBlockVisible(b)) return null
 
-                                            // Period filtering
-                                            if (b.props.period === 'mid-year' && !signature && !b.props.field?.includes('signature')) {
-                                                // If marked for mid-year but no mid-year signature, hide it
-                                                return null
-                                            }
-                                            if (b.props.period === 'end-year' && !finalSignature && !b.props.field?.includes('signature')) {
-                                                // If marked for end-year but no end-year signature, hide it
-                                                return null
-                                            }
+                                            // Period filtering (now handled by isBlockVisible, but keeping field check just in case)
+                                            // if (b.props.period === 'mid-year' && !signature && !b.props.field?.includes('signature')) {
+                                            //     return null
+                                            // }
+                                            // if (b.props.period === 'end-year' && !finalSignature && !b.props.field?.includes('signature')) {
+                                            //     return null
+                                            // }
 
                                             // Target Level filtering: only show if student is in the level preceding targetLevel
                                             if (b.props.targetLevel && student?.level) {
@@ -534,22 +684,127 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                         justifyContent: 'center',
                                         fontSize: 10,
                                         color: '#999',
-                                        // Hide if level doesn't match
-                                        ...((getBlockLevel(b) && student?.level && getBlockLevel(b) !== student.level) ? { display: 'none' } : {})
+                                        // Hide using our new visibility logic
+                                        ...((!isBlockVisible(b)) ? { display: 'none' } : {})
                                     }}>
-                                        {b.props.period === 'end-year' ? (
-                                            finalSignature?.signatureUrl ? (
-                                                <img src={finalSignature.signatureUrl} alt="Signature Fin Année" style={{ maxWidth: '100%', maxHeight: '100%' }} />
-                                            ) : (
-                                                finalSignature ? '✓ Signé Fin Année' : (b.props.label || 'Signature Fin Année')
-                                            )
-                                        ) : (
-                                            signature?.signatureUrl ? (
-                                                <img src={signature.signatureUrl} alt="Signature" style={{ maxWidth: '100%', maxHeight: '100%' }} />
-                                            ) : (
-                                                signature ? '✓ Signé' : (b.props.label || 'Signature')
-                                            )
-                                        )}
+                                        {(() => {
+                                            // Determine which signature to show
+                                            // Logic mirrors isBlockVisible somewhat
+                                            
+                                            // If we have a direct current signature that matches, show it
+                                            if (b.props.period === 'end-year') {
+                                                if (finalSignature) {
+                                                    return finalSignature.signatureUrl ? <img src={finalSignature.signatureUrl} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé Fin Année'
+                                                }
+                                            } else {
+                                                if (signature) {
+                                                    return signature.signatureUrl ? <img src={signature.signatureUrl} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé'
+                                                }
+                                            }
+                                            
+                                            // Fallback to historical signatures
+                                            // Note: isBlockVisible ensures we only render this if it IS visible.
+                                            // So if we are here, we SHOULD have a signature (current or historical).
+                                            // If current signatures are null, we must find the historical one to display.
+                                            
+                                            const history = assignment?.data?.signatures || []
+                                            const promotions = assignment?.data?.promotions || []
+                                            const blockLevel = getBlockLevel(b)
+                                            
+                                            if (blockLevel) {
+                                                const matchingSig = history.find((sig: any) => {
+                                                    if (b.props.period === 'end-year' && sig.type !== 'end_of_year') return false
+                                                    if ((!b.props.period || b.props.period === 'mid-year') && (sig.type === 'end_of_year')) return false
+                                                    
+                                                    // Match level
+                                                    if (sig.schoolYearName) {
+                                                        const promo = promotions.find((p: any) => p.year === sig.schoolYearName)
+                                                        if (promo && promo.from === blockLevel) return true
+                                                    }
+                                                    return false
+                                                })
+                                                
+                                                if (matchingSig) {
+                                                    // Historical signature found
+                                                    // We don't have the URL in the assignment data unfortunately (usually).
+                                                    // Unless we add it to the data persistence.
+                                                    // Let's check signatureService.js - do we persist signatureUrl in data?
+                                                    // "data.signatures" usually has { type, signedAt, subAdminId, schoolYearId, schoolYearName }
+                                                    // It doesn't seem to store the URL or image.
+                                                    
+                                                    // If we don't have the image, we can just show text or a placeholder.
+                                                    return `✓ Signé (${matchingSig.schoolYearName || 'Ancien'})`
+                                                }
+                                            }
+                                            
+                                            return b.props.label || 'Signature'
+                                        })()}
+                                    </div>
+                                )}
+                                {b.type === 'final_signature_box' && (
+                                    <div style={{
+                                        width: b.props.width || 200,
+                                        height: b.props.height || 80,
+                                        border: '1px solid #000',
+                                        background: '#fff',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        fontSize: 10,
+                                        color: '#999',
+                                        ...((!isBlockVisible(b)) ? { display: 'none' } : {}),
+                                        ...((!finalSignature && !isBlockVisible({ ...b, props: { ...b.props, period: 'end-year' } })) ? { display: 'none' } : {})
+                                    }}>
+                                        {(() => {
+                                            if (finalSignature) return '✓ Signé Fin Année'
+                                            const history = assignment?.data?.signatures || []
+                                            const promotions = assignment?.data?.promotions || []
+                                            const blockLevel = getBlockLevel(b)
+                                            if (blockLevel) {
+                                                const matchingSig = history.find((sig: any) => {
+                                                    if (sig.type !== 'end_of_year') return false
+                                                    if (sig.schoolYearName) {
+                                                        const promo = promotions.find((p: any) => p.year === sig.schoolYearName)
+                                                        if (promo && promo.from === blockLevel) return true
+                                                    }
+                                                    return false
+                                                })
+                                                if (matchingSig) return `✓ Signé (${matchingSig.schoolYearName || 'Ancien'})`
+                                            }
+                                            return b.props.label || 'Signature Fin Année'
+                                        })()}
+                                    </div>
+                                )}
+                                {b.type === 'final_signature_info' && (
+                                    <div style={{
+                                        width: b.props.width || 150,
+                                        height: b.props.height || 30,
+                                        fontSize: b.props.fontSize || 12,
+                                        color: b.props.color || '#333',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: b.props.align || 'flex-start'
+                                    }}>
+                                        {(() => {
+                                            const sigs = (assignment as any)?.data?.signatures || []
+                                            const finalSigData = sigs.filter((s: any) => s?.type === 'end_of_year').sort((a: any, b: any) => {
+                                                const ad = new Date(a.signedAt || 0).getTime()
+                                                const bd = new Date(b.signedAt || 0).getTime()
+                                                return bd - ad
+                                            })[0]
+                                            const hasData = !!finalSigData || !!finalSignature
+                                            if (!hasData) {
+                                                return <span style={{ color: '#ccc' }}>{b.props.placeholder || '...'}</span>
+                                            }
+                                            const yearLabel = (finalSigData && (finalSigData.schoolYearName || '')) || new Date().getFullYear()
+                                            const promos = (assignment as any)?.data?.promotions || []
+                                            const targetPromo = finalSigData ? promos.find((p: any) => String(p.year) === String(finalSigData.schoolYearName)) : null
+                                            const next = targetPromo ? targetPromo.to : getNextLevel(student?.level || '')
+                                            if (b.props.field === 'year') return <span>{String(yearLabel)}</span>
+                                            if (b.props.field === 'student') return <span>{student?.firstName} {student?.lastName}</span>
+                                            if (b.props.field === 'nextLevel') return <span>{next || ''}</span>
+                                            return null
+                                        })()}
                                     </div>
                                 )}
 

@@ -180,6 +180,8 @@ exports.teacherTemplatesRouter.get('/template-assignments/:assignmentId', (0, au
         // Check my completion status
         const myCompletion = assignment.teacherCompletions?.find((tc) => tc.teacherId === teacherId);
         const isMyWorkCompleted = !!myCompletion?.completed;
+        const isMyWorkCompletedSem1 = !!myCompletion?.completedSem1;
+        const isMyWorkCompletedSem2 = !!myCompletion?.completedSem2;
         // Get active semester from the active school year
         const activeSemester = activeYear?.activeSemester || 1;
         res.json({
@@ -190,6 +192,8 @@ exports.teacherTemplatesRouter.get('/template-assignments/:assignmentId', (0, au
             allowedLanguages,
             isProfPolyvalent,
             isMyWorkCompleted,
+            isMyWorkCompletedSem1,
+            isMyWorkCompletedSem2,
             activeSemester
         });
     }
@@ -296,6 +300,8 @@ exports.teacherTemplatesRouter.post('/templates/:assignmentId/mark-done', (0, au
     try {
         const teacherId = req.user.userId;
         const { assignmentId } = req.params;
+        const { semester } = req.body; // 1 or 2
+        const targetSemester = semester === 2 ? 2 : 1;
         // Get assignment and verify teacher is assigned
         const assignment = await TemplateAssignment_1.TemplateAssignment.findById(assignmentId).lean();
         if (!assignment)
@@ -305,24 +311,49 @@ exports.teacherTemplatesRouter.post('/templates/:assignmentId/mark-done', (0, au
         }
         // Update teacher completion
         let teacherCompletions = assignment.teacherCompletions || [];
-        // Remove existing entry for this teacher if any
-        teacherCompletions = teacherCompletions.filter((tc) => tc.teacherId !== teacherId);
-        // Add new entry
-        teacherCompletions.push({
-            teacherId,
-            completed: true,
-            completedAt: new Date()
-        });
-        // Check if all teachers have completed
-        const allCompleted = assignment.assignedTeachers.every((tid) => teacherCompletions.some((tc) => tc.teacherId === tid && tc.completed));
-        // Update assignment
-        const updated = await TemplateAssignment_1.TemplateAssignment.findByIdAndUpdate(assignmentId, {
+        // Find existing entry or create new
+        let entryIndex = teacherCompletions.findIndex((tc) => tc.teacherId === teacherId);
+        if (entryIndex === -1) {
+            teacherCompletions.push({ teacherId });
+            entryIndex = teacherCompletions.length - 1;
+        }
+        // Update specific semester
+        if (targetSemester === 1) {
+            teacherCompletions[entryIndex].completedSem1 = true;
+            teacherCompletions[entryIndex].completedAtSem1 = new Date();
+            // Legacy/Backward compatibility
+            teacherCompletions[entryIndex].completed = true;
+            teacherCompletions[entryIndex].completedAt = new Date();
+        }
+        else {
+            teacherCompletions[entryIndex].completedSem2 = true;
+            teacherCompletions[entryIndex].completedAtSem2 = new Date();
+        }
+        // Check if all teachers have completed THIS semester
+        const allCompletedSem = assignment.assignedTeachers.every((tid) => teacherCompletions.some((tc) => tc.teacherId === tid && (targetSemester === 1 ? tc.completedSem1 : tc.completedSem2)));
+        const updateData = {
             teacherCompletions,
-            status: allCompleted ? 'completed' : 'in_progress',
-            isCompleted: allCompleted,
-            completedAt: allCompleted ? new Date() : undefined,
-            completedBy: allCompleted ? teacherId : undefined,
-        }, { new: true });
+        };
+        if (targetSemester === 1) {
+            updateData.isCompletedSem1 = allCompletedSem;
+            if (allCompletedSem)
+                updateData.completedAtSem1 = new Date();
+            // Legacy behavior: if sem1 is done, mark main as done/completed? 
+            // Or should main status depend on both? 
+            // For now, let's link legacy 'isCompleted' to Sem1 as it was the only semester before.
+            updateData.isCompleted = allCompletedSem;
+            updateData.completedAt = allCompletedSem ? new Date() : undefined;
+            updateData.completedBy = allCompletedSem ? teacherId : undefined; // Approximate
+            updateData.status = allCompletedSem ? 'completed' : 'in_progress';
+        }
+        else {
+            updateData.isCompletedSem2 = allCompletedSem;
+            if (allCompletedSem)
+                updateData.completedAtSem2 = new Date();
+            // Don't change main status for Sem2 yet, unless we want a new status
+        }
+        // Update assignment
+        const updated = await TemplateAssignment_1.TemplateAssignment.findByIdAndUpdate(assignmentId, updateData, { new: true });
         // Log audit
         const template = await GradebookTemplate_1.GradebookTemplate.findById(assignment.templateId).lean();
         const student = await Student_1.Student.findById(assignment.studentId).lean();
@@ -331,6 +362,7 @@ exports.teacherTemplatesRouter.post('/templates/:assignmentId/mark-done', (0, au
             action: 'MARK_ASSIGNMENT_DONE',
             details: {
                 assignmentId,
+                semester: targetSemester,
                 templateId: assignment.templateId,
                 templateName: template?.name,
                 studentId: assignment.studentId,
@@ -349,6 +381,8 @@ exports.teacherTemplatesRouter.post('/templates/:assignmentId/unmark-done', (0, 
     try {
         const teacherId = req.user.userId;
         const { assignmentId } = req.params;
+        const { semester } = req.body; // 1 or 2
+        const targetSemester = semester === 2 ? 2 : 1;
         // Get assignment and verify teacher is assigned
         const assignment = await TemplateAssignment_1.TemplateAssignment.findById(assignmentId).lean();
         if (!assignment)
@@ -358,22 +392,39 @@ exports.teacherTemplatesRouter.post('/templates/:assignmentId/unmark-done', (0, 
         }
         // Update teacher completion
         let teacherCompletions = assignment.teacherCompletions || [];
-        // Remove existing entry for this teacher if any
-        teacherCompletions = teacherCompletions.filter((tc) => tc.teacherId !== teacherId);
-        // Add new entry (completed: false)
-        teacherCompletions.push({
-            teacherId,
-            completed: false,
-            completedAt: new Date()
-        });
-        // Update assignment
-        const updated = await TemplateAssignment_1.TemplateAssignment.findByIdAndUpdate(assignmentId, {
+        let entryIndex = teacherCompletions.findIndex((tc) => tc.teacherId === teacherId);
+        if (entryIndex === -1) {
+            teacherCompletions.push({ teacherId });
+            entryIndex = teacherCompletions.length - 1;
+        }
+        if (targetSemester === 1) {
+            teacherCompletions[entryIndex].completedSem1 = false;
+            teacherCompletions[entryIndex].completedAtSem1 = null;
+            // Legacy
+            teacherCompletions[entryIndex].completed = false;
+            teacherCompletions[entryIndex].completedAt = null;
+        }
+        else {
+            teacherCompletions[entryIndex].completedSem2 = false;
+            teacherCompletions[entryIndex].completedAtSem2 = null;
+        }
+        const updateData = {
             teacherCompletions,
-            status: 'in_progress',
-            isCompleted: false,
-            completedAt: null,
-            completedBy: null,
-        }, { new: true });
+        };
+        if (targetSemester === 1) {
+            updateData.isCompletedSem1 = false;
+            updateData.completedAtSem1 = null;
+            // Legacy
+            updateData.isCompleted = false;
+            updateData.completedAt = null;
+            updateData.status = 'in_progress';
+        }
+        else {
+            updateData.isCompletedSem2 = false;
+            updateData.completedAtSem2 = null;
+        }
+        // Update assignment
+        const updated = await TemplateAssignment_1.TemplateAssignment.findByIdAndUpdate(assignmentId, updateData, { new: true });
         // Log audit
         const template = await GradebookTemplate_1.GradebookTemplate.findById(assignment.templateId).lean();
         const student = await Student_1.Student.findById(assignment.studentId).lean();
@@ -382,6 +433,7 @@ exports.teacherTemplatesRouter.post('/templates/:assignmentId/unmark-done', (0, 
             action: 'UNMARK_ASSIGNMENT_DONE',
             details: {
                 assignmentId,
+                semester: targetSemester,
                 templateId: assignment.templateId,
                 templateName: template?.name,
                 studentId: assignment.studentId,
@@ -421,9 +473,13 @@ exports.teacherTemplatesRouter.get('/classes/:classId/assignments', (0, auth_1.r
             // But for the list view, we want to show if THIS teacher is done
             const myCompletion = assignment.teacherCompletions?.find((tc) => tc.teacherId === teacherId);
             const isMyWorkCompleted = !!myCompletion?.completed;
+            const isMyWorkCompletedSem1 = !!myCompletion?.completedSem1;
+            const isMyWorkCompletedSem2 = !!myCompletion?.completedSem2;
             return {
                 ...assignment,
                 isCompleted: isMyWorkCompleted, // Override for frontend
+                isCompletedSem1: isMyWorkCompletedSem1,
+                isCompletedSem2: isMyWorkCompletedSem2,
                 isGlobalCompleted: assignment.isCompleted, // Keep original just in case
                 template,
                 student,

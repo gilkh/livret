@@ -56,6 +56,37 @@ const upload = multer({
 
 export const subAdminTemplatesRouter = Router()
 
+// DEBUG: Get all signatures for a template assignment
+subAdminTemplatesRouter.get('/templates/:templateAssignmentId/debug-signatures', requireAuth(['SUBADMIN', 'AEFE', 'ADMIN']), async (req, res) => {
+    try {
+        const { templateAssignmentId } = req.params
+        const allSignatures = await TemplateSignature.find({ templateAssignmentId }).lean()
+        const activeSchoolYear = await SchoolYear.findOne({ active: true }).lean()
+        const previousYear = activeSchoolYear 
+            ? await SchoolYear.findOne({ endDate: { $lt: activeSchoolYear.startDate } }).sort({ endDate: -1 }).lean()
+            : null
+        
+        res.json({
+            totalSignatures: allSignatures.length,
+            signatures: allSignatures,
+            activeSchoolYear: activeSchoolYear ? {
+                id: activeSchoolYear._id,
+                name: activeSchoolYear.name,
+                startDate: activeSchoolYear.startDate,
+                endDate: activeSchoolYear.endDate
+            } : null,
+            previousYear: previousYear ? {
+                id: previousYear._id,
+                name: previousYear.name,
+                endDate: previousYear.endDate
+            } : null,
+            currentDate: new Date()
+        })
+    } catch (e: any) {
+        res.status(500).json({ error: e.message })
+    }
+})
+
 // Sub-admin: Get signature
 subAdminTemplatesRouter.get('/signature', requireAuth(['SUBADMIN', 'AEFE']), async (req, res) => {
     try {
@@ -520,6 +551,20 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote', require
             }
         }
 
+        // Additional authorization: if this sub-admin promoted the student in the active year, allow signing
+        if (!authorized) {
+            const student = await Student.findById(assignment.studentId).lean()
+            const activeSchoolYearForAuth = await SchoolYear.findOne({ active: true }).lean()
+            if (student && activeSchoolYearForAuth && Array.isArray((student as any).promotions)) {
+                const promotedThisYear = (student as any).promotions.some((p: any) => 
+                    String(p.schoolYearId) === String(activeSchoolYearForAuth._id) && String(p.promotedBy) === String(subAdminId)
+                )
+                if (promotedThisYear) {
+                    authorized = true
+                }
+            }
+        }
+
         if (!authorized) {
             return res.status(403).json({ error: 'not_authorized' })
         }
@@ -808,7 +853,14 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', requireAut
         if (!canBypass) {
             if (assignment.status !== 'completed' && assignment.status !== 'signed') {
                 const enrollments = await Enrollment.find({ studentId: assignment.studentId }).lean()
-                const classIds = enrollments.map(e => String(e.classId)).filter(Boolean)
+                // Prioritize enrollments with classId, preferring 'promoted' or 'active' status
+                const enrollmentsWithClass = enrollments.filter(e => e.classId)
+                // Sort to prefer promoted (most recent class assignment) then active
+                enrollmentsWithClass.sort((a, b) => {
+                    const statusOrder: Record<string, number> = { 'promoted': 0, 'active': 1 }
+                    return (statusOrder[a.status] ?? 2) - (statusOrder[b.status] ?? 2)
+                })
+                const classIds = enrollmentsWithClass.map(e => String(e.classId)).filter(Boolean)
                 let clsId = classIds[0]
                 let cls: any = null
                 if (clsId) cls = await ClassModel.findById(clsId).lean()
@@ -911,7 +963,6 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', requireAut
             }
 
             if (!authorized) {
-                // Check RoleScope
                 const roleScope = await RoleScope.findOne({ userId: subAdminId }).lean()
                 if (roleScope?.levels?.length) {
                     const classes = await ClassModel.find({ _id: { $in: classIds } }).lean()
@@ -923,18 +974,55 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', requireAut
         }
 
         if (!authorized) {
+            const student = await Student.findById(assignment.studentId).lean()
+            if (student && Array.isArray((student as any).promotions) && (student as any).promotions.length > 0) {
+                const lastPromotion = (student as any).promotions.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]
+                if (lastPromotion && String(lastPromotion.promotedBy) === String(subAdminId)) {
+                    authorized = true
+                }
+            }
+        }
+
+        if (!authorized) {
             return res.status(403).json({ error: 'not_authorized' })
         }
 
-        // Check if already signed
-        const existing = await TemplateSignature.findOne({ templateAssignmentId, type }).lean()
+        // Check if already signed in the active school year
+        const activeSchoolYear = await SchoolYear.findOne({ active: true }).lean()
+        const sigQuery: any = { templateAssignmentId, type }
+        if (activeSchoolYear) {
+            let thresholdDate = activeSchoolYear.startDate
+            
+            // Try to find previous school year to determine the "gap"
+            const previousYear = await SchoolYear.findOne({ endDate: { $lt: activeSchoolYear.startDate } })
+                .sort({ endDate: -1 })
+                .lean()
+            
+            if (previousYear) {
+                thresholdDate = previousYear.endDate
+            }
+
+            // Use the later of endDate or current date as the upper bound
+            const now = new Date()
+            const endDate = new Date(activeSchoolYear.endDate)
+            const upperBound = now > endDate ? now : endDate
+            
+            // CRITICAL FIX: If current date is before the threshold (future school year),
+            // use one year ago as the threshold
+            const oneYearAgo = new Date(now)
+            oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1)
+            const effectiveThreshold = new Date(thresholdDate) > now ? oneYearAgo : new Date(thresholdDate)
+
+            sigQuery.signedAt = { $gt: effectiveThreshold, $lte: upperBound }
+        }
+
+        const existing = await TemplateSignature.findOne(sigQuery).lean()
         if (existing) {
             return res.status(400).json({ error: 'already_signed' })
         }
 
         // Check for Semester 2 requirement for end_of_year signature
         if (type === 'end_of_year' && !canBypass) {
-            const activeSchoolYear = await SchoolYear.findOne({ active: true }).lean()
             if (!activeSchoolYear || activeSchoolYear.activeSemester !== 2) {
                 return res.status(400).json({ error: 'semester_2_required', message: 'Semester 2 must be active to sign end of year' })
             }
@@ -1106,10 +1194,71 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
 
         // Get template and signature (no change history for sub-admin)
         const template = await GradebookTemplate.findById(assignment.templateId).lean()
-        const signatures = await TemplateSignature.find({ templateAssignmentId }).lean()
+        let signatures = await TemplateSignature.find({ templateAssignmentId }).lean()
+        const allSignatures = [...signatures] // Backup for history
+        
+        console.log('[/review] All signatures for assignment:', templateAssignmentId, signatures.map(s => ({ 
+            id: s._id, type: s.type, signedAt: s.signedAt, subAdminId: s.subAdminId 
+        })))
+        
+        // Filter signatures by active school year
+        const activeSchoolYearForSig = await SchoolYear.findOne({ active: true }).lean()
+        console.log('[/review] Active school year:', activeSchoolYearForSig ? {
+            id: activeSchoolYearForSig._id,
+            name: activeSchoolYearForSig.name,
+            startDate: activeSchoolYearForSig.startDate,
+            endDate: activeSchoolYearForSig.endDate
+        } : 'none')
+        
+        if (activeSchoolYearForSig) {
+            let thresholdDate = activeSchoolYearForSig.startDate
+            
+            // Try to find previous school year to determine the "gap"
+            const previousYear = await SchoolYear.findOne({ endDate: { $lt: activeSchoolYearForSig.startDate } })
+                .sort({ endDate: -1 })
+                .lean()
+            
+            if (previousYear) {
+                // If there is a previous year, we consider signatures created AFTER the previous year ended
+                // as belonging to the current/upcoming cycle.
+                thresholdDate = previousYear.endDate
+                console.log('[/review] Previous year found, threshold date:', thresholdDate)
+            } else {
+                console.log('[/review] No previous year, using start date as threshold:', thresholdDate)
+            }
+
+            // Use the later of endDate or current date as the upper bound
+            // This handles cases where the school year has technically ended but we're still in that academic period
+            const now = new Date()
+            const endDate = new Date(activeSchoolYearForSig.endDate)
+            const upperBound = now > endDate ? now : endDate
+            
+            // CRITICAL FIX: If current date is before the threshold (i.e., we're working before the "active" 
+            // school year officially starts), we need to adjust. Use the earlier of threshold or one year ago.
+            const oneYearAgo = new Date(now)
+            oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1)
+            const effectiveThreshold = new Date(thresholdDate) > now ? oneYearAgo : new Date(thresholdDate)
+            console.log('[/review] Effective threshold:', effectiveThreshold, 'Original threshold:', thresholdDate, 'Now:', now)
+
+            signatures = signatures.filter(s => {
+                if (!s.signedAt) return false
+                const d = new Date(s.signedAt).getTime()
+                const threshold = effectiveThreshold.getTime()
+                const end = upperBound.getTime()
+                // Filter: signedAt must be after threshold and before/at upperBound
+                const isValid = d > threshold && d <= end
+                console.log(`[/review] Signature ${s._id} signedAt=${s.signedAt} (${d}) threshold=${effectiveThreshold} (${threshold}) upperBound=${upperBound} (${end}) isValid=${isValid}`)
+                return isValid
+            })
+        }
+
+        console.log('[/review] Filtered signatures:', signatures.map(s => ({ id: s._id, type: s.type })))
         
         const signature = signatures.find(s => s.type === 'standard' || !s.type)
         const finalSignature = signatures.find(s => s.type === 'end_of_year')
+        
+        console.log('[/review] signature:', signature ? { id: signature._id, type: signature.type } : 'none')
+        console.log('[/review] finalSignature:', finalSignature ? { id: finalSignature._id, type: finalSignature.type } : 'none')
         
         const isSignedByMe = signature && signature.subAdminId === subAdminId
 
@@ -1161,7 +1310,32 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
 
         let eligibleForSign = assignment.status === 'completed' || assignment.status === 'signed'
         if (!eligibleForSign) {
-            const enrollment = activeSchoolYear ? await Enrollment.findOne({ studentId: assignment.studentId, schoolYearId: activeSchoolYear._id, status: 'active' }).lean() : null
+            // First try to find an active enrollment with a classId
+            let enrollment = activeSchoolYear ? await Enrollment.findOne({ 
+                studentId: assignment.studentId, 
+                schoolYearId: activeSchoolYear._id, 
+                status: 'active',
+                classId: { $exists: true, $ne: null }
+            }).lean() : null
+            
+            // If no active enrollment with class found, check for 'promoted' status enrollment
+            // This handles promoted students who still need their previous class info
+            if (!enrollment || !enrollment.classId) {
+                enrollment = await Enrollment.findOne({ 
+                    studentId: assignment.studentId, 
+                    status: 'promoted',
+                    classId: { $exists: true, $ne: null }
+                }).sort({ updatedAt: -1 }).lean()
+            }
+            
+            // Also fallback to any enrollment with a classId for the student
+            if (!enrollment || !enrollment.classId) {
+                enrollment = await Enrollment.findOne({ 
+                    studentId: assignment.studentId, 
+                    classId: { $exists: true, $ne: null }
+                }).sort({ updatedAt: -1 }).lean()
+            }
+            
             const clsId = enrollment?.classId ? String(enrollment.classId) : undefined
             const teacherAssignments = clsId ? await TeacherClassAssignment.find({ classId: clsId }).lean() : []
             const teacherCompletions = (assignment as any).teacherCompletions || []
@@ -1218,19 +1392,24 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
             eligibleForSign = ok
         }
 
+        // Attach historical signatures to assignment data for frontend cumulative display
+        if (!assignment.data) assignment.data = {}
+        assignment.data.signatures = allSignatures
+
         res.json({
             assignment,
             template: versionedTemplate,
             student: { ...student, level, className },
-            signature,
-            finalSignature,
-            isSignedByMe,
+            signature: signature || null,
+            finalSignature: finalSignature || null,
+            isSignedByMe: isSignedByMe || false,
             canEdit,
             isPromoted,
             activeSemester,
             eligibleForSign
         })
     } catch (e: any) {
+        console.error('[/review] Error:', e)
         res.status(500).json({ error: 'fetch_failed', message: e.message })
     }
 })

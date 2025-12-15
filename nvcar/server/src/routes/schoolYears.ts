@@ -21,11 +21,27 @@ schoolYearsRouter.post('/', requireAuth(['ADMIN', 'SUBADMIN']), async (req, res)
     await SchoolYear.updateMany({}, { $set: { active: false } })
   }
 
-  const lastYear = await SchoolYear.findOne({}).sort({ sequence: -1 }).lean()
-  const nextSequence = (lastYear?.sequence || 0) + 1
+  const created = await SchoolYear.create({
+    name,
+    startDate: new Date(startDate),
+    endDate: new Date(endDate),
+    active: active ?? true,
+  })
 
-  const year = await SchoolYear.create({ name, startDate: new Date(startDate), endDate: new Date(endDate), active: active ?? true, sequence: nextSequence })
-  res.json(year)
+  const allYears = await SchoolYear.find({}).sort({ startDate: 1 }).lean()
+  if (allYears.length > 0) {
+    await SchoolYear.bulkWrite(
+      allYears.map((y, index) => ({
+        updateOne: {
+          filter: { _id: y._id },
+          update: { $set: { sequence: index + 1 } },
+        },
+      }))
+    )
+  }
+
+  const year = await SchoolYear.findById(created._id).lean()
+  res.json(year || created)
 })
 
 schoolYearsRouter.patch('/:id', requireAuth(['ADMIN', 'SUBADMIN']), async (req, res) => {

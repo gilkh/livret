@@ -259,21 +259,29 @@ exports.studentsRouter.patch('/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN
     const updated = await Student_1.Student.findByIdAndUpdate(id, data, { new: true });
     if (req.body.classId) {
         const classId = String(req.body.classId);
-        const enr = await Enrollment_1.Enrollment.findOne({ studentId: id });
         const clsDoc = await Class_1.ClassModel.findById(classId).lean();
+        if (!clsDoc)
+            return res.status(404).json({ error: 'class_not_found' });
+        // Find active enrollment for this school year
+        let enr = await Enrollment_1.Enrollment.findOne({
+            studentId: id,
+            schoolYearId: clsDoc.schoolYearId,
+            status: { $ne: 'promoted' }
+        });
         if (enr) {
             if (enr.classId !== classId) {
                 enr.classId = classId;
-                enr.schoolYearId = clsDoc ? clsDoc.schoolYearId : enr.schoolYearId;
                 await enr.save();
-                if (clsDoc && clsDoc.level) {
+                if (clsDoc.level) {
                     await (0, templateUtils_1.checkAndAssignTemplates)(id, clsDoc.level, clsDoc.schoolYearId, classId, req.user.userId);
                 }
             }
         }
         else {
-            await Enrollment_1.Enrollment.create({ studentId: id, classId, schoolYearId: clsDoc ? clsDoc.schoolYearId : '' });
-            if (clsDoc && clsDoc.level) {
+            // If no active enrollment for this year, check if there's any enrollment (maybe from import without year?)
+            // Or just create new one
+            await Enrollment_1.Enrollment.create({ studentId: id, classId, schoolYearId: clsDoc.schoolYearId, status: 'active' });
+            if (clsDoc.level) {
                 await (0, templateUtils_1.checkAndAssignTemplates)(id, clsDoc.level, clsDoc.schoolYearId, classId, req.user.userId);
             }
         }

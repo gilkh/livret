@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import api from '../api'
 import { useSocket } from '../context/SocketContext'
+import { useLevels } from '../context/LevelContext'
 import Modal from '../components/Modal'
 import Toast, { ToastType } from '../components/Toast'
 
@@ -75,6 +76,7 @@ export default function SubAdminTemplateReview() {
     } | null>(null)
     const [suggestionText, setSuggestionText] = useState('')
 
+    const { levels } = useLevels()
     const socket = useSocket()
 
     const showToast = (message: string, type: ToastType = 'info') => {
@@ -216,6 +218,17 @@ export default function SubAdminTemplateReview() {
     }
 
     const getNextLevel = (current: string) => {
+        if (!current) return null
+        
+        // Use dynamic levels if available
+        if (levels && levels.length > 0) {
+            const currentLvl = levels.find(l => l.name === current)
+            if (currentLvl) {
+                const nextLvl = levels.find(l => l.order === currentLvl.order + 1)
+                if (nextLvl) return nextLvl.name
+            }
+        }
+
         const c = (current || '').toUpperCase()
         if (c === 'TPS') return 'PS'
         if (c === 'PS') return 'MS'
@@ -239,6 +252,50 @@ export default function SubAdminTemplateReview() {
         if (/\bKG3\b/.test(label)) return 'KG3'
         return null
     }
+
+    const isBlockVisible = (b: Block) => {
+        const blockLevel = getBlockLevel(b)
+        
+        // Case 1: Block has NO specific level (generic)
+        if (!blockLevel) {
+            // Use current active signature state
+            if (b.props.period === 'mid-year' && !signature && !b.props.field?.includes('signature')) return false
+            if (b.props.period === 'end-year' && !finalSignature && !b.props.field?.includes('signature')) return false
+            return true
+        }
+        
+        // Case 2: Block HAS a level
+        // Check if we have a signature for that level
+        let isSignedStandard = false
+        let isSignedFinal = false
+        
+        // Check current props
+        if (student?.level === blockLevel) {
+            if (signature) isSignedStandard = true
+            if (finalSignature) isSignedFinal = true
+        }
+        
+        // Check history
+        if (!isSignedStandard || !isSignedFinal) {
+             const history = assignment?.data?.signatures || []
+             const promotions = assignment?.data?.promotions || []
+             
+             history.forEach((sig: any) => {
+                 if (sig.schoolYearName) {
+                     const promo = promotions.find((p: any) => p.year === sig.schoolYearName)
+                     if (promo && promo.from === blockLevel) {
+                         if (sig.type === 'standard' || !sig.type) isSignedStandard = true
+                         if (sig.type === 'end_of_year') isSignedFinal = true
+                     }
+                 }
+             })
+        }
+
+        if (b.props.period === 'mid-year' && !isSignedStandard && !b.props.field?.includes('signature') && b.type !== 'signature_box' && b.type !== 'final_signature_box') return false
+         if (b.props.period === 'end-year' && !isSignedFinal && !b.props.field?.includes('signature') && b.type !== 'signature_box' && b.type !== 'final_signature_box') return false
+         
+         return true
+     }
 
     const handlePromote = async () => {
         if (!student?.level) return
@@ -283,18 +340,20 @@ export default function SubAdminTemplateReview() {
     const handleSign = async () => {
         const isSem1Done = assignment?.isCompletedSem1 || assignment?.isCompleted
         if (!isSem1Done) {
-             showToast('Le semestre 1 n\'est pas terminé par les enseignants.', 'info')
+             showToast('Le semestre 1 n\'est pas terminé par les enseignants.', 'error')
              return
         }
 
         if (!eligibleForSign) {
-            showToast('Le carnet n\'est pas encore prêt pour la signature ou vous n\'êtes pas assigné.', 'info')
+            showToast('Le carnet n\'est pas encore prêt pour la signature ou vous n\'êtes pas assigné.', 'error')
             return
         }
         try {
             setSigning(true)
-            await api.post(`${apiPrefix}/templates/${assignmentId}/sign`)
+            const response = await api.post(`${apiPrefix}/templates/${assignmentId}/sign`)
+            console.log('[handleSign] Sign response:', response.data)
             const r = await api.get(`${apiPrefix}/templates/${assignmentId}/review`)
+            console.log('[handleSign] Review response:', r.data)
             setSignature(r.data.signature)
             setFinalSignature(r.data.finalSignature)
             setAssignment(r.data.assignment)
@@ -302,8 +361,9 @@ export default function SubAdminTemplateReview() {
             setEligibleForSign(r.data.eligibleForSign === true)
             showToast('Carnet signé avec succès', 'success')
         } catch (e: any) {
-            showToast('Échec de la signature', 'error')
-            console.error(e)
+            console.error('[handleSign] Error:', e)
+            const errorMsg = e.response?.data?.message || e.response?.data?.error || 'Échec de la signature'
+            showToast(errorMsg, 'error')
         } finally {
             setSigning(false)
         }
@@ -522,14 +582,14 @@ export default function SubAdminTemplateReview() {
                         )}
 
                         {!finalSignature ? (
-                            <button className="btn" onClick={handleSignFinal} disabled={signingFinal || !signature || !(assignment?.isCompletedSem2) || activeSemester !== 2} style={{
-                                background: (!signature || !(assignment?.isCompletedSem2) || activeSemester !== 2) ? '#cbd5e1' : 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                            <button className="btn" onClick={handleSignFinal} disabled={signingFinal || !(assignment?.isCompletedSem2) || activeSemester !== 2} style={{
+                                background: (!(assignment?.isCompletedSem2) || activeSemester !== 2) ? '#cbd5e1' : 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
                                 fontWeight: 500,
                                 padding: '12px 20px',
-                                boxShadow: (!signature || !(assignment?.isCompletedSem2) || activeSemester !== 2) ? 'none' : '0 2px 8px rgba(59, 130, 246, 0.3)',
-                                cursor: (!signature || !(assignment?.isCompletedSem2) || activeSemester !== 2) ? 'not-allowed' : 'pointer'
+                                boxShadow: (!(assignment?.isCompletedSem2) || activeSemester !== 2) ? 'none' : '0 2px 8px rgba(59, 130, 246, 0.3)',
+                                cursor: (!(assignment?.isCompletedSem2) || activeSemester !== 2) ? 'not-allowed' : 'pointer'
                             }}
-                                title={activeSemester !== 2 ? "Le semestre 2 n'est pas encore actif" : !signature ? "Vous devez d'abord signer le carnet (signature standard)" : !(assignment?.isCompletedSem2) ? "L'enseignant n'a pas encore terminé ce carnet (Semestre 2)" : ""}
+                                title={activeSemester !== 2 ? "Le semestre 2 n'est pas encore actif" : !(assignment?.isCompletedSem2) ? "L'enseignant n'a pas encore terminé ce carnet (Semestre 2)" : ""}
                             >
                                 {signingFinal ? '✍️ Signature...' : '✍️ Signer ce carnet fin années'}
                             </button>
@@ -717,7 +777,9 @@ export default function SubAdminTemplateReview() {
                                                 padding: b.props.padding || 8,
                                                 width: b.props.width,
                                                 height: b.props.height,
-                                                boxSizing: 'border-box'
+                                                boxSizing: 'border-box',
+                                                // Visibility check
+                                                ...((!isBlockVisible(b)) ? { display: 'none' } : {})
                                             }}>
                                                 {(b.props.items || []).map((it: any, i: number) => {
                                                     // Check level
@@ -836,6 +898,9 @@ export default function SubAdminTemplateReview() {
                                         {b.type === 'category_title' && <div style={{ color: b.props.color, fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden' }}>Titre catégorie</div>}
                                         {b.type === 'competency_list' && <div style={{ color: b.props.color, fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden' }}>Liste des compétences</div>}
                                         {b.type === 'dropdown' && (() => {
+                                            // Check visibility first
+                                            if (!isBlockVisible(b)) return null
+
                                             // Check if dropdown is allowed for current level
                                             const isLevelAllowed = !(b.props.levels && b.props.levels.length > 0 && student?.level && !b.props.levels.includes(student.level))
                                             // Check if dropdown is allowed for current semester (default to both semesters if not specified)
@@ -1065,18 +1130,8 @@ export default function SubAdminTemplateReview() {
                                                 textAlign: 'center'
                                             }}>
                                                 {(() => {
-                                                    // Level filtering: if block has a specific level, check if it matches student's level
-                                                    if (b.props.level && student?.level && b.props.level !== student.level) {
-                                                        return null
-                                                    }
-
-                                                    // Period filtering
-                                                    if (b.props.period === 'mid-year' && !signature && !b.props.field?.includes('signature')) {
-                                                        return null
-                                                    }
-                                                    if (b.props.period === 'end-year' && !finalSignature && !b.props.field?.includes('signature')) {
-                                                        return null
-                                                    }
+                                                    // Check visibility using our new helper
+                                                    if (!isBlockVisible(b)) return null
 
                                                     // Target Level filtering: only show if student is in the level preceding targetLevel
                                                     if (b.props.targetLevel && student?.level) {
@@ -1442,10 +1497,30 @@ export default function SubAdminTemplateReview() {
                                                 justifyContent: 'center',
                                                 fontSize: 10,
                                                 color: '#999',
-                                                // Hide if level doesn't match
-                                                ...((getBlockLevel(b) && student?.level && getBlockLevel(b) !== student.level) ? { display: 'none' } : {})
+                                                // Hide if not visible
+                                                ...((!isBlockVisible(b)) ? { display: 'none' } : {}),
+                                                // Ensure it's treated as end-year
+                                                ...((!finalSignature && !isBlockVisible({...b, props: {...b.props, period: 'end-year'}})) ? { display: 'none' } : {})
                                             }}>
-                                                {finalSignature ? '✓ Signé Fin Année' : b.props.label || 'Signature Fin Année'}
+                                                {(() => {
+                                                    if (finalSignature) return '✓ Signé Fin Année'
+                                                    // Check history for end_of_year signature
+                                                    const history = assignment?.data?.signatures || []
+                                                    const promotions = assignment?.data?.promotions || []
+                                                    const blockLevel = getBlockLevel(b)
+                                                    if (blockLevel) {
+                                                        const matchingSig = history.find((sig: any) => {
+                                                            if (sig.type !== 'end_of_year') return false
+                                                            if (sig.schoolYearName) {
+                                                                const promo = promotions.find((p: any) => p.year === sig.schoolYearName)
+                                                                if (promo && promo.from === blockLevel) return true
+                                                            }
+                                                            return false
+                                                        })
+                                                        if (matchingSig) return `✓ Signé (${matchingSig.schoolYearName || 'Ancien'})`
+                                                    }
+                                                    return b.props.label || 'Signature Fin Année'
+                                                })()}
                                             </div>
                                         )}
                                         {b.type === 'final_signature_info' && (
@@ -1458,15 +1533,26 @@ export default function SubAdminTemplateReview() {
                                                 alignItems: 'center',
                                                 justifyContent: b.props.align || 'flex-start'
                                             }}>
-                                                {finalSignature ? (
-                                                    <>
-                                                        {b.props.field === 'year' && <span>{new Date().getFullYear()}</span>}
-                                                        {b.props.field === 'student' && <span>{student?.firstName} {student?.lastName}</span>}
-                                                        {b.props.field === 'nextLevel' && <span>{getNextLevel(student?.level || '')}</span>}
-                                                    </>
-                                                ) : (
-                                                    <span style={{ color: '#ccc' }}>{b.props.placeholder || '...'}</span>
-                                                )}
+                                                {(() => {
+                                                    const sigs = (assignment as any)?.data?.signatures || []
+                                                    const finalSigData = sigs.filter((s: any) => s?.type === 'end_of_year').sort((a: any, b: any) => {
+                                                        const ad = new Date(a.signedAt || 0).getTime()
+                                                        const bd = new Date(b.signedAt || 0).getTime()
+                                                        return bd - ad
+                                                    })[0]
+                                                    const hasData = !!finalSigData || !!finalSignature
+                                                    if (!hasData) {
+                                                        return <span style={{ color: '#ccc' }}>{b.props.placeholder || '...'}</span>
+                                                    }
+                                                    const yearLabel = (finalSigData && (finalSigData.schoolYearName || '')) || new Date().getFullYear()
+                                                    const promos = (assignment as any)?.data?.promotions || []
+                                                    const targetPromo = finalSigData ? promos.find((p: any) => String(p.year) === String(finalSigData.schoolYearName)) : null
+                                                    const next = targetPromo ? targetPromo.to : getNextLevel(student?.level || '')
+                                                    if (b.props.field === 'year') return <span>{String(yearLabel)}</span>
+                                                    if (b.props.field === 'student') return <span>{student?.firstName} {student?.lastName}</span>
+                                                    if (b.props.field === 'nextLevel') return <span>{next || ''}</span>
+                                                    return null
+                                                })()}
                                             </div>
                                         )}
                                         {b.type === 'signature_box' && (
@@ -1480,10 +1566,48 @@ export default function SubAdminTemplateReview() {
                                                 justifyContent: 'center',
                                                 fontSize: 10,
                                                 color: '#999',
-                                                // Hide if level doesn't match
-                                                ...((getBlockLevel(b) && student?.level && getBlockLevel(b) !== student.level) ? { display: 'none' } : {})
+                                                // Hide using our new visibility logic
+                                                ...((!isBlockVisible(b)) ? { display: 'none' } : {})
                                             }}>
-                                                {signature ? '✓ Signé' : b.props.label || 'Signature'}
+                                                {(() => {
+                                                    // Determine which signature to show
+                                                    
+                                                    // If we have a direct current signature that matches, show it
+                                                    if (b.props.period === 'end-year') {
+                                                        if (finalSignature) {
+                                                            return finalSignature.signatureUrl ? <img src={finalSignature.signatureUrl} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé Fin Année'
+                                                        }
+                                                    } else {
+                                                        if (signature) {
+                                                            return signature.signatureUrl ? <img src={signature.signatureUrl} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé'
+                                                        }
+                                                    }
+                                                    
+                                                    // Fallback to historical signatures
+                                                    const history = assignment?.data?.signatures || []
+                                                    const promotions = assignment?.data?.promotions || []
+                                                    const blockLevel = getBlockLevel(b)
+                                                    
+                                                    if (blockLevel) {
+                                                        const matchingSig = history.find((sig: any) => {
+                                                            if (b.props.period === 'end-year' && sig.type !== 'end_of_year') return false
+                                                            if ((!b.props.period || b.props.period === 'mid-year') && (sig.type === 'end_of_year')) return false
+                                                            
+                                                            // Match level
+                                                            if (sig.schoolYearName) {
+                                                                const promo = promotions.find((p: any) => p.year === sig.schoolYearName)
+                                                                if (promo && promo.from === blockLevel) return true
+                                                            }
+                                                            return false
+                                                        })
+                                                        
+                                                        if (matchingSig) {
+                                                            return `✓ Signé (${matchingSig.schoolYearName || 'Ancien'})`
+                                                        }
+                                                    }
+                                                    
+                                                    return b.props.label || 'Signature'
+                                                })()}
                                             </div>
                                         )}
                                     </div>

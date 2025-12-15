@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import api from '../api'
+import { useLevels } from '../context/LevelContext'
 
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
@@ -22,8 +23,20 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
     const [signature, setSignature] = useState<any>(null)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState('')
+    const { levels } = useLevels()
 
     const getNextLevel = (current: string) => {
+        if (!current) return ''
+        
+        // Use dynamic levels if available
+        if (levels && levels.length > 0) {
+            const currentLvl = levels.find(l => l.name === current)
+            if (currentLvl) {
+                const nextLvl = levels.find(l => l.order === currentLvl.order + 1)
+                if (nextLvl) return nextLvl.name
+            }
+        }
+
         const c = (current || '').toUpperCase()
         if (c === 'TPS') return 'PS'
         if (c === 'PS') return 'MS'

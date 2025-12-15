@@ -20,10 +20,23 @@ exports.schoolYearsRouter.post('/', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN'
     if (active) {
         await SchoolYear_1.SchoolYear.updateMany({}, { $set: { active: false } });
     }
-    const lastYear = await SchoolYear_1.SchoolYear.findOne({}).sort({ sequence: -1 }).lean();
-    const nextSequence = (lastYear?.sequence || 0) + 1;
-    const year = await SchoolYear_1.SchoolYear.create({ name, startDate: new Date(startDate), endDate: new Date(endDate), active: active ?? true, sequence: nextSequence });
-    res.json(year);
+    const created = await SchoolYear_1.SchoolYear.create({
+        name,
+        startDate: new Date(startDate),
+        endDate: new Date(endDate),
+        active: active ?? true,
+    });
+    const allYears = await SchoolYear_1.SchoolYear.find({}).sort({ startDate: 1 }).lean();
+    if (allYears.length > 0) {
+        await SchoolYear_1.SchoolYear.bulkWrite(allYears.map((y, index) => ({
+            updateOne: {
+                filter: { _id: y._id },
+                update: { $set: { sequence: index + 1 } },
+            },
+        })));
+    }
+    const year = await SchoolYear_1.SchoolYear.findById(created._id).lean();
+    res.json(year || created);
 });
 exports.schoolYearsRouter.patch('/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN']), async (req, res) => {
     const { id } = req.params;

@@ -129,7 +129,7 @@ export default function AdminAssignmentList() {
                 key,
                 templateId: curr.templateId,
                 level: curr.level,
-                templateName: curr.templateName,
+                templateName: curr.templateName || '',
                 count: 0,
                 ids: []
             }

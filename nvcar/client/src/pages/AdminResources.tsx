@@ -25,6 +25,7 @@ export default function AdminResources() {
   const { levels } = useLevels()
   const [years, setYears] = useState<Year[]>([])
   const [selectedYear, setSelectedYear] = useState<Year | null>(null)
+  const [creatingPreviousYear, setCreatingPreviousYear] = useState(false)
   
   // Year editing state
   const [yearForm, setYearForm] = useState({ name: '', startDate: '', endDate: '', active: true })
@@ -38,6 +39,7 @@ export default function AdminResources() {
   const [unassignedStudents, setUnassignedStudents] = useState<StudentDoc[]>([])
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
+  const [targetClassId, setTargetClassId] = useState('')
   const [editingStudentId, setEditingStudentId] = useState<string | null>(null)
   const [showImportModal, setShowImportModal] = useState(false)
   const [showBulkAssignModal, setShowBulkAssignModal] = useState(false)
@@ -81,6 +83,20 @@ export default function AdminResources() {
   }
   useEffect(() => { loadYears() }, [])
 
+  const oldestYearId = useMemo(() => {
+    if (years.length === 0) return ''
+    let oldest = years[0]
+    let oldestTime = new Date(oldest.startDate).getTime()
+    for (const y of years) {
+      const t = new Date(y.startDate).getTime()
+      if (!isNaN(t) && (isNaN(oldestTime) || t < oldestTime)) {
+        oldest = y
+        oldestTime = t
+      }
+    }
+    return oldest._id
+  }, [years])
+
   const loadClasses = async (yearId: string) => { 
     const r = await api.get('/classes', { params: { schoolYearId: yearId } })
     setClasses(r.data) 
@@ -118,6 +134,46 @@ export default function AdminResources() {
       })
       await loadUnassignedStudents(selectedYear._id)
       await loadClasses(selectedYear._id)
+  }
+
+  const addPreviousYear = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (creatingPreviousYear) return
+
+    let startYear = new Date().getFullYear()
+    const oldest = years.find(y => y._id === oldestYearId)
+    if (oldest) {
+      const parts = oldest.name.split('/')
+      if (parts.length === 2) {
+        const y1 = parseInt(parts[0])
+        if (!isNaN(y1)) startYear = y1 - 1
+      } else {
+        const match = oldest.name.match(/(\d{4})/)
+        if (match) {
+          startYear = parseInt(match[1]) - 1
+        } else {
+          const d = new Date(oldest.startDate)
+          if (!isNaN(d.getTime())) startYear = d.getFullYear() - 1
+        }
+      }
+    }
+
+    const name = `${startYear}/${startYear + 1}`
+    if (years.some(y => y.name === name)) {
+      alert("Cette année scolaire existe déjà")
+      return
+    }
+
+    const startDate = `${startYear}-09-01`
+    const endDate = `${startYear + 1}-07-01`
+
+    try {
+      setCreatingPreviousYear(true)
+      await api.post('/school-years', { name, startDate, endDate, active: false })
+      await loadYears()
+    } finally {
+      setCreatingPreviousYear(false)
+    }
   }
 
   const addNextYear = async () => {
@@ -202,31 +258,34 @@ export default function AdminResources() {
   const selectClass = async (classId: string) => { 
     setSelectedClassId(classId)
     await loadStudents(classId)
-    resetStudentForm() 
+    resetStudentForm(classId) 
   }
 
   // Students
   const startEditStudent = (s: StudentDoc) => { 
     setEditingStudentId(s._id)
     setFirstName(s.firstName)
-    setLastName(s.lastName) 
+    setLastName(s.lastName)
+    setTargetClassId(selectedClassId)
   }
 
   const saveStudent = async () => {
-    if (!selectedClassId) return
+    const clsId = targetClassId || selectedClassId
+    if (!clsId) return
     if (editingStudentId) {
-      await api.patch(`/students/${editingStudentId}`, { firstName, lastName, classId: selectedClassId })
+      await api.patch(`/students/${editingStudentId}`, { firstName, lastName, classId: clsId })
     } else {
-      await api.post('/students', { firstName, lastName, classId: selectedClassId })
+      await api.post('/students', { firstName, lastName, classId: clsId })
     }
-    resetStudentForm()
+    resetStudentForm(selectedClassId)
     await loadStudents(selectedClassId)
   }
 
-  const resetStudentForm = () => { 
+  const resetStudentForm = (defaultClassId?: string) => { 
     setEditingStudentId(null)
     setFirstName('')
-    setLastName('') 
+    setLastName('')
+    setTargetClassId(defaultClassId || selectedClassId)
   }
 
   const deleteStudent = async (id: string) => {
@@ -341,6 +400,16 @@ export default function AdminResources() {
                   <div className="year-badges">
                     {y.active && <span className="badge active">Active</span>}
                     {y.activeSemester && <span className="badge semester">S{y.activeSemester}</span>}
+                    {y._id === oldestYearId && (
+                      <button
+                        className="year-add-old"
+                        onClick={(e) => addPreviousYear(e)}
+                        title="Ajouter l'année précédente"
+                        disabled={creatingPreviousYear}
+                      >
+                        +
+                      </button>
+                    )}
                   </div>
                   <button 
                     className="year-delete"
@@ -550,6 +619,16 @@ export default function AdminResources() {
                       value={lastName} 
                       onChange={e => setLastName(e.target.value)} 
                     />
+                    <select
+                        className="form-input"
+                        value={targetClassId}
+                        onChange={e => setTargetClassId(e.target.value)}
+                        title="Classe de l'élève"
+                    >
+                        {classes.sort((a,b) => a.name.localeCompare(b.name)).map(c => (
+                            <option key={c._id} value={c._id}>{c.name}</option>
+                        ))}
+                    </select>
                   </div>
                   <div className="student-form-actions">
                     <button 
@@ -560,7 +639,7 @@ export default function AdminResources() {
                       {editingStudentId ? '💾 Mettre à jour' : '➕ Ajouter'}
                     </button>
                     {editingStudentId && (
-                      <button className="cancel-btn" onClick={resetStudentForm}>
+                      <button className="cancel-btn" onClick={() => resetStudentForm()}>
                         Annuler
                       </button>
                     )}

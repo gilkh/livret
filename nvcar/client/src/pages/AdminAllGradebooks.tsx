@@ -6,8 +6,8 @@ import './AdminAllGradebooks.css'
 type Assignment = {
     _id: string
     status: string
-    template?: { name: string }
-    student?: { firstName: string; lastName: string }
+    template?: { _id?: string; name: string }
+    student?: { _id?: string; firstName: string; lastName: string }
     signature?: { signedAt: Date; subAdminId: string }
     className?: string
     level?: string

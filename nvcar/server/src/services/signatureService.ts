@@ -14,8 +14,23 @@ interface SignTemplateOptions {
     req?: any
 }
 
-const getNextLevel = (current: string) => {
+import { Level } from '../models/Level'
+
+const getNextLevel = async (current: string) => {
     if (!current) return null
+    
+    // Try to find by DB order
+    try {
+        const currentDoc = await Level.findOne({ name: current }).lean()
+        if (currentDoc) {
+            const nextDoc = await Level.findOne({ order: currentDoc.order + 1 }).lean()
+            if (nextDoc) return nextDoc.name
+        }
+    } catch (e) {
+        console.error('Error calculating next level:', e)
+    }
+
+    // Fallback legacy logic
     const c = current.toUpperCase()
     if (c === 'TPS') return 'PS'
     if (c === 'PS') return 'MS'
@@ -40,8 +55,36 @@ export const signTemplateAssignment = async ({
         throw new Error('not_found')
     }
 
-    // Check if already signed
-    const existing = await TemplateSignature.findOne({ templateAssignmentId, type }).lean()
+    // Check if already signed in the active school year
+    const activeYear = await SchoolYear.findOne({ active: true }).lean()
+    const query: any = { templateAssignmentId, type }
+    if (activeYear) {
+        let thresholdDate = activeYear.startDate
+        
+        // Try to find previous school year to determine the "gap"
+        const previousYear = await SchoolYear.findOne({ endDate: { $lt: activeYear.startDate } })
+            .sort({ endDate: -1 })
+            .lean()
+        
+        if (previousYear) {
+            thresholdDate = previousYear.endDate
+        }
+
+        // Use the later of endDate or current date as the upper bound
+        const now = new Date()
+        const endDate = new Date(activeYear.endDate)
+        const upperBound = now > endDate ? now : endDate
+        
+        // CRITICAL FIX: If current date is before the threshold (future school year),
+        // use one year ago as the threshold
+        const oneYearAgo = new Date(now)
+        oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1)
+        const effectiveThreshold = new Date(thresholdDate) > now ? oneYearAgo : new Date(thresholdDate)
+
+        query.signedAt = { $gt: effectiveThreshold, $lte: upperBound }
+    }
+
+    const existing = await TemplateSignature.findOne(query).lean()
     if (existing) {
         throw new Error('already_signed')
     }
@@ -77,6 +120,31 @@ export const signTemplateAssignment = async ({
         signatureUrl
     })
 
+    // Persist signature metadata in assignment data
+    {
+        const now = new Date()
+        let yearName = ''
+        if (activeYear?.name) {
+            yearName = String(activeYear.name)
+        } else {
+            const currentYear = now.getFullYear()
+            const month = now.getMonth()
+            const startYear = month >= 8 ? currentYear : currentYear - 1
+            yearName = `${startYear}/${startYear + 1}`
+        }
+        await TemplateAssignment.findByIdAndUpdate(templateAssignmentId, {
+            $push: {
+                'data.signatures': {
+                    type,
+                    signedAt: now,
+                    subAdminId: signerId,
+                    schoolYearId: activeYear ? String(activeYear._id) : undefined,
+                    schoolYearName: yearName
+                }
+            }
+        })
+    }
+
     // Update assignment status
     // If any signature is added, we consider it signed.
     if (assignment.status !== 'signed') {
@@ -88,7 +156,7 @@ export const signTemplateAssignment = async ({
     if (type === 'end_of_year') {
         const student = await Student.findById(assignment.studentId)
         if (student && student.level) {
-            const nextLevel = getNextLevel(student.level)
+            const nextLevel = await getNextLevel(student.level)
             const activeSchoolYear = await SchoolYear.findOne({ active: true }).lean()
             
             if (nextLevel && activeSchoolYear) {
@@ -185,6 +253,22 @@ export const unsignTemplateAssignment = async ({
                  await assignment.save()
              }
          }
+    }
+
+    // Remove persisted signature metadata from assignment data
+    if (assignment.data && Array.isArray((assignment as any).data.signatures)) {
+        const before = (assignment as any).data.signatures
+        const after = before.filter((s: any) => {
+            if (type) {
+                return !(String(s.subAdminId) === String(signerId) && String(s.type) === String(type))
+            }
+            return String(s.subAdminId) !== String(signerId)
+        })
+        if (after.length !== before.length) {
+            ;(assignment as any).data.signatures = after
+            assignment.markModified('data')
+            await assignment.save()
+        }
     }
 
     // Check if any signatures remain
