@@ -115,8 +115,14 @@ body { margin: 0; font-family: 'Poppins', system-ui, sans-serif; background: var
   height: 140px;
   object-fit: contain;
   margin-bottom: 32px;
-  filter: drop-shadow(0 10px 20px rgba(245, 158, 11, 0.3));
-  animation: float 6s ease-in-out infinite;
+  filter: drop-shadow(0 10px 20px rgba(0, 0, 0, 0.1));
+  /* animation: float 6s ease-in-out infinite; */
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(8px);
+  border-radius: 24px;
+  padding: 20px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
 }
 
 @keyframes float {
@@ -218,7 +224,53 @@ body { margin: 0; font-family: 'Poppins', system-ui, sans-serif; background: var
 .login-subtitle {
   font-size: 15px;
   color: #64748b;
+  margin: 0 0 8px 0;
+}
+
+.login-helper-text {
+  font-size: 13px;
+  color: #94a3b8;
   margin: 0;
+}
+
+.login-microsoft-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 24px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #1f2933;
+  background: white;
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+}
+
+.login-microsoft-btn svg {
+  width: 20px;
+  height: 20px;
+}
+
+.login-microsoft-btn:hover {
+  background: #f9fafb;
+  border-color: #0078d4;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
+}
+
+.login-microsoft-btn:focus-visible {
+  outline: 3px solid rgba(0, 120, 212, 0.5);
+  outline-offset: 2px;
+}
+
+.login-microsoft-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 3px 10px rgba(15, 23, 42, 0.1);
 }
 
 /* Form Styling */

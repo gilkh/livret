@@ -12,6 +12,7 @@ interface SignTemplateOptions {
     type?: 'standard' | 'end_of_year'
     signatureUrl?: string
     req?: any
+    level?: string
 }
 
 import { Level } from '../models/Level'
@@ -47,7 +48,8 @@ export const signTemplateAssignment = async ({
     signerId,
     type = 'standard',
     signatureUrl,
-    req
+    req,
+    level
 }: SignTemplateOptions) => {
     // Get the template assignment
     const assignment = await TemplateAssignment.findById(templateAssignmentId)
@@ -58,6 +60,11 @@ export const signTemplateAssignment = async ({
     // Check if already signed in the active school year
     const activeYear = await SchoolYear.findOne({ active: true }).lean()
     const query: any = { templateAssignmentId, type }
+    
+    // Scope uniqueness check by level if provided
+    if (level) {
+        query.level = level
+    }
     if (activeYear) {
         let thresholdDate = activeYear.startDate
         
@@ -117,7 +124,8 @@ export const signTemplateAssignment = async ({
         signedAt: new Date(),
         status: 'signed',
         type,
-        signatureUrl
+        signatureUrl,
+        level
     })
 
     // Persist signature metadata in assignment data
@@ -139,7 +147,8 @@ export const signTemplateAssignment = async ({
                     signedAt: now,
                     subAdminId: signerId,
                     schoolYearId: activeYear ? String(activeYear._id) : undefined,
-                    schoolYearName: yearName
+                    schoolYearName: yearName,
+                    level
                 }
             }
         })
@@ -223,12 +232,14 @@ export const unsignTemplateAssignment = async ({
     templateAssignmentId,
     signerId,
     type,
-    req
+    req,
+    level
 }: {
     templateAssignmentId: string
     signerId: string
     type?: string
     req?: any
+    level?: string
 }) => {
     // Get assignment
     const assignment = await TemplateAssignment.findById(templateAssignmentId)
@@ -238,6 +249,7 @@ export const unsignTemplateAssignment = async ({
 
     const query: any = { templateAssignmentId }
     if (type) query.type = type
+    if (level) query.level = level
 
     await TemplateSignature.deleteMany(query)
 
@@ -259,10 +271,14 @@ export const unsignTemplateAssignment = async ({
     if (assignment.data && Array.isArray((assignment as any).data.signatures)) {
         const before = (assignment as any).data.signatures
         const after = before.filter((s: any) => {
-            if (type) {
-                return !(String(s.subAdminId) === String(signerId) && String(s.type) === String(type))
+            let match = String(s.subAdminId) === String(signerId)
+            if (match && type) {
+                match = String(s.type) === String(type)
             }
-            return String(s.subAdminId) !== String(signerId)
+            if (match && level) {
+                match = s.level === level
+            }
+            return !match
         })
         if (after.length !== before.length) {
             ;(assignment as any).data.signatures = after

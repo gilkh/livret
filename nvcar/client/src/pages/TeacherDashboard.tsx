@@ -12,11 +12,19 @@ type CompletionStats = {
 }
 
 export default function TeacherDashboard() {
-  const { activeYearId } = useSchoolYear()
+  const { activeYearId, activeYear } = useSchoolYear()
   const [classes, setClasses] = useState<ClassDoc[]>([])
   const [statsMap, setStatsMap] = useState<Map<string, CompletionStats>>(new Map())
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+
+  const isAssignmentCompletedForActiveSemester = (assignment: { isCompleted?: boolean; isCompletedSem1?: boolean; isCompletedSem2?: boolean }) => {
+    const semester = activeYear?.activeSemester || 1
+    if (semester === 2) {
+      return !!assignment.isCompletedSem2
+    }
+    return !!assignment.isCompletedSem1 || !!assignment.isCompleted
+  }
 
   useEffect(() => {
     const loadClasses = async () => {
@@ -25,10 +33,17 @@ export default function TeacherDashboard() {
         const r = await api.get(`/teacher/classes?schoolYearId=${activeYearId}`)
         setClasses(r.data)
 
-        // Load stats for each class
         const statsPromises = r.data.map((c: ClassDoc) =>
-          api.get(`/teacher/classes/${c._id}/completion-stats`)
-            .then(res => ({ classId: c._id, stats: res.data }))
+          api
+            .get(`/teacher/classes/${c._id}/assignments`)
+            .then(res => {
+              const assignments = res.data as { isCompleted?: boolean; isCompletedSem1?: boolean; isCompletedSem2?: boolean }[]
+              const totalAssignments = assignments.length
+              const completedAssignments = assignments.filter(a => isAssignmentCompletedForActiveSemester(a)).length
+              const completionPercentage =
+                totalAssignments > 0 ? Math.round((completedAssignments / totalAssignments) * 100) : 0
+              return { classId: c._id, stats: { totalAssignments, completedAssignments, completionPercentage } }
+            })
             .catch(() => ({ classId: c._id, stats: null }))
         )
 
@@ -46,7 +61,7 @@ export default function TeacherDashboard() {
       }
     }
     loadClasses()
-  }, [activeYearId])
+  }, [activeYearId, activeYear?.activeSemester])
 
   // Calculate global stats
   const globalStats = Array.from(statsMap.values()).reduce((acc, stats) => {

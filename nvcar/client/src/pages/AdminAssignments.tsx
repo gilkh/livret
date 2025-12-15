@@ -47,6 +47,13 @@ export default function AdminAssignments() {
 
     const [message, setMessage] = useState('')
 
+    const tripleConfirm = (message: string) => {
+        for (let attempt = 1; attempt <= 3; attempt++) {
+            if (!confirm(`${message}\n\nConfirmation ${attempt}/3`)) return false
+        }
+        return true
+    }
+
     // Import State
     const [showImportModal, setShowImportModal] = useState(false)
     const [importFromYearId, setImportFromYearId] = useState('')
@@ -109,7 +116,7 @@ export default function AdminAssignments() {
     }
 
     const removeAssignment = async (assignmentId: string) => {
-        if (!confirm('Êtes-vous sûr de vouloir supprimer cette assignation ?')) return
+        if (!tripleConfirm('Êtes-vous sûr de vouloir supprimer cette assignation ?')) return
         try {
             await api.delete(`/teacher-assignments/${assignmentId}`)
             setMessage('✓ Assignation supprimée')
@@ -219,7 +226,7 @@ export default function AdminAssignments() {
     }
 
     const removeSubAdminLevelAssignment = async (subAdminId: string, level: string) => {
-        if (!confirm('Êtes-vous sûr de vouloir supprimer cette assignation ?')) return
+        if (!tripleConfirm('Êtes-vous sûr de vouloir supprimer cette assignation ?')) return
         try {
             await api.delete(`/subadmin-assignments/levels/${subAdminId}/${level}`)
             setMessage('✓ Assignation supprimée')
@@ -231,7 +238,7 @@ export default function AdminAssignments() {
     }
 
     const removeTemplateLevelAssignment = async (templateId: string, level: string) => {
-        if (!confirm('Êtes-vous sûr de vouloir supprimer cette assignation pour tous les élèves de ce niveau ?')) return
+        if (!tripleConfirm('Êtes-vous sûr de vouloir supprimer cette assignation pour tous les élèves de ce niveau ?')) return
         try {
             // Need a new endpoint or careful logic here.
             // Currently, template assignments are individual.

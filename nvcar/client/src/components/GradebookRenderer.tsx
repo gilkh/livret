@@ -58,6 +58,18 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
         return null
     }
 
+    const getTargetSchoolYear = (year: string | undefined) => {
+        if (!year) return ''
+        const m = year.match(/(\d{4})\s*[/\-]\s*(\d{4})/)
+        if (m) {
+            const base = parseInt(m[2], 10)
+            if (!isNaN(base)) {
+                return `${base}/${base + 1}`
+            }
+        }
+        return year
+    }
+
     const isSignedForLevel = (level: string, type: 'standard' | 'end_of_year') => {
         // 1. Check if the "main" signature passed matches (for backward compatibility or current year)
         // Note: signature/finalSignature objects don't carry level info directly, 
@@ -423,60 +435,107 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                         textAlign: 'center'
                                     }}>
                                         {(() => {
-                                            // Level filtering: if block has a specific level, check if it matches student's level
-                                            // EDIT: We do NOT filter by level if it's a cumulative gradebook (i.e. we want to show PS blocks even if student is MS)
-                                            // The old logic was: if (b.props.level && student?.level && b.props.level !== student.level) return null
-                                            // We remove this to allow cumulative display.
-                                            // However, we still need to respect signature visibility.
-                                            
-                                            // Check visibility using our new helper
-                                            if (!isBlockVisible(b)) return null
+                                            const promotions = assignment?.data?.promotions || []
+                                            const blockLevel = getBlockLevel(b)
+                                            const explicitTarget = b.props.targetLevel as string | undefined
 
-                                            // Period filtering (now handled by isBlockVisible, but keeping field check just in case)
-                                            // if (b.props.period === 'mid-year' && !signature && !b.props.field?.includes('signature')) {
-                                            //     return null
-                                            // }
-                                            // if (b.props.period === 'end-year' && !finalSignature && !b.props.field?.includes('signature')) {
-                                            //     return null
-                                            // }
-
-                                            // Target Level filtering: only show if student is in the level preceding targetLevel
-                                            if (b.props.targetLevel && student?.level) {
-                                                const next = getNextLevel(student.level)
-                                                if (next !== b.props.targetLevel) return null
-                                            }
-
-                                            // Simple fields that don't need promotion data
                                             if (b.props.field === 'student') return <div>{student?.firstName} {student?.lastName}</div>
                                             if (b.props.field === 'currentLevel') return <div>{student?.level}</div>
 
-                                            const targetLevel = b.props.targetLevel || getNextLevel(student?.level || '')
-                                            const promotions = assignment?.data?.promotions || []
-                                            let promoData = promotions.find((p: any) => p.to === targetLevel)
-                                            let promo = promoData ? { ...promoData } : null
+                                            let promo: any = null
 
-                                            // Fallback: If no promo record, show predictive info
+                                            if (explicitTarget) {
+                                                promo = promotions.find((p: any) => p.to === explicitTarget)
+                                            }
+
+                                            if (!promo && blockLevel) {
+                                                promo = promotions.find((p: any) => p.from === blockLevel)
+                                            }
+
+                                            if (!promo && !explicitTarget && !blockLevel) {
+                                                if (promotions.length === 1) {
+                                                    promo = { ...(promotions[0] as any) }
+                                                }
+                                            }
+
+                                            if (!promo && blockLevel) {
+                                                const history = assignment?.data?.signatures || []
+                                                const isMidYearBlock = b.props.period === 'mid-year'
+                                                const wantEndOfYear = b.props.period === 'end-year'
+                                                const candidates = history.filter((sig: any) => {
+                                                    if (wantEndOfYear) {
+                                                        if (sig.type !== 'end_of_year') return false
+                                                    } else if (isMidYearBlock) {
+                                                        if (sig.type && sig.type !== 'standard') return false
+                                                    }
+                                                    if (sig.level && sig.level !== blockLevel) return false
+                                                    return true
+                                                }).sort((a: any, b: any) => {
+                                                    const ad = new Date(a.signedAt || 0).getTime()
+                                                    const bd = new Date(b.signedAt || 0).getTime()
+                                                    return bd - ad
+                                                })
+
+                                                const sig = candidates[0]
+                                                if (sig) {
+                                                    let yearLabel = sig.schoolYearName as string | undefined
+                                                    if (!yearLabel && sig.signedAt) {
+                                                        const d = new Date(sig.signedAt)
+                                                        const y = d.getFullYear()
+                                                        const m = d.getMonth()
+                                                        const startYear = m >= 8 ? y : y - 1
+                                                        yearLabel = `${startYear}/${startYear + 1}`
+                                                    }
+                                                    if (!yearLabel) {
+                                                        const currentYear = new Date().getFullYear()
+                                                        const startYear = currentYear
+                                                        yearLabel = `${startYear}/${startYear + 1}`
+                                                    }
+
+                                                    const baseLevel = blockLevel
+                                                    const target = explicitTarget || getNextLevel(baseLevel || '') || ''
+
+                                                    promo = {
+                                                        year: yearLabel,
+                                                        from: baseLevel,
+                                                        to: target || '?',
+                                                        class: student?.className || ''
+                                                    }
+                                                }
+                                            }
+
                                             if (!promo) {
+                                                const blockIsCurrentLevel = !!blockLevel && !!student?.level && blockLevel === student.level
+                                                const isMidYearBlock = b.props.period === 'mid-year'
+                                                const hasMidSignature = !!signature
+                                                const hasFinalSignature = !!finalSignature
+                                                const canPredict = isMidYearBlock
+                                                    ? (hasMidSignature && (blockIsCurrentLevel || (!blockLevel && promotions.length === 0)))
+                                                    : (hasFinalSignature && (blockIsCurrentLevel || (!blockLevel && promotions.length === 0)))
+
+                                                if (!canPredict) {
+                                                    return null
+                                                }
+
                                                 const currentYear = new Date().getFullYear()
                                                 const month = new Date().getMonth()
                                                 const startYear = month >= 8 ? currentYear : currentYear - 1
-
-                                                // For Mid-Year, "Year" usually refers to Current School Year
-                                                // For End-Year, "Year" usually refers to Next School Year (for promotion)
-                                                // Default to Next Year for promotion context, unless period is mid-year
-                                                const isMidYearContext = b.props.period === 'mid-year'
-                                                const displayYear = isMidYearContext ? `${startYear}/${startYear + 1}` : `${startYear + 1}/${startYear + 2}`
+                                                const baseLevel = blockLevel || student?.level || ''
+                                                const target = explicitTarget || getNextLevel(baseLevel || '') || ''
+                                                const displayYear = `${startYear}/${startYear + 1}`
 
                                                 promo = {
                                                     year: displayYear,
-                                                    from: student?.level || '',
-                                                    to: targetLevel || '?',
+                                                    from: baseLevel,
+                                                    to: target || '?',
                                                     class: student?.className || ''
                                                 }
                                             } else {
-                                                // Enrich existing promo with current data if missing
                                                 if (!promo.class && student?.className) promo.class = student.className
-                                                if (!promo.from && student?.level) promo.from = student.level
+                                                if (!promo.from) {
+                                                    if (blockLevel) promo.from = blockLevel
+                                                    else if (student?.level) promo.from = student.level
+                                                }
                                             }
 
                                             if (promo) {
@@ -485,16 +544,15 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                                         <>
                                                             <div style={{ fontWeight: 'bold', marginBottom: 8 }}>Passage en {promo.to}</div>
                                                             <div>{student?.firstName} {student?.lastName}</div>
-                                                            <div style={{ fontSize: (b.props.fontSize || 12) * 0.8, color: '#666', marginTop: 8 }}>Année {promo.year}</div>
+                                                            <div style={{ fontSize: (b.props.fontSize || 12) * 0.8, color: '#666', marginTop: 8 }}>Année {getTargetSchoolYear(promo.year)}</div>
                                                         </>
                                                     )
                                                 } else if (b.props.field === 'level') {
-                                                    // If it's purely informational (e.g. "Passage en MS"), show it
                                                     return <div style={{ fontWeight: 'bold' }}>Passage en {promo.to}</div>
                                                 } else if (b.props.field === 'student') {
                                                     return <div>{student?.firstName} {student?.lastName}</div>
                                                 } else if (b.props.field === 'year') {
-                                                    return <div>{promo.year}</div>
+                                                    return <div>{getTargetSchoolYear(promo.year)}</div>
                                                 } else if (b.props.field === 'class') {
                                                     const raw = promo.class || ''
                                                     const parts = raw.split(/\s*[-\s]\s*/)
@@ -684,59 +742,57 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                         justifyContent: 'center',
                                         fontSize: 10,
                                         color: '#999',
-                                        // Hide using our new visibility logic
                                         ...((!isBlockVisible(b)) ? { display: 'none' } : {})
                                     }}>
                                         {(() => {
-                                            // Determine which signature to show
-                                            // Logic mirrors isBlockVisible somewhat
-                                            
-                                            // If we have a direct current signature that matches, show it
-                                            if (b.props.period === 'end-year') {
-                                                if (finalSignature) {
-                                                    return finalSignature.signatureUrl ? <img src={finalSignature.signatureUrl} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé Fin Année'
+                                            const blockLevel = getBlockLevel(b)
+                                            const sigLevel = (signature as any)?.level
+                                            const finalSigLevel = (finalSignature as any)?.level
+
+                                            if (!blockLevel) {
+                                                if (b.props.period === 'end-year') {
+                                                    if (finalSignature) {
+                                                        return finalSignature.signatureUrl ? <img src={finalSignature.signatureUrl} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé Fin Année'
+                                                    }
+                                                } else {
+                                                    if (signature) {
+                                                        return signature.signatureUrl ? <img src={signature.signatureUrl} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé'
+                                                    }
                                                 }
                                             } else {
-                                                if (signature) {
-                                                    return signature.signatureUrl ? <img src={signature.signatureUrl} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé'
+                                                if (b.props.period === 'end-year') {
+                                                    if (finalSignature && ((finalSigLevel && finalSigLevel === blockLevel) || (!finalSigLevel && student?.level === blockLevel))) {
+                                                        return finalSignature.signatureUrl ? <img src={finalSignature.signatureUrl} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé Fin Année'
+                                                    }
+                                                } else {
+                                                    if (signature && ((sigLevel && sigLevel === blockLevel) || (!sigLevel && student?.level === blockLevel))) {
+                                                        return signature.signatureUrl ? <img src={signature.signatureUrl} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé'
+                                                    }
                                                 }
                                             }
-                                            
-                                            // Fallback to historical signatures
-                                            // Note: isBlockVisible ensures we only render this if it IS visible.
-                                            // So if we are here, we SHOULD have a signature (current or historical).
-                                            // If current signatures are null, we must find the historical one to display.
-                                            
+
                                             const history = assignment?.data?.signatures || []
                                             const promotions = assignment?.data?.promotions || []
-                                            const blockLevel = getBlockLevel(b)
-                                            
+
                                             if (blockLevel) {
                                                 const matchingSig = history.find((sig: any) => {
                                                     if (b.props.period === 'end-year' && sig.type !== 'end_of_year') return false
                                                     if ((!b.props.period || b.props.period === 'mid-year') && (sig.type === 'end_of_year')) return false
-                                                    
-                                                    // Match level
+
+                                                    if (sig.level && sig.level === blockLevel) return true
+
                                                     if (sig.schoolYearName) {
                                                         const promo = promotions.find((p: any) => p.year === sig.schoolYearName)
                                                         if (promo && promo.from === blockLevel) return true
                                                     }
                                                     return false
                                                 })
-                                                
+
                                                 if (matchingSig) {
-                                                    // Historical signature found
-                                                    // We don't have the URL in the assignment data unfortunately (usually).
-                                                    // Unless we add it to the data persistence.
-                                                    // Let's check signatureService.js - do we persist signatureUrl in data?
-                                                    // "data.signatures" usually has { type, signedAt, subAdminId, schoolYearId, schoolYearName }
-                                                    // It doesn't seem to store the URL or image.
-                                                    
-                                                    // If we don't have the image, we can just show text or a placeholder.
                                                     return `✓ Signé (${matchingSig.schoolYearName || 'Ancien'})`
                                                 }
                                             }
-                                            
+
                                             return b.props.label || 'Signature'
                                         })()}
                                     </div>

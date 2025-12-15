@@ -128,6 +128,9 @@ export default function Login() {
               <div style={{ textAlign: 'center', padding: 40 }}>
                 <div style={{ fontSize: '3rem', marginBottom: 20 }}>🔄</div>
                 <p>Connexion avec Microsoft en cours...</p>
+                <p style={{ marginTop: 12, fontSize: '0.9rem', color: '#6b7280' }}>
+                  Veuillez ne pas fermer cette fenêtre. Vous allez être redirigé automatiquement.
+                </p>
               </div>
             </div>
           </div>
@@ -159,10 +162,13 @@ export default function Login() {
             <div className="login-header">
               <h2 className="login-title">Bienvenue</h2>
               <p className="login-subtitle">Connectez-vous à votre compte</p>
+              <p className="login-helper-text">
+                Utilisez votre adresse Microsoft Champville pour accéder à votre espace.
+              </p>
             </div>
 
             {error && (
-              <div className="login-error" style={{ marginBottom: '20px' }}>
+              <div className="login-error" style={{ marginBottom: '20px' }} role="alert" aria-live="polite">
                 <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
                   <path d="M10 0C4.48 0 0 4.48 0 10s4.48 10 10 10 10-4.48 10-10S15.52 0 10 0zm1 15H9v-2h2v2zm0-4H9V5h2v6z" fill="currentColor" />
                 </svg>
@@ -174,31 +180,7 @@ export default function Login() {
               <button 
                 type="button"
                 onClick={handleMicrosoftLogin}
-                style={{
-                  width: '100%',
-                  padding: '12px 24px',
-                  border: '1px solid #e0e0e0',
-                  borderRadius: 8,
-                  background: 'white',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 12,
-                  fontSize: '1rem',
-                  fontWeight: 500,
-                  transition: 'all 0.2s',
-                  color: '#333',
-                  marginTop: '20px'
-                }}
-                onMouseEnter={e => {
-                  e.currentTarget.style.background = '#f5f5f5'
-                  e.currentTarget.style.borderColor = '#0078d4'
-                }}
-                onMouseLeave={e => {
-                  e.currentTarget.style.background = 'white'
-                  e.currentTarget.style.borderColor = '#e0e0e0'
-                }}
+                className="login-microsoft-btn"
               >
                 <svg width="21" height="21" viewBox="0 0 21 21" fill="none" xmlns="http://www.w3.org/2000/svg">
                   <rect x="1" y="1" width="9" height="9" fill="#f25022"/>
@@ -209,9 +191,14 @@ export default function Login() {
                 <span>Se connecter avec Microsoft</span>
               </button>
             ) : (
-              <div style={{ textAlign: 'center', padding: '20px', color: '#666' }}>
-                La connexion Microsoft est actuellement désactivée.
-              </div>
+              <>
+                <div style={{ textAlign: 'center', padding: '20px', color: '#666' }}>
+                  La connexion Microsoft est actuellement désactivée.
+                </div>
+                <div style={{ textAlign: 'center', fontSize: '0.9rem', color: '#6b7280', marginTop: -8 }}>
+                  En cas de problème, veuillez contacter l&apos;administration ou le support informatique.
+                </div>
+              </>
             )}
 
             <div className="login-footer">

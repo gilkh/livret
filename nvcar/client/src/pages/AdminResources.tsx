@@ -26,6 +26,13 @@ export default function AdminResources() {
   const [years, setYears] = useState<Year[]>([])
   const [selectedYear, setSelectedYear] = useState<Year | null>(null)
   const [creatingPreviousYear, setCreatingPreviousYear] = useState(false)
+
+  const tripleConfirm = (message: string) => {
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      if (!confirm(`${message}\n\nConfirmation ${attempt}/3`)) return false
+    }
+    return true
+  }
   
   // Year editing state
   const [yearForm, setYearForm] = useState({ name: '', startDate: '', endDate: '', active: true })
@@ -195,7 +202,7 @@ export default function AdminResources() {
     const startDate = `${startYear}-09-01`
     const endDate = `${startYear + 1}-07-01`
     
-    await api.post('/school-years', { name, startDate, endDate, active: true })
+    await api.post('/school-years', { name, startDate, endDate, active: false })
     await loadYears()
   }
 
@@ -209,7 +216,7 @@ export default function AdminResources() {
 
   const deleteYear = async (e: React.MouseEvent, id: string) => {
       e.stopPropagation()
-      if(!confirm('Êtes-vous sûr de vouloir supprimer cette année scolaire ?')) return
+      if(!tripleConfirm('Êtes-vous sûr de vouloir supprimer cette année scolaire ?')) return
       await api.delete(`/school-years/${id}`)
       await loadYears()
       if(selectedYear?._id === id) setSelectedYear(null)
@@ -246,7 +253,7 @@ export default function AdminResources() {
 
   const deleteClass = async (e: React.MouseEvent, id: string) => {
       e.stopPropagation()
-      if(!confirm('Êtes-vous sûr de vouloir supprimer cette classe ?')) return
+      if(!tripleConfirm('Êtes-vous sûr de vouloir supprimer cette classe ?')) return
       await api.delete(`/classes/${id}`)
       if(selectedYear) await loadClasses(selectedYear._id)
       if(selectedClassId === id) {
@@ -289,7 +296,7 @@ export default function AdminResources() {
   }
 
   const deleteStudent = async (id: string) => {
-      if(!confirm('Êtes-vous sûr de vouloir supprimer cet élève ?')) return
+      if(!tripleConfirm('Êtes-vous sûr de vouloir supprimer cet élève ?')) return
       await api.delete(`/students/${id}`)
       if(selectedClassId) await loadStudents(selectedClassId)
   }
@@ -392,14 +399,11 @@ export default function AdminResources() {
                     <div className="year-icon">📆</div>
                     <div>
                       <div className="year-name">{y.name}</div>
-                      <div className="year-dates">
-                        {formatDate(y.startDate)} - {formatDate(y.endDate)}
-                      </div>
                     </div>
                   </div>
                   <div className="year-badges">
                     {y.active && <span className="badge active">Active</span>}
-                    {y.activeSemester && <span className="badge semester">S{y.activeSemester}</span>}
+                    {y.active && y.activeSemester && <span className="badge semester">S{y.activeSemester}</span>}
                     {y._id === oldestYearId && (
                       <button
                         className="year-add-old"

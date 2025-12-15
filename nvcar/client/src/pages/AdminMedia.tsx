@@ -25,6 +25,13 @@ export default function AdminMedia() {
     }
   }
 
+  const tripleConfirm = (message: string) => {
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      if (!confirm(`${message}\n\nConfirmation ${attempt}/3`)) return false
+    }
+    return true
+  }
+
   useEffect(() => { load() }, [folder])
 
   const upload = async (f: File) => {
@@ -79,7 +86,7 @@ export default function AdminMedia() {
   }
 
   const deleteItem = async (item: MediaItem) => {
-    if (!confirm(`Supprimer ${item.name} ?`)) return
+    if (!tripleConfirm(`Supprimer ${item.name} ?`)) return
     try {
       await api.post('/media/delete', { target: item.path })
       await load()

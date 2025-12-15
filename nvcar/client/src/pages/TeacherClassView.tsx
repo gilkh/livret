@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import api from '../api'
+import { useSchoolYear } from '../context/SchoolYearContext'
 
 type Student = { _id: string; firstName: string; lastName: string; dateOfBirth: Date; avatarUrl?: string }
 type Assignment = {
@@ -12,17 +13,12 @@ type Assignment = {
     template?: { name: string }
     student?: Student
 }
-type CompletionStats = {
-    totalAssignments: number
-    completedAssignments: number
-    completionPercentage: number
-}
 
 export default function TeacherClassView() {
     const { classId } = useParams<{ classId: string }>()
+    const { activeYear } = useSchoolYear()
     const [students, setStudents] = useState<Student[]>([])
     const [assignments, setAssignments] = useState<Assignment[]>([])
-    const [stats, setStats] = useState<CompletionStats | null>(null)
     const [filter, setFilter] = useState<'all' | 'completed' | 'incomplete'>('all')
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState('')
@@ -31,14 +27,12 @@ export default function TeacherClassView() {
         const loadData = async () => {
             try {
                 setLoading(true)
-                const [studentsRes, assignmentsRes, statsRes] = await Promise.all([
+                const [studentsRes, assignmentsRes] = await Promise.all([
                     api.get(`/teacher/classes/${classId}/students`),
                     api.get(`/teacher/classes/${classId}/assignments`),
-                    api.get(`/teacher/classes/${classId}/completion-stats`),
                 ])
                 setStudents(studentsRes.data)
                 setAssignments(assignmentsRes.data)
-                setStats(statsRes.data)
             } catch (e: any) {
                 setError('Impossible de charger les données')
                 console.error(e)
@@ -49,10 +43,19 @@ export default function TeacherClassView() {
         if (classId) loadData()
     }, [classId])
 
+    const activeSemester = activeYear?.activeSemester || 1
+
+    const isAssignmentCompletedForActiveSemester = (assignment: Assignment) => {
+        if (activeSemester === 2) {
+            return !!assignment.isCompletedSem2
+        }
+        return !!assignment.isCompletedSem1 || !!assignment.isCompleted
+    }
+
     // Calculate completion per student
     const getStudentCompletion = (studentId: string) => {
         const studentAssignments = assignments.filter(a => a.studentId === studentId)
-        const completed = studentAssignments.filter(a => a.isCompleted).length
+        const completed = studentAssignments.filter(a => isAssignmentCompletedForActiveSemester(a)).length
         const total = studentAssignments.length
         return { completed, total, isFullyComplete: total > 0 && completed === total }
     }
@@ -65,6 +68,11 @@ export default function TeacherClassView() {
         if (filter === 'incomplete') return !isFullyComplete
         return true
     })
+
+    const totalAssignments = assignments.length
+    const completedAssignments = assignments.filter(a => isAssignmentCompletedForActiveSemester(a)).length
+    const completionPercentage = totalAssignments > 0 ? Math.round((completedAssignments / totalAssignments) * 100) : 0
+    const stats = totalAssignments > 0 ? { totalAssignments, completedAssignments, completionPercentage } : null
 
     return (
         <div className="container">
@@ -207,10 +215,11 @@ export default function TeacherClassView() {
                                                 to={`/teacher/templates/${a._id}/edit`}
                                                 style={{ textDecoration: 'none' }}
                                             >
-                                                <div style={{
+                                                <div
+                                                style={{
                                                     padding: '8px 12px',
-                                                    background: a.isCompleted ? '#ecfdf5' : 'white',
-                                                    border: `1px solid ${a.isCompleted ? '#10b981' : '#e2e8f0'}`,
+                                                    background: isAssignmentCompletedForActiveSemester(a) ? '#ecfdf5' : 'white',
+                                                    border: `1px solid ${isAssignmentCompletedForActiveSemester(a) ? '#10b981' : '#e2e8f0'}`,
                                                     borderRadius: 6,
                                                     fontSize: 13,
                                                     color: '#334155',
@@ -224,7 +233,7 @@ export default function TeacherClassView() {
                                                     e.currentTarget.style.transform = 'translateX(2px)';
                                                 }}
                                                 onMouseLeave={(e) => {
-                                                    e.currentTarget.style.borderColor = a.isCompleted ? '#10b981' : '#e2e8f0';
+                                                    e.currentTarget.style.borderColor = isAssignmentCompletedForActiveSemester(a) ? '#10b981' : '#e2e8f0';
                                                     e.currentTarget.style.transform = 'translateX(0)';
                                                 }}
                                                 >
@@ -248,7 +257,11 @@ export default function TeacherClassView() {
                                                                 fontWeight: 600
                                                             }}>S2</span>
                                                         </div>
-                                                        {a.isCompleted ? <span style={{ color: '#10b981' }}>✓</span> : <span style={{ color: '#6c5ce7' }}>→</span>}
+                                                        {isAssignmentCompletedForActiveSemester(a) ? (
+                                                            <span style={{ color: '#10b981' }}>✓</span>
+                                                        ) : (
+                                                            <span style={{ color: '#6c5ce7' }}>→</span>
+                                                        )}
                                                     </div>
                                                 </div>
                                             </Link>

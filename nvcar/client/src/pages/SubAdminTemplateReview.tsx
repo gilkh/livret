@@ -253,6 +253,18 @@ export default function SubAdminTemplateReview() {
         return null
     }
 
+    const getTargetSchoolYear = (year: string | undefined) => {
+        if (!year) return ''
+        const m = year.match(/(\d{4})\s*[/\-]\s*(\d{4})/)
+        if (m) {
+            const base = parseInt(m[2], 10)
+            if (!isNaN(base)) {
+                return `${base}/${base + 1}`
+            }
+        }
+        return year
+    }
+
     const isBlockVisible = (b: Block) => {
         const blockLevel = getBlockLevel(b)
         
@@ -439,6 +451,57 @@ export default function SubAdminTemplateReview() {
                 showToast('Échec de l\'export PDF', 'error')
                 console.error(e)
             }
+        }
+    }
+
+    const getScopedData = (key: string, blockLevel: string | null) => {
+        if (!assignment?.data) return undefined
+        
+        // 1. Try fully scoped key (Primary)
+        if (blockLevel) {
+            const scopedKey = `${key}_${blockLevel}`
+            if (assignment.data[scopedKey] !== undefined) return assignment.data[scopedKey]
+        }
+        
+        // 2. Fallback to unscoped key (Legacy), but ONLY if block matches origin level
+        // Calculate origin level
+        let originLevel = null
+        const promotions = assignment.data.promotions || []
+        if (promotions.length > 0) {
+            // Sort by date/year to find first
+             const sorted = [...promotions].sort((a: any, b: any) => {
+                 const da = new Date(a.date || 0).getTime()
+                 const db = new Date(b.date || 0).getTime()
+                 return da - db
+             })
+             originLevel = sorted[0].from
+        }
+        
+        // If no promotions, assume origin is current level? Or allow fallback?
+        // If promotions empty, it means student has always been in this level (or assignment created here).
+        // So fallback is safe.
+        const allowFallback = !originLevel || (blockLevel === originLevel) || !blockLevel
+        
+        if (allowFallback) {
+             return assignment.data[key]
+        }
+        
+        return undefined
+    }
+
+    const saveScopedData = async (key: string, blockLevel: string | null, value: any) => {
+        if (!assignment) return
+        
+        const targetKey = blockLevel ? `${key}_${blockLevel}` : key
+        
+        const newData = { ...assignment.data, [targetKey]: value }
+        setAssignment({ ...assignment, data: newData })
+        
+        try {
+            await api.patch(`${apiPrefix}/templates/${assignment._id}/data`, { data: { [targetKey]: value } })
+            emitAssignmentDataUpdate({ [targetKey]: value })
+        } catch (err) {
+            setError('Erreur sauvegarde')
         }
     }
 
@@ -975,9 +1038,9 @@ export default function SubAdminTemplateReview() {
                                                         }}
                                                     >
                                                         {(() => {
-                                                            const currentValue = b.props.dropdownNumber
-                                                                ? assignment?.data?.[`dropdown_${b.props.dropdownNumber}`]
-                                                                : b.props.variableName ? assignment?.data?.[b.props.variableName] : ''
+                                                            const rawKey = b.props.dropdownNumber ? `dropdown_${b.props.dropdownNumber}` : b.props.variableName
+                                                            const blockLevel = getBlockLevel(b)
+                                                            const currentValue = getScopedData(rawKey || '', blockLevel)
                                                             return currentValue || 'Sélectionner...'
                                                         })()}
                                                         <div style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>▼</div>
@@ -1006,15 +1069,9 @@ export default function SubAdminTemplateReview() {
                                                                     e.stopPropagation()
                                                                     if (assignment) {
                                                                         const key = b.props.dropdownNumber ? `dropdown_${b.props.dropdownNumber}` : b.props.variableName
+                                                                        const blockLevel = getBlockLevel(b)
                                                                         if (key) {
-                                                                            const newData = { ...assignment.data, [key]: '' }
-                                                                            setAssignment({ ...assignment, data: newData })
-                                                                            try {
-                                                                                await api.patch(`${apiPrefix}/templates/${assignment._id}/data`, { data: { [key]: '' } })
-                                                                                emitAssignmentDataUpdate({ [key]: '' })
-                                                                            } catch (err) {
-                                                                                setError('Erreur sauvegarde')
-                                                                            }
+                                                                            await saveScopedData(key, blockLevel, '')
                                                                         }
                                                                     }
                                                                     setOpenDropdown(null)
@@ -1043,15 +1100,9 @@ export default function SubAdminTemplateReview() {
                                                                         e.stopPropagation()
                                                                         if (assignment) {
                                                                             const key = b.props.dropdownNumber ? `dropdown_${b.props.dropdownNumber}` : b.props.variableName
+                                                                            const blockLevel = getBlockLevel(b)
                                                                             if (key) {
-                                                                                const newData = { ...assignment.data, [key]: opt }
-                                                                                setAssignment({ ...assignment, data: newData })
-                                                                                try {
-                                                                                    await api.patch(`${apiPrefix}/templates/${assignment._id}/data`, { data: { [key]: opt } })
-                                                                                    emitAssignmentDataUpdate({ [key]: opt })
-                                                                                } catch (err) {
-                                                                                    setError('Erreur sauvegarde')
-                                                                                }
+                                                                                await saveScopedData(key, blockLevel, opt)
                                                                             }
                                                                         }
                                                                         setOpenDropdown(null)
@@ -1130,39 +1181,104 @@ export default function SubAdminTemplateReview() {
                                                 textAlign: 'center'
                                             }}>
                                                 {(() => {
-                                                    // Check visibility using our new helper
-                                                    if (!isBlockVisible(b)) return null
+                                                    const promotions = assignment?.data?.promotions || []
+                                                    const blockLevel = getBlockLevel(b)
+                                                    const explicitTarget = b.props.targetLevel as string | undefined
 
-                                                    // Target Level filtering: only show if student is in the level preceding targetLevel
-                                                    if (b.props.targetLevel && student?.level) {
-                                                        const next = getNextLevel(student.level)
-                                                        if (next !== b.props.targetLevel) return null
+                                                    let promo: any = null
+
+                                                    if (explicitTarget) {
+                                                        promo = promotions.find((p: any) => p.to === explicitTarget)
                                                     }
 
-                                                    const targetLevel = b.props.targetLevel || getNextLevel(student?.level || '')
-                                                    const promotions = assignment?.data?.promotions || []
-                                                    let promoData = promotions.find((p: any) => p.to === targetLevel)
-                                                    let promo = promoData ? { ...promoData } : null
+                                                    if (!promo && blockLevel) {
+                                                        promo = promotions.find((p: any) => p.from === blockLevel)
+                                                    }
 
-                                                    // Fallback: If no promo record, show predictive info
+                                                    if (!promo && !explicitTarget && !blockLevel) {
+                                                        if (promotions.length === 1) {
+                                                            promo = { ...(promotions[0] as any) }
+                                                        }
+                                                    }
+
+                                                    if (!promo && blockLevel) {
+                                                        const history = assignment?.data?.signatures || []
+                                                        const isMidYearBlock = b.props.period === 'mid-year'
+                                                        const wantEndOfYear = b.props.period === 'end-year'
+                                                        const candidates = history.filter((sig: any) => {
+                                                            if (wantEndOfYear) {
+                                                                if (sig.type !== 'end_of_year') return false
+                                                            } else if (isMidYearBlock) {
+                                                                if (sig.type && sig.type !== 'standard') return false
+                                                            }
+                                                            if (sig.level && sig.level !== blockLevel) return false
+                                                            return true
+                                                        }).sort((a: any, b: any) => {
+                                                            const ad = new Date(a.signedAt || 0).getTime()
+                                                            const bd = new Date(b.signedAt || 0).getTime()
+                                                            return bd - ad
+                                                        })
+
+                                                        const sig = candidates[0]
+                                                        if (sig) {
+                                                            let yearLabel = sig.schoolYearName as string | undefined
+                                                            if (!yearLabel && sig.signedAt) {
+                                                                const d = new Date(sig.signedAt)
+                                                                const y = d.getFullYear()
+                                                                const m = d.getMonth()
+                                                                const startYear = m >= 8 ? y : y - 1
+                                                                yearLabel = `${startYear}/${startYear + 1}`
+                                                            }
+                                                            if (!yearLabel) {
+                                                                const currentYear = new Date().getFullYear()
+                                                                const startYear = currentYear
+                                                                yearLabel = `${startYear}/${startYear + 1}`
+                                                            }
+
+                                                            const baseLevel = blockLevel
+                                                            const target = explicitTarget || getNextLevel(baseLevel || '') || ''
+
+                                                            promo = {
+                                                                year: yearLabel,
+                                                                from: baseLevel,
+                                                                to: target || '?',
+                                                                class: student?.className || ''
+                                                            }
+                                                        }
+                                                    }
+
                                                     if (!promo) {
+                                                        const blockIsCurrentLevel = !!blockLevel && !!student?.level && blockLevel === student.level
+                                                        const isMidYearBlock = b.props.period === 'mid-year'
+                                                        const hasMidSignature = !!signature
+                                                        const hasFinalSignature = !!finalSignature
+                                                        const canPredict = isMidYearBlock
+                                                            ? (hasMidSignature && (blockIsCurrentLevel || (!blockLevel && promotions.length === 0)))
+                                                            : (hasFinalSignature && (blockIsCurrentLevel || (!blockLevel && promotions.length === 0)))
+
+                                                        if (!canPredict) {
+                                                            return null
+                                                        }
+
                                                         const currentYear = new Date().getFullYear()
                                                         const month = new Date().getMonth()
                                                         const startYear = month >= 8 ? currentYear : currentYear - 1
-
-                                                        const isMidYearContext = b.props.period === 'mid-year'
-                                                        const displayYear = isMidYearContext ? `${startYear}/${startYear + 1}` : `${startYear + 1}/${startYear + 2}`
+                                                        const baseLevel = blockLevel || student?.level || ''
+                                                        const target = explicitTarget || getNextLevel(baseLevel || '') || ''
+                                                        const displayYear = `${startYear}/${startYear + 1}`
 
                                                         promo = {
                                                             year: displayYear,
-                                                            from: student?.level || '',
-                                                            to: targetLevel || '?',
+                                                            from: baseLevel,
+                                                            to: target || '?',
                                                             class: student?.className || ''
                                                         }
                                                     } else {
-                                                        // Enrich existing promo with current data if missing
                                                         if (!promo.class && student?.className) promo.class = student.className
-                                                        if (!promo.from && student?.level) promo.from = student.level
+                                                        if (!promo.from) {
+                                                            if (blockLevel) promo.from = blockLevel
+                                                            else if (student?.level) promo.from = student.level
+                                                        }
                                                     }
 
                                                     if (promo) {
@@ -1171,7 +1287,7 @@ export default function SubAdminTemplateReview() {
                                                                 <>
                                                                     <div style={{ fontWeight: 'bold', marginBottom: 8 }}>Passage en {promo.to}</div>
                                                                     <div>{student?.firstName} {student?.lastName}</div>
-                                                                    <div style={{ fontSize: (b.props.fontSize || 12) * 0.8, color: '#666', marginTop: 8 }}>Année {promo.year}</div>
+                                                                    <div style={{ fontSize: (b.props.fontSize || 12) * 0.8, color: '#666', marginTop: 8 }}>Année {getTargetSchoolYear(promo.year)}</div>
                                                                 </>
                                                             )
                                                         } else if (b.props.field === 'level') {
@@ -1179,7 +1295,7 @@ export default function SubAdminTemplateReview() {
                                                         } else if (b.props.field === 'student') {
                                                             return <div>{student?.firstName} {student?.lastName}</div>
                                                         } else if (b.props.field === 'year') {
-                                                            return <div>{promo.year}</div>
+                                                            return <div>{getTargetSchoolYear(promo.year)}</div>
                                                         } else if (b.props.field === 'class') {
                                                             const raw = promo.class || ''
                                                             const parts = raw.split(/\s*[-\s]\s*/)
@@ -1358,7 +1474,8 @@ export default function SubAdminTemplateReview() {
                                                                                 {(() => {
                                                                                     const toggleKey = `table_${actualPageIndex}_${idx}_row_${ri}`
                                                                                     const rowLangs = b.props.rowLanguages?.[ri] || expandedLanguages
-                                                                                    const currentItems = assignment?.data?.[toggleKey] || rowLangs
+                                                                                    const blockLevel = getBlockLevel(b)
+                                                                                    const currentItems = getScopedData(toggleKey, blockLevel) || rowLangs
 
                                                                                     return currentItems.map((lang: any, li: number) => {
                                                                                         const isLevelAllowed = !lang.level || (student?.level && lang.level === student.level);
@@ -1395,14 +1512,7 @@ export default function SubAdminTemplateReview() {
                                                                                                         const newItems = [...currentItems]
                                                                                                         newItems[li] = { ...newItems[li], active: !newItems[li].active }
                                                                                                         if (assignment) {
-                                                                                                            const newData = { ...assignment.data, [toggleKey]: newItems }
-                                                                                                            setAssignment({ ...assignment, data: newData })
-                                                                                                            try {
-                                                                                                                await api.patch(`${apiPrefix}/templates/${assignment._id}/data`, { data: { [toggleKey]: newItems } })
-                                                                                                                emitAssignmentDataUpdate({ [toggleKey]: newItems })
-                                                                                                            } catch (err) {
-                                                                                                                setError('Erreur sauvegarde')
-                                                                                                            }
+                                                                                                            await saveScopedData(toggleKey, blockLevel, newItems)
                                                                                                         }
                                                                                                     }}
                                                                                                 >
@@ -1448,15 +1558,7 @@ export default function SubAdminTemplateReview() {
                                                                                                     const newItems = [...currentItems]
                                                                                                     newItems[li] = { ...newItems[li], active: !newItems[li].active }
                                                                                                     if (assignment) {
-                                                                                                        const newData = { ...assignment.data, [toggleKey]: newItems }
-                                                                                                        setAssignment({ ...assignment, data: newData })
-                                                                                                        try {
-                                                                                                            await api.patch(`${apiPrefix}/templates/${assignment._id}/data`, { data: { [toggleKey]: newItems } })
-                                                                                                            emitAssignmentDataUpdate({ [toggleKey]: newItems })
-                                                                                                        } catch (err) {
-                                                                                                            setError('Erreur sauvegarde')
-                                                                                                            console.error(err)
-                                                                                                        }
+                                                                                                        await saveScopedData(toggleKey, blockLevel, newItems)
                                                                                                     }
                                                                                                 }}
                                                                                             >
@@ -1566,46 +1668,57 @@ export default function SubAdminTemplateReview() {
                                                 justifyContent: 'center',
                                                 fontSize: 10,
                                                 color: '#999',
-                                                // Hide using our new visibility logic
                                                 ...((!isBlockVisible(b)) ? { display: 'none' } : {})
                                             }}>
                                                 {(() => {
-                                                    // Determine which signature to show
-                                                    
-                                                    // If we have a direct current signature that matches, show it
-                                                    if (b.props.period === 'end-year') {
-                                                        if (finalSignature) {
-                                                            return finalSignature.signatureUrl ? <img src={finalSignature.signatureUrl} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé Fin Année'
+                                                    const blockLevel = getBlockLevel(b)
+                                                    const sigLevel = (signature as any)?.level
+                                                    const finalSigLevel = (finalSignature as any)?.level
+
+                                                    if (!blockLevel) {
+                                                        if (b.props.period === 'end-year') {
+                                                            if (finalSignature) {
+                                                                return finalSignature.signatureUrl ? <img src={finalSignature.signatureUrl} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé Fin Année'
+                                                            }
+                                                        } else {
+                                                            if (signature) {
+                                                                return signature.signatureUrl ? <img src={signature.signatureUrl} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé'
+                                                            }
                                                         }
                                                     } else {
-                                                        if (signature) {
-                                                            return signature.signatureUrl ? <img src={signature.signatureUrl} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé'
+                                                        if (b.props.period === 'end-year') {
+                                                            if (finalSignature && ((finalSigLevel && finalSigLevel === blockLevel) || (!finalSigLevel && student?.level === blockLevel))) {
+                                                                return finalSignature.signatureUrl ? <img src={finalSignature.signatureUrl} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé Fin Année'
+                                                            }
+                                                        } else {
+                                                            if (signature && ((sigLevel && sigLevel === blockLevel) || (!sigLevel && student?.level === blockLevel))) {
+                                                                return signature.signatureUrl ? <img src={signature.signatureUrl} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé'
+                                                            }
                                                         }
                                                     }
-                                                    
-                                                    // Fallback to historical signatures
+
                                                     const history = assignment?.data?.signatures || []
                                                     const promotions = assignment?.data?.promotions || []
-                                                    const blockLevel = getBlockLevel(b)
-                                                    
+
                                                     if (blockLevel) {
                                                         const matchingSig = history.find((sig: any) => {
                                                             if (b.props.period === 'end-year' && sig.type !== 'end_of_year') return false
                                                             if ((!b.props.period || b.props.period === 'mid-year') && (sig.type === 'end_of_year')) return false
-                                                            
-                                                            // Match level
+
+                                                            if (sig.level && sig.level === blockLevel) return true
+
                                                             if (sig.schoolYearName) {
                                                                 const promo = promotions.find((p: any) => p.year === sig.schoolYearName)
                                                                 if (promo && promo.from === blockLevel) return true
                                                             }
                                                             return false
                                                         })
-                                                        
+
                                                         if (matchingSig) {
                                                             return `✓ Signé (${matchingSig.schoolYearName || 'Ancien'})`
                                                         }
                                                     }
-                                                    
+
                                                     return b.props.label || 'Signature'
                                                 })()}
                                             </div>

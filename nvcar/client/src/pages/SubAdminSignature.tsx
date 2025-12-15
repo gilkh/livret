@@ -13,6 +13,13 @@ export default function SubAdminSignature() {
     const [error, setError] = useState('')
     const [success, setSuccess] = useState('')
 
+    const tripleConfirm = (message: string) => {
+        for (let attempt = 1; attempt <= 3; attempt++) {
+            if (!confirm(`${message}\n\nConfirmation ${attempt}/3`)) return false
+        }
+        return true
+    }
+
     useEffect(() => {
         loadSignature()
     }, [])
@@ -63,7 +70,7 @@ export default function SubAdminSignature() {
     }
 
     const handleDelete = async () => {
-        if (!confirm('Êtes-vous sûr de vouloir supprimer votre signature ?')) return
+        if (!tripleConfirm('Êtes-vous sûr de vouloir supprimer votre signature ?')) return
 
         try {
             setError('')

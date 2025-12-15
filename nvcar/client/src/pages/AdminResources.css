@@ -394,6 +394,19 @@
   letter-spacing: 0.5px;
 }
 
+.year-edit-form .form-group {
+  position: static;
+}
+
+.year-edit-form .form-label {
+  position: static;
+  left: auto;
+  top: auto;
+  transform: none;
+  padding: 0;
+  background: transparent;
+}
+
 .form-input {
   width: 100%;
   padding: 12px 14px;
@@ -401,7 +414,7 @@
   border: 2px solid #e2e8f0;
   font-size: 14px;
   transition: all 0.2s ease;
-  background: white;
+  background: transparent;
 }
 
 .form-input:focus {

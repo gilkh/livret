@@ -17,6 +17,13 @@ export default function AdminSignatures() {
     const [error, setError] = useState('')
     const [success, setSuccess] = useState('')
 
+    const tripleConfirm = (message: string) => {
+        for (let attempt = 1; attempt <= 3; attempt++) {
+            if (!confirm(`${message}\n\nConfirmation ${attempt}/3`)) return false
+        }
+        return true
+    }
+
     useEffect(() => {
         loadSignatures()
     }, [])
@@ -74,7 +81,7 @@ export default function AdminSignatures() {
     }
 
     const handleDelete = async (id: string) => {
-        if (!confirm('Supprimer cette signature ?')) return
+        if (!tripleConfirm('Supprimer cette signature ?')) return
         try {
             await api.delete(`/signatures/admin/${id}`)
             loadSignatures()

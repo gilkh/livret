@@ -39,6 +39,13 @@ export default function AdminAssignmentList() {
     const [loading, setLoading] = useState(true)
     const [message, setMessage] = useState('')
 
+    const tripleConfirm = (message: string) => {
+        for (let attempt = 1; attempt <= 3; attempt++) {
+            if (!confirm(`${message}\n\nConfirmation ${attempt}/3`)) return false
+        }
+        return true
+    }
+
     useEffect(() => {
         loadData()
     }, [])
@@ -73,7 +80,7 @@ export default function AdminAssignmentList() {
     }
 
     const deleteTeacherClass = async (id: string) => {
-        if (!confirm('Supprimer cette assignation enseignant-classe ?')) return
+        if (!tripleConfirm('Supprimer cette assignation enseignant-classe ?')) return
         try {
             await api.delete(`/teacher-assignments/${id}`)
             setMessage('✓ Assignation supprimée')
@@ -85,7 +92,7 @@ export default function AdminAssignmentList() {
     }
 
     const deleteTemplateAssignment = async (id: string) => {
-        if (!confirm('Supprimer cette assignation de carnet ?')) return
+        if (!tripleConfirm('Supprimer cette assignation de carnet ?')) return
         try {
             await api.delete(`/template-assignments/${id}`)
             setMessage('✓ Assignation supprimée')
@@ -97,7 +104,7 @@ export default function AdminAssignmentList() {
     }
 
     const deleteSubAdminAssignment = async (subAdminId: string, level: string) => {
-        if (!confirm(`Supprimer l'assignation ${level} ?`)) return
+        if (!tripleConfirm(`Supprimer l'assignation ${level} ?`)) return
         try {
             await api.delete(`/subadmin-assignments/levels/${subAdminId}/${level}`)
             setMessage('✓ Assignation supprimée')
@@ -109,7 +116,7 @@ export default function AdminAssignmentList() {
     }
 
     const deleteGroupedTemplateAssignment = async (ids: string[]) => {
-        if (!confirm(`Supprimer ces ${ids.length} assignations ?`)) return
+        if (!tripleConfirm(`Supprimer ces ${ids.length} assignations ?`)) return
         try {
             await Promise.all(ids.map(id => api.delete(`/template-assignments/${id}`)))
             setMessage('✓ Assignations supprimées')

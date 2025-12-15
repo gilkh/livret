@@ -271,6 +271,13 @@ export default function Users() {
       onConfirm: () => void
   } | null>(null)
 
+  const tripleConfirm = (message: string) => {
+      for (let attempt = 1; attempt <= 3; attempt++) {
+          if (!confirm(`${message}\n\nConfirmation ${attempt}/3`)) return false
+      }
+      return true
+  }
+
   const showToast = (message: string, type: ToastType = 'info') => {
       setToast({ message, type })
   }
@@ -399,6 +406,10 @@ export default function Users() {
         title: 'Confirmer la suppression',
         content: 'Êtes-vous sûr de vouloir supprimer cet utilisateur ? Cette action est irréversible.',
         onConfirm: async () => {
+            if (!tripleConfirm('Confirmer la suppression de cet utilisateur')) {
+                setConfirmModal(null)
+                return
+            }
             await api.delete(`/users/${id}`)
             await load()
             setConfirmModal(null)
@@ -431,6 +442,10 @@ export default function Users() {
         title: 'Supprimer utilisateur Outlook',
         content: 'Supprimer cet utilisateur Outlook ?',
         onConfirm: async () => {
+            if (!tripleConfirm('Confirmer la suppression de cet utilisateur Outlook')) {
+                setConfirmModal(null)
+                return
+            }
             try {
                 await api.delete(`/outlook-users/${id}`)
                 await loadOutlookUsers()
