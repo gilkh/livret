@@ -6,6 +6,9 @@ import { SavedGradebook } from '../models/SavedGradebook'
 import { Enrollment } from '../models/Enrollment'
 import { ClassModel } from '../models/Class'
 
+import { Student } from '../models/Student'
+import { StudentCompetencyStatus } from '../models/StudentCompetencyStatus'
+
 export const schoolYearsRouter = Router()
 
 schoolYearsRouter.get('/', requireAuth(['ADMIN', 'SUBADMIN', 'AEFE', 'TEACHER']), async (req, res) => {
@@ -88,6 +91,11 @@ schoolYearsRouter.post('/:id/archive', requireAuth(['ADMIN']), async (req, res) 
 
   // 4. Create SavedGradebooks
   let savedCount = 0
+
+  // Pre-fetch students
+  const students = await Student.find({ _id: { $in: studentIds } }).lean()
+  const studentMap = new Map(students.map(s => [String(s._id), s]))
+
   for (const assignment of assignments) {
     const enrollment = enrollments.find(e => e.studentId === assignment.studentId)
     if (!enrollment || !enrollment.classId) continue
@@ -95,13 +103,26 @@ schoolYearsRouter.post('/:id/archive', requireAuth(['ADMIN']), async (req, res) 
     const cls = await ClassModel.findById(enrollment.classId).lean()
     if (!cls) continue
 
+    const student = studentMap.get(assignment.studentId)
+    if (!student) continue
+
+    const statuses = await StudentCompetencyStatus.find({ studentId: assignment.studentId }).lean()
+
+    const snapshotData = {
+        student: student,
+        enrollment: enrollment,
+        statuses: statuses,
+        assignment: assignment,
+        className: cls.name
+    }
+
     await SavedGradebook.create({
       studentId: assignment.studentId,
       schoolYearId: id,
       level: cls.level || 'Sans niveau',
       classId: enrollment.classId,
       templateId: assignment.templateId,
-      data: assignment.data,
+      data: snapshotData,
       createdAt: new Date()
     })
     savedCount++

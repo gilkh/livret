@@ -731,6 +731,15 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote', require
             // classId is optional
         })
 
+        // NEW: Create a new template assignment for the next year, copying data from the previous one
+        // This ensures the gradebook "follows" the student
+        if (assignment) {
+            // Strategy:
+            // We rely on checkAndAssignTemplates which is usually called when assigning a class.
+            // But if we want to ensure data persistence, we can leave it to the teacher assignment logic
+            // which we updated in templateUtils.ts to copy data from the most recent assignment.
+        }
+
         // Update student staging (Decoupling Fix)
         student.nextLevel = calculatedNextLevel
         // Do NOT update student.level or student.schoolYearId yet

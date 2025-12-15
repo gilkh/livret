@@ -1184,13 +1184,11 @@ export default function TeacherTemplateEditor() {
                                                 height: b.props.height || 80,
                                                 border: '1px solid #000',
                                                 background: '#fff',
-                                                display: 'flex',
+                                                display: 'none',
                                                 alignItems: 'center',
                                                 justifyContent: 'center',
                                                 fontSize: 10,
                                                 color: '#999',
-                                                // Hide if level doesn't match
-                                                ...((getBlockLevel(b) && student?.level && getBlockLevel(b) !== student.level) ? { display: 'none' } : {})
                                             }}>
                                                 {assignment?.status === 'signed' ? '✓ Signé Fin Année' : b.props.label || 'Signature Fin Année'}
                                             </div>
@@ -1222,13 +1220,11 @@ export default function TeacherTemplateEditor() {
                                                 height: b.props.height || 80,
                                                 border: '1px solid #000',
                                                 background: '#fff',
-                                                display: 'flex',
+                                                display: 'none',
                                                 alignItems: 'center',
                                                 justifyContent: 'center',
                                                 fontSize: 10,
                                                 color: '#999',
-                                                // Hide if level doesn't match
-                                                ...((getBlockLevel(b) && student?.level && getBlockLevel(b) !== student.level) ? { display: 'none' } : {})
                                             }}>
                                                 {assignment?.status === 'signed' ? '✓ Signé' : b.props.label || 'Signature'}
                                             </div>
