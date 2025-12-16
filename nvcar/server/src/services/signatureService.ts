@@ -59,12 +59,8 @@ export const signTemplateAssignment = async ({
 
     // Check if already signed in the active school year
     const activeYear = await SchoolYear.findOne({ active: true }).lean()
-    const query: any = { templateAssignmentId, type }
-    
-    // Scope uniqueness check by level if provided
-    if (level) {
-        query.level = level
-    }
+    const baseQuery: any = { templateAssignmentId, type }
+
     if (activeYear) {
         let thresholdDate = activeYear.startDate
         
@@ -88,10 +84,23 @@ export const signTemplateAssignment = async ({
         oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1)
         const effectiveThreshold = new Date(thresholdDate) > now ? oneYearAgo : new Date(thresholdDate)
 
-        query.signedAt = { $gt: effectiveThreshold, $lte: upperBound }
+        baseQuery.signedAt = { $gt: effectiveThreshold, $lte: upperBound }
     }
 
-    const existing = await TemplateSignature.findOne(query).lean()
+    const existingQuery: any = (() => {
+        if (!level) return baseQuery
+        return {
+            ...baseQuery,
+            $or: [
+                { level },
+                { level: { $exists: false } },
+                { level: null },
+                { level: '' },
+            ]
+        }
+    })()
+
+    const existing = await TemplateSignature.findOne(existingQuery).lean()
     if (existing) {
         throw new Error('already_signed')
     }
@@ -198,11 +207,23 @@ export const unsignTemplateAssignment = async ({
         throw new Error('not_found')
     }
 
-    const query: any = { templateAssignmentId }
-    if (type) query.type = type
-    if (level) query.level = level
+    const baseQuery: any = { templateAssignmentId }
+    if (type) baseQuery.type = type
 
-    await TemplateSignature.deleteMany(query)
+    const deleteQuery: any = (() => {
+        if (!level) return baseQuery
+        return {
+            ...baseQuery,
+            $or: [
+                { level },
+                { level: { $exists: false } },
+                { level: null },
+                { level: '' },
+            ]
+        }
+    })()
+
+    await TemplateSignature.deleteMany(deleteQuery)
 
     // If removing end_of_year signature, remove promotion data
     if (type === 'end_of_year') {
@@ -227,7 +248,7 @@ export const unsignTemplateAssignment = async ({
                 match = String(s.type) === String(type)
             }
             if (match && level) {
-                match = s.level === level
+                match = s.level === level || s.level === undefined || s.level === null || s.level === ''
             }
             return !match
         })

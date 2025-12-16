@@ -536,8 +536,6 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote', require
         const { templateAssignmentId } = req.params
         const { nextLevel } = req.body
 
-        if (!nextLevel) return res.status(400).json({ error: 'missing_level' })
-
         // Check if signed by this sub-admin (End of Year signature required for promotion)
         const signature = await TemplateSignature.findOne({ 
             templateAssignmentId, 
@@ -654,6 +652,8 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote', require
         // Fallback if levels not populated or not found
         if (!calculatedNextLevel) calculatedNextLevel = nextLevel 
 
+        if (!calculatedNextLevel) return res.status(400).json({ error: 'cannot_determine_next_level' })
+
         // Find next school year by sequence
         let nextSchoolYearId = ''
         if (currentSchoolYearSequence > 0) {
@@ -760,10 +760,11 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote', require
 
         const promotionData = {
             from: currentLevel,
-            to: nextLevel,
+            to: calculatedNextLevel,
             date: new Date(),
             year: yearName,
-            class: className
+            class: className,
+            by: subAdminId
         }
 
         // Use findById and save to handle Mixed type safely
@@ -784,7 +785,7 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote', require
             details: {
                 studentId: student._id,
                 from: currentLevel,
-                to: nextLevel,
+                to: calculatedNextLevel,
                 templateAssignmentId
             },
             req,
@@ -1057,7 +1058,7 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', requireAut
                 signerId: subAdminId,
                 type: type as any,
                 req,
-                level: signatureLevel
+                level: signatureLevel || undefined
             })
 
         } catch (e: any) {
@@ -1157,7 +1158,7 @@ subAdminTemplatesRouter.delete('/templates/:templateAssignmentId/sign', requireA
                 signerId: subAdminId,
                 type,
                 req,
-                level: signatureLevel
+                level: signatureLevel || undefined
             })
 
         } catch (e: any) {

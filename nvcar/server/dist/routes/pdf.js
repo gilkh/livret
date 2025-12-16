@@ -591,18 +591,47 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
                         // Draw white rectangle with black border
                         doc.save();
                         doc.rect(x, y, width, height).stroke('#000');
-                        // If sub-admin has a signature image, place it in the box
-                        if (subAdmin?.signatureUrl) {
-                            try {
-                                const sigPath = path_1.default.join(__dirname, '../../public', subAdmin.signatureUrl);
-                                if (fs_1.default.existsSync(sigPath)) {
-                                    const imgWidth = Math.min(width - 10, width * 0.9);
-                                    const imgHeight = height - 10;
-                                    doc.image(sigPath, x + 5, y + 5, { fit: [imgWidth, imgHeight], align: 'center', valign: 'center' });
+                        {
+                            const imgWidth = Math.min(width - 10, width * 0.9);
+                            const imgHeight = height - 10;
+                            let rendered = false;
+                            const sigUrl = signature.signatureUrl;
+                            if (sigUrl) {
+                                try {
+                                    if (String(sigUrl).startsWith('data:')) {
+                                        const base64 = String(sigUrl).split(',').pop() || '';
+                                        const buf = Buffer.from(base64, 'base64');
+                                        doc.image(buf, x + 5, y + 5, { fit: [imgWidth, imgHeight], align: 'center', valign: 'center' });
+                                        rendered = true;
+                                    }
+                                    else if (String(sigUrl).startsWith('/') || String(sigUrl).startsWith('uploads')) {
+                                        const localPath = path_1.default.join(__dirname, '../../public', String(sigUrl).startsWith('/') ? String(sigUrl) : `/${sigUrl}`);
+                                        if (fs_1.default.existsSync(localPath)) {
+                                            doc.image(localPath, x + 5, y + 5, { fit: [imgWidth, imgHeight], align: 'center', valign: 'center' });
+                                            rendered = true;
+                                        }
+                                    }
+                                    else {
+                                        const r = await axios_1.default.get(String(sigUrl).startsWith('http') ? String(sigUrl) : `http://localhost:4000${sigUrl}`, { responseType: 'arraybuffer' });
+                                        const buf = Buffer.from(r.data);
+                                        doc.image(buf, x + 5, y + 5, { fit: [imgWidth, imgHeight], align: 'center', valign: 'center' });
+                                        rendered = true;
+                                    }
+                                }
+                                catch (e) {
+                                    console.error('Failed to load signature image:', e);
                                 }
                             }
-                            catch (e) {
-                                console.error('Failed to load signature image:', e);
+                            if (!rendered && subAdmin?.signatureUrl) {
+                                try {
+                                    const sigPath = path_1.default.join(__dirname, '../../public', subAdmin.signatureUrl);
+                                    if (fs_1.default.existsSync(sigPath)) {
+                                        doc.image(sigPath, x + 5, y + 5, { fit: [imgWidth, imgHeight], align: 'center', valign: 'center' });
+                                    }
+                                }
+                                catch (e) {
+                                    console.error('Failed to load signature image:', e);
+                                }
                             }
                         }
                         doc.restore();
@@ -725,6 +754,18 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
                 const promotions = assignmentData.promotions || [];
                 const promo = promotions.find((p) => p.to === targetLevel);
                 if (promo) {
+                    const getTargetSchoolYear = (year) => {
+                        if (!year)
+                            return '';
+                        const m = year.match(/(\d{4})\s*[\/\-]\s*(\d{4})/);
+                        if (m) {
+                            const base = parseInt(m[2], 10);
+                            if (!isNaN(base))
+                                return `${base}/${base + 1}`;
+                        }
+                        return year;
+                    };
+                    const targetYear = getTargetSchoolYear(String(promo.year || ''));
                     const x = px(b.props?.x || 50);
                     const y = py(b.props?.y || 50);
                     const width = sx(b.props?.width || (b.props?.field ? 150 : 300));
@@ -741,7 +782,7 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
                         doc.font('Helvetica').text(`${student.firstName} ${student.lastName}`, textX, textY, { width: width - 20, align: 'center' });
                         textY += 20;
                         doc.fontSize((b.props?.fontSize || 12) * 0.8).fillColor('#666');
-                        doc.text(`Année ${promo.year}`, textX, textY, { width: width - 20, align: 'center' });
+                        doc.text(`Année ${targetYear}`, textX, textY, { width: width - 20, align: 'center' });
                     }
                     else {
                         // Specific field
@@ -752,7 +793,7 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
                             doc.font('Helvetica').text(`${student.firstName} ${student.lastName}`, x, y + (height / 2) - 6, { width, align: 'center' });
                         }
                         else if (b.props.field === 'year') {
-                            doc.text(`Année ${promo.year}`, x, y + (height / 2) - 6, { width, align: 'center' });
+                            doc.text(targetYear, x, y + (height / 2) - 6, { width, align: 'center' });
                         }
                     }
                     doc.restore();
@@ -1371,18 +1412,47 @@ exports.pdfRouter.get('/class/:classId/batch', (0, auth_1.requireAuth)(['ADMIN',
                                     // Draw white rectangle with black border
                                     doc.save();
                                     doc.rect(x, y, width, height).stroke('#000');
-                                    // If sub-admin has a signature image, place it in the box
-                                    if (subAdmin?.signatureUrl) {
-                                        try {
-                                            const sigPath = path_1.default.join(__dirname, '../../public', subAdmin.signatureUrl);
-                                            if (fs_1.default.existsSync(sigPath)) {
-                                                const imgWidth = Math.min(width - 10, width * 0.9);
-                                                const imgHeight = height - 10;
-                                                doc.image(sigPath, x + 5, y + 5, { fit: [imgWidth, imgHeight], align: 'center', valign: 'center' });
+                                    {
+                                        const imgWidth = Math.min(width - 10, width * 0.9);
+                                        const imgHeight = height - 10;
+                                        let rendered = false;
+                                        const sigUrl = signature.signatureUrl;
+                                        if (sigUrl) {
+                                            try {
+                                                if (String(sigUrl).startsWith('data:')) {
+                                                    const base64 = String(sigUrl).split(',').pop() || '';
+                                                    const buf = Buffer.from(base64, 'base64');
+                                                    doc.image(buf, x + 5, y + 5, { fit: [imgWidth, imgHeight], align: 'center', valign: 'center' });
+                                                    rendered = true;
+                                                }
+                                                else if (String(sigUrl).startsWith('/') || String(sigUrl).startsWith('uploads')) {
+                                                    const localPath = path_1.default.join(__dirname, '../../public', String(sigUrl).startsWith('/') ? String(sigUrl) : `/${sigUrl}`);
+                                                    if (fs_1.default.existsSync(localPath)) {
+                                                        doc.image(localPath, x + 5, y + 5, { fit: [imgWidth, imgHeight], align: 'center', valign: 'center' });
+                                                        rendered = true;
+                                                    }
+                                                }
+                                                else {
+                                                    const r = await axios_1.default.get(String(sigUrl).startsWith('http') ? String(sigUrl) : `http://localhost:4000${sigUrl}`, { responseType: 'arraybuffer' });
+                                                    const buf = Buffer.from(r.data);
+                                                    doc.image(buf, x + 5, y + 5, { fit: [imgWidth, imgHeight], align: 'center', valign: 'center' });
+                                                    rendered = true;
+                                                }
+                                            }
+                                            catch (e) {
+                                                console.error('Failed to load signature image:', e);
                                             }
                                         }
-                                        catch (e) {
-                                            console.error('Failed to load signature image:', e);
+                                        if (!rendered && subAdmin?.signatureUrl) {
+                                            try {
+                                                const sigPath = path_1.default.join(__dirname, '../../public', subAdmin.signatureUrl);
+                                                if (fs_1.default.existsSync(sigPath)) {
+                                                    doc.image(sigPath, x + 5, y + 5, { fit: [imgWidth, imgHeight], align: 'center', valign: 'center' });
+                                                }
+                                            }
+                                            catch (e) {
+                                                console.error('Failed to load signature image:', e);
+                                            }
                                         }
                                     }
                                     doc.restore();

@@ -455,17 +455,45 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), asy
             doc.save()
             doc.rect(x, y, width, height).stroke('#000')
 
-            // If sub-admin has a signature image, place it in the box
-            if (subAdmin?.signatureUrl) {
-              try {
-                const sigPath = path.join(__dirname, '../../public', subAdmin.signatureUrl)
-                if (fs.existsSync(sigPath)) {
-                  const imgWidth = Math.min(width - 10, width * 0.9)
-                  const imgHeight = height - 10
-                  doc.image(sigPath, x + 5, y + 5, { fit: [imgWidth, imgHeight], align: 'center', valign: 'center' })
+            {
+              const imgWidth = Math.min(width - 10, width * 0.9)
+              const imgHeight = height - 10
+
+              let rendered = false
+              const sigUrl = (signature as any).signatureUrl
+              if (sigUrl) {
+                try {
+                  if (String(sigUrl).startsWith('data:')) {
+                    const base64 = String(sigUrl).split(',').pop() || ''
+                    const buf = Buffer.from(base64, 'base64')
+                    doc.image(buf, x + 5, y + 5, { fit: [imgWidth, imgHeight], align: 'center', valign: 'center' })
+                    rendered = true
+                  } else if (String(sigUrl).startsWith('/') || String(sigUrl).startsWith('uploads')) {
+                    const localPath = path.join(__dirname, '../../public', String(sigUrl).startsWith('/') ? String(sigUrl) : `/${sigUrl}`)
+                    if (fs.existsSync(localPath)) {
+                      doc.image(localPath, x + 5, y + 5, { fit: [imgWidth, imgHeight], align: 'center', valign: 'center' })
+                      rendered = true
+                    }
+                  } else {
+                    const r = await axios.get(String(sigUrl).startsWith('http') ? String(sigUrl) : `http://localhost:4000${sigUrl}`, { responseType: 'arraybuffer' })
+                    const buf = Buffer.from(r.data)
+                    doc.image(buf, x + 5, y + 5, { fit: [imgWidth, imgHeight], align: 'center', valign: 'center' })
+                    rendered = true
+                  }
+                } catch (e) {
+                  console.error('Failed to load signature image:', e)
                 }
-              } catch (e) {
-                console.error('Failed to load signature image:', e)
+              }
+
+              if (!rendered && subAdmin?.signatureUrl) {
+                try {
+                  const sigPath = path.join(__dirname, '../../public', subAdmin.signatureUrl)
+                  if (fs.existsSync(sigPath)) {
+                    doc.image(sigPath, x + 5, y + 5, { fit: [imgWidth, imgHeight], align: 'center', valign: 'center' })
+                  }
+                } catch (e) {
+                  console.error('Failed to load signature image:', e)
+                }
               }
             }
             doc.restore()
@@ -1132,17 +1160,45 @@ pdfRouter.get('/class/:classId/batch', requireAuth(['ADMIN', 'SUBADMIN']), async
                   doc.save()
                   doc.rect(x, y, width, height).stroke('#000')
 
-                  // If sub-admin has a signature image, place it in the box
-                  if (subAdmin?.signatureUrl) {
-                    try {
-                      const sigPath = path.join(__dirname, '../../public', subAdmin.signatureUrl)
-                      if (fs.existsSync(sigPath)) {
-                        const imgWidth = Math.min(width - 10, width * 0.9)
-                        const imgHeight = height - 10
-                        doc.image(sigPath, x + 5, y + 5, { fit: [imgWidth, imgHeight], align: 'center', valign: 'center' })
+                  {
+                    const imgWidth = Math.min(width - 10, width * 0.9)
+                    const imgHeight = height - 10
+
+                    let rendered = false
+                    const sigUrl = (signature as any).signatureUrl
+                    if (sigUrl) {
+                      try {
+                        if (String(sigUrl).startsWith('data:')) {
+                          const base64 = String(sigUrl).split(',').pop() || ''
+                          const buf = Buffer.from(base64, 'base64')
+                          doc.image(buf, x + 5, y + 5, { fit: [imgWidth, imgHeight], align: 'center', valign: 'center' })
+                          rendered = true
+                        } else if (String(sigUrl).startsWith('/') || String(sigUrl).startsWith('uploads')) {
+                          const localPath = path.join(__dirname, '../../public', String(sigUrl).startsWith('/') ? String(sigUrl) : `/${sigUrl}`)
+                          if (fs.existsSync(localPath)) {
+                            doc.image(localPath, x + 5, y + 5, { fit: [imgWidth, imgHeight], align: 'center', valign: 'center' })
+                            rendered = true
+                          }
+                        } else {
+                          const r = await axios.get(String(sigUrl).startsWith('http') ? String(sigUrl) : `http://localhost:4000${sigUrl}`, { responseType: 'arraybuffer' })
+                          const buf = Buffer.from(r.data)
+                          doc.image(buf, x + 5, y + 5, { fit: [imgWidth, imgHeight], align: 'center', valign: 'center' })
+                          rendered = true
+                        }
+                      } catch (e) {
+                        console.error('Failed to load signature image:', e)
                       }
-                    } catch (e) {
-                      console.error('Failed to load signature image:', e)
+                    }
+
+                    if (!rendered && subAdmin?.signatureUrl) {
+                      try {
+                        const sigPath = path.join(__dirname, '../../public', subAdmin.signatureUrl)
+                        if (fs.existsSync(sigPath)) {
+                          doc.image(sigPath, x + 5, y + 5, { fit: [imgWidth, imgHeight], align: 'center', valign: 'center' })
+                        }
+                      } catch (e) {
+                        console.error('Failed to load signature image:', e)
+                      }
                     }
                   }
                   doc.restore()

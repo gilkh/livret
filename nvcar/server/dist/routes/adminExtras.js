@@ -344,6 +344,27 @@ exports.adminExtrasRouter.post('/templates/:templateAssignmentId/sign', (0, auth
         const adminId = req.user.userId;
         const { templateAssignmentId } = req.params;
         const { type = 'standard' } = req.body;
+        const assignment = await TemplateAssignment_1.TemplateAssignment.findById(templateAssignmentId).lean();
+        if (!assignment)
+            return res.status(404).json({ error: 'not_found' });
+        let signatureLevel = '';
+        const studentForSig = await Student_1.Student.findById(assignment.studentId).lean();
+        if (studentForSig) {
+            signatureLevel = studentForSig.level || '';
+            const activeSchoolYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
+            if (activeSchoolYear) {
+                const enrollment = await Enrollment_1.Enrollment.findOne({
+                    studentId: assignment.studentId,
+                    schoolYearId: activeSchoolYear._id,
+                    status: 'active'
+                }).lean();
+                if (enrollment && enrollment.classId) {
+                    const cls = await Class_1.ClassModel.findById(enrollment.classId).lean();
+                    if (cls && cls.level)
+                        signatureLevel = cls.level;
+                }
+            }
+        }
         // Get active admin signature
         const activeSig = await AdminSignature_1.AdminSignature.findOne({ isActive: true }).lean();
         try {
@@ -352,7 +373,8 @@ exports.adminExtrasRouter.post('/templates/:templateAssignmentId/sign', (0, auth
                 signerId: adminId,
                 type: type,
                 signatureUrl: activeSig ? activeSig.dataUrl : undefined,
-                req
+                req,
+                level: signatureLevel || undefined
             });
             res.json(signature);
         }

@@ -386,6 +386,27 @@ adminExtrasRouter.post('/templates/:templateAssignmentId/sign', requireAuth(['AD
         const { templateAssignmentId } = req.params
         const { type = 'standard' } = req.body
 
+        const assignment = await TemplateAssignment.findById(templateAssignmentId).lean()
+        if (!assignment) return res.status(404).json({ error: 'not_found' })
+
+        let signatureLevel = ''
+        const studentForSig = await Student.findById(assignment.studentId).lean()
+        if (studentForSig) {
+            signatureLevel = studentForSig.level || ''
+            const activeSchoolYear = await SchoolYear.findOne({ active: true }).lean()
+            if (activeSchoolYear) {
+                const enrollment = await Enrollment.findOne({
+                    studentId: assignment.studentId,
+                    schoolYearId: activeSchoolYear._id,
+                    status: 'active'
+                }).lean()
+                if (enrollment && enrollment.classId) {
+                    const cls = await ClassModel.findById(enrollment.classId).lean()
+                    if (cls && cls.level) signatureLevel = cls.level
+                }
+            }
+        }
+
         // Get active admin signature
         const activeSig = await AdminSignature.findOne({ isActive: true }).lean()
 
@@ -395,7 +416,8 @@ adminExtrasRouter.post('/templates/:templateAssignmentId/sign', requireAuth(['AD
                 signerId: adminId,
                 type: type as any,
                 signatureUrl: activeSig ? activeSig.dataUrl : undefined,
-                req
+                req,
+                level: signatureLevel || undefined
             })
             res.json(signature)
         } catch (e: any) {
