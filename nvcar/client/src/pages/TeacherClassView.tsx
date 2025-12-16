@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import api from '../api'
 import { useSchoolYear } from '../context/SchoolYearContext'
@@ -20,6 +20,8 @@ export default function TeacherClassView() {
     const [students, setStudents] = useState<Student[]>([])
     const [assignments, setAssignments] = useState<Assignment[]>([])
     const [filter, setFilter] = useState<'all' | 'completed' | 'incomplete'>('all')
+    const [search, setSearch] = useState('')
+    const [sort, setSort] = useState<'name_asc' | 'name_desc' | 'firstName_asc' | 'firstName_desc' | 'progress_desc' | 'progress_asc'>('name_asc')
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState('')
 
@@ -52,22 +54,112 @@ export default function TeacherClassView() {
         return !!assignment.isCompletedSem1 || !!assignment.isCompleted
     }
 
-    // Calculate completion per student
+    const assignmentsByStudentId = useMemo(() => {
+        const map = new Map<string, Assignment[]>()
+        for (const assignment of assignments) {
+            const list = map.get(assignment.studentId)
+            if (list) {
+                list.push(assignment)
+            } else {
+                map.set(assignment.studentId, [assignment])
+            }
+        }
+        return map
+    }, [assignments])
+
+    const completionByStudentId = useMemo(() => {
+        const totals = new Map<string, { total: number; completed: number }>()
+
+        for (const a of assignments) {
+            const prev = totals.get(a.studentId) || { total: 0, completed: 0 }
+            const next = { total: prev.total + 1, completed: prev.completed + (isAssignmentCompletedForActiveSemester(a) ? 1 : 0) }
+            totals.set(a.studentId, next)
+        }
+
+        const map = new Map<string, { completed: number; total: number; isFullyComplete: boolean; completionPercentage: number }>()
+        totals.forEach((v, studentId) => {
+            const completionPercentage = v.total > 0 ? Math.round((v.completed / v.total) * 100) : 0
+            map.set(studentId, {
+                completed: v.completed,
+                total: v.total,
+                isFullyComplete: v.total > 0 && v.completed === v.total,
+                completionPercentage
+            })
+        })
+        return map
+    }, [assignments, activeSemester])
+
     const getStudentCompletion = (studentId: string) => {
-        const studentAssignments = assignments.filter(a => a.studentId === studentId)
-        const completed = studentAssignments.filter(a => isAssignmentCompletedForActiveSemester(a)).length
-        const total = studentAssignments.length
-        return { completed, total, isFullyComplete: total > 0 && completed === total }
+        return (
+            completionByStudentId.get(studentId) || {
+                completed: 0,
+                total: 0,
+                isFullyComplete: false,
+                completionPercentage: 0
+            }
+        )
     }
 
-    // Filter students based on completion status
-    const filteredStudents = students.filter(student => {
-        if (filter === 'all') return true
-        const { isFullyComplete } = getStudentCompletion(student._id)
-        if (filter === 'completed') return isFullyComplete
-        if (filter === 'incomplete') return !isFullyComplete
-        return true
-    })
+    const normalizeText = (value: string) => {
+        return (value || '')
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .trim()
+    }
+
+    const displayedStudents = useMemo(() => {
+        const q = normalizeText(search)
+
+        const list = students.filter(student => {
+            const nameFirstLast = normalizeText(`${student.firstName} ${student.lastName}`)
+            const nameLastFirst = normalizeText(`${student.lastName} ${student.firstName}`)
+            const matchesSearch = !q || nameFirstLast.includes(q) || nameLastFirst.includes(q)
+            if (!matchesSearch) return false
+
+            if (filter === 'all') return true
+            const { isFullyComplete } = getStudentCompletion(student._id)
+            if (filter === 'completed') return isFullyComplete
+            if (filter === 'incomplete') return !isFullyComplete
+            return true
+        })
+
+        list.sort((a, b) => {
+            const aLast = normalizeText(a.lastName)
+            const bLast = normalizeText(b.lastName)
+            const aFirst = normalizeText(a.firstName)
+            const bFirst = normalizeText(b.firstName)
+
+            const byNameAsc = () => {
+                const lastCmp = aLast.localeCompare(bLast)
+                if (lastCmp !== 0) return lastCmp
+                return aFirst.localeCompare(bFirst)
+            }
+
+            const byFirstNameAsc = () => {
+                const firstCmp = aFirst.localeCompare(bFirst)
+                if (firstCmp !== 0) return firstCmp
+                return aLast.localeCompare(bLast)
+            }
+
+            const byProgressDesc = () => {
+                const aProg = getStudentCompletion(a._id).completionPercentage
+                const bProg = getStudentCompletion(b._id).completionPercentage
+                if (aProg !== bProg) return bProg - aProg
+                return byNameAsc()
+            }
+
+            if (sort === 'name_asc') return byNameAsc()
+            if (sort === 'name_desc') return -byNameAsc()
+            if (sort === 'firstName_asc') return byFirstNameAsc()
+            if (sort === 'firstName_desc') return -byFirstNameAsc()
+            if (sort === 'progress_desc') return byProgressDesc()
+            if (sort === 'progress_asc') return -byProgressDesc()
+            return 0
+        })
+
+        return list
+    }, [students, filter, search, sort, completionByStudentId])
 
     const totalAssignments = assignments.length
     const completedAssignments = assignments.filter(a => isAssignmentCompletedForActiveSemester(a)).length
@@ -88,6 +180,9 @@ export default function TeacherClassView() {
                     border: '1px solid #e2e8f0'
                 }}>← Retour aux classes</Link>
                 <h2 className="title" style={{ fontSize: 28, marginBottom: 8, color: '#1e293b' }}>🏛️ Élèves de la classe</h2>
+                <div className="note" style={{ fontSize: 14, color: '#64748b', marginBottom: 8 }}>
+                    Semestre actif : S{activeSemester}
+                </div>
 
                 {loading && <div className="note" style={{ textAlign: 'center', padding: 24 }}>Chargement...</div>}
                 {error && <div className="note" style={{ color: '#dc2626', background: '#fef2f2', padding: 12, borderRadius: 8, border: '1px solid #fecaca' }}>{error}</div>}
@@ -115,7 +210,7 @@ export default function TeacherClassView() {
                             </div>
                         </div>
                         <div className="note" style={{ fontSize: 13, marginBottom: 10, color: '#64748b' }}>
-                            {stats.completedAssignments} / {stats.totalAssignments} carnets terminés
+                            {stats.completedAssignments} / {stats.totalAssignments} carnets terminés (S{activeSemester})
                         </div>
                         <div style={{ width: '100%', height: 14, background: '#e2e8f0', borderRadius: 999, overflow: 'hidden', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.06)' }}>
                             <div style={{
@@ -131,9 +226,55 @@ export default function TeacherClassView() {
                     </div>
                 )}
 
-                <div style={{ marginTop: 20, marginBottom: 20 }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <span className="note" style={{ fontSize: 14, fontWeight: 500, color: '#475569' }}>🔍 Filtrer:</span>
+                <div style={{ marginTop: 20, marginBottom: 20, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10, flex: '1 1 320px' }}>
+                        <span className="note" style={{ fontSize: 14, fontWeight: 500, color: '#475569', whiteSpace: 'nowrap' }}>🔎 Rechercher:</span>
+                        <input
+                            value={search}
+                            onChange={e => setSearch(e.target.value)}
+                            placeholder="Prénom ou nom"
+                            style={{
+                                width: '100%',
+                                padding: '10px 16px',
+                                borderRadius: 8,
+                                border: '1px solid #cbd5e1',
+                                fontSize: 14,
+                                fontWeight: 500,
+                                color: '#475569',
+                                background: 'white',
+                                outline: 'none'
+                            }}
+                        />
+                    </label>
+
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10, flex: '0 0 auto' }}>
+                        <span className="note" style={{ fontSize: 14, fontWeight: 500, color: '#475569', whiteSpace: 'nowrap' }}>↕️ Trier:</span>
+                        <select
+                            value={sort}
+                            onChange={e => setSort(e.target.value as any)}
+                            style={{
+                                padding: '10px 16px',
+                                borderRadius: 8,
+                                border: '1px solid #cbd5e1',
+                                fontSize: 14,
+                                fontWeight: 500,
+                                color: '#475569',
+                                background: 'white',
+                                cursor: 'pointer',
+                                outline: 'none'
+                            }}
+                        >
+                            <option value="name_asc">Nom (A → Z)</option>
+                            <option value="name_desc">Nom (Z → A)</option>
+                            <option value="firstName_asc">Prénom (A → Z)</option>
+                            <option value="firstName_desc">Prénom (Z → A)</option>
+                            <option value="progress_desc">Progression (plus → moins)</option>
+                            <option value="progress_asc">Progression (moins → plus)</option>
+                        </select>
+                    </label>
+
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10, flex: '0 0 auto' }}>
+                        <span className="note" style={{ fontSize: 14, fontWeight: 500, color: '#475569', whiteSpace: 'nowrap' }}>🔍 Filtrer:</span>
                         <select
                             value={filter}
                             onChange={e => setFilter(e.target.value as any)}
@@ -146,11 +287,10 @@ export default function TeacherClassView() {
                                 color: '#475569',
                                 background: 'white',
                                 cursor: 'pointer',
-                                outline: 'none',
-                                transition: 'all 0.2s ease'
+                                outline: 'none'
                             }}
                         >
-                            <option value="all">Tous les élèves</option>
+                            <option value="all">Tous</option>
                             <option value="completed">Terminés</option>
                             <option value="incomplete">Non terminés</option>
                         </select>
@@ -158,9 +298,9 @@ export default function TeacherClassView() {
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 18, marginTop: 20 }}>
-                    {filteredStudents.map(s => {
+                    {displayedStudents.map(s => {
                         const completion = getStudentCompletion(s._id)
-                        const studentAssignments = assignments.filter(a => a.studentId === s._id)
+                        const studentAssignments = assignmentsByStudentId.get(s._id) || []
                         return (
                             <div key={s._id} className="card" style={{ 
                                 display: 'flex', 
@@ -271,9 +411,11 @@ export default function TeacherClassView() {
                             </div>
                         )
                     })}
-                    {!loading && filteredStudents.length === 0 && (
+                    {!loading && displayedStudents.length === 0 && (
                         <div className="note">
-                            {filter === 'all' ? 'Aucun élève dans cette classe.' : `Aucun élève ${filter === 'completed' ? 'terminé' : 'non terminé'}.`}
+                            {search.trim()
+                                ? 'Aucun élève ne correspond à la recherche.'
+                                : (filter === 'all' ? 'Aucun élève dans cette classe.' : `Aucun élève ${filter === 'completed' ? 'terminé' : 'non terminé'}.`)}
                         </div>
                     )}
                 </div>

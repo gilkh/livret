@@ -789,7 +789,9 @@ export default function SubAdminTemplateReview() {
                             >
                                 {continuousScroll && <div style={{ position: 'absolute', top: -30, left: 0, color: '#888', fontSize: 14, fontWeight: 600 }}>Page {actualPageIndex + 1}</div>}
                                 <div className="page-margins" />
-                                {page.blocks.map((b, idx) => (
+                                {page.blocks.map((b, idx) => {
+                                    if (!b || !b.props) return null;
+                                    return (
                                     <div key={idx} style={{ position: 'absolute', left: b.props.x || 0, top: b.props.y || 0, zIndex: b.props.z ?? idx, padding: 6 }}>
                                         {b.type === 'text' && (
                                             <div style={{ position: 'relative' }}>
@@ -870,7 +872,7 @@ export default function SubAdminTemplateReview() {
                                                                 minWidth: size,
                                                                 borderRadius: '50%',
                                                                 background: it.active ? '#fff' : 'rgba(255, 255, 255, 0.5)',
-                                                                border: it.active ? '2px solid #2563eb' : '1px solid rgba(0, 0, 0, 0.1)',
+                                                                border: it.active ? '2px solid #2563eb' : '0.25px solid #fff',
                                                                 display: 'flex',
                                                                 alignItems: 'center',
                                                                 justifyContent: 'center',
@@ -892,9 +894,9 @@ export default function SubAdminTemplateReview() {
                                                             onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)'}
                                                         >
                                                             {emoji ? (
-                                                                <img src={appleEmojiUrl} style={{ width: size * 0.75, height: size * 0.75, objectFit: 'contain' }} alt="" />
+                                                                <img src={appleEmojiUrl} style={{ width: size * 0.9, height: size * 0.9, objectFit: 'contain' }} alt="" />
                                                             ) : it.logo ? (
-                                                                <img src={it.logo} style={{ width: size * 0.75, height: size * 0.75, objectFit: 'contain' }} alt="" />
+                                                                <img src={it.logo} style={{ width: size * 0.9, height: size * 0.9, objectFit: 'contain' }} alt="" />
                                                             ) : (
                                                                 <span style={{ fontSize: 20, lineHeight: 1 }}>{getEmoji(it)}</span>
                                                             )}
@@ -1067,6 +1069,7 @@ export default function SubAdminTemplateReview() {
                                                                 style={{ padding: '8px 12px', cursor: 'pointer', fontSize: b.props.fontSize || 12, color: '#999', borderBottom: '1px solid #eee' }}
                                                                 onClick={async (e) => {
                                                                     e.stopPropagation()
+                                                                    if (!editMode || !canEdit || !isDropdownAllowed) return
                                                                     if (assignment) {
                                                                         const key = b.props.dropdownNumber ? `dropdown_${b.props.dropdownNumber}` : b.props.variableName
                                                                         const blockLevel = getBlockLevel(b)
@@ -1086,7 +1089,7 @@ export default function SubAdminTemplateReview() {
                                                                     key={i}
                                                                     style={{
                                                                         padding: '8px 12px',
-                                                                        cursor: 'pointer',
+                                                                        cursor: (editMode && canEdit && isDropdownAllowed) ? 'pointer' : 'default',
                                                                         fontSize: b.props.fontSize || 12,
                                                                         wordWrap: 'break-word',
                                                                         whiteSpace: 'pre-wrap',
@@ -1098,6 +1101,7 @@ export default function SubAdminTemplateReview() {
                                                                     }}
                                                                     onClick={async (e) => {
                                                                         e.stopPropagation()
+                                                                        if (!editMode || !canEdit || !isDropdownAllowed) return
                                                                         if (assignment) {
                                                                             const key = b.props.dropdownNumber ? `dropdown_${b.props.dropdownNumber}` : b.props.variableName
                                                                             const blockLevel = getBlockLevel(b)
@@ -1480,6 +1484,7 @@ export default function SubAdminTemplateReview() {
                                                                                     return currentItems.map((lang: any, li: number) => {
                                                                                         const isLevelAllowed = !lang.level || (student?.level && lang.level === student.level);
                                                                                         const isAllowed = isLevelAllowed;
+                                                                                        const canToggle = editMode && canEdit && isAllowed;
 
                                                                                         const size = Math.max(12, Math.min(expandedRowHeight - 12, 20))
                                                                                         const isActive = lang.active
@@ -1503,12 +1508,12 @@ export default function SubAdminTemplateReview() {
                                                                                                         overflow: 'hidden',
                                                                                                         position: 'relative',
                                                                                                         boxShadow: isActive ? '0 0 0 2px #6c5ce7' : 'none',
-                                                                                                        opacity: (canEdit && isAllowed) ? (isActive ? 1 : 0.6) : 0.5,
-                                                                                                        cursor: (canEdit && isAllowed) ? 'pointer' : 'default'
+                                                                                                        opacity: canToggle ? (isActive ? 1 : 0.6) : 0.5,
+                                                                                                        cursor: canToggle ? 'pointer' : 'default'
                                                                                                     }}
                                                                                                     onClick={async (e) => {
                                                                                                         e.stopPropagation()
-                                                                                                        if (!canEdit || !isAllowed) return
+                                                                                                        if (!canToggle) return
                                                                                                         const newItems = [...currentItems]
                                                                                                         newItems[li] = { ...newItems[li], active: !newItems[li].active }
                                                                                                         if (assignment) {
@@ -1543,18 +1548,18 @@ export default function SubAdminTemplateReview() {
                                                                                                     minWidth: size,
                                                                                                     borderRadius: '50%',
                                                                                                     background: isActive ? '#fff' : 'rgba(255, 255, 255, 0.5)',
-                                                                                                    border: isActive ? '0.5px solid #fff' : '1px solid rgba(0, 0, 0, 0.1)',
+                                                                                                    border: isActive ? '0.25px solid #fff' : '0.25px solid #fff',
                                                                                                     display: 'flex',
                                                                                                     alignItems: 'center',
                                                                                                     justifyContent: 'center',
                                                                                                     transform: isActive ? 'scale(1.1)' : 'scale(1)',
                                                                                                     boxShadow: 'none',
-                                                                                                    opacity: (canEdit && isAllowed) ? (isActive ? 1 : 0.6) : 0.5,
-                                                                                                    cursor: (canEdit && isAllowed) ? 'pointer' : 'default'
+                                                                                                    opacity: canToggle ? (isActive ? 1 : 0.6) : 0.5,
+                                                                                                    cursor: canToggle ? 'pointer' : 'default'
                                                                                                 }}
                                                                                                 onClick={async (e) => {
                                                                                                     e.stopPropagation()
-                                                                                                    if (!canEdit || !isAllowed) return
+                                                                                                    if (!canToggle) return
                                                                                                     const newItems = [...currentItems]
                                                                                                     newItems[li] = { ...newItems[li], active: !newItems[li].active }
                                                                                                     if (assignment) {
@@ -1562,7 +1567,7 @@ export default function SubAdminTemplateReview() {
                                                                                                     }
                                                                                                 }}
                                                                                             >
-                                                                                                <img src={appleEmojiUrl} style={{ width: size * 0.7, height: size * 0.7, objectFit: 'contain' }} alt="" />
+                                                                                                <img src={appleEmojiUrl} style={{ width: size * 0.9, height: size * 0.9, objectFit: 'contain' }} alt="" />
                                                                                             </div>
                                                                                         )
                                                                                     })
@@ -1724,7 +1729,8 @@ export default function SubAdminTemplateReview() {
                                             </div>
                                         )}
                                     </div>
-                                ))}
+                                    )
+                                })}
                             </div>
                         )
                     })}

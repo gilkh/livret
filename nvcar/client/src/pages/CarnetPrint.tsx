@@ -251,7 +251,9 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                         margin: '0 auto'
                     }}
                 >
-                    {page.blocks.map((b, idx) => (
+                    {page.blocks.map((b, idx) => {
+                        if (!b || !b.props) return null;
+                        return (
                         <div key={idx} style={{ position: 'absolute', left: b.props.x || 0, top: b.props.y || 0, zIndex: b.props.z ?? idx }}>
                             {b.type === 'text' && (
                                 <div style={{ color: b.props.color, fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden', whiteSpace: 'pre-wrap' }}>{b.props.text}</div>
@@ -338,8 +340,8 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                         const emoji = e ? it.emoji : ((it.code || '').toLowerCase() === 'fr' ? '🇫🇷' : ((it.code || '').toLowerCase() === 'en' || (it.code || '').toLowerCase() === 'gb' || (it.code || '').toLowerCase() === 'uk') ? '🇬🇧' : ((it.code || '').toLowerCase() === 'lb' || (it.code || '').toLowerCase() === 'ar') ? '🇱🇧' : '🏳️')
                                         const appleEmojiUrl = `https://emojicdn.elk.sh/${emoji}?style=apple`
                                         return (
-                                            <div key={i} title={it.label} style={{ width: size, height: size, minWidth: size, borderRadius: '50%', background: it.active ? '#fff' : 'rgba(255, 255, 255, 0.5)', border: it.active ? '2px solid #2563eb' : '1px solid rgba(0, 0, 0, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: it.active ? '0 0 0 2px rgba(37, 99, 235, 0.2)' : 'none', opacity: it.active ? 1 : 0.5 }}>
-                                                <img src={appleEmojiUrl} style={{ width: size * 0.75, height: size * 0.75, objectFit: 'contain' }} alt="" />
+                                            <div key={i} title={it.label} style={{ width: size, height: size, minWidth: size, borderRadius: '50%', background: it.active ? '#fff' : 'rgba(255, 255, 255, 0.5)', border: it.active ? '2px solid #2563eb' : '0.25px solid #fff', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: it.active ? '0 0 0 2px rgba(37, 99, 235, 0.2)' : 'none', opacity: it.active ? 1 : 0.5 }}>
+                                                <img src={appleEmojiUrl} style={{ width: size * 0.9, height: size * 0.9, objectFit: 'contain' }} alt="" />
                                             </div>
                                         )
                                     })}
@@ -507,7 +509,7 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                                                                 return ''
                                                                             })()
                                                                             return (
-                                                                                <div key={li} title={lang.label} style={{ width: size, height: size, minWidth: size, borderRadius: '50%', overflow: 'hidden', background: isActive ? '#fff' : 'rgba(255, 255, 255, 0.5)', border: isActive ? '0.5px solid #fff' : '1px solid rgba(0, 0, 0, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: 'none', opacity: isActive ? 1 : 0.6 }}>
+                                                                                <div key={li} title={lang.label} style={{ width: size, height: size, minWidth: size, borderRadius: '50%', overflow: 'hidden', background: isActive ? '#fff' : 'rgba(255, 255, 255, 0.5)', border: isActive ? '0.25px solid #fff' : '0.25px solid #fff', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: 'none', opacity: isActive ? 1 : 0.6 }}>
                                                                                     {logo ? <img src={logo} style={{ width: '100%', height: '100%', objectFit: 'cover', filter: isActive ? 'brightness(1.1)' : 'brightness(0.6)' }} alt="" /> : <div style={{ width: '100%', height: '100%', background: '#ddd' }} />}
                                                                                 </div>
                                                                             )
@@ -522,8 +524,8 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                                                         })()
                                                                         const appleEmojiUrl = `https://emojicdn.elk.sh/${emoji}?style=apple`
                                                                         return (
-                                                                            <div key={li} title={lang.label} style={{ width: size, height: size, minWidth: size, borderRadius: '50%', background: isActive ? '#fff' : 'rgba(255, 255, 255, 0.5)', border: isActive ? '0.5px solid #fff' : '1px solid rgba(0, 0, 0, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: 'none', opacity: isActive ? 1 : 0.6 }}>
-                                                                                <img src={appleEmojiUrl} style={{ width: size * 0.7, height: size * 0.7, objectFit: 'contain' }} alt="" />
+                                                                            <div key={li} title={lang.label} style={{ width: size, height: size, minWidth: size, borderRadius: '50%', background: isActive ? '#fff' : 'rgba(255, 255, 255, 0.5)', border: isActive ? '0.25px solid #fff' : '0.25px solid #fff', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: 'none', opacity: isActive ? 1 : 0.6 }}>
+                                                                                <img src={appleEmojiUrl} style={{ width: size * 0.9, height: size * 0.9, objectFit: 'contain' }} alt="" />
                                                                             </div>
                                                                         )
                                                                     })
@@ -689,7 +691,8 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                 </div>
                             )}
                         </div>
-                    ))}
+                        )
+                    })}
                 </div>
             ))}
         </div>

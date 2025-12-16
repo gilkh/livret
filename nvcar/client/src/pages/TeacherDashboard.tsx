@@ -18,13 +18,7 @@ export default function TeacherDashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
-  const isAssignmentCompletedForActiveSemester = (assignment: { isCompleted?: boolean; isCompletedSem1?: boolean; isCompletedSem2?: boolean }) => {
-    const semester = activeYear?.activeSemester || 1
-    if (semester === 2) {
-      return !!assignment.isCompletedSem2
-    }
-    return !!assignment.isCompletedSem1 || !!assignment.isCompleted
-  }
+  const activeSemester = activeYear?.activeSemester || 1
 
   useEffect(() => {
     const loadClasses = async () => {
@@ -33,16 +27,14 @@ export default function TeacherDashboard() {
         const r = await api.get(`/teacher/classes?schoolYearId=${activeYearId}`)
         setClasses(r.data)
 
+        const semester = activeSemester
+
         const statsPromises = r.data.map((c: ClassDoc) =>
           api
-            .get(`/teacher/classes/${c._id}/assignments`)
+            .get(`/teacher/classes/${c._id}/completion-stats?semester=${semester}`)
             .then(res => {
-              const assignments = res.data as { isCompleted?: boolean; isCompletedSem1?: boolean; isCompletedSem2?: boolean }[]
-              const totalAssignments = assignments.length
-              const completedAssignments = assignments.filter(a => isAssignmentCompletedForActiveSemester(a)).length
-              const completionPercentage =
-                totalAssignments > 0 ? Math.round((completedAssignments / totalAssignments) * 100) : 0
-              return { classId: c._id, stats: { totalAssignments, completedAssignments, completionPercentage } }
+              const stats = res.data as CompletionStats
+              return { classId: c._id, stats }
             })
             .catch(() => ({ classId: c._id, stats: null }))
         )
@@ -85,6 +77,7 @@ export default function TeacherDashboard() {
         <div style={{ marginBottom: 24 }}>
           <h2 className="title" style={{ fontSize: 32, marginBottom: 8, color: '#1e293b' }}>📚 Mes Classes</h2>
           <div className="note" style={{ fontSize: 14 }}>Sélectionnez une classe pour voir les élèves et gérer leurs carnets.</div>
+          <div className="note" style={{ fontSize: 14, marginTop: 6 }}>Semestre actif : S{activeSemester}</div>
         </div>
 
         {loading && <div className="note" style={{ textAlign: 'center', padding: 24 }}>Chargement...</div>}

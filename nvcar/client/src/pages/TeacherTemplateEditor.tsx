@@ -297,6 +297,17 @@ export default function TeacherTemplateEditor() {
                                 {student.className}
                             </span>
                         )}
+                        <span style={{
+                            fontSize: 14,
+                            background: activeSemester === 2 ? '#dbeafe' : '#fef3c7',
+                            color: activeSemester === 2 ? '#1e40af' : '#92400e',
+                            padding: '4px 10px',
+                            borderRadius: 16,
+                            fontWeight: 700,
+                            border: `1px solid ${activeSemester === 2 ? '#93c5fd' : '#fcd34d'}`
+                        }}>
+                            S{activeSemester}
+                        </span>
                     </h2>
                     <div className="note" style={{ fontSize: 15, color: '#64748b', marginBottom: 8 }}>
                         📚 {template.name}
@@ -485,7 +496,9 @@ export default function TeacherTemplateEditor() {
                                 )}
 
                                 <div className="page-margins" />
-                                {page.blocks.map((b, idx) => (
+                                {page.blocks.map((b, idx) => {
+                                    if (!b || !b.props) return null;
+                                    return (
                                     <div key={idx} style={{ position: 'absolute', left: b.props.x || 0, top: b.props.y || 0, zIndex: b.props.z ?? idx, padding: 6 }}>
                                         {b.type === 'text' && <div style={{ color: b.props.color, fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden', whiteSpace: 'pre-wrap' }}>{b.props.text}</div>}
                                         {b.type === 'image' && <img src={fixUrl(b.props.url)} style={{ width: b.props.width || 120, height: b.props.height || 120, borderRadius: 8 }} alt="" />}
@@ -585,7 +598,7 @@ export default function TeacherTemplateEditor() {
                                                                 minWidth: size,
                                                                 borderRadius: '50%',
                                                                 background: it.active ? '#fff' : 'rgba(255, 255, 255, 0.5)',
-                                                                border: it.active ? '2px solid #2563eb' : '1px solid rgba(0, 0, 0, 0.1)',
+                                                                border: it.active ? '2px solid #2563eb' : '0.25px solid #fff',
                                                                 display: 'flex',
                                                                 alignItems: 'center',
                                                                 justifyContent: 'center',
@@ -608,9 +621,9 @@ export default function TeacherTemplateEditor() {
                                                             onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)'}
                                                         >
                                                             {emoji ? (
-                                                                <img src={appleEmojiUrl} style={{ width: size * 0.75, height: size * 0.75, objectFit: 'contain' }} alt="" />
+                                                                <img src={appleEmojiUrl} style={{ width: size * 0.9, height: size * 0.9, objectFit: 'contain' }} alt="" />
                                                             ) : it.logo ? (
-                                                                <img src={fixUrl(it.logo)} style={{ width: size * 0.75, height: size * 0.75, objectFit: 'contain' }} alt="" />
+                                                                <img src={fixUrl(it.logo)} style={{ width: size * 0.9, height: size * 0.9, objectFit: 'contain' }} alt="" />
                                                             ) : (
                                                                 <span style={{ fontSize: 20, lineHeight: 1 }}>{getEmoji(it)}</span>
                                                             )}
@@ -1000,10 +1013,12 @@ export default function TeacherTemplateEditor() {
                                                                                                         position: 'relative',
                                                                                                         boxShadow: isActive ? '0 0 0 2px #6c5ce7' : 'none',
                                                                                                         opacity: (canEdit && isAllowed) ? (isActive ? 1 : 0.6) : 0.5,
-                                                                                                        cursor: (canEdit && isAllowed) ? 'pointer' : 'default'
+                                                                                                        cursor: (canEdit && isAllowed) ? 'pointer' : 'default',
+                                                                                                        zIndex: 100
                                                                                                     }}
-                                                                                                    onClick={async (e) => {
+                                                                                                    onMouseDown={async (e) => {
                                                                                                         e.stopPropagation()
+                                                                                                        e.preventDefault()
                                                                                                         if (!canEdit || !isAllowed) return
                                                                                                         const newItems = [...currentItems]
                                                                                                         newItems[li] = { ...newItems[li], active: !newItems[li].active }
@@ -1046,17 +1061,19 @@ export default function TeacherTemplateEditor() {
                                                                                                     minWidth: size,
                                                                                                     borderRadius: '50%',
                                                                                                     background: isActive ? '#fff' : 'rgba(255, 255, 255, 0.5)',
-                                                                                                    border: isActive ? '0.5px solid #fff' : '1px solid rgba(0, 0, 0, 0.1)',
+                                                                                                    border: isActive ? '0.25px solid #fff' : '0.25px solid #fff',
                                                                                                     display: 'flex',
                                                                                                     alignItems: 'center',
                                                                                                     justifyContent: 'center',
                                                                                                     transform: isActive ? 'scale(1.1)' : 'scale(1)',
                                                                                                     boxShadow: 'none',
                                                                                                     opacity: (canEdit && isAllowed) ? (isActive ? 1 : 0.6) : 0.5,
-                                                                                                    cursor: (canEdit && isAllowed) ? 'pointer' : 'default'
+                                                                                                    cursor: (canEdit && isAllowed) ? 'pointer' : 'default',
+                                                                                                    zIndex: 100
                                                                                                 }}
-                                                                                                onClick={async (e) => {
+                                                                                                onMouseDown={async (e) => {
                                                                                                     e.stopPropagation()
+                                                                                                    e.preventDefault()
                                                                                                     if (!canEdit || !isAllowed) return
                                                                                                     const newItems = [...currentItems]
                                                                                                     newItems[li] = { ...newItems[li], active: !newItems[li].active }
@@ -1072,7 +1089,7 @@ export default function TeacherTemplateEditor() {
                                                                                                     }
                                                                                                 }}
                                                                                             >
-                                                                                                <img src={appleEmojiUrl} style={{ width: size * 0.7, height: size * 0.7, objectFit: 'contain' }} alt="" />
+                                                                                                <img src={appleEmojiUrl} style={{ width: size * 0.9, height: size * 0.9, objectFit: 'contain' }} alt="" />
                                                                                             </div>
                                                                                         )
                                                                                     })
@@ -1230,7 +1247,8 @@ export default function TeacherTemplateEditor() {
                                             </div>
                                         )}
                                     </div>
-                                ))}
+                                    )
+                                })}
                             </div>
                         )
                     })}

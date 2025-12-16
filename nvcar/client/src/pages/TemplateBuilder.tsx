@@ -19,6 +19,14 @@ export default function TemplateBuilder() {
   const navigate = useNavigate()
   const { levels } = useLevels()
   const [viewMode, setViewMode] = useState<'list' | 'edit'>('list')
+  const [userRole, setUserRole] = useState<string>('')
+  const [isEditionMode, setIsEditionMode] = useState(false)
+
+  useEffect(() => {
+    const role = sessionStorage.getItem('role') || localStorage.getItem('role')
+    if (role) setUserRole(role)
+  }, [])
+
   const [tpl, setTpl] = useState<Template>({ name: 'Nouveau Template', pages: [{ title: 'Page 1', blocks: [] }] })
   const [studentId, setStudentId] = useState('')
   const [classId, setClassId] = useState('')
@@ -1375,6 +1383,18 @@ export default function TemplateBuilder() {
               {tpl.name || 'Sans titre'}
             </h2>
           </div>
+          {userRole === 'prefet' && (
+            <div style={{ marginLeft: 16, display: 'flex', alignItems: 'center', gap: 8, background: '#f0f4ff', padding: '4px 12px', borderRadius: 8, border: '1px solid #6c5ce7' }}>
+              <input
+                type="checkbox"
+                id="edition-mode"
+                checked={isEditionMode}
+                onChange={e => setIsEditionMode(e.target.checked)}
+                style={{ cursor: 'pointer', width: 16, height: 16 }}
+              />
+              <label htmlFor="edition-mode" style={{ fontSize: 14, fontWeight: 600, color: '#6c5ce7', cursor: 'pointer' }}>Mode Édition</label>
+            </div>
+          )}
         </div>
         <button
           className="btn"
@@ -2014,6 +2034,7 @@ export default function TemplateBuilder() {
                       />
                     ))}
                     {page.blocks.map((b, idx) => {
+                      if (!b || !b.props) return null;
                       const isSelected = (selectedIndex === idx || selectedIndices.includes(idx)) && selectedPage === pageIndex
                       return (
                         <div
@@ -2091,8 +2112,11 @@ export default function TemplateBuilder() {
                                 const r = b.props.radius || 40
                                 const size = r * 2
                                 return (
-                                  <div key={i} style={{ width: size, height: size, borderRadius: '50%', overflow: 'hidden', position: 'relative', cursor: 'pointer', boxShadow: it.active ? '0 0 0 2px #6c5ce7' : 'none' }}
-                                    onClick={(ev) => { ev.stopPropagation(); const pages = [...tpl.pages]; const page = { ...pages[selectedPage] }; const blocks = [...page.blocks]; const items = [...(blocks[idx].props.items || [])]; items[i] = { ...items[i], active: !items[i].active }; blocks[idx] = { ...blocks[idx], props: { ...blocks[idx].props, items } }; pages[selectedPage] = { ...page, blocks }; setTpl({ ...tpl, pages }) }}>
+                                  <div key={i} style={{ width: size, height: size, borderRadius: '50%', overflow: 'hidden', position: 'relative', cursor: (userRole === 'prefet' && !isEditionMode) ? 'default' : 'pointer', boxShadow: it.active ? '0 0 0 2px #6c5ce7' : 'none' }}
+                                    onClick={(ev) => {
+                                      if (userRole === 'prefet' && !isEditionMode) return
+                                      ev.stopPropagation(); const pages = [...tpl.pages]; const page = { ...pages[selectedPage] }; const blocks = [...page.blocks]; const items = [...(blocks[idx].props.items || [])]; items[i] = { ...items[i], active: !items[i].active }; blocks[idx] = { ...blocks[idx], props: { ...blocks[idx].props, items } }; pages[selectedPage] = { ...page, blocks }; setTpl({ ...tpl, pages })
+                                    }}>
                                     {it.logo ? <img src={it.logo} style={{ width: '100%', height: '100%', objectFit: 'cover', filter: it.active ? 'brightness(1.1)' : 'brightness(0.6)' }} /> : <div style={{ width: '100%', height: '100%', background: '#ddd' }} />}
                                   </div>
                                 )
@@ -2135,11 +2159,11 @@ export default function TemplateBuilder() {
                                       minWidth: size, // Prevent shrinking
                                       borderRadius: '50%',
                                       background: it.active ? '#fff' : 'rgba(255, 255, 255, 0.5)',
-                                      border: it.active ? '2px solid #2563eb' : '1px solid rgba(0, 0, 0, 0.1)',
+                                      border: it.active ? '2px solid #2563eb' : '0.25px solid #fff',
                                       display: 'flex',
                                       alignItems: 'center',
                                       justifyContent: 'center',
-                                      cursor: 'pointer',
+                                      cursor: (userRole === 'prefet' && !isEditionMode) ? 'default' : 'pointer',
                                       transition: 'all 0.2s ease',
                                       transform: it.active ? 'scale(1.1)' : 'scale(1)',
                                       boxShadow: it.active ? '0 0 0 2px rgba(37, 99, 235, 0.2)' : 'none',
@@ -2147,6 +2171,7 @@ export default function TemplateBuilder() {
                                       opacity: it.active ? 1 : 0.5
                                     }}
                                     onClick={(ev) => {
+                                      if (userRole === 'prefet' && !isEditionMode) return
                                       ev.stopPropagation();
                                       const pages = [...tpl.pages];
                                       const page = { ...pages[selectedPage] };
@@ -2160,7 +2185,7 @@ export default function TemplateBuilder() {
                                     onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.2)'}
                                     onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)'}
                                   >
-                                    <img src={appleEmojiUrl} style={{ width: size * 0.75, height: size * 0.75, objectFit: 'contain' }} alt="" />
+                                    <img src={appleEmojiUrl} style={{ width: size * 0.9, height: size * 0.9, objectFit: 'contain' }} alt="" />
                                   </div>
                                 )
                               })}
@@ -2285,7 +2310,7 @@ export default function TemplateBuilder() {
                                   borderRadius: 4,
                                   border: '1px solid #ccc',
                                   background: '#fff',
-                                  cursor: 'pointer',
+                                  cursor: (userRole === 'prefet' && !isEditionMode) ? 'default' : 'pointer',
                                   position: 'relative',
                                   display: 'flex',
                                   alignItems: 'center',
@@ -2293,6 +2318,7 @@ export default function TemplateBuilder() {
                                   whiteSpace: 'pre-wrap'
                                 }}
                                 onClick={(e) => {
+                                  if (userRole === 'prefet' && !isEditionMode) return
                                   e.stopPropagation()
                                   const key = `dropdown_${selectedPage}_${idx}`
                                   setOpenDropdown(openDropdown === key ? null : key)
@@ -2328,6 +2354,7 @@ export default function TemplateBuilder() {
                                   <div
                                     style={{ padding: '8px 12px', cursor: 'pointer', fontSize: b.props.fontSize || 12, color: '#999', borderBottom: '1px solid #eee' }}
                                     onClick={(e) => {
+                                      if (userRole === 'prefet' && !isEditionMode) return
                                       e.stopPropagation()
                                       if (b.props.variableName) {
                                         setPreviewData({ ...previewData, [b.props.variableName]: '' })
@@ -2352,10 +2379,11 @@ export default function TemplateBuilder() {
                                         wordWrap: 'break-word',
                                         whiteSpace: 'pre-wrap',
                                         borderBottom: i < (b.props.options || []).length - 1 ? '1px solid #eee' : 'none'
-                                      }}
-                                      onClick={(e) => {
-                                        e.stopPropagation()
-                                        if (b.props.variableName) {
+                                    }}
+                                    onClick={(e) => {
+                                      if (userRole === 'prefet' && !isEditionMode) return
+                                      e.stopPropagation()
+                                      if (b.props.variableName) {
                                           setPreviewData({ ...previewData, [b.props.variableName]: opt })
                                         }
                                         if (b.props.dropdownNumber) {
@@ -2583,35 +2611,41 @@ export default function TemplateBuilder() {
                                                   const isActive = lang.active
 
                                                   const onToggle = (ev: any) => {
-                                                    ev.stopPropagation()
-                                                    const pages = [...tpl.pages]
-                                                    const page = { ...pages[selectedPage] }
-                                                    const blocks = [...page.blocks]
-                                                    const block = { ...blocks[idx] }
-                                                    const props = { ...block.props }
+                                                  if (userRole === 'prefet' && !isEditionMode) return
+                                                  ev.stopPropagation()
+                                                  ev.preventDefault()
 
-                                                    const isCustom = props.rowLanguages && props.rowLanguages[ri]
-                                                    if (isCustom) {
-                                                      const rl = [...(props.rowLanguages || [])]
-                                                      const rowL = [...(rl[ri] || [])]
-                                                      rowL[li] = { ...rowL[li], active: !isActive }
-                                                      rl[ri] = rowL
-                                                      props.rowLanguages = rl
-                                                    } else {
-                                                      const el = [...(props.expandedLanguages || [
-                                                        { code: 'fr', label: 'French', emoji: '🇫🇷', active: false },
-                                                        { code: 'en', label: 'English', emoji: '🇬🇧', active: false },
-                                                        { code: 'ar', label: 'Lebanese', emoji: '🇱🇧', active: false }
-                                                      ])]
-                                                      el[li] = { ...el[li], active: !isActive }
-                                                      props.expandedLanguages = el
-                                                    }
+                                                    // Force UI update inside RAF to prevent blocking
+                                                    requestAnimationFrame(() => {
+                                                        const pages = [...tpl.pages]
+                                                        const page = { ...pages[selectedPage] }
+                                                        const blocks = [...page.blocks]
+                                                        const block = { ...blocks[idx] }
+                                                        const props = { ...block.props }
 
-                                                    block.props = props
-                                                    blocks[idx] = block
-                                                    page.blocks = blocks
-                                                    pages[selectedPage] = page
-                                                    setTpl({ ...tpl, pages })
+                                                        // Always ensure we are working with a custom row configuration
+                                                        const rl = [...(props.rowLanguages || [])]
+                                                        
+                                                        // If this row doesn't have a custom config yet, initialize it from the current state (which comes from expandedLanguages)
+                                                        if (!rl[ri]) {
+                                                            // Deep copy current rowLangs to break reference
+                                                            rl[ri] = JSON.parse(JSON.stringify(rowLangs))
+                                                        } else {
+                                                            rl[ri] = [...rl[ri]]
+                                                        }
+
+                                                        // Now toggle the specific item
+                                                        rl[ri][li] = { ...rl[ri][li], active: !isActive }
+                                                        
+                                                        props.rowLanguages = rl
+
+                                                        block.props = props
+                                                        blocks[idx] = block
+                                                        page.blocks = blocks
+                                                        pages[selectedPage] = page
+                                                        
+                                                        setTpl({ ...tpl, pages })
+                                                    })
                                                   }
 
                                                   if (toggleStyle === 'v1') {
@@ -2624,9 +2658,8 @@ export default function TemplateBuilder() {
                                                     })()
 
                                                     return (
-                                                      <div key={li} style={{ width: size, height: size, borderRadius: '50%', overflow: 'hidden', position: 'relative', cursor: 'pointer', boxShadow: isActive ? '0 0 0 2px #6c5ce7' : 'none', opacity: isActive ? 1 : 0.6 }}
-                                                        onClick={onToggle}
-                                                        onMouseDown={(ev) => ev.stopPropagation()}
+                                                      <div key={li} style={{ width: size, height: size, borderRadius: '50%', overflow: 'hidden', position: 'relative', cursor: (userRole === 'prefet' && !isEditionMode) ? 'default' : 'pointer', boxShadow: isActive ? '0 0 0 2px #6c5ce7' : 'none', opacity: isActive ? 1 : 0.6, zIndex: 100 }}
+                                                        onMouseDown={onToggle}
                                                       >
                                                         {logo ? <img src={logo} style={{ width: '100%', height: '100%', objectFit: 'cover', filter: isActive ? 'brightness(1.1)' : 'brightness(0.6)' }} /> : <div style={{ width: '100%', height: '100%', background: '#ddd' }} />}
                                                       </div>
@@ -2655,20 +2688,21 @@ export default function TemplateBuilder() {
                                                         minWidth: size,
                                                         borderRadius: '50%',
                                                         background: isActive ? '#fff' : 'rgba(255, 255, 255, 0.5)',
-                                                        border: isActive ? '0.5px solid #fff' : '1px solid rgba(0, 0, 0, 0.1)',
+                                                        border: isActive ? '0.25px solid #fff' : '0.25px solid #fff',
                                                         display: 'flex',
                                                         alignItems: 'center',
                                                         justifyContent: 'center',
-                                                        cursor: 'pointer',
+                                                        cursor: (userRole === 'prefet' && !isEditionMode) ? 'default' : 'pointer',
                                                         transition: 'all 0.2s ease',
                                                         transform: isActive ? 'scale(1.1)' : 'scale(1)',
                                                         boxShadow: 'none',
-                                                        opacity: isActive ? 1 : 0.6
+                                                        opacity: isActive ? 1 : 0.6,
+                                                        position: 'relative',
+                                                        zIndex: 100
                                                       }}
-                                                      onClick={onToggle}
-                                                      onMouseDown={(ev) => ev.stopPropagation()}
+                                                      onMouseDown={onToggle}
                                                     >
-                                                      <img src={appleEmojiUrl} style={{ width: size * 0.7, height: size * 0.7, objectFit: 'contain' }} alt="" />
+                                                      <img src={appleEmojiUrl} style={{ width: size * 0.9, height: size * 0.9, objectFit: 'contain' }} alt="" />
                                                     </div>
                                                   )
                                                 })
@@ -2868,14 +2902,17 @@ export default function TemplateBuilder() {
                     </div>
                   </div>
                   <div style={{ width: '100%', aspectRatio: `${pageWidth}/${pageHeight}`, background: page.bgColor || '#fff', border: '1px solid #ccc', borderRadius: 4, overflow: 'hidden', position: 'relative', cursor: 'pointer', transform: 'scale(0.95)' }} onClick={() => setSelectedPage(idx)}>
-                    {page.blocks.map((b, bidx) => (
+                    {page.blocks.map((b, bidx) => {
+                      if (!b || !b.props) return null;
+                      return (
                       <div key={bidx} style={{ position: 'absolute', left: `${((b.props.x || 0) / pageWidth) * 100}%`, top: `${((b.props.y || 0) / pageHeight) * 100}%`, fontSize: 6, opacity: 0.7 }}>
                         {b.type === 'text' && <div style={{ color: b.props.color, fontSize: (b.props.fontSize || 12) * 0.3 }}>{(b.props.text || '').slice(0, 20)}</div>}
                         {b.type === 'image' && <img src={b.props.url} style={{ width: (b.props.width || 120) * 0.3, height: (b.props.height || 120) * 0.3, borderRadius: 2 }} />}
                         {b.type === 'rect' && <div style={{ width: (b.props.width || 80) * 0.3, height: (b.props.height || 80) * 0.3, background: b.props.color, borderRadius: 2 }} />}
                         {b.type === 'signature_box' && <div style={{ width: (b.props.width || 200) * 0.3, height: (b.props.height || 80) * 0.3, border: '0.5px solid #000', background: '#fff' }} />}
                       </div>
-                    ))}
+                      )
+                    })}
                   </div>
                   <div style={{ marginTop: 8, display: 'flex', justifyContent: 'center' }}>
                     <button className="btn secondary" style={{ padding: '4px 12px', fontSize: 11 }} onClick={() => {

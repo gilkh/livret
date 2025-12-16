@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import api from '../api'
 import ProgressionChart from '../components/ProgressionChart'
+import { useSchoolYear } from '../context/SchoolYearContext'
 
 type Teacher = { _id: string; email: string; displayName: string }
 type PendingTemplate = {
@@ -44,6 +45,7 @@ export default function SubAdminDashboard() {
     const isAefeUser = location.pathname.includes('/aefe')
     const apiPrefix = isAefeUser ? '/aefe' : '/subadmin'
     const routePrefix = isAefeUser ? '/aefe' : '/subadmin'
+    const { activeYear, isLoading: schoolYearLoading } = useSchoolYear()
     const [teachers, setTeachers] = useState<Teacher[]>([])
     const [pending, setPending] = useState<PendingTemplate[]>([])
     const [classes, setClasses] = useState<ClassInfo[]>([])
@@ -77,10 +79,22 @@ export default function SubAdminDashboard() {
         loadData()
     }, [apiPrefix])
 
+    const isSem1Signed = (p: PendingTemplate) => {
+        return !!(p.signatures?.standard || p.signature)
+    }
+
+    const isSem2Signed = (p: PendingTemplate) => {
+        return !!p.signatures?.final
+    }
+
+    const isAnySigned = (p: PendingTemplate) => {
+        return isSem1Signed(p) || isSem2Signed(p)
+    }
+
     const filteredPending = pending.filter(p => {
         if (filter === 'all') return true
-        if (filter === 'signed') return !!p.signature
-        if (filter === 'unsigned') return !p.signature
+        if (filter === 'signed') return isAnySigned(p)
+        if (filter === 'unsigned') return !isAnySigned(p)
         return true
     })
 
@@ -101,6 +115,7 @@ export default function SubAdminDashboard() {
     }
 
     const groupedTemplates = groupTemplates(filteredPending)
+    const groupedAllTemplates = groupTemplates(pending)
     const sortedLevels = Object.keys(groupedTemplates).sort()
 
     const toggleClass = (level: string, className: string) => {
@@ -110,23 +125,45 @@ export default function SubAdminDashboard() {
 
     // Calculate statistics
     const totalStudents = pending.length
-    const signedCount = pending.filter(p => p.signature).length
-    const completionPercentage = totalStudents > 0 ? Math.round((signedCount / totalStudents) * 100) : 0
-    
-    const levelStats = Object.keys(groupedTemplates).reduce((acc, level) => {
-        const templatesInLevel = Object.values(groupedTemplates[level]).flat()
-        const total = templatesInLevel.length
-        const signed = templatesInLevel.filter(t => t.signature).length
-        const percentage = total > 0 ? Math.round((signed / total) * 100) : 0
-        acc[level] = { total, signed, percentage }
-        return acc
-    }, {} as Record<string, { total: number, signed: number, percentage: number }>)
+    const sem1SignedCount = pending.filter(isSem1Signed).length
+    const sem2SignedCount = pending.filter(isSem2Signed).length
 
-    const breakdown = Object.entries(levelStats).map(([level, stats]) => ({
-        label: level,
-        total: stats.total,
-        completed: stats.signed
-    })).sort((a, b) => a.label.localeCompare(b.label));
+    const levelStatsSem1 = Object.keys(groupedAllTemplates).reduce((acc, level) => {
+        const templatesInLevel = Object.values(groupedAllTemplates[level]).flat()
+        const total = templatesInLevel.length
+        const signed = templatesInLevel.filter(isSem1Signed).length
+        acc[level] = { total, signed }
+        return acc
+    }, {} as Record<string, { total: number, signed: number }>)
+
+    const breakdownSem1 = Object.entries(levelStatsSem1)
+        .map(([level, stats]) => ({
+            label: level,
+            total: stats.total,
+            completed: stats.signed
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label))
+
+    const levelStatsSem2 = Object.keys(groupedAllTemplates).reduce((acc, level) => {
+        const templatesInLevel = Object.values(groupedAllTemplates[level]).flat()
+        const total = templatesInLevel.length
+        const signed = templatesInLevel.filter(isSem2Signed).length
+        acc[level] = { total, signed }
+        return acc
+    }, {} as Record<string, { total: number, signed: number }>)
+
+    const breakdownSem2 = Object.entries(levelStatsSem2)
+        .map(([level, stats]) => ({
+            label: level,
+            total: stats.total,
+            completed: stats.signed
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label))
+
+    const activeSemester = activeYear?.activeSemester === 2 ? 2 : 1
+    const activeSemesterLabel = activeSemester === 1 ? 'Semestre 1' : 'Semestre 2'
+    const activeCompletedCount = activeSemester === 1 ? sem1SignedCount : sem2SignedCount
+    const activeBreakdown = activeSemester === 1 ? breakdownSem1 : breakdownSem2
 
     return (
         <div className="container">
@@ -141,12 +178,76 @@ export default function SubAdminDashboard() {
 
                 {/* Global Statistics Bar */}
                 {!loading && (
-                    <ProgressionChart 
-                        title="📊 Progression Globale"
-                        total={totalStudents}
-                        completed={signedCount}
-                        breakdown={breakdown}
-                    />
+                    <div style={{ marginBottom: 28 }}>
+                        <div style={{ 
+                            display: 'flex', 
+                            alignItems: 'flex-end', 
+                            justifyContent: 'space-between',
+                            flexWrap: 'wrap',
+                            gap: 12,
+                            marginBottom: 12
+                        }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                <h3 style={{ margin: 0, fontSize: 22, color: '#1e293b', fontWeight: 700 }}>📊 Progression Globale</h3>
+                                <div className="note" style={{ fontSize: 13 }}>
+                                    {schoolYearLoading ? 'Année scolaire…' : activeYear?.name ? activeYear.name : 'Année scolaire'}
+                                    <span style={{ color: '#94a3b8', margin: '0 8px' }}>•</span>
+                                    <span style={{ 
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        padding: '2px 10px',
+                                        borderRadius: 999,
+                                        border: '1px solid #bfdbfe',
+                                        background: '#eff6ff',
+                                        color: '#1d4ed8',
+                                        fontWeight: 600
+                                    }}>
+                                        {activeSemesterLabel} actif
+                                    </span>
+                                </div>
+                            </div>
+
+                            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                                <div style={{ 
+                                    padding: '10px 12px',
+                                    borderRadius: 12,
+                                    border: '1px solid #e2e8f0',
+                                    background: '#ffffff',
+                                    minWidth: 140
+                                }}>
+                                    <div style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>Élèves</div>
+                                    <div style={{ fontSize: 20, color: '#0f172a', fontWeight: 800, marginTop: 2 }}>{totalStudents}</div>
+                                </div>
+                                <div style={{ 
+                                    padding: '10px 12px',
+                                    borderRadius: 12,
+                                    border: '1px solid #bbf7d0',
+                                    background: '#f0fdf4',
+                                    minWidth: 140
+                                }}>
+                                    <div style={{ fontSize: 12, color: '#166534', fontWeight: 700 }}>Signés ({activeSemesterLabel})</div>
+                                    <div style={{ fontSize: 20, color: '#065f46', fontWeight: 800, marginTop: 2 }}>{activeCompletedCount}</div>
+                                </div>
+                                <div style={{ 
+                                    padding: '10px 12px',
+                                    borderRadius: 12,
+                                    border: '1px solid #fed7aa',
+                                    background: '#fff7ed',
+                                    minWidth: 140
+                                }}>
+                                    <div style={{ fontSize: 12, color: '#9a3412', fontWeight: 700 }}>Restants ({activeSemesterLabel})</div>
+                                    <div style={{ fontSize: 20, color: '#7c2d12', fontWeight: 800, marginTop: 2 }}>{Math.max(0, totalStudents - activeCompletedCount)}</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <ProgressionChart 
+                            title={`Détails — ${activeSemesterLabel}`}
+                            total={totalStudents}
+                            completed={activeCompletedCount}
+                            breakdown={activeBreakdown}
+                        />
+                    </div>
                 )}
 
                 {/* Promoted Students Section */}
@@ -263,7 +364,8 @@ export default function SubAdminDashboard() {
                                     const templates = groupedTemplates[level][className]
                                     const key = `${level}-${className}`
                                     const isExpanded = expandedClasses[key]
-                                    const signedCount = templates.filter(t => t.signature).length
+                                    const sem1SignedInClass = templates.filter(isSem1Signed).length
+                                    const sem2SignedInClass = templates.filter(isSem2Signed).length
                                     const totalCount = templates.length
                                     
                                     return (
@@ -285,7 +387,9 @@ export default function SubAdminDashboard() {
                                                     <span style={{ fontWeight: 600, color: '#1e293b' }}>{className}</span>
                                                 </div>
                                                 <div style={{ fontSize: 14, color: '#64748b' }}>
-                                                    <span style={{ color: '#10b981', fontWeight: 600 }}>{signedCount}</span> / {totalCount} signés
+                                                    <span style={{ color: '#334155', fontWeight: 600 }}>S1</span> {sem1SignedInClass}/{totalCount}
+                                                    <span style={{ color: '#94a3b8', margin: '0 8px' }}>•</span>
+                                                    <span style={{ color: '#334155', fontWeight: 600 }}>S2</span> {sem2SignedInClass}/{totalCount}
                                                 </div>
                                             </div>
                                             

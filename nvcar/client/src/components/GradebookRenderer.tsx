@@ -240,7 +240,9 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                             boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
                         }}
                     >
-                        {page.blocks.map((b, blockIdx) => (
+                        {page.blocks.map((b, blockIdx) => {
+                            if (!b || !b.props) return null;
+                            return (
                             <div key={blockIdx} style={{ position: 'absolute', left: b.props.x || 0, top: b.props.y || 0, zIndex: b.props.z ?? blockIdx }}>
                                 {b.type === 'text' && (
                                     <div style={{ color: b.props.color, fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden', whiteSpace: 'pre-wrap' }}>{b.props.text}</div>
@@ -311,7 +313,7 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                                             minWidth: size,
                                                             borderRadius: '50%',
                                                             background: it.active ? '#fff' : 'rgba(255, 255, 255, 0.5)',
-                                                            border: it.active ? '2px solid #2563eb' : '1px solid rgba(0, 0, 0, 0.1)',
+                                                            border: it.active ? '2px solid #2563eb' : '0.25px solid #fff',
                                                             display: 'flex',
                                                             alignItems: 'center',
                                                             justifyContent: 'center',
@@ -321,7 +323,7 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                                             filter: 'none'
                                                         }}
                                                     >
-                                                        <img src={appleEmojiUrl} style={{ width: size * 0.75, height: size * 0.75, objectFit: 'contain' }} alt="" />
+                                                        <img src={appleEmojiUrl} style={{ width: size * 0.9, height: size * 0.9, objectFit: 'contain' }} alt="" />
                                                     </div>
                                                 )
                                             })
@@ -698,7 +700,7 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                                                                             minWidth: size,
                                                                                             borderRadius: '50%',
                                                                                             background: isActive ? '#fff' : 'rgba(255, 255, 255, 0.5)',
-                                                                                            border: isActive ? '2px solid #2563eb' : '1px solid rgba(0, 0, 0, 0.1)',
+                                                                                            border: isActive ? '2px solid #2563eb' : '0.25px solid #fff',
                                                                                             display: 'flex',
                                                                                             alignItems: 'center',
                                                                                             justifyContent: 'center',
@@ -707,7 +709,7 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                                                                             opacity: isActive ? 1 : 0.6
                                                                                         }}
                                                                                     >
-                                                                                        <img src={appleEmojiUrl} style={{ width: size * 0.7, height: size * 0.7, objectFit: 'contain' }} alt="" />
+                                                                                        <img src={appleEmojiUrl} style={{ width: size * 0.9, height: size * 0.9, objectFit: 'contain' }} alt="" />
                                                                                     </div>
                                                                                 )
                                                                             })
@@ -869,7 +871,8 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                 {b.type === 'competency_list' && <div style={{ color: b.props.color, fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden' }}>Liste des compétences</div>}
                                 {b.type === 'signature' && <div style={{ fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden' }}>{(b.props.labels || []).join(' / ')}</div>}
                             </div>
-                        ))}
+                            )
+                        })}
                     </div>
                 ))}
         </div>
