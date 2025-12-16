@@ -154,58 +154,9 @@ export const signTemplateAssignment = async ({
         })
     }
 
-    // Update assignment status
-    // If any signature is added, we consider it signed.
     if (assignment.status !== 'signed') {
         assignment.status = 'signed'
         await assignment.save()
-    }
-
-    // If this is a final signature, promote the student if not already promoted
-    if (type === 'end_of_year') {
-        const student = await Student.findById(assignment.studentId)
-        if (student && student.level) {
-            const nextLevel = await getNextLevel(student.level)
-            const activeSchoolYear = await SchoolYear.findOne({ active: true }).lean()
-            
-            if (nextLevel && activeSchoolYear) {
-                // Check if already promoted this year
-                const alreadyPromoted = student.promotions?.some((p: any) => p.schoolYearId === String(activeSchoolYear._id))
-                
-                if (!alreadyPromoted) {
-                    // Create promotion data
-                    const promotionData = {
-                        fromLevel: student.level,
-                        toLevel: nextLevel,
-                        date: new Date(),
-                        schoolYearId: String(activeSchoolYear._id),
-                        promotedBy: signerId
-                    }
-                    
-                    // Update student
-                    await Student.findByIdAndUpdate(student._id, {
-                        $push: { promotions: promotionData }
-                    })
-                    
-                    // Also save promotion info in the assignment data so it persists
-                    // We need to fetch assignment again or update the doc we have
-                    // But we already have assignment doc loaded
-                    const yearName = activeSchoolYear.name || new Date().getFullYear().toString()
-                    
-                    await TemplateAssignment.findByIdAndUpdate(templateAssignmentId, {
-                        $push: { 
-                            'data.promotions': {
-                                from: student.level,
-                                to: nextLevel,
-                                year: yearName,
-                                date: new Date(),
-                                by: signerId
-                            }
-                        }
-                    })
-                }
-            }
-        }
     }
 
     // Log audit

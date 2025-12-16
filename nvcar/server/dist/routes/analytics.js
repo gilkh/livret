@@ -2,12 +2,48 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.analyticsRouter = void 0;
 const express_1 = require("express");
+const User_1 = require("../models/User");
 const Class_1 = require("../models/Class");
+const Student_1 = require("../models/Student");
 const Enrollment_1 = require("../models/Enrollment");
 const TemplateAssignment_1 = require("../models/TemplateAssignment");
+const AuditLog_1 = require("../models/AuditLog");
 const StudentAcquiredSkill_1 = require("../models/StudentAcquiredSkill");
 const GradebookTemplate_1 = require("../models/GradebookTemplate");
 exports.analyticsRouter = (0, express_1.Router)();
+exports.analyticsRouter.get('/', async (req, res) => {
+    try {
+        const [userCount, classCount, studentCount, usersByRole, assignmentsByStatus, recentActivity] = await Promise.all([
+            User_1.User.countDocuments(),
+            Class_1.ClassModel.countDocuments(),
+            Student_1.Student.countDocuments(),
+            User_1.User.aggregate([
+                { $group: { _id: '$role', count: { $sum: 1 } } }
+            ]),
+            TemplateAssignment_1.TemplateAssignment.aggregate([
+                { $group: { _id: '$status', count: { $sum: 1 } } }
+            ]),
+            AuditLog_1.AuditLog.find().sort({ timestamp: -1 }).limit(10).lean()
+        ]);
+        const formatDistribution = (agg) => agg.reduce((acc, curr) => ({ ...acc, [curr._id || 'unknown']: curr.count }), {});
+        res.json({
+            counts: {
+                users: userCount,
+                classes: classCount,
+                students: studentCount
+            },
+            distribution: {
+                usersByRole: formatDistribution(usersByRole),
+                assignmentsByStatus: formatDistribution(assignmentsByStatus)
+            },
+            recentActivity
+        });
+    }
+    catch (error) {
+        console.error('Error fetching analytics:', error);
+        res.status(500).json({ error: 'Failed to fetch analytics' });
+    }
+});
 exports.analyticsRouter.get('/skills/:templateId', async (req, res) => {
     try {
         const { templateId } = req.params;

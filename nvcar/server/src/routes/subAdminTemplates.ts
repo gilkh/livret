@@ -478,7 +478,6 @@ subAdminTemplatesRouter.get('/pending-signatures', requireAuth(['SUBADMIN', 'AEF
             const classId = studentClassMap.get(String(assignment.studentId))
             const classInfo = classId ? classMap.get(classId) : null
             const level = classInfo?.level
-            const levelStartDate = promotionDateMap.get(String(assignment.studentId))
 
             const assignmentSignatures = signatureMap.get(String(assignment._id)) || []
             
@@ -494,11 +493,6 @@ subAdminTemplatesRouter.get('/pending-signatures', requireAuth(['SUBADMIN', 'AEF
                     
                     // Level check
                     if (s.level && level && s.level !== level) return false
-
-                    // Date check (reject signatures older than promotion)
-                    if (levelStartDate && s.signedAt) {
-                        if (new Date(s.signedAt).getTime() < levelStartDate.getTime()) return false
-                    }
                     
                     return true
                 })
@@ -1772,14 +1766,14 @@ subAdminTemplatesRouter.post('/templates/:assignmentId/unmark-done', requireAuth
     }
 })
 
-// Sub-admin: Update template data (e.g. language toggles)
+// Sub-admin: Update template data (e.g. language toggles or scoped data)
 subAdminTemplatesRouter.patch('/templates/:assignmentId/data', requireAuth(['SUBADMIN', 'AEFE']), async (req, res) => {
     try {
         const subAdminId = (req as any).user.userId
         const { assignmentId } = req.params
-        const { type, pageIndex, blockIndex, items } = req.body
+        const { type, pageIndex, blockIndex, items, data } = req.body
 
-        if (!type) return res.status(400).json({ error: 'missing_type' })
+        if (!type && !data) return res.status(400).json({ error: 'missing_payload' })
 
         // Get assignment
         const assignment = await TemplateAssignment.findById(assignmentId).lean()
@@ -1860,6 +1854,35 @@ subAdminTemplatesRouter.patch('/templates/:assignmentId/data', requireAuth(['SUB
                     pageIndex,
                     blockIndex,
                     items
+                },
+                req,
+            })
+
+            res.json({ success: true, assignment: updated })
+        } else if (data) {
+            const currentData = assignment.data || {}
+
+            const updated = await TemplateAssignment.findByIdAndUpdate(
+                assignmentId,
+                { 
+                    $set: { 
+                        data: { 
+                            ...currentData, 
+                            ...data 
+                        } 
+                    },
+                    status: assignment.status === 'draft' ? 'in_progress' : assignment.status
+                },
+                { new: true }
+            )
+
+            await logAudit({
+                userId: subAdminId,
+                action: 'UPDATE_TEMPLATE_DATA',
+                details: {
+                    assignmentId,
+                    type: type || 'generic',
+                    data
                 },
                 req,
             })

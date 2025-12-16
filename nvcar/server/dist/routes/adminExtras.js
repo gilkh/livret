@@ -13,6 +13,7 @@ const GradebookTemplate_1 = require("../models/GradebookTemplate");
 const SystemAlert_1 = require("../models/SystemAlert");
 const RoleScope_1 = require("../models/RoleScope");
 const SubAdminAssignment_1 = require("../models/SubAdminAssignment");
+const OutlookUser_1 = require("../models/OutlookUser");
 const TemplateSignature_1 = require("../models/TemplateSignature");
 const Student_1 = require("../models/Student");
 const AdminSignature_1 = require("../models/AdminSignature");
@@ -32,8 +33,12 @@ exports.adminExtrasRouter.get('/progress', (0, auth_1.requireAuth)(['ADMIN']), a
             schoolYearId: String(activeYear._id)
         }).lean();
         const teacherIds = [...new Set(teacherAssignments.map(ta => ta.teacherId))];
-        const teachers = await User_1.User.find({ _id: { $in: teacherIds } }).lean();
-        const teacherMap = new Map(teachers.map(t => [String(t._id), t]));
+        const [users, outlookUsers] = await Promise.all([
+            User_1.User.find({ _id: { $in: teacherIds } }).lean(),
+            OutlookUser_1.OutlookUser.find({ _id: { $in: teacherIds } }).lean()
+        ]);
+        const allTeachers = [...users, ...outlookUsers];
+        const teacherMap = new Map(allTeachers.map(t => [String(t._id), t]));
         const enrollments = await Enrollment_1.Enrollment.find({
             classId: { $in: classIds },
             schoolYearId: String(activeYear._id)
@@ -46,9 +51,25 @@ exports.adminExtrasRouter.get('/progress', (0, auth_1.requireAuth)(['ADMIN']), a
         const templates = await GradebookTemplate_1.GradebookTemplate.find({ _id: { $in: templateIds } }).lean();
         const classesResult = classes.map(cls => {
             const clsId = String(cls._id);
-            const clsTeachers = teacherAssignments
-                .filter(ta => ta.classId === clsId)
-                .map(ta => teacherMap.get(ta.teacherId)?.displayName || 'Unknown');
+            const clsTeacherAssignments = teacherAssignments.filter(ta => ta.classId === clsId);
+            const clsTeachers = clsTeacherAssignments.map(ta => teacherMap.get(ta.teacherId)?.displayName || 'Unknown');
+            // Categorize teachers
+            const polyvalentTeachers = [];
+            const englishTeachers = [];
+            const arabicTeachers = [];
+            clsTeacherAssignments.forEach(ta => {
+                const teacherName = teacherMap.get(ta.teacherId)?.displayName || 'Unknown';
+                const langs = ta.languages || [];
+                if (ta.isProfPolyvalent) {
+                    polyvalentTeachers.push(teacherName);
+                }
+                if (langs.includes('ar')) {
+                    arabicTeachers.push(teacherName);
+                }
+                if (langs.includes('en')) {
+                    englishTeachers.push(teacherName);
+                }
+            });
             const clsEnrollments = enrollments.filter(e => e.classId === clsId);
             const clsStudentIds = new Set(clsEnrollments.map(e => e.studentId));
             const clsAssignments = assignments.filter(a => clsStudentIds.has(a.studentId));
@@ -101,6 +122,14 @@ exports.adminExtrasRouter.get('/progress', (0, auth_1.requireAuth)(['ADMIN']), a
                     total: totalCompetencies,
                     filled: filledCompetencies,
                     percentage: totalCompetencies > 0 ? Math.round((filledCompetencies / totalCompetencies) * 100) : 0
+                },
+                teachersCheck: {
+                    polyvalent: polyvalentTeachers,
+                    english: englishTeachers,
+                    arabic: arabicTeachers,
+                    hasPolyvalent: polyvalentTeachers.length > 0,
+                    hasEnglish: englishTeachers.length > 0,
+                    hasArabic: arabicTeachers.length > 0
                 },
                 byCategory: Object.values(categoryStats).map(stat => ({
                     name: stat.name,

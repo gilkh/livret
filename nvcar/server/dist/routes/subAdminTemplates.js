@@ -438,7 +438,6 @@ exports.subAdminTemplatesRouter.get('/pending-signatures', (0, auth_1.requireAut
             const classId = studentClassMap.get(String(assignment.studentId));
             const classInfo = classId ? classMap.get(classId) : null;
             const level = classInfo?.level;
-            const levelStartDate = promotionDateMap.get(String(assignment.studentId));
             const assignmentSignatures = signatureMap.get(String(assignment._id)) || [];
             // Helper to find relevant signature
             const findSig = (type) => {
@@ -455,11 +454,6 @@ exports.subAdminTemplatesRouter.get('/pending-signatures', (0, auth_1.requireAut
                     // Level check
                     if (s.level && level && s.level !== level)
                         return false;
-                    // Date check (reject signatures older than promotion)
-                    if (levelStartDate && s.signedAt) {
-                        if (new Date(s.signedAt).getTime() < levelStartDate.getTime())
-                            return false;
-                    }
                     return true;
                 });
             };
@@ -1609,14 +1603,14 @@ exports.subAdminTemplatesRouter.post('/templates/:assignmentId/unmark-done', (0,
         res.status(500).json({ error: 'update_failed', message: e.message });
     }
 });
-// Sub-admin: Update template data (e.g. language toggles)
+// Sub-admin: Update template data (e.g. language toggles or scoped data)
 exports.subAdminTemplatesRouter.patch('/templates/:assignmentId/data', (0, auth_1.requireAuth)(['SUBADMIN', 'AEFE']), async (req, res) => {
     try {
         const subAdminId = req.user.userId;
         const { assignmentId } = req.params;
-        const { type, pageIndex, blockIndex, items } = req.body;
-        if (!type)
-            return res.status(400).json({ error: 'missing_type' });
+        const { type, pageIndex, blockIndex, items, data } = req.body;
+        if (!type && !data)
+            return res.status(400).json({ error: 'missing_payload' });
         // Get assignment
         const assignment = await TemplateAssignment_1.TemplateAssignment.findById(assignmentId).lean();
         if (!assignment)
@@ -1685,6 +1679,29 @@ exports.subAdminTemplatesRouter.patch('/templates/:assignmentId/data', (0, auth_
                     pageIndex,
                     blockIndex,
                     items
+                },
+                req,
+            });
+            res.json({ success: true, assignment: updated });
+        }
+        else if (data) {
+            const currentData = assignment.data || {};
+            const updated = await TemplateAssignment_1.TemplateAssignment.findByIdAndUpdate(assignmentId, {
+                $set: {
+                    data: {
+                        ...currentData,
+                        ...data
+                    }
+                },
+                status: assignment.status === 'draft' ? 'in_progress' : assignment.status
+            }, { new: true });
+            await (0, auditLogger_1.logAudit)({
+                userId: subAdminId,
+                action: 'UPDATE_TEMPLATE_DATA',
+                details: {
+                    assignmentId,
+                    type: type || 'generic',
+                    data
                 },
                 req,
             });

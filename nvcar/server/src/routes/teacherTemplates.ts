@@ -534,29 +534,50 @@ teacherTemplatesRouter.get('/classes/:classId/assignments', requireAuth(['TEACHE
             assignedTeachers: teacherId,
         }).lean()
 
-        // Enrich with template and student data
-        const enriched = await Promise.all(assignments.map(async (assignment) => {
-            const template = await GradebookTemplate.findById(assignment.templateId).lean()
-            const student = await Student.findById(assignment.studentId).lean()
+        const templateIds = Array.from(
+            new Set(assignments.map(a => a.templateId).filter(Boolean))
+        )
 
-            // Calculate "isCompleted" for THIS teacher
-            // The global assignment.isCompleted is only true if ALL teachers are done
-            // But for the list view, we want to show if THIS teacher is done
-            const myCompletion = (assignment as any).teacherCompletions?.find((tc: any) => tc.teacherId === teacherId)
+        const [templates, students] = await Promise.all([
+            templateIds.length
+                ? GradebookTemplate.find({ _id: { $in: templateIds } }).lean()
+                : [],
+            studentIds.length
+                ? Student.find({ _id: { $in: studentIds } }).lean()
+                : [],
+        ])
+
+        const templateMap = new Map<string, any>()
+        templates.forEach(t => {
+            templateMap.set(String((t as any)._id), t)
+        })
+
+        const studentMap = new Map<string, any>()
+        students.forEach(s => {
+            studentMap.set(String((s as any)._id), s)
+        })
+
+        const enriched = assignments.map(assignment => {
+            const template = templateMap.get(assignment.templateId)
+            const student = studentMap.get(assignment.studentId)
+
+            const myCompletion = (assignment as any).teacherCompletions?.find(
+                (tc: any) => tc.teacherId === teacherId
+            )
             const isMyWorkCompleted = !!myCompletion?.completed
             const isMyWorkCompletedSem1 = !!myCompletion?.completedSem1
             const isMyWorkCompletedSem2 = !!myCompletion?.completedSem2
 
             return {
                 ...assignment,
-                isCompleted: isMyWorkCompleted, // Override for frontend
+                isCompleted: isMyWorkCompleted,
                 isCompletedSem1: isMyWorkCompletedSem1,
                 isCompletedSem2: isMyWorkCompletedSem2,
-                isGlobalCompleted: assignment.isCompleted, // Keep original just in case
+                isGlobalCompleted: assignment.isCompleted,
                 template,
                 student,
             }
-        }))
+        })
 
         res.json(enriched)
     } catch (e: any) {
@@ -584,13 +605,38 @@ teacherTemplatesRouter.get('/classes/:classId/completion-stats', requireAuth(['T
             assignedTeachers: teacherId,
         }).lean()
 
-        // Calculate stats per template
+        const semester = Number((req.query as any).semester) === 2 ? 2 : 1
+
+        const templateIds = Array.from(
+            new Set(assignments.map(a => a.templateId).filter(Boolean))
+        )
+
+        const templates = templateIds.length
+            ? await GradebookTemplate.find({ _id: { $in: templateIds } }).lean()
+            : []
+
+        const templateMap = new Map<string, any>()
+        templates.forEach(t => {
+            templateMap.set(String((t as any)._id), t)
+        })
+
         const templateStats = new Map<string, { templateId: string; templateName: string; total: number; completed: number }>()
+
+        const isCompletedForSemester = (assignment: any) => {
+            const myCompletion = assignment.teacherCompletions?.find(
+                (tc: any) => tc.teacherId === teacherId
+            )
+            if (!myCompletion) return false
+            if (semester === 2) {
+                return !!myCompletion.completedSem2
+            }
+            return !!myCompletion.completedSem1 || !!myCompletion.completed
+        }
 
         for (const assignment of assignments) {
             const key = assignment.templateId
             if (!templateStats.has(key)) {
-                const template = await GradebookTemplate.findById(assignment.templateId).lean()
+                const template = templateMap.get(assignment.templateId)
                 templateStats.set(key, {
                     templateId: assignment.templateId,
                     templateName: template?.name || 'Unknown',
@@ -601,24 +647,22 @@ teacherTemplatesRouter.get('/classes/:classId/completion-stats', requireAuth(['T
 
             const stats = templateStats.get(key)!
             stats.total++
-            
-            // Check specific teacher completion
-            const myCompletion = (assignment as any).teacherCompletions?.find((tc: any) => tc.teacherId === teacherId)
-            if (myCompletion?.completed) {
+
+            if (isCompletedForSemester(assignment)) {
                 stats.completed++
             }
         }
 
-        // Calculate overall stats
         const totalAssignments = assignments.length
-        
-        // Count completions for this teacher
-        const completedAssignments = assignments.filter(a => {
-            const myCompletion = (a as any).teacherCompletions?.find((tc: any) => tc.teacherId === teacherId)
-            return myCompletion?.completed
-        }).length
-        
-        const completionPercentage = totalAssignments > 0 ? Math.round((completedAssignments / totalAssignments) * 100) : 0
+
+        const completedAssignments = assignments.filter(a =>
+            isCompletedForSemester(a as any)
+        ).length
+
+        const completionPercentage =
+            totalAssignments > 0
+                ? Math.round((completedAssignments / totalAssignments) * 100)
+                : 0
 
         res.json({
             totalAssignments,
