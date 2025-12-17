@@ -6,8 +6,189 @@ const SavedGradebook_1 = require("../models/SavedGradebook");
 const SchoolYear_1 = require("../models/SchoolYear");
 const RoleScope_1 = require("../models/RoleScope");
 const TemplateAssignment_1 = require("../models/TemplateAssignment");
+const Student_1 = require("../models/Student");
 const auth_1 = require("../auth");
 exports.savedGradebooksRouter = (0, express_1.Router)();
+exports.savedGradebooksRouter.get('/exited/years', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', 'AEFE']), async (req, res) => {
+    try {
+        const user = req.user;
+        let allowedLevels = null;
+        if (user.role === 'SUBADMIN' || user.role === 'AEFE') {
+            const scope = await RoleScope_1.RoleScope.findOne({ userId: user.userId }).lean();
+            allowedLevels = scope?.levels || [];
+        }
+        const candidates = await Student_1.Student.find({
+            $or: [
+                { status: 'left' },
+                { promotions: { $elemMatch: { toLevel: { $regex: /^eb1$/i } } } },
+                { nextLevel: { $regex: /^eb1$/i } },
+            ],
+        }).select('_id promotions').lean();
+        const exits = candidates
+            .map(s => {
+            const promos = Array.isArray(s.promotions) ? s.promotions : [];
+            const exitPromos = promos
+                .filter((p) => String(p?.toLevel || '').toLowerCase() === 'eb1')
+                .sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+            const exitPromo = exitPromos[0];
+            if (!exitPromo?.schoolYearId)
+                return null;
+            return {
+                studentId: String(s._id),
+                yearId: String(exitPromo.schoolYearId),
+                fromLevel: String(exitPromo.fromLevel || ''),
+            };
+        })
+            .filter(Boolean);
+        if (exits.length === 0)
+            return res.json([]);
+        const yearIds = [...new Set(exits.map(e => e.yearId))];
+        const savedForExitYear = await SavedGradebook_1.SavedGradebook.find({
+            schoolYearId: { $in: yearIds },
+            studentId: { $in: exits.map(e => e.studentId) },
+        })
+            .select('studentId schoolYearId level')
+            .lean();
+        const exitLevelByStudentYear = new Map();
+        savedForExitYear.forEach(sg => {
+            const key = `${String(sg.studentId)}|${String(sg.schoolYearId)}`;
+            if (!exitLevelByStudentYear.has(key))
+                exitLevelByStudentYear.set(key, String(sg.level || ''));
+        });
+        const filtered = allowedLevels
+            ? exits.filter(e => {
+                if (e.fromLevel && allowedLevels.includes(e.fromLevel))
+                    return true;
+                const key = `${e.studentId}|${e.yearId}`;
+                const lvl = exitLevelByStudentYear.get(key) || '';
+                return lvl ? allowedLevels.includes(lvl) : false;
+            })
+            : exits;
+        const filteredYearIds = [...new Set(filtered.map(e => e.yearId))];
+        if (filteredYearIds.length === 0)
+            return res.json([]);
+        const years = await SchoolYear_1.SchoolYear.find({ _id: { $in: filteredYearIds } })
+            .select('name')
+            .sort({ name: -1 })
+            .lean();
+        const countsByYear = filtered.reduce((acc, e) => {
+            acc[e.yearId] = (acc[e.yearId] || 0) + 1;
+            return acc;
+        }, {});
+        res.json(years.map(y => ({
+            _id: y._id,
+            name: y.name,
+            count: countsByYear[String(y._id)] || 0,
+        })));
+    }
+    catch (e) {
+        res.status(500).json({ error: 'fetch_failed', message: e.message });
+    }
+});
+exports.savedGradebooksRouter.get('/exited/years/:yearId/students', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', 'AEFE']), async (req, res) => {
+    try {
+        const { yearId } = req.params;
+        const user = req.user;
+        let allowedLevels = null;
+        if (user.role === 'SUBADMIN' || user.role === 'AEFE') {
+            const scope = await RoleScope_1.RoleScope.findOne({ userId: user.userId }).lean();
+            allowedLevels = scope?.levels || [];
+        }
+        const candidates = await Student_1.Student.find({
+            promotions: { $elemMatch: { schoolYearId: yearId, toLevel: { $regex: /^eb1$/i } } },
+        })
+            .select('_id firstName lastName promotions')
+            .lean();
+        if (candidates.length === 0)
+            return res.json([]);
+        const studentIds = candidates.map(s => String(s._id));
+        const savedForExitYear = await SavedGradebook_1.SavedGradebook.find({ schoolYearId: yearId, studentId: { $in: studentIds } })
+            .select('studentId schoolYearId level')
+            .lean();
+        const exitLevelByStudent = new Map();
+        savedForExitYear.forEach(sg => {
+            const sid = String(sg.studentId);
+            if (!exitLevelByStudent.has(sid))
+                exitLevelByStudent.set(sid, String(sg.level || ''));
+        });
+        const out = candidates
+            .map(s => {
+            const promos = Array.isArray(s.promotions) ? s.promotions : [];
+            const exitPromo = promos
+                .filter((p) => String(p?.schoolYearId) === String(yearId) && String(p?.toLevel || '').toLowerCase() === 'eb1')
+                .sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime())[0];
+            const sid = String(s._id);
+            const fromLevel = String(exitPromo?.fromLevel || '');
+            const exitLevel = fromLevel || exitLevelByStudent.get(sid) || '';
+            return {
+                studentId: sid,
+                firstName: s.firstName,
+                lastName: s.lastName,
+                exitLevel,
+            };
+        })
+            .filter(s => {
+            if (!allowedLevels)
+                return true;
+            return s.exitLevel ? allowedLevels.includes(s.exitLevel) : false;
+        })
+            .sort((a, b) => String(a.lastName || '').localeCompare(String(b.lastName || '')));
+        res.json(out);
+    }
+    catch (e) {
+        res.status(500).json({ error: 'fetch_failed', message: e.message });
+    }
+});
+exports.savedGradebooksRouter.get('/student/:studentId', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', 'AEFE']), async (req, res) => {
+    try {
+        const { studentId } = req.params;
+        const user = req.user;
+        let allowedLevels = null;
+        if (user.role === 'SUBADMIN' || user.role === 'AEFE') {
+            const scope = await RoleScope_1.RoleScope.findOne({ userId: user.userId }).lean();
+            allowedLevels = scope?.levels || [];
+        }
+        if (allowedLevels) {
+            const student = await Student_1.Student.findById(studentId).select('promotions').lean();
+            const promos = Array.isArray(student?.promotions) ? student.promotions : [];
+            const exitPromo = promos
+                .filter((p) => String(p?.toLevel || '').toLowerCase() === 'eb1')
+                .sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime())[0];
+            const exitYearId = exitPromo?.schoolYearId ? String(exitPromo.schoolYearId) : '';
+            const fromLevel = String(exitPromo?.fromLevel || '');
+            let ok = false;
+            if (fromLevel && allowedLevels.includes(fromLevel))
+                ok = true;
+            if (!ok && exitYearId) {
+                const sg = await SavedGradebook_1.SavedGradebook.findOne({ studentId, schoolYearId: exitYearId }).select('level').lean();
+                if (sg && sg.level && allowedLevels.includes(String(sg.level)))
+                    ok = true;
+            }
+            if (!ok)
+                return res.status(403).json({ error: 'not_authorized' });
+        }
+        const saved = await SavedGradebook_1.SavedGradebook.find({ studentId })
+            .select('_id schoolYearId level createdAt templateId')
+            .sort({ createdAt: -1 })
+            .lean();
+        const yearIds = [...new Set(saved.map(s => String(s.schoolYearId)).filter(Boolean))];
+        const years = yearIds.length
+            ? await SchoolYear_1.SchoolYear.find({ _id: { $in: yearIds } }).select('name').lean()
+            : [];
+        const yearMap = new Map(years.map(y => [String(y._id), String(y.name || '')]));
+        res.json(saved.map(s => ({
+            _id: s._id,
+            schoolYearId: s.schoolYearId,
+            yearName: yearMap.get(String(s.schoolYearId)) || '',
+            level: s.level,
+            createdAt: s.createdAt,
+            templateId: s.templateId,
+        })));
+    }
+    catch (e) {
+        res.status(500).json({ error: 'fetch_failed', message: e.message });
+    }
+});
 // List years
 exports.savedGradebooksRouter.get('/years', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', 'AEFE']), async (req, res) => {
     const yearIds = await SavedGradebook_1.SavedGradebook.distinct('schoolYearId');

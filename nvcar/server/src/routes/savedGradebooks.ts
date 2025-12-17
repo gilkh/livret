@@ -3,9 +3,208 @@ import { SavedGradebook } from '../models/SavedGradebook'
 import { SchoolYear } from '../models/SchoolYear'
 import { RoleScope } from '../models/RoleScope'
 import { TemplateAssignment } from '../models/TemplateAssignment'
+import { Student } from '../models/Student'
 import { requireAuth } from '../auth'
 
 export const savedGradebooksRouter = Router()
+
+savedGradebooksRouter.get('/exited/years', requireAuth(['ADMIN', 'SUBADMIN', 'AEFE']), async (req, res) => {
+    try {
+        const user = (req as any).user
+
+        let allowedLevels: string[] | null = null
+        if (user.role === 'SUBADMIN' || user.role === 'AEFE') {
+            const scope = await RoleScope.findOne({ userId: user.userId }).lean()
+            allowedLevels = scope?.levels || []
+        }
+
+        const candidates = await Student.find({
+            $or: [
+                { status: 'left' },
+                { promotions: { $elemMatch: { toLevel: { $regex: /^eb1$/i } } } },
+                { nextLevel: { $regex: /^eb1$/i } },
+            ],
+        }).select('_id promotions').lean()
+
+        const exits = candidates
+            .map(s => {
+                const promos = Array.isArray((s as any).promotions) ? (s as any).promotions : []
+                const exitPromos = promos
+                    .filter((p: any) => String(p?.toLevel || '').toLowerCase() === 'eb1')
+                    .sort((a: any, b: any) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime())
+                const exitPromo = exitPromos[0]
+                if (!exitPromo?.schoolYearId) return null
+                return {
+                    studentId: String((s as any)._id),
+                    yearId: String(exitPromo.schoolYearId),
+                    fromLevel: String(exitPromo.fromLevel || ''),
+                }
+            })
+            .filter(Boolean) as { studentId: string; yearId: string; fromLevel: string }[]
+
+        if (exits.length === 0) return res.json([])
+
+        const yearIds = [...new Set(exits.map(e => e.yearId))]
+        const savedForExitYear = await SavedGradebook.find({
+            schoolYearId: { $in: yearIds },
+            studentId: { $in: exits.map(e => e.studentId) },
+        })
+            .select('studentId schoolYearId level')
+            .lean()
+
+        const exitLevelByStudentYear = new Map<string, string>()
+        savedForExitYear.forEach(sg => {
+            const key = `${String(sg.studentId)}|${String(sg.schoolYearId)}`
+            if (!exitLevelByStudentYear.has(key)) exitLevelByStudentYear.set(key, String((sg as any).level || ''))
+        })
+
+        const filtered = allowedLevels
+            ? exits.filter(e => {
+                  if (e.fromLevel && allowedLevels!.includes(e.fromLevel)) return true
+                  const key = `${e.studentId}|${e.yearId}`
+                  const lvl = exitLevelByStudentYear.get(key) || ''
+                  return lvl ? allowedLevels!.includes(lvl) : false
+              })
+            : exits
+
+        const filteredYearIds = [...new Set(filtered.map(e => e.yearId))]
+        if (filteredYearIds.length === 0) return res.json([])
+
+        const years = await SchoolYear.find({ _id: { $in: filteredYearIds } })
+            .select('name')
+            .sort({ name: -1 })
+            .lean()
+
+        const countsByYear = filtered.reduce((acc, e) => {
+            acc[e.yearId] = (acc[e.yearId] || 0) + 1
+            return acc
+        }, {} as Record<string, number>)
+
+        res.json(
+            years.map(y => ({
+                _id: y._id,
+                name: y.name,
+                count: countsByYear[String(y._id)] || 0,
+            }))
+        )
+    } catch (e: any) {
+        res.status(500).json({ error: 'fetch_failed', message: e.message })
+    }
+})
+
+savedGradebooksRouter.get('/exited/years/:yearId/students', requireAuth(['ADMIN', 'SUBADMIN', 'AEFE']), async (req, res) => {
+    try {
+        const { yearId } = req.params
+        const user = (req as any).user
+
+        let allowedLevels: string[] | null = null
+        if (user.role === 'SUBADMIN' || user.role === 'AEFE') {
+            const scope = await RoleScope.findOne({ userId: user.userId }).lean()
+            allowedLevels = scope?.levels || []
+        }
+
+        const candidates = await Student.find({
+            promotions: { $elemMatch: { schoolYearId: yearId, toLevel: { $regex: /^eb1$/i } } },
+        })
+            .select('_id firstName lastName promotions')
+            .lean()
+
+        if (candidates.length === 0) return res.json([])
+
+        const studentIds = candidates.map(s => String((s as any)._id))
+        const savedForExitYear = await SavedGradebook.find({ schoolYearId: yearId, studentId: { $in: studentIds } })
+            .select('studentId schoolYearId level')
+            .lean()
+
+        const exitLevelByStudent = new Map<string, string>()
+        savedForExitYear.forEach(sg => {
+            const sid = String(sg.studentId)
+            if (!exitLevelByStudent.has(sid)) exitLevelByStudent.set(sid, String((sg as any).level || ''))
+        })
+
+        const out = candidates
+            .map(s => {
+                const promos = Array.isArray((s as any).promotions) ? (s as any).promotions : []
+                const exitPromo = promos
+                    .filter((p: any) => String(p?.schoolYearId) === String(yearId) && String(p?.toLevel || '').toLowerCase() === 'eb1')
+                    .sort((a: any, b: any) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime())[0]
+                const sid = String((s as any)._id)
+                const fromLevel = String(exitPromo?.fromLevel || '')
+                const exitLevel = fromLevel || exitLevelByStudent.get(sid) || ''
+                return {
+                    studentId: sid,
+                    firstName: (s as any).firstName,
+                    lastName: (s as any).lastName,
+                    exitLevel,
+                }
+            })
+            .filter(s => {
+                if (!allowedLevels) return true
+                return s.exitLevel ? allowedLevels.includes(s.exitLevel) : false
+            })
+            .sort((a, b) => String(a.lastName || '').localeCompare(String(b.lastName || '')))
+
+        res.json(out)
+    } catch (e: any) {
+        res.status(500).json({ error: 'fetch_failed', message: e.message })
+    }
+})
+
+savedGradebooksRouter.get('/student/:studentId', requireAuth(['ADMIN', 'SUBADMIN', 'AEFE']), async (req, res) => {
+    try {
+        const { studentId } = req.params
+        const user = (req as any).user
+
+        let allowedLevels: string[] | null = null
+        if (user.role === 'SUBADMIN' || user.role === 'AEFE') {
+            const scope = await RoleScope.findOne({ userId: user.userId }).lean()
+            allowedLevels = scope?.levels || []
+        }
+
+        if (allowedLevels) {
+            const student = await Student.findById(studentId).select('promotions').lean()
+            const promos = Array.isArray((student as any)?.promotions) ? (student as any).promotions : []
+            const exitPromo = promos
+                .filter((p: any) => String(p?.toLevel || '').toLowerCase() === 'eb1')
+                .sort((a: any, b: any) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime())[0]
+            const exitYearId = exitPromo?.schoolYearId ? String(exitPromo.schoolYearId) : ''
+            const fromLevel = String(exitPromo?.fromLevel || '')
+
+            let ok = false
+            if (fromLevel && allowedLevels.includes(fromLevel)) ok = true
+            if (!ok && exitYearId) {
+                const sg = await SavedGradebook.findOne({ studentId, schoolYearId: exitYearId }).select('level').lean()
+                if (sg && (sg as any).level && allowedLevels.includes(String((sg as any).level))) ok = true
+            }
+
+            if (!ok) return res.status(403).json({ error: 'not_authorized' })
+        }
+
+        const saved = await SavedGradebook.find({ studentId })
+            .select('_id schoolYearId level createdAt templateId')
+            .sort({ createdAt: -1 })
+            .lean()
+
+        const yearIds = [...new Set(saved.map(s => String((s as any).schoolYearId)).filter(Boolean))]
+        const years = yearIds.length
+            ? await SchoolYear.find({ _id: { $in: yearIds } }).select('name').lean()
+            : []
+        const yearMap = new Map(years.map(y => [String(y._id), String((y as any).name || '')]))
+
+        res.json(
+            saved.map(s => ({
+                _id: (s as any)._id,
+                schoolYearId: (s as any).schoolYearId,
+                yearName: yearMap.get(String((s as any).schoolYearId)) || '',
+                level: (s as any).level,
+                createdAt: (s as any).createdAt,
+                templateId: (s as any).templateId,
+            }))
+        )
+    } catch (e: any) {
+        res.status(500).json({ error: 'fetch_failed', message: e.message })
+    }
+})
 
 // List years
 savedGradebooksRouter.get('/years', requireAuth(['ADMIN', 'SUBADMIN', 'AEFE']), async (req, res) => {
