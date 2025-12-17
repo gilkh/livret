@@ -8,6 +8,52 @@ const SchoolYear_1 = require("../models/SchoolYear");
 const GradebookTemplate_1 = require("../models/GradebookTemplate");
 const auditLogger_1 = require("../utils/auditLogger");
 const Level_1 = require("../models/Level");
+const computeYearNameFromRange = (name, offset) => {
+    const match = String(name || '').match(/(\d{4})([-/.])(\d{4})/);
+    if (!match)
+        return '';
+    const startYear = parseInt(match[1], 10);
+    const sep = match[2];
+    const endYear = parseInt(match[3], 10);
+    if (Number.isNaN(startYear) || Number.isNaN(endYear))
+        return '';
+    return `${startYear + offset}${sep}${endYear + offset}`;
+};
+const resolveSignatureSchoolYear = async (activeYear, type, now) => {
+    if (!activeYear) {
+        const currentYear = now.getFullYear();
+        const month = now.getMonth();
+        const startYear = month >= 8 ? currentYear : currentYear - 1;
+        if (type === 'end_of_year') {
+            return { schoolYearId: undefined, schoolYearName: `${startYear + 1}/${startYear + 2}` };
+        }
+        return { schoolYearId: undefined, schoolYearName: `${startYear}/${startYear + 1}` };
+    }
+    if (type !== 'end_of_year') {
+        return { schoolYearId: String(activeYear._id), schoolYearName: String(activeYear.name || '') };
+    }
+    let nextYear = null;
+    if (activeYear.sequence && Number(activeYear.sequence) > 0) {
+        nextYear = await SchoolYear_1.SchoolYear.findOne({ sequence: Number(activeYear.sequence) + 1 }).lean();
+    }
+    if (!nextYear) {
+        const allYears = await SchoolYear_1.SchoolYear.find({}).sort({ startDate: 1 }).lean();
+        const idx = allYears.findIndex(y => String(y._id) === String(activeYear._id));
+        if (idx >= 0 && idx < allYears.length - 1)
+            nextYear = allYears[idx + 1];
+    }
+    if (nextYear) {
+        return { schoolYearId: String(nextYear._id), schoolYearName: String(nextYear.name || '') };
+    }
+    const computedName = computeYearNameFromRange(String(activeYear.name || ''), 1);
+    if (computedName) {
+        const found = await SchoolYear_1.SchoolYear.findOne({ name: computedName }).lean();
+        if (found)
+            return { schoolYearId: String(found._id), schoolYearName: String(found.name || computedName) };
+        return { schoolYearId: undefined, schoolYearName: computedName };
+    }
+    return { schoolYearId: String(activeYear._id), schoolYearName: String(activeYear.name || '') };
+};
 const getNextLevel = async (current) => {
     if (!current)
         return null;
@@ -121,24 +167,15 @@ const signTemplateAssignment = async ({ templateAssignmentId, signerId, type = '
     // Persist signature metadata in assignment data
     {
         const now = new Date();
-        let yearName = '';
-        if (activeYear?.name) {
-            yearName = String(activeYear.name);
-        }
-        else {
-            const currentYear = now.getFullYear();
-            const month = now.getMonth();
-            const startYear = month >= 8 ? currentYear : currentYear - 1;
-            yearName = `${startYear}/${startYear + 1}`;
-        }
+        const { schoolYearId, schoolYearName } = await resolveSignatureSchoolYear(activeYear, type, now);
         await TemplateAssignment_1.TemplateAssignment.findByIdAndUpdate(templateAssignmentId, {
             $push: {
                 'data.signatures': {
                     type,
                     signedAt: now,
                     subAdminId: signerId,
-                    schoolYearId: activeYear ? String(activeYear._id) : undefined,
-                    schoolYearName: yearName,
+                    schoolYearId,
+                    schoolYearName,
                     level
                 }
             }

@@ -17,6 +17,57 @@ interface SignTemplateOptions {
 
 import { Level } from '../models/Level'
 
+const computeYearNameFromRange = (name: string, offset: number) => {
+    const match = String(name || '').match(/(\d{4})([-/.])(\d{4})/)
+    if (!match) return ''
+    const startYear = parseInt(match[1], 10)
+    const sep = match[2]
+    const endYear = parseInt(match[3], 10)
+    if (Number.isNaN(startYear) || Number.isNaN(endYear)) return ''
+    return `${startYear + offset}${sep}${endYear + offset}`
+}
+
+const resolveSignatureSchoolYear = async (activeYear: any | null, type: 'standard' | 'end_of_year', now: Date) => {
+    if (!activeYear) {
+        const currentYear = now.getFullYear()
+        const month = now.getMonth()
+        const startYear = month >= 8 ? currentYear : currentYear - 1
+        if (type === 'end_of_year') {
+            return { schoolYearId: undefined, schoolYearName: `${startYear + 1}/${startYear + 2}` }
+        }
+        return { schoolYearId: undefined, schoolYearName: `${startYear}/${startYear + 1}` }
+    }
+
+    if (type !== 'end_of_year') {
+        return { schoolYearId: String(activeYear._id), schoolYearName: String(activeYear.name || '') }
+    }
+
+    let nextYear: any | null = null
+
+    if (activeYear.sequence && Number(activeYear.sequence) > 0) {
+        nextYear = await SchoolYear.findOne({ sequence: Number(activeYear.sequence) + 1 }).lean()
+    }
+
+    if (!nextYear) {
+        const allYears = await SchoolYear.find({}).sort({ startDate: 1 }).lean()
+        const idx = allYears.findIndex(y => String(y._id) === String(activeYear._id))
+        if (idx >= 0 && idx < allYears.length - 1) nextYear = allYears[idx + 1]
+    }
+
+    if (nextYear) {
+        return { schoolYearId: String(nextYear._id), schoolYearName: String(nextYear.name || '') }
+    }
+
+    const computedName = computeYearNameFromRange(String(activeYear.name || ''), 1)
+    if (computedName) {
+        const found = await SchoolYear.findOne({ name: computedName }).lean()
+        if (found) return { schoolYearId: String(found._id), schoolYearName: String(found.name || computedName) }
+        return { schoolYearId: undefined, schoolYearName: computedName }
+    }
+
+    return { schoolYearId: String(activeYear._id), schoolYearName: String(activeYear.name || '') }
+}
+
 const getNextLevel = async (current: string) => {
     if (!current) return null
     
@@ -140,23 +191,16 @@ export const signTemplateAssignment = async ({
     // Persist signature metadata in assignment data
     {
         const now = new Date()
-        let yearName = ''
-        if (activeYear?.name) {
-            yearName = String(activeYear.name)
-        } else {
-            const currentYear = now.getFullYear()
-            const month = now.getMonth()
-            const startYear = month >= 8 ? currentYear : currentYear - 1
-            yearName = `${startYear}/${startYear + 1}`
-        }
+
+        const { schoolYearId, schoolYearName } = await resolveSignatureSchoolYear(activeYear, type, now)
         await TemplateAssignment.findByIdAndUpdate(templateAssignmentId, {
             $push: {
                 'data.signatures': {
                     type,
                     signedAt: now,
                     subAdminId: signerId,
-                    schoolYearId: activeYear ? String(activeYear._id) : undefined,
-                    schoolYearName: yearName,
+                    schoolYearId,
+                    schoolYearName,
                     level
                 }
             }

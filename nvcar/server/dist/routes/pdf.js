@@ -754,18 +754,6 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
                 const promotions = assignmentData.promotions || [];
                 const promo = promotions.find((p) => p.to === targetLevel);
                 if (promo) {
-                    const getTargetSchoolYear = (year) => {
-                        if (!year)
-                            return '';
-                        const m = year.match(/(\d{4})\s*[\/\-]\s*(\d{4})/);
-                        if (m) {
-                            const base = parseInt(m[2], 10);
-                            if (!isNaN(base))
-                                return `${base}/${base + 1}`;
-                        }
-                        return year;
-                    };
-                    const targetYear = getTargetSchoolYear(String(promo.year || ''));
                     const x = px(b.props?.x || 50);
                     const y = py(b.props?.y || 50);
                     const width = sx(b.props?.width || (b.props?.field ? 150 : 300));
@@ -782,7 +770,7 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
                         doc.font('Helvetica').text(`${student.firstName} ${student.lastName}`, textX, textY, { width: width - 20, align: 'center' });
                         textY += 20;
                         doc.fontSize((b.props?.fontSize || 12) * 0.8).fillColor('#666');
-                        doc.text(`Année ${targetYear}`, textX, textY, { width: width - 20, align: 'center' });
+                        doc.text(`Année ${promo.year}`, textX, textY, { width: width - 20, align: 'center' });
                     }
                     else {
                         // Specific field
@@ -793,7 +781,7 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
                             doc.font('Helvetica').text(`${student.firstName} ${student.lastName}`, x, y + (height / 2) - 6, { width, align: 'center' });
                         }
                         else if (b.props.field === 'year') {
-                            doc.text(targetYear, x, y + (height / 2) - 6, { width, align: 'center' });
+                            doc.text(`Année ${promo.year}`, x, y + (height / 2) - 6, { width, align: 'center' });
                         }
                     }
                     doc.restore();

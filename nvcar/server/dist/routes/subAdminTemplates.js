@@ -1173,12 +1173,23 @@ exports.subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', (
             id: s._id, type: s.type, signedAt: s.signedAt, subAdminId: s.subAdminId, level: s.level
         })));
         const allSchoolYears = await SchoolYear_1.SchoolYear.find({}).lean();
-        const resolveSchoolYearName = (date) => {
-            if (!date)
+        const computeYearNameFromRange = (name, offset) => {
+            const match = String(name || '').match(/(\d{4})([-/.])(\d{4})/);
+            if (!match)
                 return '';
+            const startYear = parseInt(match[1], 10);
+            const sep = match[2];
+            const endYear = parseInt(match[3], 10);
+            if (Number.isNaN(startYear) || Number.isNaN(endYear))
+                return '';
+            return `${startYear + offset}${sep}${endYear + offset}`;
+        };
+        const resolveSchoolYearForDate = (date) => {
+            if (!date)
+                return null;
             const d = new Date(date);
             if (!Number.isFinite(d.getTime()))
-                return '';
+                return null;
             if (allSchoolYears && allSchoolYears.length > 0) {
                 const match = allSchoolYears.find(y => {
                     if (!y.startDate || !y.endDate)
@@ -1188,13 +1199,47 @@ exports.subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', (
                     const t = d.getTime();
                     return t >= start && t <= end;
                 });
-                if (match && match.name)
-                    return String(match.name);
+                if (match)
+                    return match;
             }
+            return null;
+        };
+        const resolveSchoolYearName = (date) => {
+            const match = resolveSchoolYearForDate(date);
+            if (match?.name)
+                return String(match.name);
+            if (!date)
+                return '';
+            const d = new Date(date);
+            if (!Number.isFinite(d.getTime()))
+                return '';
             const year = d.getFullYear();
             const month = d.getMonth();
             const startYear = month >= 8 ? year : year - 1;
             return `${startYear}/${startYear + 1}`;
+        };
+        const resolveSignatureSchoolYearName = (sig) => {
+            const base = resolveSchoolYearName(sig?.signedAt);
+            const t = String(sig?.type || 'standard');
+            if (t !== 'end_of_year')
+                return base;
+            const byDate = resolveSchoolYearForDate(sig?.signedAt);
+            if (byDate?.sequence && Number(byDate.sequence) > 0) {
+                const next = allSchoolYears.find((y) => Number(y.sequence) === Number(byDate.sequence) + 1);
+                if (next?.name)
+                    return String(next.name);
+            }
+            const ordered = [...(allSchoolYears || [])].sort((a, b) => {
+                return new Date(a.startDate || 0).getTime() - new Date(b.startDate || 0).getTime();
+            });
+            const idx = byDate ? ordered.findIndex((y) => String(y._id) === String(byDate._id)) : -1;
+            if (idx >= 0 && idx < ordered.length - 1 && ordered[idx + 1]?.name) {
+                return String(ordered[idx + 1].name);
+            }
+            const computed = computeYearNameFromRange(base, 1);
+            if (computed)
+                return computed;
+            return base;
         };
         const existingDataSignatures = Array.isArray(assignment.data?.signatures)
             ? [...assignment.data.signatures]
@@ -1215,7 +1260,7 @@ exports.subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', (
                 signedAt: sig.signedAt,
                 subAdminId: sig.subAdminId,
                 schoolYearId: undefined,
-                schoolYearName: resolveSchoolYearName(sig.signedAt),
+                schoolYearName: resolveSignatureSchoolYearName(sig),
                 level: sig.level,
             });
         });
@@ -1400,10 +1445,9 @@ exports.subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', (
             }
             eligibleForSign = ok;
         }
-        // Attach historical signatures to assignment data for frontend cumulative display
         if (!assignment.data)
             assignment.data = {};
-        assignment.data.signatures = allSignatures;
+        assignment.data.signatures = mergedDataSignatures;
         res.json({
             assignment,
             template: versionedTemplate,

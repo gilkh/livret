@@ -58,16 +58,37 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
         return null
     }
 
-    const getTargetSchoolYear = (year: string | undefined) => {
+    const computeNextSchoolYearName = (year: string | undefined) => {
         if (!year) return ''
-        const m = year.match(/(\d{4})\s*[/\-]\s*(\d{4})/)
-        if (m) {
-            const base = parseInt(m[2], 10)
-            if (!isNaN(base)) {
-                return `${base}/${base + 1}`
-            }
-        }
-        return year
+        const m = year.match(/(\d{4})\s*([/\-])\s*(\d{4})/)
+        if (!m) return ''
+        const start = parseInt(m[1], 10)
+        const sep = m[2]
+        const end = parseInt(m[3], 10)
+        if (Number.isNaN(start) || Number.isNaN(end)) return ''
+        return `${start + 1}${sep}${end + 1}`
+    }
+
+    const getPromotionYearLabel = (promo: any, blockLevel: string | null) => {
+        const year = String(promo?.year || '')
+        if (!year) return ''
+
+        const history = assignment?.data?.signatures || []
+        const level = String(promo?.from || blockLevel || '')
+        const endSig = Array.isArray(history)
+            ? history
+                .filter((s: any) => (s?.type === 'end_of_year') && s?.schoolYearName)
+                .find((s: any) => {
+                    if (!level) return true
+                    if (s?.level) return String(s.level) === level
+                    return false
+                })
+            : null
+
+        if (endSig?.schoolYearName) return String(endSig.schoolYearName)
+
+        const next = computeNextSchoolYearName(year)
+        return next || year
     }
 
     const isSignedForLevel = (level: string, type: 'standard' | 'end_of_year') => {
@@ -546,7 +567,7 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                                         <>
                                                             <div style={{ fontWeight: 'bold', marginBottom: 8 }}>Passage en {promo.to}</div>
                                                             <div>{student?.firstName} {student?.lastName}</div>
-                                                            <div style={{ fontSize: (b.props.fontSize || 12) * 0.8, color: '#666', marginTop: 8 }}>Année {getTargetSchoolYear(promo.year)}</div>
+                                                            <div style={{ fontSize: (b.props.fontSize || 12) * 0.8, color: '#666', marginTop: 8 }}>Année {getPromotionYearLabel(promo, blockLevel)}</div>
                                                         </>
                                                     )
                                                 } else if (b.props.field === 'level') {
@@ -554,7 +575,7 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                                 } else if (b.props.field === 'student') {
                                                     return <div>{student?.firstName} {student?.lastName}</div>
                                                 } else if (b.props.field === 'year') {
-                                                    return <div>{getTargetSchoolYear(promo.year)}</div>
+                                                    return <div>{getPromotionYearLabel(promo, blockLevel)}</div>
                                                 } else if (b.props.field === 'class') {
                                                     const raw = promo.class || ''
                                                     const parts = raw.split(/\s*[-\s]\s*/)

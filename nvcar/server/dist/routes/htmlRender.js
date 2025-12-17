@@ -109,17 +109,6 @@ exports.htmlRenderRouter.get('/carnet/:assignmentId', (0, auth_1.requireAuth)(['
 function renderBlock(block, student, assignmentData) {
     const props = block.props || {};
     const style = `left: ${props.x || 0}px; top: ${props.y || 0}px; z-index: ${props.z ?? 0};`;
-    const getTargetSchoolYear = (year) => {
-        if (!year)
-            return '';
-        const m = year.match(/(\d{4})\s*[\/\-]\s*(\d{4})/);
-        if (m) {
-            const base = parseInt(m[2], 10);
-            if (!isNaN(base))
-                return `${base}/${base + 1}`;
-        }
-        return year;
-    };
     switch (block.type) {
         case 'text':
             return `<div class="block" style="${style} color: ${props.color || '#000'}; font-size: ${props.fontSize || 12}px; width: ${props.width || 'auto'}px;">${props.text || ''}</div>`;
@@ -164,7 +153,7 @@ function renderBlock(block, student, assignmentData) {
             <div class="promotion-box" style="width: ${props.width || 300}px; height: ${props.height || 100}px; font-size: ${props.fontSize || 12}px; color: ${props.color || '#2d3436'};">
               <div style="font-weight: bold; margin-bottom: 8px;">Passage en ${targetLevel}</div>
               <div>${student.firstName} ${student.lastName}</div>
-              <div style="font-size: ${(props.fontSize || 12) * 0.8}px; color: #666; margin-top: 8px;">Année ${getTargetSchoolYear(String(promo.year || ''))}</div>
+              <div style="font-size: ${(props.fontSize || 12) * 0.8}px; color: #666; margin-top: 8px;">Année ${promo.year}</div>
             </div>
           </div>`;
                 }
@@ -175,7 +164,7 @@ function renderBlock(block, student, assignmentData) {
                     else if (props.field === 'student')
                         content = `${student.firstName} ${student.lastName}`;
                     else if (props.field === 'year')
-                        content = getTargetSchoolYear(String(promo.year || ''));
+                        content = `Année ${promo.year}`;
                     return `<div class="block" style="${style} width: ${props.width || 150}px; height: ${props.height || 30}px; font-size: ${props.fontSize || 12}px; color: ${props.color || '#2d3436'}; display: flex; align-items: center; justify-content: center; text-align: center;">${content}</div>`;
                 }
             }
