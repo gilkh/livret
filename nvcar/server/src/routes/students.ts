@@ -9,6 +9,7 @@ import { TemplateAssignment } from '../models/TemplateAssignment'
 import { TeacherClassAssignment } from '../models/TeacherClassAssignment'
 import { SavedGradebook } from '../models/SavedGradebook'
 import { GradebookTemplate } from '../models/GradebookTemplate'
+import { TemplateSignature } from '../models/TemplateSignature'
 import { Level } from '../models/Level'
 import { logAudit } from '../utils/auditLogger'
 import { requireAuth } from '../auth'
@@ -422,15 +423,50 @@ studentsRouter.post('/:studentId/promote', requireAuth(['ADMIN']), async (req, r
       schoolYearId: currentSchoolYearId
     })
 
-    // Create Gradebook Snapshot if assignment exists
-    if (currentSchoolYearId && enrollment && assignment) {
+    // Create Gradebook Snapshot for all promotions (except EB1) to ensure they appear in "en cours"
+    if (currentSchoolYearId && enrollment) {
       const statuses = await StudentCompetencyStatus.find({ studentId: student._id }).lean()
+      
+      let signatures: any[] = []
+      let templateId = assignment?.templateId
+      let templateData = null
+      
+      if (assignment) {
+        // Fetch signatures only if assignment exists
+        signatures = await TemplateSignature.find({ 
+          templateAssignmentId: assignment._id 
+        }).lean()
+        
+        // Fetch complete template data for visual rendering
+        if (assignment.templateId) {
+          const template = await GradebookTemplate.findById(assignment.templateId).lean()
+          if (template) {
+            templateData = template
+            
+            // If there's a specific template version in the assignment, use that version's data
+            if (assignment.templateVersion && template.versionHistory) {
+              const version = template.versionHistory.find((v: any) => v.version === assignment.templateVersion)
+              if (version) {
+                templateData = {
+                  ...template,
+                  pages: version.pages,
+                  variables: version.variables || {},
+                  watermark: version.watermark
+                }
+              }
+            }
+          }
+        }
+      }
 
+      // Create comprehensive snapshot with all relevant data including complete template
       const snapshotData = {
         student: student.toObject ? student.toObject() : student,
         enrollment: enrollment,
         statuses: statuses,
-        assignment: assignment.toObject ? assignment.toObject() : assignment
+        assignment: assignment?.toObject ? assignment.toObject() : assignment,
+        signatures: signatures, // Include signatures if assignment exists
+        template: templateData // Include complete template data for visual rendering
       }
 
       await SavedGradebook.create({
@@ -438,7 +474,7 @@ studentsRouter.post('/:studentId/promote', requireAuth(['ADMIN']), async (req, r
         schoolYearId: currentSchoolYearId,
         level: currentLevel || 'Sans niveau',
         classId: enrollment.classId,
-        templateId: assignment.templateId,
+        templateId: templateId,
         data: snapshotData
       })
     }

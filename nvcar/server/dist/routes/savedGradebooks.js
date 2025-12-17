@@ -189,16 +189,40 @@ exports.savedGradebooksRouter.get('/student/:studentId', (0, auth_1.requireAuth)
         res.status(500).json({ error: 'fetch_failed', message: e.message });
     }
 });
-// List years
+// List years for "en cours" (students not promoted to EB1 yet)
 exports.savedGradebooksRouter.get('/years', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', 'AEFE']), async (req, res) => {
-    const yearIds = await SavedGradebook_1.SavedGradebook.distinct('schoolYearId');
-    const years = await SchoolYear_1.SchoolYear.find({ _id: { $in: yearIds } })
-        .select('name')
-        .sort({ name: -1 })
-        .lean();
-    res.json(years);
+    try {
+        const user = req.user;
+        // Get all students who have saved gradebooks
+        const savedGradebooks = await SavedGradebook_1.SavedGradebook.find({}).select('studentId schoolYearId').lean();
+        const studentIds = [...new Set(savedGradebooks.map(sg => sg.studentId))];
+        if (studentIds.length === 0) {
+            return res.json([]);
+        }
+        // Get student data to filter based on promotion status
+        const students = await Student_1.Student.find({ _id: { $in: studentIds } }).select('promotions status').lean();
+        // Filter students who are NOT promoted to EB1 (i.e., still "en cours")
+        const activeStudentIds = students.filter(student => {
+            const promotions = Array.isArray(student.promotions) ? student.promotions : [];
+            const hasEb1Promotion = promotions.some(p => String(p?.toLevel || '').toLowerCase() === 'eb1');
+            const hasLeft = student.status === 'left';
+            return !hasEb1Promotion && !hasLeft;
+        }).map(s => String(s._id));
+        // Get year IDs for active students only
+        const activeYearIds = savedGradebooks
+            .filter(sg => activeStudentIds.includes(sg.studentId))
+            .map(sg => String(sg.schoolYearId));
+        const years = await SchoolYear_1.SchoolYear.find({ _id: { $in: [...new Set(activeYearIds)] } })
+            .select('name')
+            .sort({ name: -1 })
+            .lean();
+        res.json(years);
+    }
+    catch (e) {
+        res.status(500).json({ error: 'fetch_failed', message: e.message });
+    }
 });
-// List levels for a year
+// List levels for a year for "en cours" (students not promoted to EB1 yet)
 exports.savedGradebooksRouter.get('/years/:yearId/levels', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', 'AEFE']), async (req, res) => {
     const { yearId } = req.params;
     const user = req.user;
@@ -207,15 +231,38 @@ exports.savedGradebooksRouter.get('/years/:yearId/levels', (0, auth_1.requireAut
         const scope = await RoleScope_1.RoleScope.findOne({ userId: user.userId }).lean();
         allowedLevels = scope?.levels || [];
     }
-    const levels = await SavedGradebook_1.SavedGradebook.distinct('level', { schoolYearId: yearId });
-    // Normalize empty levels to 'Sans niveau' and deduplicate
-    let normalizedLevels = Array.from(new Set(levels.map(l => l || 'Sans niveau')));
-    if (allowedLevels !== null) {
-        normalizedLevels = normalizedLevels.filter(l => allowedLevels.includes(l));
+    try {
+        // Get saved gradebooks for this year
+        const savedGradebooks = await SavedGradebook_1.SavedGradebook.find({ schoolYearId: yearId }).select('studentId level').lean();
+        const studentIds = [...new Set(savedGradebooks.map(sg => sg.studentId))];
+        if (studentIds.length === 0) {
+            return res.json([]);
+        }
+        // Get student data to filter based on promotion status
+        const students = await Student_1.Student.find({ _id: { $in: studentIds } }).select('promotions status').lean();
+        // Filter students who are NOT promoted to EB1 (i.e., still "en cours")
+        const activeStudentIds = students.filter(student => {
+            const promotions = Array.isArray(student.promotions) ? student.promotions : [];
+            const hasEb1Promotion = promotions.some(p => String(p?.toLevel || '').toLowerCase() === 'eb1');
+            const hasLeft = student.status === 'left';
+            return !hasEb1Promotion && !hasLeft;
+        }).map(s => String(s._id));
+        // Get levels for active students only
+        const activeLevels = savedGradebooks
+            .filter(sg => activeStudentIds.includes(sg.studentId))
+            .map(sg => sg.level || 'Sans niveau');
+        // Normalize empty levels to 'Sans niveau' and deduplicate
+        let normalizedLevels = Array.from(new Set(activeLevels));
+        if (allowedLevels !== null) {
+            normalizedLevels = normalizedLevels.filter(l => allowedLevels.includes(l));
+        }
+        res.json(normalizedLevels.sort());
     }
-    res.json(normalizedLevels.sort());
+    catch (e) {
+        res.status(500).json({ error: 'fetch_failed', message: e.message });
+    }
 });
-// List students for a year and level
+// List students for a year and level for "en cours" (students not promoted to EB1 yet)
 exports.savedGradebooksRouter.get('/years/:yearId/levels/:level/students', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', 'AEFE']), async (req, res) => {
     const { yearId, level } = req.params;
     const user = req.user;
@@ -226,20 +273,42 @@ exports.savedGradebooksRouter.get('/years/:yearId/levels/:level/students', (0, a
             return res.json([]);
         }
     }
-    // Handle 'Sans niveau' mapping to empty string or 'Sans niveau'
-    const levelQuery = level === 'Sans niveau' ? { $in: ['', 'Sans niveau'] } : level;
-    const students = await SavedGradebook_1.SavedGradebook.find({ schoolYearId: yearId, level: levelQuery })
-        .select('studentId data.student.firstName data.student.lastName createdAt')
-        .lean();
-    // Map to a simpler structure
-    const result = students.map(s => ({
-        _id: s._id,
-        studentId: s.studentId,
-        firstName: s.data.student.firstName,
-        lastName: s.data.student.lastName,
-        createdAt: s.createdAt
-    }));
-    res.json(result);
+    try {
+        // Handle 'Sans niveau' mapping to empty string or 'Sans niveau'
+        const levelQuery = level === 'Sans niveau' ? { $in: ['', 'Sans niveau'] } : level;
+        const students = await SavedGradebook_1.SavedGradebook.find({ schoolYearId: yearId, level: levelQuery })
+            .select('studentId data.student.firstName data.student.lastName createdAt')
+            .lean();
+        if (students.length === 0) {
+            return res.json([]);
+        }
+        const studentIds = students.map(s => s.studentId);
+        // Get student data to filter based on promotion status
+        const studentDocs = await Student_1.Student.find({ _id: { $in: studentIds } }).select('promotions status').lean();
+        const studentMap = new Map(studentDocs.map(s => [String(s._id), s]));
+        // Filter students who are NOT promoted to EB1 (i.e., still "en cours")
+        const activeStudents = students.filter(savedGradebook => {
+            const student = studentMap.get(savedGradebook.studentId);
+            if (!student)
+                return false;
+            const promotions = Array.isArray(student.promotions) ? student.promotions : [];
+            const hasEb1Promotion = promotions.some(p => String(p?.toLevel || '').toLowerCase() === 'eb1');
+            const hasLeft = student.status === 'left';
+            return !hasEb1Promotion && !hasLeft;
+        });
+        // Map to a simpler structure
+        const result = activeStudents.map(s => ({
+            _id: s._id,
+            studentId: s.studentId,
+            firstName: s.data.student.firstName,
+            lastName: s.data.student.lastName,
+            createdAt: s.createdAt
+        }));
+        res.json(result);
+    }
+    catch (e) {
+        res.status(500).json({ error: 'fetch_failed', message: e.message });
+    }
 });
 // Get a specific saved gradebook
 exports.savedGradebooksRouter.get('/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', 'AEFE', 'TEACHER']), async (req, res) => {
@@ -248,12 +317,14 @@ exports.savedGradebooksRouter.get('/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUB
     if (!saved)
         return res.status(404).json({ error: 'not_found' });
     // Fix for missing assignment data in snapshot (Promote case)
-    if (saved.data && saved.data.assignment && (!saved.data.assignment.data || Object.keys(saved.data.assignment.data).length === 0)) {
+    const isAssignmentMissing = !saved.data.assignment;
+    const isDataMissing = saved.data.assignment && (!saved.data.assignment.data || Object.keys(saved.data.assignment.data).length === 0);
+    if (saved.data && (isAssignmentMissing || isDataMissing)) {
         console.log(`[SavedGradebook] Patching missing data for ${id}. Student: ${saved.studentId}, Template: ${saved.templateId}`);
         try {
             let liveAssignment = null;
             // Try to find by ID first if available in snapshot
-            if (saved.data.assignment._id) {
+            if (saved.data.assignment && saved.data.assignment._id) {
                 console.log(`[SavedGradebook] Looking up live assignment by ID: ${saved.data.assignment._id}`);
                 liveAssignment = await TemplateAssignment_1.TemplateAssignment.findById(saved.data.assignment._id).lean();
             }
@@ -267,10 +338,13 @@ exports.savedGradebooksRouter.get('/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUB
             }
             if (liveAssignment) {
                 console.log(`[SavedGradebook] Live assignment found. Has data: ${!!liveAssignment.data}`);
-                if (liveAssignment.data) {
-                    saved.data.assignment.data = liveAssignment.data;
-                    console.log(`[SavedGradebook] Data patched successfully. Keys: ${Object.keys(liveAssignment.data).length}`);
+                if (isAssignmentMissing) {
+                    saved.data.assignment = liveAssignment;
                 }
+                else if (liveAssignment.data) {
+                    saved.data.assignment.data = liveAssignment.data;
+                }
+                console.log(`[SavedGradebook] Data patched successfully.`);
             }
             else {
                 console.log(`[SavedGradebook] Live assignment NOT found.`);

@@ -10,6 +10,8 @@ const SchoolYear_1 = require("../models/SchoolYear");
 const StudentCompetencyStatus_1 = require("../models/StudentCompetencyStatus");
 const TemplateAssignment_1 = require("../models/TemplateAssignment");
 const SavedGradebook_1 = require("../models/SavedGradebook");
+const GradebookTemplate_1 = require("../models/GradebookTemplate");
+const TemplateSignature_1 = require("../models/TemplateSignature");
 const Level_1 = require("../models/Level");
 const auditLogger_1 = require("../utils/auditLogger");
 const auth_1 = require("../auth");
@@ -380,28 +382,72 @@ exports.studentsRouter.post('/:studentId/promote', (0, auth_1.requireAuth)(['ADM
         if (!nextSchoolYearId) {
             return res.status(400).json({ error: 'no_next_year', message: 'Next school year not found' });
         }
-        // Find assignment for snapshot
-        const assignment = await TemplateAssignment_1.TemplateAssignment.findOne({
-            studentId: student._id,
-            schoolYearId: currentSchoolYearId
-        });
-        // Create Gradebook Snapshot if assignment exists
-        if (currentSchoolYearId && enrollment && assignment) {
+        // Find assignments for snapshot
+        // FIX: TemplateAssignment does not have schoolYearId. Filter by date range of the school year.
+        let assignments = [];
+        if (currentSchoolYearId) {
+            const sy = await SchoolYear_1.SchoolYear.findById(currentSchoolYearId).lean();
+            if (sy) {
+                assignments = await TemplateAssignment_1.TemplateAssignment.find({
+                    studentId: student._id,
+                    assignedAt: { $gte: sy.startDate, $lte: sy.endDate }
+                });
+            }
+        }
+        // Fallback: if no assignments found by date, try to find the most recent one (if only one expected)
+        if (assignments.length === 0) {
+            const last = await TemplateAssignment_1.TemplateAssignment.findOne({ studentId: student._id }).sort({ assignedAt: -1 });
+            if (last)
+                assignments.push(last);
+        }
+        // Create Gradebook Snapshot for each assignment
+        if (enrollment && assignments.length > 0) {
             const statuses = await StudentCompetencyStatus_1.StudentCompetencyStatus.find({ studentId: student._id }).lean();
-            const snapshotData = {
-                student: student.toObject ? student.toObject() : student,
-                enrollment: enrollment,
-                statuses: statuses,
-                assignment: assignment.toObject ? assignment.toObject() : assignment
-            };
-            await SavedGradebook_1.SavedGradebook.create({
-                studentId: student._id,
-                schoolYearId: currentSchoolYearId,
-                level: currentLevel || 'Sans niveau',
-                classId: enrollment.classId,
-                templateId: assignment.templateId,
-                data: snapshotData
-            });
+            for (const assignment of assignments) {
+                let signatures = [];
+                let templateId = assignment.templateId;
+                let templateData = null;
+                // Fetch signatures
+                signatures = await TemplateSignature_1.TemplateSignature.find({
+                    templateAssignmentId: assignment._id
+                }).lean();
+                // Fetch complete template data
+                if (assignment.templateId) {
+                    const template = await GradebookTemplate_1.GradebookTemplate.findById(assignment.templateId).lean();
+                    if (template) {
+                        templateData = template;
+                        // If there's a specific template version in the assignment, use that version's data
+                        if (assignment.templateVersion && template.versionHistory) {
+                            const version = template.versionHistory.find((v) => v.version === assignment.templateVersion);
+                            if (version) {
+                                templateData = {
+                                    ...template,
+                                    pages: version.pages,
+                                    variables: version.variables || {},
+                                    watermark: version.watermark
+                                };
+                            }
+                        }
+                    }
+                }
+                // Create comprehensive snapshot
+                const snapshotData = {
+                    student: student.toObject ? student.toObject() : student,
+                    enrollment: enrollment,
+                    statuses: statuses,
+                    assignment: assignment.toObject ? assignment.toObject() : assignment,
+                    signatures: signatures,
+                    template: templateData
+                };
+                await SavedGradebook_1.SavedGradebook.create({
+                    studentId: student._id,
+                    schoolYearId: currentSchoolYearId,
+                    level: currentLevel || 'Sans niveau',
+                    classId: enrollment.classId,
+                    templateId: templateId,
+                    data: snapshotData
+                });
+            }
         }
         const promotion = {
             schoolYearId: currentSchoolYearId,
@@ -433,7 +479,7 @@ exports.studentsRouter.post('/:studentId/promote', (0, auth_1.requireAuth)(['ADM
             });
             // NEW: Create a new template assignment for the next year, copying data from the previous one
             // This ensures the gradebook "follows" the student
-            if (assignment) {
+            if (assignments.length > 0) {
                 // Check if template exists for next level?
                 // For now, we assume the same template might be used or a new one assigned later.
                 // BUT the user wants the "same one that was worked on".
@@ -451,7 +497,7 @@ exports.studentsRouter.post('/:studentId/promote', (0, auth_1.requireAuth)(['ADM
             }
         }
         // Record promotion in assignment data
-        if (assignment) {
+        if (assignments.length > 0) {
             let className = '';
             if (enrollment && enrollment.classId) {
                 const cls = await Class_1.ClassModel.findById(enrollment.classId);
@@ -465,13 +511,15 @@ exports.studentsRouter.post('/:studentId/promote', (0, auth_1.requireAuth)(['ADM
                 year: yearName,
                 class: className
             };
-            const data = assignment.data || {};
-            const promotions = Array.isArray(data.promotions) ? data.promotions : [];
-            promotions.push(promotionData);
-            data.promotions = promotions;
-            assignment.data = data;
-            assignment.markModified('data');
-            await assignment.save();
+            for (const assignment of assignments) {
+                const data = assignment.data || {};
+                const promotions = Array.isArray(data.promotions) ? data.promotions : [];
+                promotions.push(promotionData);
+                data.promotions = promotions;
+                assignment.data = data;
+                assignment.markModified('data');
+                await assignment.save();
+            }
         }
         await (0, auditLogger_1.logAudit)({
             userId: adminId,

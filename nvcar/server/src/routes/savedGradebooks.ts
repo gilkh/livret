@@ -206,17 +206,49 @@ savedGradebooksRouter.get('/student/:studentId', requireAuth(['ADMIN', 'SUBADMIN
     }
 })
 
-// List years
+// List years for "en cours" (students not promoted to EB1 yet)
 savedGradebooksRouter.get('/years', requireAuth(['ADMIN', 'SUBADMIN', 'AEFE']), async (req, res) => {
-    const yearIds = await SavedGradebook.distinct('schoolYearId')
-    const years = await SchoolYear.find({ _id: { $in: yearIds } })
-        .select('name')
-        .sort({ name: -1 })
-        .lean()
-    res.json(years)
+    try {
+        const user = (req as any).user
+
+        // Get all students who have saved gradebooks
+        const savedGradebooks = await SavedGradebook.find({}).select('studentId schoolYearId').lean()
+        const studentIds = [...new Set(savedGradebooks.map(sg => sg.studentId))]
+        
+        if (studentIds.length === 0) {
+            return res.json([])
+        }
+
+        // Get student data to filter based on promotion status
+        const students = await Student.find({ _id: { $in: studentIds } }).select('promotions status').lean()
+        
+        // Filter students who are NOT promoted to EB1 (i.e., still "en cours")
+        const activeStudentIds = students.filter(student => {
+            const promotions = Array.isArray(student.promotions) ? student.promotions : []
+            const hasEb1Promotion = promotions.some(p => 
+                String(p?.toLevel || '').toLowerCase() === 'eb1'
+            )
+            const hasLeft = student.status === 'left'
+            return !hasEb1Promotion && !hasLeft
+        }).map(s => String(s._id))
+
+        // Get year IDs for active students only
+        const activeYearIds = savedGradebooks
+            .filter(sg => activeStudentIds.includes(sg.studentId))
+            .map(sg => String(sg.schoolYearId))
+
+        const years = await SchoolYear.find({ _id: { $in: [...new Set(activeYearIds)] } })
+            .select('name')
+            .sort({ name: -1 })
+            .lean()
+        
+        res.json(years)
+    } catch (e: any) {
+        res.status(500).json({ error: 'fetch_failed', message: e.message })
+    }
 })
 
-// List levels for a year
+// List levels for a year for "en cours" (students not promoted to EB1 yet)
 savedGradebooksRouter.get('/years/:yearId/levels', requireAuth(['ADMIN', 'SUBADMIN', 'AEFE']), async (req, res) => {
     const { yearId } = req.params
     const user = (req as any).user
@@ -227,18 +259,47 @@ savedGradebooksRouter.get('/years/:yearId/levels', requireAuth(['ADMIN', 'SUBADM
         allowedLevels = scope?.levels || []
     }
 
-    const levels = await SavedGradebook.distinct('level', { schoolYearId: yearId })
-    // Normalize empty levels to 'Sans niveau' and deduplicate
-    let normalizedLevels = Array.from(new Set(levels.map(l => l || 'Sans niveau')))
+    try {
+        // Get saved gradebooks for this year
+        const savedGradebooks = await SavedGradebook.find({ schoolYearId: yearId }).select('studentId level').lean()
+        const studentIds = [...new Set(savedGradebooks.map(sg => sg.studentId))]
+        
+        if (studentIds.length === 0) {
+            return res.json([])
+        }
 
-    if (allowedLevels !== null) {
-        normalizedLevels = normalizedLevels.filter(l => allowedLevels!.includes(l))
+        // Get student data to filter based on promotion status
+        const students = await Student.find({ _id: { $in: studentIds } }).select('promotions status').lean()
+        
+        // Filter students who are NOT promoted to EB1 (i.e., still "en cours")
+        const activeStudentIds = students.filter(student => {
+            const promotions = Array.isArray(student.promotions) ? student.promotions : []
+            const hasEb1Promotion = promotions.some(p => 
+                String(p?.toLevel || '').toLowerCase() === 'eb1'
+            )
+            const hasLeft = student.status === 'left'
+            return !hasEb1Promotion && !hasLeft
+        }).map(s => String(s._id))
+
+        // Get levels for active students only
+        const activeLevels = savedGradebooks
+            .filter(sg => activeStudentIds.includes(sg.studentId))
+            .map(sg => sg.level || 'Sans niveau')
+
+        // Normalize empty levels to 'Sans niveau' and deduplicate
+        let normalizedLevels = Array.from(new Set(activeLevels))
+
+        if (allowedLevels !== null) {
+            normalizedLevels = normalizedLevels.filter(l => allowedLevels!.includes(l))
+        }
+
+        res.json(normalizedLevels.sort())
+    } catch (e: any) {
+        res.status(500).json({ error: 'fetch_failed', message: e.message })
     }
-
-    res.json(normalizedLevels.sort())
 })
 
-// List students for a year and level
+// List students for a year and level for "en cours" (students not promoted to EB1 yet)
 savedGradebooksRouter.get('/years/:yearId/levels/:level/students', requireAuth(['ADMIN', 'SUBADMIN', 'AEFE']), async (req, res) => {
     const { yearId, level } = req.params
     const user = (req as any).user
@@ -251,22 +312,49 @@ savedGradebooksRouter.get('/years/:yearId/levels/:level/students', requireAuth([
         }
     }
     
-    // Handle 'Sans niveau' mapping to empty string or 'Sans niveau'
-    const levelQuery = level === 'Sans niveau' ? { $in: ['', 'Sans niveau'] } : level
+    try {
+        // Handle 'Sans niveau' mapping to empty string or 'Sans niveau'
+        const levelQuery = level === 'Sans niveau' ? { $in: ['', 'Sans niveau'] } : level
 
-    const students = await SavedGradebook.find({ schoolYearId: yearId, level: levelQuery })
-        .select('studentId data.student.firstName data.student.lastName createdAt')
-        .lean()
-    
-    // Map to a simpler structure
-    const result = students.map(s => ({
-        _id: s._id,
-        studentId: s.studentId,
-        firstName: s.data.student.firstName,
-        lastName: s.data.student.lastName,
-        createdAt: s.createdAt
-    }))
-    res.json(result)
+        const students = await SavedGradebook.find({ schoolYearId: yearId, level: levelQuery })
+            .select('studentId data.student.firstName data.student.lastName createdAt')
+            .lean()
+        
+        if (students.length === 0) {
+            return res.json([])
+        }
+
+        const studentIds = students.map(s => s.studentId)
+        
+        // Get student data to filter based on promotion status
+        const studentDocs = await Student.find({ _id: { $in: studentIds } }).select('promotions status').lean()
+        const studentMap = new Map(studentDocs.map(s => [String(s._id), s]))
+        
+        // Filter students who are NOT promoted to EB1 (i.e., still "en cours")
+        const activeStudents = students.filter(savedGradebook => {
+            const student = studentMap.get(savedGradebook.studentId)
+            if (!student) return false
+            
+            const promotions = Array.isArray(student.promotions) ? student.promotions : []
+            const hasEb1Promotion = promotions.some(p => 
+                String(p?.toLevel || '').toLowerCase() === 'eb1'
+            )
+            const hasLeft = student.status === 'left'
+            return !hasEb1Promotion && !hasLeft
+        })
+        
+        // Map to a simpler structure
+        const result = activeStudents.map(s => ({
+            _id: s._id,
+            studentId: s.studentId,
+            firstName: s.data.student.firstName,
+            lastName: s.data.student.lastName,
+            createdAt: s.createdAt
+        }))
+        res.json(result)
+    } catch (e: any) {
+        res.status(500).json({ error: 'fetch_failed', message: e.message })
+    }
 })
 
 // Get a specific saved gradebook
