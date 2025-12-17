@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom'
 import api from '../api'
 import ProgressionChart from '../components/ProgressionChart'
 import { useSchoolYear } from '../context/SchoolYearContext'
+import { AlertTriangle, CheckCircle2, Download } from 'lucide-react'
 
 type Teacher = { _id: string; email: string; displayName: string }
 type PendingTemplate = {
@@ -37,7 +38,7 @@ type PromotedStudent = {
     fromLevel: string
     toLevel: string
     date: string
-    assignmentId?: string
+    assignmentId?: string | null
 }
 
 export default function SubAdminDashboard() {
@@ -54,6 +55,7 @@ export default function SubAdminDashboard() {
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState('')
     const [expandedClasses, setExpandedClasses] = useState<Record<string, boolean>>({})
+    const [promotionDownloads, setPromotionDownloads] = useState<Record<string, { status: 'idle' | 'preparing' | 'downloading' | 'done' | 'error'; progress: number; error?: string }>>({})
 
     useEffect(() => {
         const loadData = async () => {
@@ -121,6 +123,109 @@ export default function SubAdminDashboard() {
     const toggleClass = (level: string, className: string) => {
         const key = `${level}-${className}`
         setExpandedClasses(prev => ({ ...prev, [key]: !prev[key] }))
+    }
+
+    const downloadPromotionGroupZip = async (group: string, students: PromotedStudent[]) => {
+        const assignmentIds = students.map(s => s.assignmentId).filter(Boolean) as string[]
+        if (assignmentIds.length === 0) return
+
+        setPromotionDownloads(prev => ({
+            ...prev,
+            [group]: { status: 'preparing', progress: 0 }
+        }))
+
+        try {
+            const response = await api.post(
+                '/pdf-v2/assignments/zip',
+                { assignmentIds, groupLabel: group },
+                {
+                    responseType: 'blob',
+                    onDownloadProgress: (evt) => {
+                        if (!evt.total) {
+                            setPromotionDownloads(prev => ({
+                                ...prev,
+                                [group]: { status: 'downloading', progress: -1 }
+                            }))
+                            return
+                        }
+                        const pct = Math.max(0, Math.min(100, Math.round((evt.loaded / evt.total) * 100)))
+                        setPromotionDownloads(prev => ({
+                            ...prev,
+                            [group]: { status: 'downloading', progress: pct }
+                        }))
+                    }
+                }
+            )
+
+            const contentType = String(response.headers?.['content-type'] || '')
+            const blobData = response.data as Blob
+            const headBuf = await blobData.slice(0, 4).arrayBuffer()
+            const head = new Uint8Array(headBuf)
+            const looksLikeZip = head.length >= 2 && head[0] === 0x50 && head[1] === 0x4b
+            if (!looksLikeZip || (!contentType.includes('application/zip') && !contentType.includes('application/octet-stream'))) {
+                let message = 'Réponse invalide (ZIP attendu)'
+                try {
+                    const text = await blobData.text()
+                    try {
+                        const parsed = JSON.parse(text)
+                        message = parsed?.message || parsed?.error || message
+                    } catch {
+                        message = text || message
+                    }
+                } catch {}
+                setPromotionDownloads(prev => ({
+                    ...prev,
+                    [group]: { status: 'error', progress: 0, error: message }
+                }))
+                return
+            }
+
+            const cd = String(response.headers?.['content-disposition'] || '')
+            const match = cd.match(/filename\*?=(?:UTF-8'')?"?([^"]+)"?/i)
+            const fallbackName = `carnets-${group.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-_]/g, '').toLowerCase() || 'promotion'}.zip`
+            const fileName = match?.[1] ? decodeURIComponent(match[1]) : fallbackName
+
+            const blob = new Blob([response.data], { type: 'application/zip' })
+            const url = window.URL.createObjectURL(blob)
+            const a = document.createElement('a')
+            a.href = url
+            a.download = fileName
+            document.body.appendChild(a)
+            a.click()
+            a.remove()
+            window.URL.revokeObjectURL(url)
+
+            setPromotionDownloads(prev => ({
+                ...prev,
+                [group]: { status: 'done', progress: 100 }
+            }))
+            setTimeout(() => {
+                setPromotionDownloads(prev => ({
+                    ...prev,
+                    [group]: { status: 'idle', progress: 0 }
+                }))
+            }, 1500)
+        } catch (e: any) {
+            let message = e?.message || 'Erreur'
+            try {
+                const blob = e?.response?.data
+                if (blob instanceof Blob) {
+                    const text = await blob.text()
+                    try {
+                        const parsed = JSON.parse(text)
+                        message = parsed?.message || parsed?.error || message
+                    } catch {
+                        message = text || message
+                    }
+                } else {
+                    message = e?.response?.data?.message || e?.response?.data?.error || message
+                }
+            } catch {}
+            setPromotionDownloads(prev => ({
+                ...prev,
+                [group]: { status: 'error', progress: 0, error: message }
+            }))
+        }
     }
 
     // Calculate statistics
@@ -261,12 +366,99 @@ export default function SubAdminDashboard() {
                             acc[key].push(student)
                             return acc
                         }, {} as Record<string, PromotedStudent[]>)).sort().map(([group, students]) => (
-                            <div key={group} style={{ marginBottom: 20 }}>
-                                <h4 style={{ fontSize: 16, color: '#475569', marginBottom: 10, fontWeight: 600 }}>{group}</h4>
-                                <div style={{ 
-                                    background: 'white', 
-                                    borderRadius: 12, 
-                                    border: '1px solid #e2e8f0',
+                            <div key={group} style={{ marginBottom: 20, borderRadius: 14, border: '1px solid #e2e8f0', overflow: 'hidden', background: 'white' }}>
+                                {(() => {
+                                    const s = promotionDownloads[group] || { status: 'idle' as const, progress: 0 }
+                                    const availableCount = students.filter(st => !!st.assignmentId).length
+                                    const totalCount = students.length
+                                    const isBusy = s.status === 'preparing' || s.status === 'downloading'
+                                    const canDownload = availableCount > 0
+                                    const isDisabled = !canDownload || isBusy
+
+                                    let buttonLabel = `Télécharger (${availableCount})`
+                                    if (s.status === 'preparing') buttonLabel = 'Préparation…'
+                                    if (s.status === 'downloading') buttonLabel = s.progress === -1 ? 'Génération…' : `Téléchargement ${s.progress}%`
+                                    if (s.status === 'done') buttonLabel = 'Téléchargé'
+                                    if (s.status === 'error') buttonLabel = 'Réessayer'
+
+                                    const showStatus = s.status !== 'idle'
+                                    const showProgress = s.status === 'preparing' || s.status === 'downloading'
+
+                                    const showSpinner = s.status === 'preparing' || (s.status === 'downloading' && s.progress === -1)
+
+                                    return (
+                                        <div style={{ padding: '12px 14px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                                            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+                                                <div style={{ minWidth: 0 }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                                                        <h4 style={{ fontSize: 16, color: '#0f172a', margin: 0, fontWeight: 700 }}>{group}</h4>
+                                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 999, border: '1px solid #e2e8f0', background: '#ffffff', fontSize: 12, color: '#475569', fontWeight: 600 }}>
+                                                            {availableCount}/{totalCount} carnets
+                                                        </span>
+                                                        {!canDownload && (
+                                                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 999, border: '1px solid #fed7aa', background: '#fff7ed', fontSize: 12, color: '#9a3412', fontWeight: 700 }}>
+                                                                Aucun carnet disponible
+                                                            </span>
+                                                        )}
+                                                    </div>
+
+                                                    {showStatus && (
+                                                        <div aria-live="polite" style={{ marginTop: 8, fontSize: 13, color: s.status === 'error' ? '#b91c1c' : '#64748b', display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                            {showSpinner && <span className="spinner" aria-hidden="true" />}
+                                                            {s.status === 'done' && <CheckCircle2 size={16} color="#16a34a" />}
+                                                            {s.status === 'error' && <AlertTriangle size={16} color="#b91c1c" />}
+                                                            {s.status === 'preparing' && 'Préparation de l’archive…'}
+                                                            {s.status === 'downloading' && (s.progress === -1 ? 'Génération des carnets…' : `Téléchargement en cours… ${s.progress}%`)}
+                                                            {s.status === 'done' && 'Téléchargement terminé'}
+                                                            {s.status === 'error' && (s.error || 'Erreur pendant le téléchargement')}
+                                                        </div>
+                                                    )}
+                                                </div>
+
+                                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
+                                                    <button
+                                                        onClick={() => downloadPromotionGroupZip(group, students)}
+                                                        disabled={isDisabled}
+                                                        className="btn"
+                                                        style={{
+                                                            padding: '10px 12px',
+                                                            fontSize: 13,
+                                                            background: s.status === 'error' ? '#b91c1c' : '#0f172a',
+                                                            color: 'white',
+                                                            borderRadius: 10,
+                                                            border: `1px solid ${s.status === 'error' ? '#b91c1c' : '#0f172a'}`,
+                                                            opacity: isDisabled ? 0.55 : 1,
+                                                            cursor: isDisabled ? 'not-allowed' : 'pointer',
+                                                            whiteSpace: 'nowrap',
+                                                            display: 'inline-flex',
+                                                            alignItems: 'center',
+                                                            gap: 8
+                                                        }}
+                                                    >
+                                                        <Download size={16} />
+                                                        {buttonLabel}
+                                                    </button>
+
+                                                    {showProgress && (
+                                                        <div style={{ width: 260 }}>
+                                                            {s.progress === -1 ? (
+                                                                <div className="progress-track progress-indeterminate" />
+                                                            ) : (
+                                                                <div className="progress-track">
+                                                                    <div className="progress-fill" style={{ width: `${Math.max(0, Math.min(100, s.progress))}%` }} />
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )
+                                })()}
+
+                                <div style={{
+                                    background: 'white',
+                                    borderRadius: 0,
                                     overflow: 'hidden'
                                 }}>
                                     <table style={{ width: '100%', borderCollapse: 'collapse' }}>

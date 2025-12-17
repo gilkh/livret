@@ -12,7 +12,7 @@ type CompletionStats = {
 }
 
 export default function TeacherDashboard() {
-  const { activeYearId, activeYear } = useSchoolYear()
+  const { activeYearId, activeYear, isLoading: isYearLoading } = useSchoolYear()
   const [classes, setClasses] = useState<ClassDoc[]>([])
   const [statsMap, setStatsMap] = useState<Map<string, CompletionStats>>(new Map())
   const [loading, setLoading] = useState(true)
@@ -21,10 +21,16 @@ export default function TeacherDashboard() {
   const activeSemester = activeYear?.activeSemester || 1
 
   useEffect(() => {
+    // Avoid loading if year context is not ready
+    if (isYearLoading) return
+
+    let isMounted = true
+
     const loadClasses = async () => {
       try {
         setLoading(true)
         const r = await api.get(`/teacher/classes?schoolYearId=${activeYearId}`)
+        if (!isMounted) return
         setClasses(r.data)
 
         const semester = activeSemester
@@ -40,20 +46,28 @@ export default function TeacherDashboard() {
         )
 
         const statsResults = await Promise.all(statsPromises)
+        if (!isMounted) return
+
         const newStatsMap = new Map()
         statsResults.forEach(({ classId, stats }) => {
           if (stats) newStatsMap.set(classId, stats)
         })
         setStatsMap(newStatsMap)
       } catch (e: any) {
-        setError('Impossible de charger les classes')
-        console.error(e)
+        if (isMounted) {
+          setError('Impossible de charger les classes')
+          console.error(e)
+        }
       } finally {
-        setLoading(false)
+        if (isMounted) setLoading(false)
       }
     }
     loadClasses()
-  }, [activeYearId, activeYear?.activeSemester])
+
+    return () => {
+        isMounted = false
+    }
+  }, [activeYearId, activeYear?.activeSemester, isYearLoading])
 
   // Calculate global stats
   const globalStats = Array.from(statsMap.values()).reduce((acc, stats) => {

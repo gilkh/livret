@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import api from '../api'
+import { useSchoolYear } from '../context/SchoolYearContext'
 
 type TemplateAssignment = {
     _id: string
@@ -12,10 +13,15 @@ type TemplateAssignment = {
     completedBy?: string
     template?: { _id: string; name: string }
     isMyWorkCompleted?: boolean
+    isMyWorkCompletedSem1?: boolean
+    isMyWorkCompletedSem2?: boolean
 }
 
 export default function TeacherStudentTemplates() {
     const { studentId } = useParams<{ studentId: string }>()
+    const { activeYear } = useSchoolYear()
+    const activeSemester = activeYear?.activeSemester || 1
+
     const [assignments, setAssignments] = useState<TemplateAssignment[]>([])
     const [studentName, setStudentName] = useState('')
     const [loading, setLoading] = useState(true)
@@ -44,22 +50,32 @@ export default function TeacherStudentTemplates() {
         if (studentId) loadTemplates()
     }, [studentId])
 
+    const getCompletionStatus = (a: TemplateAssignment) => {
+        if (activeSemester === 2) return !!a.isMyWorkCompletedSem2
+        return !!a.isMyWorkCompletedSem1 || !!a.isMyWorkCompleted
+    }
+
     const toggleCompletion = async (assignmentId: string, currentStatus: boolean) => {
         try {
             setUpdating(assignmentId)
             setError('')
 
             const endpoint = currentStatus ? 'unmark-done' : 'mark-done'
-            const response = await api.post(`/teacher/templates/${assignmentId}/${endpoint}`)
+            const response = await api.post(`/teacher/templates/${assignmentId}/${endpoint}`, { semester: activeSemester })
 
             // Update local state
-            setAssignments(prev => prev.map(a =>
-                a._id === assignmentId ? { 
-                    ...a, 
-                    ...response.data,
-                    isMyWorkCompleted: !currentStatus
-                } : a
-            ))
+            setAssignments(prev => prev.map(a => {
+                if (a._id !== assignmentId) return a
+
+                const newState = { ...a, ...response.data }
+                if (activeSemester === 2) {
+                    newState.isMyWorkCompletedSem2 = !currentStatus
+                } else {
+                    newState.isMyWorkCompletedSem1 = !currentStatus
+                    newState.isMyWorkCompleted = !currentStatus // Legacy sync
+                }
+                return newState
+            }))
         } catch (e: any) {
             setError('Échec de la mise à jour')
             console.error(e)
@@ -88,14 +104,16 @@ export default function TeacherStudentTemplates() {
                 {error && <div className="note" style={{ color: '#dc2626', background: '#fef2f2', padding: 12, borderRadius: 8, border: '1px solid #fecaca', marginTop: 16 }}>{error}</div>}
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 18, marginTop: 20 }}>
-                    {assignments.map(a => (
+                    {assignments.map(a => {
+                        const isDone = getCompletionStatus(a)
+                        return (
                         <div key={a._id} className="card" style={{ 
                             position: 'relative',
                             transition: 'all 0.3s ease',
                             border: '1px solid #e2e8f0',
                             background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)'
                         }}>
-                            {a.isMyWorkCompleted && (
+                            {isDone && (
                                 <div style={{
                                     position: 'absolute',
                                     top: 14,
@@ -148,27 +166,28 @@ export default function TeacherStudentTemplates() {
                                     }}>✏️ Éditer</button>
                                 </Link>
                                 <button
-                                    className={a.isMyWorkCompleted ? 'btn secondary' : 'btn'}
-                                    onClick={() => toggleCompletion(a._id, a.isMyWorkCompleted || false)}
+                                    className={isDone ? 'btn secondary' : 'btn'}
+                                    onClick={() => toggleCompletion(a._id, isDone)}
                                     disabled={updating === a._id}
                                     style={{
-                                        background: a.isMyWorkCompleted 
+                                        background: isDone 
                                             ? 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)' 
                                             : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
                                         color: 'white',
                                         minWidth: 130,
                                         fontWeight: 500,
                                         padding: '10px 16px',
-                                        boxShadow: a.isMyWorkCompleted 
+                                        boxShadow: isDone 
                                             ? '0 2px 8px rgba(245, 158, 11, 0.3)' 
                                             : '0 2px 8px rgba(16, 185, 129, 0.3)'
                                     }}
                                 >
-                                    {updating === a._id ? '⏳ ...' : (a.isMyWorkCompleted ? '🔄 Incomplet' : '✔️ Terminé')}
+                                    {updating === a._id ? '⏳ ...' : (isDone ? '🔄 Incomplet' : '✔️ Terminé')}
                                 </button>
                             </div>
                         </div>
-                    ))}
+                        )
+                    })}
                     {!loading && assignments.length === 0 && (
                         <div className="note">Aucun carnet assigné à cet élève.</div>
                     )}

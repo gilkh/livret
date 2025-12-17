@@ -142,7 +142,9 @@ teacherTemplatesRouter.get('/students/:studentId/templates', requireAuth(['TEACH
             return {
                 ...assignment,
                 template,
-                isMyWorkCompleted: !!myCompletion?.completed
+                isMyWorkCompleted: !!myCompletion?.completed,
+                isMyWorkCompletedSem1: !!myCompletion?.completedSem1,
+                isMyWorkCompletedSem2: !!myCompletion?.completedSem2
             }
         })
 

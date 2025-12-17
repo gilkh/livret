@@ -1,7 +1,6 @@
 import 'dotenv/config'
 
 import { createApp } from './app'
-import { repairRouter } from './routes/repair'
 import os from 'os'
 import { initSocket } from './socket'
 import https from 'https'
@@ -47,8 +46,6 @@ process.on('unhandledRejection', (reason, promise) => {
 
 const port = process.env.PORT ? Number(process.env.PORT) : 4000
 const app = createApp()
-
-app.use('/api/repair', repairRouter)
 
 try {
   // Look for certs in ../certs relative to project root (server folder)

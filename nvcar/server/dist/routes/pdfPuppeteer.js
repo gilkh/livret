@@ -11,6 +11,7 @@ const TemplateAssignment_1 = require("../models/TemplateAssignment");
 const SavedGradebook_1 = require("../models/SavedGradebook");
 const auth_1 = require("../auth");
 const puppeteer_1 = __importDefault(require("puppeteer"));
+const archiver_1 = __importDefault(require("archiver"));
 exports.pdfPuppeteerRouter = (0, express_1.Router)();
 // Singleton browser instance
 let browserInstance = null;
@@ -39,6 +40,105 @@ const getBrowser = async () => {
         browserInstance = null;
     });
     return browserInstance;
+};
+const sanitizeFileName = (value) => {
+    const cleaned = String(value || '')
+        .normalize('NFKD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-zA-Z0-9._ -]/g, '_')
+        .replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_')
+        .replace(/\s+/g, ' ')
+        .trim();
+    return cleaned || 'file';
+};
+const getTokenFromReq = (req) => {
+    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
+        return req.headers.authorization.slice('Bearer '.length);
+    }
+    if (req.query?.token)
+        return String(req.query.token);
+    if (req.body?.token)
+        return String(req.body.token);
+    return '';
+};
+const resolveFrontendUrl = () => {
+    let frontendUrl = process.env.FRONTEND_URL || 'https://localhost:5173';
+    try {
+        const u = new URL(frontendUrl);
+        if (u.hostname === 'localhost' && u.port === '5173' && u.protocol === 'http:') {
+            u.protocol = 'https:';
+            frontendUrl = u.toString().replace(/\/$/, '');
+        }
+    }
+    catch { }
+    try {
+        const u = new URL(frontendUrl);
+        if (u.hostname === 'localhost' && u.port === '5173' && u.protocol === 'http:') {
+            u.protocol = 'https:';
+            frontendUrl = u.toString().replace(/\/$/, '');
+        }
+    }
+    catch { }
+    try {
+        const u = new URL(frontendUrl);
+        if (u.hostname === 'localhost' && u.port === '5173' && u.protocol === 'http:') {
+            u.protocol = 'https:';
+            frontendUrl = u.toString().replace(/\/$/, '');
+        }
+    }
+    catch { }
+    return frontendUrl;
+};
+const generatePdfBufferFromPrintUrl = async (printUrl, token, frontendUrl) => {
+    let page = null;
+    const browser = await getBrowser();
+    page = await browser.newPage();
+    try {
+        page.on('console', (msg) => {
+            console.log('[BROWSER LOG]', msg.text());
+        });
+        page.on('pageerror', (err) => {
+            console.error('[PAGE ERROR]', err);
+        });
+        page.on('requestfailed', (req) => {
+            console.error('[FAILED REQUEST]', req.url(), req.failure());
+        });
+        await page.setViewport({ width: 800, height: 1120 });
+        if (token) {
+            let cookieDomain = 'localhost';
+            try {
+                cookieDomain = new URL(frontendUrl).hostname;
+            }
+            catch { }
+            await page.setCookie({
+                name: 'token',
+                value: token,
+                domain: cookieDomain,
+                path: '/'
+            });
+        }
+        await page.goto(printUrl, { waitUntil: 'networkidle0', timeout: 60000 });
+        await page.waitForFunction(() => {
+            // @ts-ignore
+            return window.__READY_FOR_PDF__ === true;
+        }, { timeout: 30000 });
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        const pdfBuffer = await page.pdf({
+            format: 'A4',
+            printBackground: true,
+            margin: { top: 0, right: 0, bottom: 0, left: 0 }
+        });
+        if (!pdfBuffer || pdfBuffer.length === 0) {
+            throw new Error('Generated PDF buffer is empty');
+        }
+        return pdfBuffer;
+    }
+    finally {
+        try {
+            await page?.close();
+        }
+        catch { }
+    }
 };
 // Generate PDF using Puppeteer from HTML render
 exports.pdfPuppeteerRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', 'TEACHER']), async (req, res) => {
@@ -190,6 +290,95 @@ exports.pdfPuppeteerRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN',
             message: error.message,
             details: process.env.NODE_ENV === 'development' ? error.stack : undefined
         });
+    }
+});
+exports.pdfPuppeteerRouter.post('/assignments/zip', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', 'AEFE']), async (req, res) => {
+    let archive = null;
+    try {
+        const assignmentIds = Array.isArray(req.body?.assignmentIds) ? req.body.assignmentIds.filter(Boolean) : [];
+        const groupLabel = String(req.body?.groupLabel || '').trim();
+        if (assignmentIds.length === 0) {
+            return res.status(400).json({ error: 'missing_assignment_ids' });
+        }
+        const token = getTokenFromReq(req);
+        const frontendUrl = resolveFrontendUrl();
+        try {
+            await getBrowser();
+        }
+        catch (err) {
+            console.error('[PDF ZIP] Browser launch failed:', err);
+            return res.status(500).json({
+                error: 'browser_launch_failed',
+                message: err.message
+            });
+        }
+        const archiveFileName = sanitizeFileName(groupLabel ? `carnets-${groupLabel}.zip` : 'carnets.zip');
+        res.set({
+            'Content-Type': 'application/zip',
+            'Content-Disposition': `attachment; filename="${archiveFileName}"`
+        });
+        archive = (0, archiver_1.default)('zip', { zlib: { level: 9 } });
+        let aborted = false;
+        res.on('close', () => {
+            if (res.writableEnded)
+                return;
+            aborted = true;
+            try {
+                archive?.abort();
+            }
+            catch { }
+        });
+        archive.on('error', (err) => {
+            console.error('[PDF ZIP] Archiver error:', err);
+            res.destroy(err);
+        });
+        archive.on('warning', (err) => {
+            console.warn('[PDF ZIP] Archiver warning:', err);
+        });
+        archive.pipe(res);
+        archive.append(`Archive started at ${new Date().toISOString()}\n`, { name: 'info.txt' });
+        for (const assignmentId of assignmentIds) {
+            if (aborted)
+                break;
+            try {
+                const assignment = await TemplateAssignment_1.TemplateAssignment.findById(assignmentId).lean();
+                if (!assignment) {
+                    archive.append(`Assignment not found: ${assignmentId}\n`, { name: `errors/${sanitizeFileName(String(assignmentId))}.txt` });
+                    continue;
+                }
+                const student = await Student_1.Student.findById(assignment.studentId).lean();
+                const template = await GradebookTemplate_1.GradebookTemplate.findById(assignment.templateId).lean();
+                const studentLast = student?.lastName || 'Eleve';
+                const studentFirst = student?.firstName || '';
+                const templateName = template?.name || 'Carnet';
+                const pdfName = sanitizeFileName(`${studentLast}-${studentFirst}-${templateName}.pdf`);
+                const printUrl = `${frontendUrl}/print/carnet/${assignment._id}?token=${token}`;
+                const pdfBuffer = await generatePdfBufferFromPrintUrl(printUrl, token, frontendUrl);
+                archive.append(pdfBuffer, { name: pdfName });
+            }
+            catch (e) {
+                const errMsg = e?.message ? String(e.message) : 'pdf_generation_failed';
+                archive.append(`${errMsg}\n`, { name: `errors/${sanitizeFileName(String(assignmentId))}.txt` });
+            }
+        }
+        await archive.finalize();
+    }
+    catch (e) {
+        console.error('[PDF ZIP] Failed:', e);
+        if (res.headersSent) {
+            try {
+                archive?.append(`${e?.message || 'zip_generation_failed'}\n`, { name: `errors/fatal.txt` });
+                await archive?.finalize();
+            }
+            catch {
+                try {
+                    res.end();
+                }
+                catch { }
+            }
+            return;
+        }
+        res.status(500).json({ error: 'zip_generation_failed', message: e.message });
     }
 });
 exports.pdfPuppeteerRouter.get('/preview/:templateId/:studentId', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', 'TEACHER']), async (req, res) => {

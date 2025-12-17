@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import api from '../api'
-import { GradebookRenderer } from '../components/GradebookRenderer'
+import TemplateReviewPreview from '../components/TemplateReviewPreview'
 import './SubAdminGradebooks.css'
 
 export default function SubAdminGradebooks() {
@@ -285,7 +285,7 @@ export default function SubAdminGradebooks() {
                         </button>
                     </div>
                     <div className="renderer-wrapper">
-                        <GradebookRenderer 
+                        <TemplateReviewPreview 
                             template={savedTemplate} 
                             student={savedGradebook.data.student} 
                             assignment={savedGradebook.data.assignment}

@@ -5,7 +5,6 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 require("dotenv/config");
 const app_1 = require("./app");
-const repair_1 = require("./routes/repair");
 const os_1 = __importDefault(require("os"));
 const socket_1 = require("./socket");
 const https_1 = __importDefault(require("https"));
@@ -46,7 +45,6 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 const port = process.env.PORT ? Number(process.env.PORT) : 4000;
 const app = (0, app_1.createApp)();
-app.use('/api/repair', repair_1.repairRouter);
 try {
     // Look for certs in ../certs relative to project root (server folder)
     // If running from src/index.ts via ts-node, __dirname is src

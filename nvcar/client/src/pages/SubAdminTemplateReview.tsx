@@ -901,7 +901,7 @@ export default function SubAdminTemplateReview() {
                                                                 boxShadow: it.active ? '0 0 0 2px rgba(37, 99, 235, 0.2)' : 'none',
                                                                 transition: 'all 0.2s ease',
                                                                 transform: it.active ? 'scale(1.1)' : 'scale(1)',
-                                                                opacity: isAllowed ? ((editMode && canEdit) ? (it.active ? 1 : 0.6) : 0.9) : 0.5,
+                                                                opacity: isAllowed ? (it.active ? 1 : ((editMode && canEdit) ? 0.6 : 0.9)) : 0.5,
                                                                 filter: 'none'
                                                             }}
                                                             onClick={(e) => {
@@ -950,7 +950,7 @@ export default function SubAdminTemplateReview() {
                                                                 cursor: (editMode && canEdit) ? (isAllowed ? 'pointer' : 'not-allowed') : 'default',
                                                                 boxShadow: it.active ? '0 0 0 3px #6c5ce7' : '0 0 0 1px #ddd',
                                                                 transition: 'all 0.2s ease',
-                                                                opacity: isAllowed ? ((editMode && canEdit) ? 1 : 0.9) : 0.5
+                                                                opacity: isAllowed ? ((editMode && canEdit || it.active) ? 1 : 0.9) : 0.5
                                                             }}
                                                             onClick={(e) => {
                                                                 e.stopPropagation()
@@ -1529,7 +1529,7 @@ export default function SubAdminTemplateReview() {
                                                                                                         overflow: 'hidden',
                                                                                                         position: 'relative',
                                                                                                         boxShadow: isActive ? '0 0 0 2px #6c5ce7' : 'none',
-                                                                                                        opacity: canToggle ? (isActive ? 1 : 0.6) : 0.5,
+                                                                                                        opacity: isActive ? 1 : (canToggle ? 0.6 : 0.5),
                                                                                                         cursor: canToggle ? 'pointer' : 'default'
                                                                                                     }}
                                                                                                     onClick={async (e) => {
@@ -1575,7 +1575,7 @@ export default function SubAdminTemplateReview() {
                                                                                                     justifyContent: 'center',
                                                                                                     transform: isActive ? 'scale(1.1)' : 'scale(1)',
                                                                                                     boxShadow: 'none',
-                                                                                                    opacity: canToggle ? (isActive ? 1 : 0.6) : 0.5,
+                                                                                                    opacity: isActive ? 1 : (canToggle ? 0.6 : 0.5),
                                                                                                     cursor: canToggle ? 'pointer' : 'default'
                                                                                                 }}
                                                                                                 onClick={async (e) => {

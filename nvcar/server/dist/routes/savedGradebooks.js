@@ -317,14 +317,12 @@ exports.savedGradebooksRouter.get('/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUB
     if (!saved)
         return res.status(404).json({ error: 'not_found' });
     // Fix for missing assignment data in snapshot (Promote case)
-    const isAssignmentMissing = !saved.data.assignment;
-    const isDataMissing = saved.data.assignment && (!saved.data.assignment.data || Object.keys(saved.data.assignment.data).length === 0);
-    if (saved.data && (isAssignmentMissing || isDataMissing)) {
+    if (saved.data && saved.data.assignment && (!saved.data.assignment.data || Object.keys(saved.data.assignment.data).length === 0)) {
         console.log(`[SavedGradebook] Patching missing data for ${id}. Student: ${saved.studentId}, Template: ${saved.templateId}`);
         try {
             let liveAssignment = null;
             // Try to find by ID first if available in snapshot
-            if (saved.data.assignment && saved.data.assignment._id) {
+            if (saved.data.assignment._id) {
                 console.log(`[SavedGradebook] Looking up live assignment by ID: ${saved.data.assignment._id}`);
                 liveAssignment = await TemplateAssignment_1.TemplateAssignment.findById(saved.data.assignment._id).lean();
             }
@@ -338,13 +336,10 @@ exports.savedGradebooksRouter.get('/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUB
             }
             if (liveAssignment) {
                 console.log(`[SavedGradebook] Live assignment found. Has data: ${!!liveAssignment.data}`);
-                if (isAssignmentMissing) {
-                    saved.data.assignment = liveAssignment;
-                }
-                else if (liveAssignment.data) {
+                if (liveAssignment.data) {
                     saved.data.assignment.data = liveAssignment.data;
+                    console.log(`[SavedGradebook] Data patched successfully. Keys: ${Object.keys(liveAssignment.data).length}`);
                 }
-                console.log(`[SavedGradebook] Data patched successfully.`);
             }
             else {
                 console.log(`[SavedGradebook] Live assignment NOT found.`);

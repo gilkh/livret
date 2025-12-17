@@ -147,7 +147,9 @@ exports.teacherTemplatesRouter.get('/students/:studentId/templates', (0, auth_1.
             return {
                 ...assignment,
                 template,
-                isMyWorkCompleted: !!myCompletion?.completed
+                isMyWorkCompleted: !!myCompletion?.completed,
+                isMyWorkCompletedSem1: !!myCompletion?.completedSem1,
+                isMyWorkCompletedSem2: !!myCompletion?.completedSem2
             };
         });
         res.json(result);

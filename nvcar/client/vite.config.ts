@@ -28,6 +28,17 @@ export default defineConfig({
         secure: false,
         changeOrigin: true,
         bypass: (req) => {
+          // Always proxy PDF/download routes even if browser requests text/html (direct navigation)
+          if (req.url && (
+            req.url.startsWith('/pdf-v2') || 
+            req.url.startsWith('/reports-v2') || 
+            req.url.startsWith('/files-v2') || 
+            req.url.startsWith('/pdf') || 
+            req.url.startsWith('/reports') || 
+            req.url.startsWith('/files')
+          )) {
+            return null
+          }
           if (req.headers.accept && req.headers.accept.includes('text/html')) {
             return req.url
           }
