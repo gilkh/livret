@@ -31,7 +31,11 @@ export default function SubAdminGradebooks() {
             const r = await api.get(`/saved-gradebooks/${savedGradebookId}`)
             setSavedGradebook(r.data)
 
-            if (r.data.templateId) {
+            // Use template data from the saved gradebook snapshot if available
+            if (r.data.data?.template) {
+                setSavedTemplate(r.data.data.template)
+            } else if (r.data.templateId) {
+                // Fallback: fetch template separately if not in snapshot
                 const t = await api.get(`/templates/${r.data.templateId}`)
                 let templateData = t.data
 
@@ -150,8 +154,8 @@ export default function SubAdminGradebooks() {
                 <div className="filter-group">
                     <label className="filter-label">Type</label>
                     <select className="filter-select" value={mode} onChange={e => setMode(e.target.value as any)}>
-                        <option value="saved">Anciens</option>
-                        <option value="exited">En cours</option>
+                        <option value="saved">En cours</option>
+                        <option value="exited">Archives</option>
                     </select>
                 </div>
 
@@ -284,7 +288,13 @@ export default function SubAdminGradebooks() {
                         <GradebookRenderer 
                             template={savedTemplate} 
                             student={savedGradebook.data.student} 
-                            assignment={savedGradebook.data.assignment} 
+                            assignment={savedGradebook.data.assignment}
+                            signature={savedGradebook.data.signatures?.find((s: any) => s.type === 'standard') || 
+                                      savedGradebook.data.assignment?.data?.signatures?.find((s: any) => s.type === 'standard') ||
+                                      savedGradebook.data.signature}
+                            finalSignature={savedGradebook.data.signatures?.find((s: any) => s.type === 'end_of_year') || 
+                                           savedGradebook.data.assignment?.data?.signatures?.find((s: any) => s.type === 'end_of_year') ||
+                                           savedGradebook.data.finalSignature}
                         />
                     </div>
                 </div>

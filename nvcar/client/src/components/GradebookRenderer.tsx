@@ -97,9 +97,21 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
         // but if they exist, they usually correspond to the "current active context".
         // However, relying on them alone is what caused the bug (hiding previous years).
         
-        // 2. Check historical signatures in assignment data
-        const history = assignment?.data?.signatures || []
-        if (Array.isArray(history)) {
+        // Check saved signatures from the gradebook snapshot
+        const savedSignatures = assignment?.data?.signatures || []
+        
+        // Also check signatures passed as props (from saved gradebook)
+        const propSignatures = []
+        if (signature) {
+            propSignatures.push({ type: 'standard', ...signature })
+        }
+        if (finalSignature) {
+            propSignatures.push({ type: 'end_of_year', ...finalSignature })
+        }
+        
+        // 2. Check historical signatures in assignment data, saved signatures, and prop signatures
+        const allSignatures = [...(assignment?.data?.signatures || []), ...(savedSignatures || []), ...propSignatures]
+        if (Array.isArray(allSignatures)) {
             // We need to find if there is a signature of 'type' 
             // where the student was in 'level' at that time.
             // But signatures in data don't store "level". They store "schoolYearId".
@@ -109,21 +121,10 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
             // Or we can infer level if the signature date matches a period where student was in that level?
             // But we don't have full student history here easily (only current student object).
             
-            // Hack/Heuristic: 
-            // If the block is for level X (e.g. PS), and we have a signature in history...
-            // We can assume that if there is *any* signature of type T in the history 
-            // that is NOT the current active one (which might be null), it might be valid for X?
-            // No, that's dangerous.
-            
             // Better approach:
             // The assignment data stores signatures with `schoolYearName`.
             // We can try to match schoolYearName or ID.
             // But we don't know which year corresponds to PS for this student without fetching more data.
-            
-            // Alternative:
-            // Trust that `assignment.data.signatures` contains ALL signatures.
-            // If we have a signature of type T, we assume it's valid for *some* level.
-            // If the block is level-specific, how do we know WHICH signature corresponds to it?
             
             // Let's look at `assignment.data.promotions`.
             // It maps `year` (name) -> `from` (level).
@@ -140,7 +141,7 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
             const promotions = assignment?.data?.promotions || []
             
             // Check if any signature matches the criteria
-            return history.some((sig: any) => {
+            return allSignatures.some((sig: any) => {
                 if (sig.type !== type) return false
                 
                 // Find level for this signature's year
@@ -709,7 +710,8 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                                                                     return '🏳️'
                                                                                 }
                                                                                 const emoji = getEmoji(lang)
-                                                                                const appleEmojiUrl = `https://emojicdn.elk.sh/${emoji}?style=apple`
+                                                                                // Use native emoji directly instead of CDN to ensure compatibility and correct rendering
+                                                                                // const appleEmojiUrl = `https://emojicdn.elk.sh/${emoji}?style=apple`
 
                                                                                 return (
                                                                                     <div
@@ -727,10 +729,12 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                                                                             justifyContent: 'center',
                                                                                             transform: isActive ? 'scale(1.1)' : 'scale(1)',
                                                                                             boxShadow: isActive ? '0 0 0 2px rgba(37, 99, 235, 0.2)' : 'none',
-                                                                                            opacity: isActive ? 1 : 0.6
+                                                                                            opacity: isActive ? 1 : 0.6,
+                                                                                            fontSize: size * 0.8,
+                                                                                            lineHeight: 1
                                                                                         }}
                                                                                     >
-                                                                                        <img src={appleEmojiUrl} style={{ width: size * 0.9, height: size * 0.9, objectFit: 'contain' }} alt="" />
+                                                                                        {emoji}
                                                                                     </div>
                                                                                 )
                                                                             })

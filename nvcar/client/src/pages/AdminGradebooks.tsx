@@ -228,7 +228,13 @@ export default function AdminGradebooks() {
                                 <GradebookRenderer 
                                     template={savedTemplate} 
                                     student={savedGradebook.data.student} 
-                                    assignment={savedGradebook.data.assignment} 
+                                    assignment={savedGradebook.data.assignment}
+                                    signature={savedGradebook.data.signatures?.find((s: any) => s.type === 'standard') || 
+                                              savedGradebook.data.assignment?.data?.signatures?.find((s: any) => s.type === 'standard') ||
+                                              savedGradebook.data.signature}
+                                    finalSignature={savedGradebook.data.signatures?.find((s: any) => s.type === 'end_of_year') || 
+                                                     savedGradebook.data.assignment?.data?.signatures?.find((s: any) => s.type === 'end_of_year') ||
+                                                     savedGradebook.data.finalSignature}
                                 />
                             </div>
                         </div>
