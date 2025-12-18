@@ -188,43 +188,60 @@ exports.subAdminTemplatesRouter.get('/promoted-students', (0, auth_1.requireAuth
         const activeSchoolYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
         if (!activeSchoolYear)
             return res.json([]);
+        const activeSchoolYearId = String(activeSchoolYear._id);
         // Find students promoted by this sub-admin
         const students = await Student_1.Student.find({
-            'promotions.promotedBy': subAdminId
+            promotions: { $elemMatch: { promotedBy: subAdminId, schoolYearId: activeSchoolYearId } }
         }).lean();
+        const studentIds = students.map(s => String(s._id));
+        if (studentIds.length === 0)
+            return res.json([]);
+        const assignedEnrollments = await Enrollment_1.Enrollment.find({
+            studentId: { $in: studentIds },
+            status: 'active',
+            classId: { $exists: true, $ne: null },
+        }).select({ studentId: 1 }).lean();
+        const assignedSet = new Set(assignedEnrollments.map(e => String(e.studentId)));
+        const latestAssignments = await TemplateAssignment_1.TemplateAssignment.aggregate([
+            { $match: { studentId: { $in: studentIds } } },
+            { $sort: { assignedAt: -1 } },
+            { $group: { _id: '$studentId', assignmentId: { $first: '$_id' } } },
+        ]);
+        const assignmentByStudent = new Map(latestAssignments.map((a) => [String(a._id), a.assignmentId ? String(a.assignmentId) : '']));
         const promotedStudents = [];
         for (const student of students) {
-            // Check if currently enrolled in a class (active)
-            // We want to exclude students who have already been assigned to a class in the new year.
-            // The promotion creates an 'active' enrollment without a class.
-            // The old enrollment is marked 'promoted'.
-            // So if we find an 'active' enrollment WITH a class, they are already assigned.
-            const assignedEnrollment = await Enrollment_1.Enrollment.findOne({
-                studentId: student._id,
-                status: 'active',
-                classId: { $exists: true, $ne: null }
-            }).lean();
-            if (assignedEnrollment)
-                continue; // Already assigned to a class
-            // Get the relevant promotion (the one by this sub-admin, likely the last one)
+            const sid = String(student._id);
+            if (assignedSet.has(sid))
+                continue;
             const promotions = student.promotions || [];
-            const lastPromotion = promotions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
-            if (lastPromotion && lastPromotion.promotedBy === subAdminId && String(lastPromotion.schoolYearId) === String(activeSchoolYear?._id)) {
-                // Find the latest assignment for this student
-                const assignment = await TemplateAssignment_1.TemplateAssignment.findOne({ studentId: student._id })
-                    .sort({ assignedAt: -1 })
-                    .lean();
-                promotedStudents.push({
-                    _id: student._id,
-                    firstName: student.firstName,
-                    lastName: student.lastName,
-                    avatarUrl: student.avatarUrl,
-                    fromLevel: lastPromotion.fromLevel,
-                    toLevel: lastPromotion.toLevel,
-                    date: lastPromotion.date,
-                    assignmentId: assignment ? assignment._id : null
-                });
+            let lastPromotion = null;
+            for (const p of promotions) {
+                if (p?.promotedBy !== subAdminId)
+                    continue;
+                if (String(p?.schoolYearId) !== activeSchoolYearId)
+                    continue;
+                if (!lastPromotion) {
+                    lastPromotion = p;
+                    continue;
+                }
+                const pDate = p?.date ? new Date(p.date).getTime() : 0;
+                const lastDate = lastPromotion?.date ? new Date(lastPromotion.date).getTime() : 0;
+                if (pDate > lastDate)
+                    lastPromotion = p;
             }
+            if (!lastPromotion)
+                continue;
+            const assignmentId = assignmentByStudent.get(sid) || null;
+            promotedStudents.push({
+                _id: student._id,
+                firstName: student.firstName,
+                lastName: student.lastName,
+                avatarUrl: student.avatarUrl,
+                fromLevel: lastPromotion.fromLevel,
+                toLevel: lastPromotion.toLevel,
+                date: lastPromotion.date,
+                assignmentId,
+            });
         }
         res.json(promotedStudents);
     }
@@ -1535,6 +1552,8 @@ exports.subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', (
         if (!assignment.data)
             assignment.data = {};
         assignment.data.signatures = mergedDataSignatures;
+        const roleScope = await RoleScope_1.RoleScope.findOne({ userId: subAdminId }).lean();
+        const subadminAssignedLevels = roleScope?.levels || [];
         res.json({
             assignment,
             template: versionedTemplate,
@@ -1547,7 +1566,8 @@ exports.subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', (
             activeSemester,
             eligibleForSign,
             teacherStatus,
-            classId: resolvedClassId
+            classId: resolvedClassId,
+            subadminAssignedLevels
         });
     }
     catch (e) {

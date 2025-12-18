@@ -25,4 +25,5 @@ const studentSchema = new mongoose_1.Schema({
 // Add indexes for performance
 studentSchema.index({ schoolYearId: 1 });
 studentSchema.index({ status: 1 });
+studentSchema.index({ lastName: 1, firstName: 1 });
 exports.Student = (0, mongoose_1.model)('Student', studentSchema);

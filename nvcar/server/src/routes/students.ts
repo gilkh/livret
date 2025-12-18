@@ -38,7 +38,18 @@ studentsRouter.get('/', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), async (re
 
   const enrolls = await Enrollment.find(query).lean()
   const enrollByStudent: Record<string, any> = {}
-  for (const e of enrolls) enrollByStudent[e.studentId] = e
+  const statusPriority: Record<string, number> = { active: 3, promoted: 2, archived: 1 }
+  const isBetterEnrollment = (candidate: any, current: any) => {
+    if (!current) return true
+    const candScore = (statusPriority[candidate?.status] ?? 0) - (candidate?.classId ? 0 : 1)
+    const curScore = (statusPriority[current?.status] ?? 0) - (current?.classId ? 0 : 1)
+    if (candScore !== curScore) return candScore > curScore
+    return String(candidate?._id || '') > String(current?._id || '')
+  }
+  for (const e of enrolls) {
+    const cur = enrollByStudent[e.studentId]
+    if (isBetterEnrollment(e, cur)) enrollByStudent[e.studentId] = e
+  }
   const classIds = enrolls.map(e => e.classId).filter(Boolean) // Filter out undefined/null classIds
   const classes = await ClassModel.find({ _id: { $in: classIds } }).lean()
   const classMap: Record<string, any> = {}
@@ -96,7 +107,9 @@ studentsRouter.post('/bulk-assign-section', requireAuth(['ADMIN', 'SUBADMIN']), 
       errors: [] as any[]
     }
 
-    for (const record of records) {
+    const normalized: Array<{ index: number; studentId: string; level: string; className: string }> = []
+    for (let i = 0; i < records.length; i++) {
+      const record = records[i]
       const studentId = record.StudentId
       const nextClass = record.NextClass
 
@@ -105,42 +118,105 @@ studentsRouter.post('/bulk-assign-section', requireAuth(['ADMIN', 'SUBADMIN']), 
         continue
       }
 
-      const parts = nextClass.trim().split(' ')
-      let level, section
+      const parts = String(nextClass).trim().split(' ')
+      let level: string | undefined
+      let section: string | undefined
 
       if (parts.length >= 2) {
         level = parts[0]
         section = parts.slice(1).join(' ')
-      } else {
-        if (record.TargetLevel) {
-          level = record.TargetLevel
-          section = nextClass
-        } else {
-          results.errors.push({ studentId, error: 'invalid_class_format' })
-          continue
-        }
+      } else if (record.TargetLevel) {
+        level = record.TargetLevel
+        section = nextClass
       }
 
+      if (!level || !section) {
+        results.errors.push({ studentId, error: 'invalid_class_format' })
+        continue
+      }
+
+      const className = `${level} ${section}`.trim()
+      normalized.push({ index: i, studentId: String(studentId), level: String(level), className })
+    }
+
+    const uniqueClassNames = Array.from(new Set(normalized.map(r => r.className)))
+    const existingClasses = await ClassModel.find({ schoolYearId, name: { $in: uniqueClassNames } }).lean()
+    const classByName = new Map<string, any>(existingClasses.map(c => [String(c.name), c]))
+    const missingNames = uniqueClassNames.filter(n => !classByName.has(n))
+
+    if (missingNames.length) {
+      const nameToLevel = new Map<string, string>()
+      for (const r of normalized) if (!nameToLevel.has(r.className)) nameToLevel.set(r.className, r.level)
+      const toInsert = missingNames.map(name => ({ name, level: nameToLevel.get(name) || '', schoolYearId }))
       try {
-        const className = `${level} ${section}`
-        let cls = await ClassModel.findOne({ schoolYearId, name: className }).lean()
-        if (!cls) {
-          cls = await ClassModel.create({ name: className, level, schoolYearId })
-        }
-
-        const existing = await Enrollment.findOne({ studentId, schoolYearId })
-        if (existing) {
-          existing.classId = String(cls._id)
-          await existing.save()
-        } else {
-          await Enrollment.create({ studentId, classId: String(cls._id), schoolYearId })
-        }
-
-        await checkAndAssignTemplates(studentId, level, schoolYearId, String(cls._id), (req as any).user.userId)
-        results.success++
+        const inserted = await ClassModel.insertMany(toInsert, { ordered: false })
+        for (const c of inserted) classByName.set(String((c as any).name), c)
       } catch (e: any) {
-        results.errors.push({ studentId, error: e.message })
+        const refreshed = await ClassModel.find({ schoolYearId, name: { $in: missingNames } }).lean()
+        for (const c of refreshed) classByName.set(String(c.name), c)
       }
+    }
+
+    const assignments = normalized
+      .map(r => {
+        const cls = classByName.get(r.className)
+        if (!cls) {
+          results.errors.push({ studentId: r.studentId, error: 'class_not_found_or_create_failed' })
+          return null
+        }
+        return { studentId: r.studentId, level: r.level, classId: String(cls._id) }
+      })
+      .filter(Boolean) as Array<{ studentId: string; level: string; classId: string }>
+
+    const enrollmentOps = assignments.map(a => ({
+      updateOne: {
+        filter: { studentId: a.studentId, schoolYearId },
+        update: {
+          $set: { classId: a.classId, status: 'active' },
+          $setOnInsert: { studentId: a.studentId, schoolYearId, status: 'active' },
+        },
+        upsert: true,
+      },
+    }))
+
+    const failedOpIndexes = new Set<number>()
+    const chunkSize = 1000
+    for (let i = 0; i < enrollmentOps.length; i += chunkSize) {
+      const chunk = enrollmentOps.slice(i, i + chunkSize)
+      try {
+        if (chunk.length) await Enrollment.bulkWrite(chunk, { ordered: false })
+      } catch (e: any) {
+        const writeErrors = e?.writeErrors || []
+        for (const we of writeErrors) {
+          const localIndex = typeof we?.index === 'number' ? we.index : -1
+          if (localIndex >= 0) failedOpIndexes.add(i + localIndex)
+        }
+        if (writeErrors.length === 0) throw e
+      }
+    }
+
+    const tasks = assignments
+      .map((a, idx) => ({ ...a, idx }))
+      .filter(a => !failedOpIndexes.has(a.idx))
+
+    const concurrency = 10
+    let cursor = 0
+    const workers = Array.from({ length: Math.min(concurrency, tasks.length) }).map(async () => {
+      while (cursor < tasks.length) {
+        const current = tasks[cursor++]
+        try {
+          await checkAndAssignTemplates(current.studentId, current.level, schoolYearId, current.classId, (req as any).user.userId)
+          results.success++
+        } catch (e: any) {
+          results.errors.push({ studentId: current.studentId, error: e.message })
+        }
+      }
+    })
+    await Promise.all(workers)
+
+    for (const idx of failedOpIndexes) {
+      const a = assignments[idx]
+      if (a) results.errors.push({ studentId: a.studentId, error: 'enrollment_write_failed' })
     }
     res.json(results)
   } catch (e: any) {

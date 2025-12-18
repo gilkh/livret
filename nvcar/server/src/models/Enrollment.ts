@@ -13,5 +13,7 @@ enrollmentSchema.index({ studentId: 1 })
 enrollmentSchema.index({ schoolYearId: 1 })
 enrollmentSchema.index({ classId: 1 })
 enrollmentSchema.index({ studentId: 1, schoolYearId: 1 }) // Compound index for common lookup
+enrollmentSchema.index({ schoolYearId: 1, studentId: 1 })
+enrollmentSchema.index({ schoolYearId: 1, classId: 1 })
 
 export const Enrollment = model('Enrollment', enrollmentSchema)

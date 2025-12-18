@@ -54,20 +54,52 @@ exports.templateAssignmentsRouter.post('/bulk-level', (0, auth_1.requireAuth)(['
             teacherMap.get(ta.classId)?.push(ta.teacherId);
         }
         // Create assignments
-        let count = 0;
-        for (const enrollment of enrollments) {
-            const teachers = (enrollment.classId && teacherMap.get(enrollment.classId)) || [];
-            await TemplateAssignment_1.TemplateAssignment.findOneAndUpdate({ templateId, studentId: enrollment.studentId }, {
-                templateId,
-                templateVersion: template.currentVersion || 1,
-                studentId: enrollment.studentId,
-                assignedTeachers: teachers,
-                assignedBy: req.user.userId,
-                assignedAt: new Date(),
-                status: 'draft',
-            }, { upsert: true });
-            count++;
+        const enrollmentByStudent = new Map();
+        const statusPriority = { active: 3, promoted: 2, archived: 1 };
+        const isBetterEnrollment = (candidate, current) => {
+            if (!current)
+                return true;
+            const candScore = (statusPriority[candidate?.status] ?? 0) - (candidate?.classId ? 0 : 1);
+            const curScore = (statusPriority[current?.status] ?? 0) - (current?.classId ? 0 : 1);
+            if (candScore !== curScore)
+                return candScore > curScore;
+            return String(candidate?._id || '') > String(current?._id || '');
+        };
+        for (const e of enrollments) {
+            const sid = String(e.studentId);
+            const cur = enrollmentByStudent.get(sid);
+            if (isBetterEnrollment(e, cur))
+                enrollmentByStudent.set(sid, e);
         }
+        const now = new Date();
+        const assignedBy = req.user.userId;
+        const ops = Array.from(enrollmentByStudent.values()).map((enrollment) => {
+            const teachers = (enrollment.classId && teacherMap.get(enrollment.classId)) || [];
+            return {
+                updateOne: {
+                    filter: { templateId, studentId: enrollment.studentId },
+                    update: {
+                        $set: {
+                            templateId,
+                            templateVersion: template.currentVersion || 1,
+                            studentId: enrollment.studentId,
+                            assignedTeachers: teachers,
+                            assignedBy,
+                            assignedAt: now,
+                            status: 'draft',
+                        },
+                    },
+                    upsert: true,
+                },
+            };
+        });
+        const chunkSize = 1000;
+        for (let i = 0; i < ops.length; i += chunkSize) {
+            const chunk = ops.slice(i, i + chunkSize);
+            if (chunk.length)
+                await TemplateAssignment_1.TemplateAssignment.bulkWrite(chunk, { ordered: false });
+        }
+        const count = ops.length;
         res.json({ count, message: `Assigned template to ${count} students` });
     }
     catch (e) {

@@ -6,4 +6,6 @@ const classSchema = new Schema({
   schoolYearId: { type: String, required: true },
 })
 
+classSchema.index({ schoolYearId: 1, name: 1 })
+
 export const ClassModel = model('Class', classSchema)
