@@ -1687,6 +1687,9 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
         if (!assignment.data) assignment.data = {}
         assignment.data.signatures = mergedDataSignatures
 
+        const roleScope = await RoleScope.findOne({ userId: subAdminId }).lean()
+        const subadminAssignedLevels = roleScope?.levels || []
+
         res.json({
             assignment,
             template: versionedTemplate,
@@ -1699,7 +1702,8 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
             activeSemester,
             eligibleForSign,
             teacherStatus,
-            classId: resolvedClassId
+            classId: resolvedClassId,
+            subadminAssignedLevels
         })
     } catch (e: any) {
         console.error('[/review] Error:', e)

@@ -6,8 +6,172 @@ import path from 'path'
 import mongoose from 'mongoose'
 import { v4 as uuidv4 } from 'uuid'
 import os from 'os'
+import JSZip from 'jszip'
+import { User } from '../models/User'
+import * as bcrypt from 'bcryptjs'
+import { Level } from '../models/Level'
 
 export const backupRouter = Router()
+
+const BACKUP_DIR = path.join(process.cwd(), 'backups')
+if (!fs.existsSync(BACKUP_DIR)) {
+  fs.mkdirSync(BACKUP_DIR, { recursive: true })
+}
+
+const clearDatabase = async () => {
+  const models = mongoose.modelNames()
+  for (const modelName of models) {
+    const Model = mongoose.model(modelName)
+    await Model.deleteMany({})
+  }
+}
+
+// List available backups
+backupRouter.get('/list', requireAuth(['ADMIN']), async (req, res) => {
+  try {
+    const files = fs.readdirSync(BACKUP_DIR).filter(f => f.endsWith('.zip'))
+    const backups = files.map(f => {
+      const stats = fs.statSync(path.join(BACKUP_DIR, f))
+      return {
+        name: f,
+        size: stats.size,
+        date: stats.mtime
+      }
+    }).sort((a, b) => b.date.getTime() - a.date.getTime())
+    res.json(backups)
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Failed to list backups' })
+  }
+})
+
+// Create new DB backup (stored on server)
+backupRouter.post('/create', requireAuth(['ADMIN']), async (req, res) => {
+  const tempDir = path.join(os.tmpdir(), `nvcar-db-backup-${uuidv4()}`)
+  const fileName = `backup-db-${new Date().toISOString().replace(/[:.]/g, '-')}.zip`
+  const archivePath = path.join(BACKUP_DIR, fileName)
+
+  try {
+    fs.mkdirSync(tempDir, { recursive: true })
+    
+    const models = mongoose.modelNames()
+    for (const modelName of models) {
+      const Model = mongoose.model(modelName)
+      const docs = await Model.find({}).lean()
+      fs.writeFileSync(
+        path.join(tempDir, `${modelName}.json`), 
+        JSON.stringify(docs, null, 2)
+      )
+    }
+
+    const output = fs.createWriteStream(archivePath)
+    const archive = archiver('zip', { zlib: { level: 9 } })
+
+    output.on('close', () => {
+      try { fs.rmSync(tempDir, { recursive: true, force: true }) } catch(e) {}
+      res.json({ success: true, filename: fileName })
+    })
+    
+    archive.on('error', (err) => {
+      throw err
+    })
+
+    archive.pipe(output)
+    archive.directory(tempDir, false)
+    await archive.finalize()
+
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Backup creation failed' })
+    try { fs.rmSync(tempDir, { recursive: true, force: true }) } catch(e) {}
+  }
+})
+
+// Restore backup
+backupRouter.post('/restore/:filename', requireAuth(['ADMIN']), async (req, res) => {
+  const { filename } = req.params
+  const filePath = path.join(BACKUP_DIR, filename)
+
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ error: 'Backup not found' })
+  }
+
+  try {
+    const fileContent = fs.readFileSync(filePath)
+    const jszip = new JSZip()
+    const zipContents = await jszip.loadAsync(fileContent)
+    
+    // Clear current DB
+    await clearDatabase()
+
+    // Restore data
+    const models = mongoose.modelNames()
+    for (const modelName of models) {
+      const file = zipContents.file(`${modelName}.json`)
+      if (file) {
+        const content = await file.async('string')
+        const docs = JSON.parse(content)
+        if (docs.length > 0) {
+           const Model = mongoose.model(modelName)
+           await Model.insertMany(docs)
+        }
+      }
+    }
+    
+    res.json({ success: true })
+
+  } catch (e) {
+    console.error('Restore error:', e)
+    res.status(500).json({ error: 'Restore failed' })
+  }
+})
+
+// Empty database
+backupRouter.post('/empty', requireAuth(['ADMIN']), async (req, res) => {
+  try {
+    // Preserve ALL admin users
+    const adminUsers = await User.find({ role: 'ADMIN' }).lean()
+    
+    await clearDatabase()
+    
+    // Restore admins
+    if (adminUsers.length > 0) {
+        await User.insertMany(adminUsers)
+    } else {
+        const hash = await bcrypt.hash('admin', 10)
+        await User.create({ email: 'admin', passwordHash: hash, role: 'ADMIN', displayName: 'Admin' })
+    }
+
+    // Re-seed default levels
+    await Level.insertMany([
+      { name: 'PS', order: 1 },
+      { name: 'MS', order: 2 },
+      { name: 'GS', order: 3 },
+    ])
+
+    res.json({ success: true })
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Empty DB failed' })
+  }
+})
+
+// Delete backup
+backupRouter.delete('/:filename', requireAuth(['ADMIN']), async (req, res) => {
+  const { filename } = req.params
+  const filePath = path.join(BACKUP_DIR, filename)
+  
+  if (fs.existsSync(filePath)) {
+    try {
+      fs.unlinkSync(filePath)
+      res.json({ success: true })
+    } catch(e) {
+      res.status(500).json({ error: 'Delete failed' })
+    }
+  } else {
+    res.status(404).json({ error: 'File not found' })
+  }
+})
 
 backupRouter.get('/full', requireAuth(['ADMIN']), async (req, res) => {
   const tempDir = path.join(os.tmpdir(), `nvcar-backup-${uuidv4()}`)
