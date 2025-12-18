@@ -1138,6 +1138,7 @@ exports.subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', (
         // Get student level and class name (Moved up for signature filtering)
         let level = student?.level || '';
         let className = '';
+        let classId = null;
         if (student) {
             // Get active school year to ensure we get the CURRENT enrollment
             const activeSchoolYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
@@ -1148,6 +1149,7 @@ exports.subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', (
                     status: 'active'
                 }).lean();
                 if (enrollment && enrollment.classId) {
+                    classId = String(enrollment.classId);
                     const classDoc = await Class_1.ClassModel.findById(enrollment.classId).lean();
                     if (classDoc) {
                         level = classDoc.level || student.level || '';
@@ -1445,6 +1447,91 @@ exports.subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', (
             }
             eligibleForSign = ok;
         }
+        let resolvedClassId = classId;
+        if (!resolvedClassId) {
+            const fallbackEnrollmentQuery = (q) => Enrollment_1.Enrollment.findOne(q).sort({ updatedAt: -1 }).lean();
+            let enrollment = activeSchoolYear
+                ? await fallbackEnrollmentQuery({
+                    studentId: assignment.studentId,
+                    schoolYearId: activeSchoolYear._id,
+                    status: 'active',
+                    classId: { $exists: true, $ne: null }
+                })
+                : null;
+            if (!enrollment || !enrollment.classId) {
+                enrollment = await fallbackEnrollmentQuery({
+                    studentId: assignment.studentId,
+                    status: 'promoted',
+                    classId: { $exists: true, $ne: null }
+                });
+            }
+            if (!enrollment || !enrollment.classId) {
+                enrollment = await fallbackEnrollmentQuery({
+                    studentId: assignment.studentId,
+                    classId: { $exists: true, $ne: null }
+                });
+            }
+            resolvedClassId = enrollment?.classId ? String(enrollment.classId) : null;
+        }
+        const teacherCompletions = assignment.teacherCompletions || [];
+        const teacherAssignments = resolvedClassId
+            ? await TeacherClassAssignment_1.TeacherClassAssignment.find({
+                classId: resolvedClassId,
+                ...(activeSchoolYear?._id ? { schoolYearId: String(activeSchoolYear._id) } : {})
+            }).lean()
+            : [];
+        const teacherIds = [...new Set((teacherAssignments || []).map((ta) => String(ta.teacherId)))];
+        const [teachers, outlookTeachers] = teacherIds.length
+            ? await Promise.all([
+                User_1.User.find({ _id: { $in: teacherIds } }).lean(),
+                OutlookUser_1.OutlookUser.find({ _id: { $in: teacherIds } }).lean()
+            ])
+            : [[], []];
+        const teacherMap = new Map([...teachers, ...outlookTeachers].map((t) => [
+            String(t._id),
+            String(t.displayName || t.email || 'Unknown')
+        ]));
+        const getTeacherName = (teacherId) => teacherMap.get(String(teacherId)) || 'Unknown';
+        const langMatch = (langs, needles) => {
+            const normalized = (langs || []).map(l => String(l || '').toLowerCase());
+            return needles.some(n => normalized.some(v => v === n || v.includes(n)));
+        };
+        const isResponsibleTeacherFor = (ta, category) => {
+            if (category === 'poly')
+                return ta.isProfPolyvalent;
+            const langs = (ta.languages || []).map((x) => String(x || '').toLowerCase());
+            if (langs.length === 0)
+                return !ta.isProfPolyvalent;
+            if (category === 'ar')
+                return langMatch(langs, ['ar', 'arabe', 'arabic', 'العربية']);
+            return langMatch(langs, ['en', 'uk', 'gb', 'anglais', 'english']);
+        };
+        const arabicTeacherIds = (teacherAssignments || [])
+            .filter((ta) => isResponsibleTeacherFor(ta, 'ar'))
+            .map((ta) => String(ta.teacherId));
+        const englishTeacherIds = (teacherAssignments || [])
+            .filter((ta) => isResponsibleTeacherFor(ta, 'en'))
+            .map((ta) => String(ta.teacherId));
+        const polyvalentTeacherIds = (teacherAssignments || [])
+            .filter((ta) => isResponsibleTeacherFor(ta, 'poly'))
+            .map((ta) => String(ta.teacherId));
+        const groupStatus = (ids) => {
+            const uniqueIds = [...new Set(ids)];
+            const doneSem1 = uniqueIds.some(tid => (teacherCompletions || []).some((tc) => String(tc.teacherId) === String(tid) && (tc.completedSem1 || tc.completed)));
+            const doneSem2 = uniqueIds.some(tid => (teacherCompletions || []).some((tc) => String(tc.teacherId) === String(tid) && tc.completedSem2));
+            const doneOverall = uniqueIds.some(tid => (teacherCompletions || []).some((tc) => String(tc.teacherId) === String(tid) && (tc.completedSem2 || tc.completedSem1 || tc.completed)));
+            return {
+                teachers: uniqueIds.map(id => ({ id, name: getTeacherName(id) })),
+                doneSem1,
+                doneSem2,
+                doneOverall
+            };
+        };
+        const teacherStatus = {
+            arabic: groupStatus(arabicTeacherIds),
+            english: groupStatus(englishTeacherIds),
+            polyvalent: groupStatus(polyvalentTeacherIds)
+        };
         if (!assignment.data)
             assignment.data = {};
         assignment.data.signatures = mergedDataSignatures;
@@ -1458,7 +1545,9 @@ exports.subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', (
             canEdit,
             isPromoted,
             activeSemester,
-            eligibleForSign
+            eligibleForSign,
+            teacherStatus,
+            classId: resolvedClassId
         });
     }
     catch (e) {

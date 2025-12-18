@@ -19,6 +19,7 @@ export default function TeacherClassView() {
     const { activeYear } = useSchoolYear()
     const [students, setStudents] = useState<Student[]>([])
     const [assignments, setAssignments] = useState<Assignment[]>([])
+    const [className, setClassName] = useState('')
     const [filter, setFilter] = useState<'all' | 'completed' | 'incomplete'>('all')
     const [search, setSearch] = useState('')
     const [sort, setSort] = useState<'name_asc' | 'name_desc' | 'firstName_asc' | 'firstName_desc' | 'progress_desc' | 'progress_asc'>('name_asc')
@@ -27,14 +28,24 @@ export default function TeacherClassView() {
 
     useEffect(() => {
         const loadData = async () => {
+            setLoading(true)
+            setError('')
+            
             try {
-                setLoading(true)
-                const [studentsRes, assignmentsRes] = await Promise.all([
-                    api.get(`/teacher/classes/${classId}/students`),
-                    api.get(`/teacher/classes/${classId}/assignments`),
-                ])
-                setStudents(studentsRes.data)
-                setAssignments(assignmentsRes.data)
+                // Launch requests in parallel
+                const studentsPromise = api.get(`/teacher/classes/${classId}/students`)
+                    .then(res => setStudents(res.data))
+                
+                const assignmentsPromise = api.get(`/teacher/classes/${classId}/assignments`)
+                    .then(res => setAssignments(res.data))
+
+                const classPromise = api.get('/teacher/classes')
+                    .then(res => {
+                        const cls = res.data.find((c: any) => c._id === classId)
+                        if (cls) setClassName(cls.name)
+                    })
+
+                await Promise.all([studentsPromise, assignmentsPromise, classPromise])
             } catch (e: any) {
                 setError('Impossible de charger les données')
                 console.error(e)
@@ -169,19 +180,33 @@ export default function TeacherClassView() {
     return (
         <div className="container">
             <div className="card">
-                <Link to="/teacher/classes" className="btn secondary" style={{ 
-                    marginBottom: 20,
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    background: '#f1f5f9',
-                    color: '#475569',
-                    fontWeight: 500,
-                    border: '1px solid #e2e8f0'
-                }}>← Retour aux classes</Link>
-                <h2 className="title" style={{ fontSize: 28, marginBottom: 8, color: '#1e293b' }}>🏛️ Élèves de la classe</h2>
-                <div className="note" style={{ fontSize: 14, color: '#64748b', marginBottom: 8 }}>
-                    Semestre actif : S{activeSemester}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 24 }}>
+                    <Link to="/teacher/classes" className="btn secondary" style={{ 
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        height: 42,
+                        padding: '0 20px',
+                        borderRadius: 21,
+                        background: '#f1f5f9',
+                        color: '#475569',
+                        fontWeight: 600,
+                        border: '1px solid #e2e8f0',
+                        textDecoration: 'none',
+                        transition: 'all 0.2s',
+                        boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                        flexShrink: 0
+                    }}>← Retour aux classes</Link>
+                    
+                    <div>
+                        <h2 className="title" style={{ fontSize: 24, margin: 0, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 12 }}>
+                            <span>🏛️ Élèves de la classe</span>
+                            {className && <span style={{ background: '#e2e8f0', padding: '4px 12px', borderRadius: 8, fontSize: '0.9em', color: '#334155' }}>{className}</span>}
+                        </h2>
+                        <div className="note" style={{ fontSize: 14, color: '#64748b', marginTop: 4 }}>
+                            Semestre actif : S{activeSemester}
+                        </div>
+                    </div>
                 </div>
 
                 {loading && <div className="note" style={{ textAlign: 'center', padding: 24 }}>Chargement...</div>}
@@ -332,7 +357,7 @@ export default function TeacherClassView() {
                                             ✓
                                         </div>
                                     )}
-                                    <img className="avatar" src={s.avatarUrl || `https://api.dicebear.com/9.x/thumbs/svg?seed=${s.firstName}-${s.lastName}`} alt="" style={{ width: 64, height: 64, borderRadius: '50%', border: '3px solid #e2e8f0', objectFit: 'cover' }} />
+                                    <img className="avatar" loading="lazy" src={s.avatarUrl || `https://api.dicebear.com/9.x/thumbs/svg?seed=${s.firstName}-${s.lastName}`} alt="" style={{ width: 64, height: 64, borderRadius: '50%', border: '3px solid #e2e8f0', objectFit: 'cover' }} />
                                     <div style={{ flex: 1 }}>
                                         <div className="title" style={{ fontSize: 17, marginBottom: 4, color: '#1e293b', fontWeight: 600 }}>{s.firstName} {s.lastName}</div>
                                         <div className="note" style={{ fontSize: 13, fontWeight: 500 }}>

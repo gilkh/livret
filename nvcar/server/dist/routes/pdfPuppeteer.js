@@ -16,25 +16,34 @@ exports.pdfPuppeteerRouter = (0, express_1.Router)();
 // Singleton browser instance
 let browserInstance = null;
 const getBrowser = async () => {
+    console.log('[PDF DEBUG] getBrowser called');
     if (browserInstance && browserInstance.isConnected()) {
+        console.log('[PDF DEBUG] Reusing existing browser instance');
         return browserInstance;
     }
     console.log('[PDF] Launching new browser instance...');
-    browserInstance = await puppeteer_1.default.launch({
-        headless: true,
-        // @ts-ignore - available at runtime, not in older type defs
-        ignoreHTTPSErrors: true,
-        args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-accelerated-2d-canvas',
-            '--no-first-run',
-            '--no-zygote',
-            '--disable-gpu',
-            '--ignore-certificate-errors'
-        ]
-    });
+    try {
+        browserInstance = await puppeteer_1.default.launch({
+            headless: true,
+            // @ts-ignore - available at runtime, not in older type defs
+            ignoreHTTPSErrors: true,
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-accelerated-2d-canvas',
+                '--no-first-run',
+                '--no-zygote',
+                '--disable-gpu',
+                '--ignore-certificate-errors'
+            ]
+        });
+        console.log('[PDF DEBUG] New browser instance launched successfully');
+    }
+    catch (e) {
+        console.error('[PDF DEBUG] Failed to launch browser:', e);
+        throw e;
+    }
     browserInstance.on('disconnected', () => {
         console.log('[PDF] Browser disconnected');
         browserInstance = null;
@@ -117,17 +126,31 @@ const generatePdfBufferFromPrintUrl = async (printUrl, token, frontendUrl) => {
                 path: '/'
             });
         }
-        await page.goto(printUrl, { waitUntil: 'networkidle0', timeout: 60000 });
-        await page.waitForFunction(() => {
-            // @ts-ignore
-            return window.__READY_FOR_PDF__ === true;
-        }, { timeout: 30000 });
+        try {
+            await page.goto(printUrl, { waitUntil: 'networkidle0', timeout: 60000 });
+        }
+        catch (e) {
+            console.warn('[PDF] Page navigation timeout or error, proceeding to wait for ready signal...', e.message);
+        }
+        try {
+            await page.waitForFunction(() => {
+                // @ts-ignore
+                return window.__READY_FOR_PDF__ === true;
+            }, { timeout: 30000 });
+        }
+        catch (e) {
+            console.warn('[PDF] Timeout waiting for READY_FOR_PDF signal in buffer generation, proceeding anyway...', e);
+        }
         await new Promise(resolve => setTimeout(resolve, 1000));
-        const pdfBuffer = await page.pdf({
+        console.log('[PDF DEBUG] Generating PDF buffer');
+        const pdfBufferRaw = await page.pdf({
             format: 'A4',
             printBackground: true,
             margin: { top: 0, right: 0, bottom: 0, left: 0 }
         });
+        // Ensure we have a Buffer, not just a Uint8Array
+        const pdfBuffer = Buffer.from(pdfBufferRaw);
+        console.log(`[PDF DEBUG] PDF buffer generated, size: ${pdfBuffer?.length || 0}, isBuffer: ${Buffer.isBuffer(pdfBuffer)}`);
         if (!pdfBuffer || pdfBuffer.length === 0) {
             throw new Error('Generated PDF buffer is empty');
         }
@@ -177,89 +200,11 @@ exports.pdfPuppeteerRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN',
             token = String(req.query.token);
         }
         console.log('[PDF] Getting browser instance...');
-        const browser = await getBrowser();
-        console.log('[PDF] Creating page...');
-        page = await browser.newPage();
-        // Add error logging to see what breaks in headless mode
-        page.on('console', (msg) => {
-            console.log('[BROWSER LOG]', msg.text());
-        });
-        page.on('pageerror', (err) => {
-            console.error('[PAGE ERROR]', err);
-        });
-        page.on('requestfailed', (req) => {
-            console.error('[FAILED REQUEST]', req.url(), req.failure());
-        });
-        // Set viewport for consistent rendering
-        await page.setViewport({ width: 800, height: 1120 });
-        let frontendUrl = process.env.FRONTEND_URL || 'https://localhost:5173';
-        try {
-            const u = new URL(frontendUrl);
-            if (u.hostname === 'localhost' && u.port === '5173' && u.protocol === 'http:') {
-                u.protocol = 'https:';
-                frontendUrl = u.toString().replace(/\/$/, '');
-            }
-        }
-        catch { }
-        try {
-            const u = new URL(frontendUrl);
-            if (u.hostname === 'localhost' && u.port === '5173' && u.protocol === 'http:') {
-                u.protocol = 'https:';
-                frontendUrl = u.toString().replace(/\/$/, '');
-            }
-        }
-        catch { }
-        try {
-            const u = new URL(frontendUrl);
-            if (u.hostname === 'localhost' && u.port === '5173' && u.protocol === 'http:') {
-                u.protocol = 'https:';
-                frontendUrl = u.toString().replace(/\/$/, '');
-            }
-        }
-        catch { }
-        if (token) {
-            let cookieDomain = 'localhost';
-            try {
-                cookieDomain = new URL(frontendUrl).hostname;
-            }
-            catch { }
-            await page.setCookie({
-                name: 'token',
-                value: token,
-                domain: cookieDomain,
-                path: '/'
-            });
-        }
+        const frontendUrl = resolveFrontendUrl();
         const printUrl = `${frontendUrl}/print/carnet/${assignment._id}?token=${token}`;
-        console.log('[PDF] Loading page:', printUrl);
-        await page.goto(printUrl, {
-            waitUntil: 'networkidle0',
-            timeout: 60000
-        });
-        // Wait for the page to signal it's ready
-        console.log('[PDF] Waiting for page to be ready...');
-        await page.waitForFunction(() => {
-            // @ts-ignore
-            return window.__READY_FOR_PDF__ === true;
-        }, { timeout: 30000 });
-        console.log('[PDF] Page confirmed ready');
-        // Give a small delay for any final renders
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        console.log('[PDF] Generating PDF...');
-        // Generate PDF - use A4 format and let multiple pages be created automatically
-        const pdfBuffer = await page.pdf({
-            format: 'A4',
-            printBackground: true,
-            margin: {
-                top: 0,
-                right: 0,
-                bottom: 0,
-                left: 0
-            }
-        });
+        console.log('[PDF] Generating PDF via shared function:', printUrl);
+        const pdfBuffer = await generatePdfBufferFromPrintUrl(printUrl, token, frontendUrl);
         console.log('[PDF] PDF generated successfully, size:', pdfBuffer.length, 'bytes');
-        await page.close();
-        page = null;
         // Verify PDF is valid
         if (!pdfBuffer || pdfBuffer.length === 0) {
             throw new Error('Generated PDF buffer is empty');
@@ -293,6 +238,8 @@ exports.pdfPuppeteerRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN',
     }
 });
 exports.pdfPuppeteerRouter.post('/assignments/zip', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', 'AEFE']), async (req, res) => {
+    // Increase timeout for large batches
+    req.setTimeout(3600000); // 1 hour
     let archive = null;
     try {
         const assignmentIds = Array.isArray(req.body?.assignmentIds) ? req.body.assignmentIds.filter(Boolean) : [];
@@ -367,10 +314,22 @@ exports.pdfPuppeteerRouter.post('/assignments/zip', (0, auth_1.requireAuth)(['AD
         console.error('[PDF ZIP] Failed:', e);
         if (res.headersSent) {
             try {
-                archive?.append(`${e?.message || 'zip_generation_failed'}\n`, { name: `errors/fatal.txt` });
-                await archive?.finalize();
+                // If archive is not yet finalized, try to append error and finalize
+                // @ts-ignore
+                if (archive && archive._state.status !== 'finalized' && archive._state.status !== 'finalizing') {
+                    archive.append(`${e?.message || 'zip_generation_failed'}\n`, { name: `errors/fatal.txt` });
+                    await archive.finalize();
+                }
+                else {
+                    console.warn('[PDF ZIP] Archive already finalizing or finalized, forcing response end.');
+                    try {
+                        res.end();
+                    }
+                    catch { }
+                }
             }
-            catch {
+            catch (err) {
+                console.error('[PDF ZIP] Error finalizing archive in catch block:', err);
                 try {
                     res.end();
                 }
@@ -398,12 +357,6 @@ exports.pdfPuppeteerRouter.get('/preview/:templateId/:studentId', (0, auth_1.req
         const template = await GradebookTemplate_1.GradebookTemplate.findById(templateId).lean();
         if (!template)
             return res.status(404).json({ error: 'template_not_found' });
-        const browser = await getBrowser();
-        page = await browser.newPage();
-        page.on('console', (msg) => { console.log('[BROWSER LOG]', msg.text()); });
-        page.on('pageerror', (err) => { console.error('[PAGE ERROR]', err); });
-        page.on('requestfailed', (req) => { console.error('[FAILED REQUEST]', req.url(), req.failure()); });
-        await page.setViewport({ width: 800, height: 1120 });
         const forwardedProto = String(req.headers['x-forwarded-proto'] || '');
         const forwardedHost = String(req.headers['x-forwarded-host'] || '');
         const originHeader = String(req.headers['origin'] || '');
@@ -425,28 +378,10 @@ exports.pdfPuppeteerRouter.get('/preview/:templateId/:studentId', (0, auth_1.req
         }
         if (!frontendUrl)
             frontendUrl = 'https://localhost:5173';
-        if (token) {
-            let cookieDomain = 'localhost';
-            try {
-                cookieDomain = new URL(frontendUrl).hostname;
-            }
-            catch { }
-            await page.setCookie({ name: 'token', value: token, domain: cookieDomain, path: '/' });
-        }
         const printUrl = `${frontendUrl}/print/preview/${templateId}/student/${studentId}?token=${token}`;
-        await page.goto(printUrl, { waitUntil: 'networkidle0', timeout: 60000 });
-        await page.waitForFunction(() => {
-            // @ts-ignore
-            return window.__READY_FOR_PDF__ === true;
-        }, { timeout: 30000 });
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        const pdfBuffer = await page.pdf({
-            format: 'A4',
-            printBackground: true,
-            margin: { top: 0, right: 0, bottom: 0, left: 0 }
-        });
-        await page.close();
-        page = null;
+        console.log('[PDF] Generating Preview PDF via shared function:', printUrl);
+        const pdfBuffer = await generatePdfBufferFromPrintUrl(printUrl, token, frontendUrl);
+        // Verify PDF is valid
         if (!pdfBuffer || pdfBuffer.length === 0) {
             throw new Error('Generated PDF buffer is empty');
         }
@@ -492,21 +427,6 @@ exports.pdfPuppeteerRouter.get('/saved/:id', (0, auth_1.requireAuth)(['ADMIN', '
         else if (req.query.token) {
             token = String(req.query.token);
         }
-        console.log('[PDF] Getting browser instance...');
-        const browser = await getBrowser();
-        console.log('[PDF] Creating page...');
-        page = await browser.newPage();
-        // Add error logging
-        page.on('console', (msg) => {
-            console.log('[BROWSER LOG]', msg.text());
-        });
-        page.on('pageerror', (err) => {
-            console.error('[PAGE ERROR]', err);
-        });
-        page.on('requestfailed', (req) => {
-            console.error('[FAILED REQUEST]', req.url(), req.failure());
-        });
-        await page.setViewport({ width: 800, height: 1120 });
         const forwardedProto = String(req.headers['x-forwarded-proto'] || '');
         const forwardedHost = String(req.headers['x-forwarded-host'] || '');
         const originHeader = String(req.headers['origin'] || '');
@@ -528,46 +448,9 @@ exports.pdfPuppeteerRouter.get('/saved/:id', (0, auth_1.requireAuth)(['ADMIN', '
         }
         if (!frontendUrl)
             frontendUrl = 'https://localhost:5173';
-        if (token) {
-            let cookieDomain = 'localhost';
-            try {
-                cookieDomain = new URL(frontendUrl).hostname;
-            }
-            catch { }
-            await page.setCookie({
-                name: 'token',
-                value: token,
-                domain: cookieDomain,
-                path: '/'
-            });
-        }
         const printUrl = `${frontendUrl}/print/saved/${saved._id}?token=${token}`;
-        console.log('[PDF] Loading page:', printUrl);
-        await page.goto(printUrl, {
-            waitUntil: 'networkidle0',
-            timeout: 60000
-        });
-        console.log('[PDF] Waiting for page to be ready...');
-        await page.waitForFunction(() => {
-            // @ts-ignore
-            return window.__READY_FOR_PDF__ === true;
-        }, { timeout: 30000 });
-        console.log('[PDF] Page confirmed ready');
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        console.log('[PDF] Generating PDF...');
-        const pdfBuffer = await page.pdf({
-            format: 'A4',
-            printBackground: true,
-            margin: {
-                top: 0,
-                right: 0,
-                bottom: 0,
-                left: 0
-            }
-        });
-        console.log('[PDF] PDF generated successfully, size:', pdfBuffer.length, 'bytes');
-        await page.close();
-        page = null;
+        console.log('[PDF] Generating Saved Gradebook PDF via shared function:', printUrl);
+        const pdfBuffer = await generatePdfBufferFromPrintUrl(printUrl, token, frontendUrl);
         if (!pdfBuffer || pdfBuffer.length === 0) {
             throw new Error('Generated PDF buffer is empty');
         }

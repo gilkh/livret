@@ -1248,6 +1248,7 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
         // Get student level and class name (Moved up for signature filtering)
         let level = student?.level || ''
         let className = ''
+        let classId: string | null = null
         if (student) {
             // Get active school year to ensure we get the CURRENT enrollment
             const activeSchoolYear = await SchoolYear.findOne({ active: true }).lean()
@@ -1259,6 +1260,7 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
                  }).lean()
                  
                  if (enrollment && enrollment.classId) {
+                     classId = String(enrollment.classId)
                      const classDoc = await ClassModel.findById(enrollment.classId).lean()
                      if (classDoc) {
                          level = classDoc.level || student.level || ''
@@ -1575,6 +1577,113 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
             eligibleForSign = ok
         }
 
+        let resolvedClassId = classId
+        if (!resolvedClassId) {
+            const fallbackEnrollmentQuery = (q: any) =>
+                Enrollment.findOne(q).sort({ updatedAt: -1 }).lean()
+
+            let enrollment = activeSchoolYear
+                ? await fallbackEnrollmentQuery({
+                      studentId: assignment.studentId,
+                      schoolYearId: activeSchoolYear._id,
+                      status: 'active',
+                      classId: { $exists: true, $ne: null }
+                  })
+                : null
+
+            if (!enrollment || !enrollment.classId) {
+                enrollment = await fallbackEnrollmentQuery({
+                    studentId: assignment.studentId,
+                    status: 'promoted',
+                    classId: { $exists: true, $ne: null }
+                })
+            }
+
+            if (!enrollment || !enrollment.classId) {
+                enrollment = await fallbackEnrollmentQuery({
+                    studentId: assignment.studentId,
+                    classId: { $exists: true, $ne: null }
+                })
+            }
+
+            resolvedClassId = enrollment?.classId ? String(enrollment.classId) : null
+        }
+
+        const teacherCompletions = (assignment as any).teacherCompletions || []
+        const teacherAssignments = resolvedClassId
+            ? await TeacherClassAssignment.find({
+                  classId: resolvedClassId,
+                  ...(activeSchoolYear?._id ? { schoolYearId: String(activeSchoolYear._id) } : {})
+              }).lean()
+            : []
+
+        const teacherIds = [...new Set((teacherAssignments || []).map((ta: any) => String(ta.teacherId)))]
+        const [teachers, outlookTeachers] = teacherIds.length
+            ? await Promise.all([
+                  User.find({ _id: { $in: teacherIds } }).lean(),
+                  OutlookUser.find({ _id: { $in: teacherIds } }).lean()
+              ])
+            : [[], []]
+
+        const teacherMap = new Map(
+            [...(teachers as any[]), ...(outlookTeachers as any[])].map((t: any) => [
+                String(t._id),
+                String(t.displayName || t.email || 'Unknown')
+            ])
+        )
+
+        const getTeacherName = (teacherId: string) => teacherMap.get(String(teacherId)) || 'Unknown'
+
+        const langMatch = (langs: string[], needles: string[]) => {
+            const normalized = (langs || []).map(l => String(l || '').toLowerCase())
+            return needles.some(n => normalized.some(v => v === n || v.includes(n)))
+        }
+
+        const isResponsibleTeacherFor = (ta: any, category: 'ar' | 'en' | 'poly') => {
+            if (category === 'poly') return (ta as any).isProfPolyvalent
+            const langs = ((ta as any).languages || []).map((x: string) => String(x || '').toLowerCase())
+            if (langs.length === 0) return !(ta as any).isProfPolyvalent
+            if (category === 'ar') return langMatch(langs, ['ar', 'arabe', 'arabic', 'العربية'])
+            return langMatch(langs, ['en', 'uk', 'gb', 'anglais', 'english'])
+        }
+
+        const arabicTeacherIds = (teacherAssignments || [])
+            .filter((ta: any) => isResponsibleTeacherFor(ta, 'ar'))
+            .map((ta: any) => String(ta.teacherId))
+
+        const englishTeacherIds = (teacherAssignments || [])
+            .filter((ta: any) => isResponsibleTeacherFor(ta, 'en'))
+            .map((ta: any) => String(ta.teacherId))
+
+        const polyvalentTeacherIds = (teacherAssignments || [])
+            .filter((ta: any) => isResponsibleTeacherFor(ta, 'poly'))
+            .map((ta: any) => String(ta.teacherId))
+
+        const groupStatus = (ids: string[]) => {
+            const uniqueIds = [...new Set(ids)]
+            const doneSem1 = uniqueIds.some(tid =>
+                (teacherCompletions || []).some((tc: any) => String(tc.teacherId) === String(tid) && (tc.completedSem1 || tc.completed))
+            )
+            const doneSem2 = uniqueIds.some(tid =>
+                (teacherCompletions || []).some((tc: any) => String(tc.teacherId) === String(tid) && tc.completedSem2)
+            )
+            const doneOverall = uniqueIds.some(tid =>
+                (teacherCompletions || []).some((tc: any) => String(tc.teacherId) === String(tid) && (tc.completedSem2 || tc.completedSem1 || tc.completed))
+            )
+            return {
+                teachers: uniqueIds.map(id => ({ id, name: getTeacherName(id) })),
+                doneSem1,
+                doneSem2,
+                doneOverall
+            }
+        }
+
+        const teacherStatus = {
+            arabic: groupStatus(arabicTeacherIds),
+            english: groupStatus(englishTeacherIds),
+            polyvalent: groupStatus(polyvalentTeacherIds)
+        }
+
         if (!assignment.data) assignment.data = {}
         assignment.data.signatures = mergedDataSignatures
 
@@ -1588,7 +1697,9 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
             canEdit,
             isPromoted,
             activeSemester,
-            eligibleForSign
+            eligibleForSign,
+            teacherStatus,
+            classId: resolvedClassId
         })
     } catch (e: any) {
         console.error('[/review] Error:', e)

@@ -120,7 +120,7 @@ exports.teacherTemplatesRouter.get('/classes/:classId/students', (0, auth_1.requ
         // Get students in class
         const enrollments = await Enrollment_1.Enrollment.find({ classId }).lean();
         const studentIds = enrollments.map(e => e.studentId);
-        const students = await Student_1.Student.find({ _id: { $in: studentIds } }).lean();
+        const students = await Student_1.Student.find({ _id: { $in: studentIds } }).select('firstName lastName avatarUrl dateOfBirth').lean();
         res.json(students);
     }
     catch (e) {
@@ -551,14 +551,14 @@ exports.teacherTemplatesRouter.get('/classes/:classId/assignments', (0, auth_1.r
         const assignments = await TemplateAssignment_1.TemplateAssignment.find({
             studentId: { $in: studentIds },
             assignedTeachers: teacherId,
-        }).lean();
+        }).select('-data').lean();
         const templateIds = Array.from(new Set(assignments.map(a => a.templateId).filter(Boolean)));
         const [templates, students] = await Promise.all([
             templateIds.length
-                ? GradebookTemplate_1.GradebookTemplate.find({ _id: { $in: templateIds } }).lean()
+                ? GradebookTemplate_1.GradebookTemplate.find({ _id: { $in: templateIds } }).select('name').lean()
                 : [],
             studentIds.length
-                ? Student_1.Student.find({ _id: { $in: studentIds } }).lean()
+                ? Student_1.Student.find({ _id: { $in: studentIds } }).select('firstName lastName avatarUrl').lean()
                 : [],
         ]);
         const templateMap = new Map();
@@ -608,11 +608,11 @@ exports.teacherTemplatesRouter.get('/classes/:classId/completion-stats', (0, aut
         const assignments = await TemplateAssignment_1.TemplateAssignment.find({
             studentId: { $in: studentIds },
             assignedTeachers: teacherId,
-        }).lean();
+        }).select('-data').lean();
         const semester = Number(req.query.semester) === 2 ? 2 : 1;
         const templateIds = Array.from(new Set(assignments.map(a => a.templateId).filter(Boolean)));
         const templates = templateIds.length
-            ? await GradebookTemplate_1.GradebookTemplate.find({ _id: { $in: templateIds } }).lean()
+            ? await GradebookTemplate_1.GradebookTemplate.find({ _id: { $in: templateIds } }).select('name').lean()
             : [];
         const templateMap = new Map();
         templates.forEach(t => {

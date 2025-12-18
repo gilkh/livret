@@ -111,7 +111,7 @@ teacherTemplatesRouter.get('/classes/:classId/students', requireAuth(['TEACHER',
         // Get students in class
         const enrollments = await Enrollment.find({ classId }).lean()
         const studentIds = enrollments.map(e => e.studentId)
-        const students = await Student.find({ _id: { $in: studentIds } }).lean()
+        const students = await Student.find({ _id: { $in: studentIds } }).select('firstName lastName avatarUrl dateOfBirth').lean()
 
         res.json(students)
     } catch (e: any) {
@@ -619,7 +619,7 @@ teacherTemplatesRouter.get('/classes/:classId/assignments', requireAuth(['TEACHE
         const assignments = await TemplateAssignment.find({
             studentId: { $in: studentIds },
             assignedTeachers: teacherId,
-        }).lean()
+        }).select('-data').lean()
 
         const templateIds = Array.from(
             new Set(assignments.map(a => a.templateId).filter(Boolean))
@@ -627,10 +627,10 @@ teacherTemplatesRouter.get('/classes/:classId/assignments', requireAuth(['TEACHE
 
         const [templates, students] = await Promise.all([
             templateIds.length
-                ? GradebookTemplate.find({ _id: { $in: templateIds } }).lean()
+                ? GradebookTemplate.find({ _id: { $in: templateIds } }).select('name').lean()
                 : [],
             studentIds.length
-                ? Student.find({ _id: { $in: studentIds } }).lean()
+                ? Student.find({ _id: { $in: studentIds } }).select('firstName lastName avatarUrl').lean()
                 : [],
         ])
 
@@ -690,7 +690,7 @@ teacherTemplatesRouter.get('/classes/:classId/completion-stats', requireAuth(['T
         const assignments = await TemplateAssignment.find({
             studentId: { $in: studentIds },
             assignedTeachers: teacherId,
-        }).lean()
+        }).select('-data').lean()
 
         const semester = Number((req.query as any).semester) === 2 ? 2 : 1
 
@@ -699,7 +699,7 @@ teacherTemplatesRouter.get('/classes/:classId/completion-stats', requireAuth(['T
         )
 
         const templates = templateIds.length
-            ? await GradebookTemplate.find({ _id: { $in: templateIds } }).lean()
+            ? await GradebookTemplate.find({ _id: { $in: templateIds } }).select('name').lean()
             : []
 
         const templateMap = new Map<string, any>()

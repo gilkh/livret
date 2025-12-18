@@ -10,6 +10,17 @@ type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
 type Template = { _id?: string; name: string; pages: Page[] }
 type Student = { _id: string; firstName: string; lastName: string; level?: string; className?: string }
+type TeacherStatusCategory = {
+    teachers: { id: string; name: string }[]
+    doneSem1: boolean
+    doneSem2: boolean
+    doneOverall: boolean
+}
+type TeacherStatus = {
+    arabic: TeacherStatusCategory
+    english: TeacherStatusCategory
+    polyvalent: TeacherStatusCategory
+}
 type Assignment = { 
     _id: string; 
     status: string; 
@@ -17,6 +28,15 @@ type Assignment = {
     isCompleted?: boolean;
     isCompletedSem1?: boolean;
     isCompletedSem2?: boolean;
+    teacherCompletions?: {
+        teacherId: string
+        completed?: boolean
+        completedSem1?: boolean
+        completedSem2?: boolean
+        completedAt?: string
+        completedAtSem1?: string
+        completedAtSem2?: string
+    }[]
 }
 
 const pageWidth = 800
@@ -34,6 +54,7 @@ export default function SubAdminTemplateReview() {
     const [assignment, setAssignment] = useState<Assignment | null>(null)
     const [signature, setSignature] = useState<any>(null)
     const [finalSignature, setFinalSignature] = useState<any>(null)
+    const [teacherStatus, setTeacherStatus] = useState<TeacherStatus | null>(null)
     const [selectedPage, setSelectedPage] = useState(0)
     const [continuousScroll, setContinuousScroll] = useState(true)
     const [loading, setLoading] = useState(true)
@@ -142,6 +163,7 @@ export default function SubAdminTemplateReview() {
                 setAssignment(r.data.assignment)
                 setSignature(r.data.signature)
                 setFinalSignature(r.data.finalSignature)
+                setTeacherStatus(r.data.teacherStatus || null)
                 setCanEdit(r.data.canEdit)
                 setIsPromoted(r.data.isPromoted)
                 setIsSignedByMe(r.data.isSignedByMe)
@@ -530,6 +552,46 @@ export default function SubAdminTemplateReview() {
     if (error && !template) return <div className="container"><div className="card"><div className="note" style={{ color: 'crimson' }}>{error}</div></div></div>
     if (!template) return <div className="container"><div className="card"><div className="note">Carnet introuvable</div></div></div>
 
+    const renderTeacherPill = (label: string, cat: keyof TeacherStatus) => {
+        const entry = teacherStatus?.[cat]
+        const teachersLabel = entry?.teachers?.length ? entry.teachers.map(t => t.name).join(', ') : 'Non assigné'
+        const done = activeSemester === 2 ? entry?.doneSem2 : entry?.doneSem1
+        const statusLabel = entry?.teachers?.length ? (done ? 'Fait' : 'À faire') : 'Non assigné'
+        const color = entry?.teachers?.length ? (done ? '#16a34a' : '#dc2626') : '#64748b'
+        const bg = entry?.teachers?.length ? (done ? '#dcfce7' : '#fee2e2') : '#f1f5f9'
+        const border = entry?.teachers?.length ? (done ? '#86efac' : '#fecaca') : '#e2e8f0'
+
+        return (
+            <div style={{
+                padding: '10px 12px',
+                borderRadius: 12,
+                background: bg,
+                border: `1px solid ${border}`,
+                minWidth: 180,
+                flex: '1 1 200px'
+            }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                    <div style={{ fontWeight: 600, color: '#0f172a', fontSize: 14 }}>{label}</div>
+                    <div style={{
+                        fontSize: 12,
+                        fontWeight: 700,
+                        color,
+                        background: 'rgba(255,255,255,0.7)',
+                        borderRadius: 999,
+                        padding: '4px 10px',
+                        border: `1px solid ${border}`,
+                        whiteSpace: 'nowrap'
+                    }}>
+                        {statusLabel}
+                    </div>
+                </div>
+                <div style={{ marginTop: 6, fontSize: 12, color: '#475569', lineHeight: 1.3 }}>
+                    {teachersLabel}
+                </div>
+            </div>
+        )
+    }
+
     return (
         <div style={{ padding: 24 }}>
             {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
@@ -576,20 +638,21 @@ export default function SubAdminTemplateReview() {
             </Modal>
 
             <div className="card">
-                <button className="btn secondary" onClick={() => navigate(dashboardPath)} style={{
-                    marginBottom: 20,
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    background: '#f1f5f9',
-                    color: '#475569',
-                    fontWeight: 500,
-                    border: '1px solid #e2e8f0'
-                }}>← Retour au tableau de bord</button>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
                     <div>
                         <h2 className="title" style={{ fontSize: 28, marginBottom: 8, color: '#1e293b' }}>📝 Examen du carnet - {student ? `${student.firstName} ${student.lastName}` : 'Élève'}</h2>
-                        <div className="note" style={{ fontSize: 14, color: '#64748b' }}>{template.name}</div>
+                        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                            <button className="btn secondary" onClick={() => navigate(dashboardPath)} style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 8,
+                                background: '#f1f5f9',
+                                color: '#475569',
+                                fontWeight: 500,
+                                border: '1px solid #e2e8f0',
+                                padding: '8px 12px'
+                            }}>← Retour au tableau de bord</button>
+                        </div>
                     </div>
                     {canEdit && !isAefeUser && (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -622,6 +685,63 @@ export default function SubAdminTemplateReview() {
                             </div>
                         </div>
                     )}
+                </div>
+                <div style={{
+                    marginTop: 14,
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: 12,
+                    alignItems: 'stretch',
+                    padding: 14,
+                    background: '#f8fafc',
+                    borderRadius: 12,
+                    border: '1px solid #e2e8f0'
+                }}>
+                    <div style={{ flex: '1 1 240px', minWidth: 220 }}>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+                            <div style={{
+                                fontSize: 12,
+                                fontWeight: 700,
+                                color: '#334155',
+                                background: 'white',
+                                border: '1px solid #e2e8f0',
+                                borderRadius: 999,
+                                padding: '6px 12px'
+                            }}>
+                                Niveau: {student?.level || '—'}
+                            </div>
+                            <div style={{
+                                fontSize: 12,
+                                fontWeight: 700,
+                                color: '#334155',
+                                background: 'white',
+                                border: '1px solid #e2e8f0',
+                                borderRadius: 999,
+                                padding: '6px 12px'
+                            }}>
+                                Classe: {student?.className || '—'}
+                            </div>
+                            <div style={{
+                                fontSize: 12,
+                                fontWeight: 700,
+                                color: '#1e40af',
+                                background: '#dbeafe',
+                                border: '1px solid #93c5fd',
+                                borderRadius: 999,
+                                padding: '6px 12px'
+                            }}>
+                                Semestre {activeSemester}
+                            </div>
+                        </div>
+                        <div style={{ marginTop: 8, fontSize: 12, color: '#64748b' }}>
+                            Avancement enseignants (carnet)
+                        </div>
+                    </div>
+                    <div style={{ flex: '2 1 520px', display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'stretch' }}>
+                        {renderTeacherPill('Arabe', 'arabic')}
+                        {renderTeacherPill('Anglais', 'english')}
+                        {renderTeacherPill('Polyvalent', 'polyvalent')}
+                    </div>
                 </div>
                 <div className="note" style={{ marginTop: 8, fontSize: 13 }}>
                     <span style={{ fontWeight: 500 }}>Statut:</span> {assignment?.status === 'signed' ? '✔️ Signé ✓' : assignment?.status === 'completed' ? '✅ Terminé' : assignment?.status}
