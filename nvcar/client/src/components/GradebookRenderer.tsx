@@ -341,7 +341,7 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                                             justifyContent: 'center',
                                                             boxShadow: it.active ? '0 0 0 2px rgba(37, 99, 235, 0.2)' : 'none',
                                                             transform: it.active ? 'scale(1.1)' : 'scale(1)',
-                                                            opacity: isAllowed ? (it.active ? 1 : 0.6) : 0.5,
+                                                            opacity: isAllowed ? (it.active ? 1 : 0.6) : (it.active ? 0.9 : 0.5),
                                                             filter: 'none'
                                                         }}
                                                     >
@@ -384,7 +384,7 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                                             overflow: 'hidden',
                                                             position: 'relative',
                                                             boxShadow: it.active ? '0 0 0 3px #6c5ce7' : '0 0 0 1px #ddd',
-                                                            opacity: isAllowed ? 0.9 : 0.5
+                                                            opacity: isAllowed ? 0.9 : (it.active ? 0.9 : 0.5)
                                                         }}
                                                     >
                                                         {it.logo ? <img src={it.logo} style={{ width: '100%', height: '100%', objectFit: 'cover', filter: it.active ? 'brightness(1.1)' : 'brightness(0.6)' }} alt="" /> : <div style={{ width: '100%', height: '100%', background: '#ddd' }} />}

@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom'
 import api from '../api'
 import { useSocket } from '../context/SocketContext'
 import { useLevels } from '../context/LevelContext'
+import ScrollToTopButton from '../components/ScrollToTopButton'
 
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
@@ -31,6 +32,8 @@ export default function TeacherTemplateEditor() {
     const [isMyWorkCompletedSem1, setIsMyWorkCompletedSem1] = useState(false)
     const [isMyWorkCompletedSem2, setIsMyWorkCompletedSem2] = useState(false)
     const [activeSemester, setActiveSemester] = useState<number>(1)
+    const [zoomLevel, setZoomLevel] = useState(1)
+    const [isFitToScreen, setIsFitToScreen] = useState(false)
 
     const { levels } = useLevels()
     const socket = useSocket()
@@ -47,6 +50,28 @@ export default function TeacherTemplateEditor() {
         }
         return url
     }
+
+    useEffect(() => {
+        const handleResize = () => {
+            if (isFitToScreen) {
+                // 48px is approx padding/margins. Adjust if necessary.
+                // We want to fit 800px into the window width.
+                const availableWidth = window.innerWidth - 48
+                // Limit max scale to 1 if we only want to shrink-to-fit, 
+                // or allow > 1 if we want to fill screen even if it means zooming in.
+                // Usually "Fit to Screen" means showing the whole width.
+                const scale = Math.min(1, availableWidth / pageWidth)
+                setZoomLevel(scale)
+            }
+        }
+
+        if (isFitToScreen) {
+            handleResize()
+            window.addEventListener('resize', handleResize)
+        }
+        
+        return () => window.removeEventListener('resize', handleResize)
+    }, [isFitToScreen])
 
     useEffect(() => {
         if (assignmentId && socket) {
@@ -235,6 +260,7 @@ export default function TeacherTemplateEditor() {
 
     return (
         <div style={{ padding: 24 }}>
+            <ScrollToTopButton />
             <div className="card">
                 <button className="btn secondary" onClick={() => window.history.back()} style={{
                     marginBottom: 20,
@@ -356,6 +382,55 @@ export default function TeacherTemplateEditor() {
                     }}>
                         {continuousScroll ? '📄 Vue page par page' : '📚 Vue continue'}
                     </button>
+
+                    <div style={{ height: 24, width: 1, background: '#cbd5e1', margin: '0 8px' }} />
+
+                    {/* Zoom Controls */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'white', padding: '4px 8px', borderRadius: 8, border: '1px solid #e2e8f0' }}>
+                        <button 
+                            className="btn secondary" 
+                            onClick={() => {
+                                setIsFitToScreen(false)
+                                setZoomLevel(prev => Math.max(0.2, prev - 0.1))
+                            }}
+                            style={{ padding: '6px 10px', fontSize: 16, lineHeight: 1 }}
+                            title="Zoom Out"
+                        >−</button>
+                        <span style={{ fontSize: 13, fontWeight: 600, minWidth: 40, textAlign: 'center' }}>
+                            {Math.round(zoomLevel * 100)}%
+                        </span>
+                        <button 
+                            className="btn secondary" 
+                            onClick={() => {
+                                setIsFitToScreen(false)
+                                setZoomLevel(prev => Math.min(2, prev + 0.1))
+                            }}
+                            style={{ padding: '6px 10px', fontSize: 16, lineHeight: 1 }}
+                            title="Zoom In"
+                        >+</button>
+                    </div>
+
+                    <button 
+                        className="btn secondary" 
+                        onClick={() => {
+                            if (!isFitToScreen) {
+                                setIsFitToScreen(true)
+                            } else {
+                                setIsFitToScreen(false)
+                                setZoomLevel(1)
+                            }
+                        }}
+                        style={{
+                            background: isFitToScreen ? '#e0e7ff' : 'white',
+                            color: isFitToScreen ? '#4338ca' : '#475569',
+                            border: '1px solid #e2e8f0',
+                            padding: '8px 12px',
+                            fontWeight: 500
+                        }}
+                    >
+                        {isFitToScreen ? '↔ Ajusté' : '↔ Ajuster'}
+                    </button>
+
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center', flex: 1, justifyContent: 'flex-end' }}>
                         <button
                             className="btn secondary"
@@ -420,43 +495,68 @@ export default function TeacherTemplateEditor() {
                     </div>
                 </div>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 24, alignItems: 'center' }}>
+                <div style={{ 
+                    display: 'flex', 
+                    flexDirection: 'column', 
+                    gap: 24, 
+                    alignItems: 'center',
+                    overflowX: 'hidden', // Prevent horizontal scroll on parent
+                    width: '100%' // Ensure it takes full width
+                }}>
                     {(continuousScroll ? template.pages : [template.pages[selectedPage]]).map((page, pageIdx) => {
                         const actualPageIndex = continuousScroll ? pageIdx : selectedPage
                         return (
                             <div
                                 key={actualPageIndex}
-                                id={`page-${actualPageIndex}`}
-                                className="card page-canvas"
                                 style={{
-                                    height: pageHeight,
-                                    width: pageWidth,
-                                    background: page.bgColor || '#fff',
-                                    overflow: 'hidden',
+                                    // Layout boundary matching the SCALED size
+                                    width: pageWidth * zoomLevel,
+                                    height: pageHeight * zoomLevel,
                                     position: 'relative',
-                                    boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
-                                    border: '1px solid #e2e8f0'
+                                    // box-shadow and margin logic moved here or kept on inner?
+                                    // Keeping card style on inner to ensure shadow scales or stays tight?
+                                    // Actually, if we scale inner, shadow scales too.
+                                    // Let's put layout sizing here.
+                                    transition: 'width 0.2s ease-out, height 0.2s ease-out'
                                 }}
                             >
-                                {continuousScroll && (
-                                    <div style={{
-                                        position: 'absolute',
-                                        top: -36,
+                                <div
+                                    id={`page-${actualPageIndex}`}
+                                    className="card page-canvas"
+                                    style={{
+                                        height: pageHeight,
+                                        width: pageWidth,
+                                        background: page.bgColor || '#fff',
+                                        overflow: 'hidden',
+                                        position: 'absolute', // Absolute to allow transform to work freely within relative parent
+                                        top: 0,
                                         left: 0,
-                                        color: '#64748b',
-                                        fontSize: 15,
-                                        fontWeight: 600,
-                                        background: '#f8fafc',
-                                        padding: '4px 12px',
-                                        borderRadius: 6,
+                                        transform: `scale(${zoomLevel})`,
+                                        transformOrigin: 'top left',
+                                        transition: 'transform 0.2s ease-out',
+                                        boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
                                         border: '1px solid #e2e8f0'
-                                    }}>
-                                        📄 Page {actualPageIndex + 1}
-                                    </div>
-                                )}
+                                    }}
+                                >
+                                    {continuousScroll && (
+                                        <div style={{
+                                            position: 'absolute',
+                                            top: -36,
+                                            left: 0,
+                                            color: '#64748b',
+                                            fontSize: 15,
+                                            fontWeight: 600,
+                                            background: '#f8fafc',
+                                            padding: '4px 12px',
+                                            borderRadius: 6,
+                                            border: '1px solid #e2e8f0'
+                                        }}>
+                                            📄 Page {actualPageIndex + 1}
+                                        </div>
+                                    )}
 
-                                <div className="page-margins" />
-                                {page.blocks.map((b, idx) => {
+                                    <div className="page-margins" />
+                                    {page.blocks.map((b, idx) => {
                                     if (!b || !b.props) return null;
                                     return (
                                     <div key={idx} style={{ position: 'absolute', left: b.props.x || 0, top: b.props.y || 0, zIndex: b.props.z ?? idx, padding: 6 }}>
@@ -493,7 +593,7 @@ export default function TeacherTemplateEditor() {
                                                                 cursor: (canEdit && isAllowed) ? 'pointer' : 'not-allowed',
                                                                 boxShadow: it.active ? '0 0 0 3px #6c5ce7' : '0 0 0 1px #ddd',
                                                                 transition: 'all 0.2s ease',
-                                                                opacity: (canEdit && isAllowed) ? 1 : 0.5,
+                                                                opacity: (canEdit && isAllowed) ? 1 : (it.active ? 0.9 : 0.5),
                                                                 pointerEvents: (canEdit && isAllowed) ? 'auto' : 'none'
                                                             }}
                                                             onClick={(e) => {
@@ -566,7 +666,7 @@ export default function TeacherTemplateEditor() {
                                                                 boxShadow: it.active ? '0 0 0 2px rgba(37, 99, 235, 0.2)' : 'none',
                                                                 transition: 'all 0.2s ease',
                                                                 transform: it.active ? 'scale(1.1)' : 'scale(1)',
-                                                                opacity: (canEdit && isAllowed) ? (it.active ? 1 : 0.6) : 0.4,
+                                                                opacity: (canEdit && isAllowed) ? (it.active ? 1 : 0.6) : (it.active ? 0.9 : 0.4),
                                                                 pointerEvents: (canEdit && isAllowed) ? 'auto' : 'none',
                                                                 filter: 'none'
                                                             }}
@@ -637,7 +737,7 @@ export default function TeacherTemplateEditor() {
                                                             border: '1px solid #ccc',
                                                             background: (canEdit && isProfPolyvalent && isDropdownAllowed) ? '#fff' : '#f9f9f9',
                                                             cursor: (canEdit && isProfPolyvalent && isDropdownAllowed) ? 'pointer' : 'not-allowed',
-                                                            opacity: isDropdownAllowed ? 1 : 0.5,
+                                                            opacity: isDropdownAllowed ? 1 : 0.7,
                                                             position: 'relative',
                                                             display: 'flex',
                                                             alignItems: 'center',
@@ -972,7 +1072,7 @@ export default function TeacherTemplateEditor() {
                                                                                                         overflow: 'hidden',
                                                                                                         position: 'relative',
                                                                                                         boxShadow: isActive ? '0 0 0 2px #6c5ce7' : 'none',
-                                                                                                        opacity: (canEdit && isAllowed) ? (isActive ? 1 : 0.6) : 0.5,
+                                                                                                        opacity: (canEdit && isAllowed) ? (isActive ? 1 : 0.6) : (isActive ? 0.9 : 0.5),
                                                                                                         cursor: (canEdit && isAllowed) ? 'pointer' : 'default',
                                                                                                         zIndex: 100
                                                                                                     }}
@@ -1027,7 +1127,7 @@ export default function TeacherTemplateEditor() {
                                                                                                     justifyContent: 'center',
                                                                                                     transform: isActive ? 'scale(1.1)' : 'scale(1)',
                                                                                                     boxShadow: 'none',
-                                                                                                    opacity: (canEdit && isAllowed) ? (isActive ? 1 : 0.6) : 0.5,
+                                                                                                    opacity: (canEdit && isAllowed) ? (isActive ? 1 : 0.6) : (isActive ? 0.9 : 0.5),
                                                                                                     cursor: (canEdit && isAllowed) ? 'pointer' : 'default',
                                                                                                     zIndex: 100
                                                                                                 }}
@@ -1210,6 +1310,7 @@ export default function TeacherTemplateEditor() {
                                     )
                                 })}
                             </div>
+                        </div>
                         )
                     })}
                 </div>

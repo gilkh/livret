@@ -1,0 +1,1 @@
+"const fs=require('fs');const path=process.argv[2];const c=fs.readFileSync(path,'utf8');const o=(c.match(/\x3cdiv[^\x2f\x3e]*\x3e/g)||[]).length;const l=(c.match(/\x3c\x2fdiv\x3e/g)||[]).length;console.log('Opening:',o,'Closing:',l,'Match:',o===l?'YES':'NO','Net:',o-l);" 

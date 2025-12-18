@@ -19,6 +19,89 @@ export default function AdminSettings() {
   const [dirHandle, setDirHandle] = useState<any>(null)
   const [nextBackupTime, setNextBackupTime] = useState<Date | null>(null)
   const [systemStatus, setSystemStatus] = useState<{ backend: string; database: string; uptime: number } | null>(null)
+  const [backups, setBackups] = useState<{name: string, size: number, date: string}[]>([])
+  const [emptyClickCount, setEmptyClickCount] = useState(0)
+
+  useEffect(() => {
+    loadBackups()
+  }, [])
+
+  const loadBackups = async () => {
+    try {
+      const res = await api.get('/backup/list')
+      setBackups(res.data)
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
+  const createBackup = async () => {
+    setBackupLoading(true)
+    try {
+      await api.post('/backup/create')
+      setMsg('Sauvegarde créée avec succès')
+      await loadBackups()
+    } catch (e) {
+      console.error(e)
+      setMsg('Erreur lors de la création de la sauvegarde')
+    } finally {
+      setBackupLoading(false)
+    }
+  }
+
+  const restoreBackup = async (filename: string) => {
+    if (!confirm(`Voulez-vous vraiment restaurer la sauvegarde "${filename}" ?\nATTENTION : La base de données actuelle sera écrasée !`)) return
+    
+    setBackupLoading(true)
+    try {
+      await api.post(`/backup/restore/${filename}`)
+      setMsg('Restauration effectuée avec succès')
+      setTimeout(() => window.location.reload(), 2000)
+    } catch (e) {
+      console.error(e)
+      setMsg('Erreur lors de la restauration')
+    } finally {
+      setBackupLoading(false)
+    }
+  }
+
+  const deleteBackup = async (filename: string) => {
+    if (!confirm(`Supprimer la sauvegarde "${filename}" ?`)) return
+    try {
+      await api.delete(`/backup/${filename}`)
+      setMsg('Sauvegarde supprimée')
+      loadBackups()
+    } catch (e) {
+      console.error(e)
+      setMsg('Erreur lors de la suppression')
+    }
+  }
+
+  const emptyDb = async () => {
+    if (emptyClickCount < 4) {
+      setEmptyClickCount(prev => prev + 1)
+      return
+    }
+
+    const code = prompt('Pour confirmer, tapez "CONFIRMER" en toutes lettres.\nATTENTION : Cela supprimera TOUTES les données (sauf admin et niveaux par défaut).')
+    if (code !== 'CONFIRMER') {
+      setEmptyClickCount(0)
+      return
+    }
+
+    setBackupLoading(true)
+    try {
+      await api.post('/backup/empty')
+      setMsg('Base de données vidée avec succès')
+      setTimeout(() => window.location.reload(), 2000)
+    } catch (e) {
+      console.error(e)
+      setMsg('Erreur lors du nettoyage de la BDD')
+    } finally {
+      setBackupLoading(false)
+      setEmptyClickCount(0)
+    }
+  }
 
   useEffect(() => {
     let intervalId: any;
@@ -485,6 +568,108 @@ export default function AdminSettings() {
               </div>
             </>
           )}
+        </div>
+
+        {/* Database Management Section */}
+        <div className="settings-section">
+          <div className="section-header">
+            <div className="section-icon-wrapper" style={{ background: 'rgba(52, 152, 219, 0.1)', color: '#3498db' }}>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
+                <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path>
+                <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>
+              </svg>
+            </div>
+            <h2 className="section-title">Gestion de la Base de Données</h2>
+          </div>
+
+          <div className="setting-item">
+            <div className="setting-info">
+              <h3>Créer une sauvegarde</h3>
+              <p>Sauvegarder l'état actuel de la base de données sur le serveur.</p>
+            </div>
+            <button 
+              className="btn primary" 
+              onClick={createBackup}
+              disabled={backupLoading}
+              style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+            >
+              {backupLoading ? 'Création...' : '💾 Créer Sauvegarde'}
+            </button>
+          </div>
+
+          {backups.length > 0 && (
+            <div style={{ marginTop: '1rem', border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
+                <thead style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                  <tr>
+                    <th style={{ padding: '12px', textAlign: 'left', color: '#64748b' }}>Nom / Date</th>
+                    <th style={{ padding: '12px', textAlign: 'right', color: '#64748b' }}>Taille</th>
+                    <th style={{ padding: '12px', textAlign: 'right', color: '#64748b' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {backups.map(b => (
+                    <tr key={b.name} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                      <td style={{ padding: '12px' }}>
+                        <div style={{ fontWeight: 500 }}>{new Date(b.date).toLocaleString()}</div>
+                        <div style={{ fontSize: '0.8rem', color: '#94a3b8' }}>{b.name}</div>
+                      </td>
+                      <td style={{ padding: '12px', textAlign: 'right', color: '#64748b' }}>
+                        {(b.size / 1024 / 1024).toFixed(2)} MB
+                      </td>
+                      <td style={{ padding: '12px', textAlign: 'right' }}>
+                         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                           <button 
+                             onClick={() => restoreBackup(b.name)}
+                             disabled={backupLoading}
+                             style={{ padding: '6px 12px', borderRadius: '4px', border: '1px solid #cbd5e1', background: 'white', color: '#475569', cursor: 'pointer', fontSize: '0.8rem' }}
+                           >
+                             Restaurer
+                           </button>
+                           <button 
+                             onClick={() => deleteBackup(b.name)}
+                             disabled={backupLoading}
+                             style={{ padding: '6px', borderRadius: '4px', border: '1px solid #fca5a5', background: '#fef2f2', color: '#ef4444', cursor: 'pointer' }}
+                           >
+                             🗑️
+                           </button>
+                         </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <div className="setting-item" style={{ marginTop: '2rem', borderTop: '1px dashed #cbd5e1', paddingTop: '1rem' }}>
+            <div className="setting-info">
+              <h3 style={{ color: '#ef4444' }}>Zone de Danger</h3>
+              <p>Vider complètement la base de données (irréversible).</p>
+            </div>
+            <button 
+              className="btn danger" 
+              onClick={emptyDb}
+              disabled={backupLoading}
+              style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: 8, 
+                backgroundColor: emptyClickCount > 0 ? '#b91c1c' : '#ef4444', 
+                color: 'white', 
+                border: 'none',
+                transition: 'all 0.2s'
+              }}
+            >
+              {emptyClickCount > 0 
+                ? emptyClickCount === 4 
+                  ? '⚠️ DERNIÈRE CHANCE !' 
+                  : `⚠️ Confirmer (${emptyClickCount}/5)`
+                : '⚠️ Vider la BDD'
+              }
+            </button>
+          </div>
         </div>
 
         {/* Maintenance Section */}

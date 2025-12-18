@@ -5,6 +5,7 @@ import { useSocket } from '../context/SocketContext'
 import { useLevels } from '../context/LevelContext'
 import Modal from '../components/Modal'
 import Toast, { ToastType } from '../components/Toast'
+import ScrollToTopButton from '../components/ScrollToTopButton'
 
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
@@ -85,6 +86,9 @@ export default function SubAdminTemplateReview() {
     const [canEdit, setCanEdit] = useState(false)
     const [editMode, setEditMode] = useState(false)
     const [openDropdown, setOpenDropdown] = useState<string | null>(null)
+    const [subadminAssignedLevels, setSubadminAssignedLevels] = useState<string[]>([])
+    const [zoomLevel, setZoomLevel] = useState(1)
+    const [isFitToScreen, setIsFitToScreen] = useState(false)
 
     // UI State
     const [toast, setToast] = useState<{ message: string, type: ToastType } | null>(null)
@@ -103,6 +107,25 @@ export default function SubAdminTemplateReview() {
     const showToast = (message: string, type: ToastType = 'info') => {
         setToast({ message, type })
     }
+
+    useEffect(() => {
+        const handleResize = () => {
+            if (isFitToScreen) {
+                // 48px is approx padding/margins. Adjust if necessary.
+                // We want to fit 800px into the window width.
+                const availableWidth = window.innerWidth - 48
+                const scale = Math.min(1, availableWidth / pageWidth)
+                setZoomLevel(scale)
+            }
+        }
+
+        if (isFitToScreen) {
+            handleResize()
+            window.addEventListener('resize', handleResize)
+        }
+        
+        return () => window.removeEventListener('resize', handleResize)
+    }, [isFitToScreen])
 
     useEffect(() => {
         if (!assignmentId || !socket) return
@@ -169,6 +192,7 @@ export default function SubAdminTemplateReview() {
                 setIsSignedByMe(r.data.isSignedByMe)
                 setActiveSemester(r.data.activeSemester || 1)
                 setEligibleForSign(r.data.eligibleForSign === true)
+                setSubadminAssignedLevels(r.data.subadminAssignedLevels || [])
             } catch (e: any) {
                 setError('Impossible de charger le carnet')
                 console.error(e)
@@ -594,6 +618,7 @@ export default function SubAdminTemplateReview() {
 
     return (
         <div style={{ padding: 24 }}>
+            <ScrollToTopButton />
             {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 
             <Modal
@@ -860,6 +885,55 @@ export default function SubAdminTemplateReview() {
                     }}>
                         {continuousScroll ? '📄 Vue page par page' : '📚 Vue continue'}
                     </button>
+
+                    <div style={{ height: 24, width: 1, background: '#cbd5e1', margin: '0 8px' }} />
+
+                    {/* Zoom Controls */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'white', padding: '4px 8px', borderRadius: 8, border: '1px solid #e2e8f0' }}>
+                        <button 
+                            className="btn secondary" 
+                            onClick={() => {
+                                setIsFitToScreen(false)
+                                setZoomLevel(prev => Math.max(0.2, prev - 0.1))
+                            }}
+                            style={{ padding: '6px 10px', fontSize: 16, lineHeight: 1 }}
+                            title="Zoom Out"
+                        >−</button>
+                        <span style={{ fontSize: 13, fontWeight: 600, minWidth: 40, textAlign: 'center' }}>
+                            {Math.round(zoomLevel * 100)}%
+                        </span>
+                        <button 
+                            className="btn secondary" 
+                            onClick={() => {
+                                setIsFitToScreen(false)
+                                setZoomLevel(prev => Math.min(2, prev + 0.1))
+                            }}
+                            style={{ padding: '6px 10px', fontSize: 16, lineHeight: 1 }}
+                            title="Zoom In"
+                        >+</button>
+                    </div>
+
+                    <button 
+                        className="btn secondary" 
+                        onClick={() => {
+                            if (!isFitToScreen) {
+                                setIsFitToScreen(true)
+                            } else {
+                                setIsFitToScreen(false)
+                                setZoomLevel(1)
+                            }
+                        }}
+                        style={{
+                            background: isFitToScreen ? '#e0e7ff' : 'white',
+                            color: isFitToScreen ? '#4338ca' : '#475569',
+                            border: '1px solid #e2e8f0',
+                            padding: '8px 12px',
+                            fontWeight: 500
+                        }}
+                    >
+                        {isFitToScreen ? '↔ Ajusté' : '↔ Ajuster'}
+                    </button>
+
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                         <button
                             className="btn secondary"
@@ -918,19 +992,47 @@ export default function SubAdminTemplateReview() {
                     </div>
                 </div>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 24, alignItems: 'center' }}>
+                <div style={{ 
+                    display: 'flex', 
+                    flexDirection: 'column', 
+                    gap: 24, 
+                    alignItems: 'center',
+                    overflowX: 'hidden',
+                    width: '100%'
+                }}>
                     {(continuousScroll ? template.pages : [template.pages[selectedPage]]).map((page, pageIdx) => {
                         const actualPageIndex = continuousScroll ? pageIdx : selectedPage
                         return (
                             <div
                                 key={actualPageIndex}
-                                id={`page-${actualPageIndex}`}
-                                className="card page-canvas"
-                                style={{ height: pageHeight, width: pageWidth, background: page.bgColor || '#fff', overflow: 'hidden', position: 'relative' }}
+                                style={{
+                                    width: pageWidth * zoomLevel,
+                                    height: pageHeight * zoomLevel,
+                                    position: 'relative',
+                                    transition: 'width 0.2s ease-out, height 0.2s ease-out'
+                                }}
                             >
-                                {continuousScroll && <div style={{ position: 'absolute', top: -30, left: 0, color: '#888', fontSize: 14, fontWeight: 600 }}>Page {actualPageIndex + 1}</div>}
-                                <div className="page-margins" />
-                                {page.blocks.map((b, idx) => {
+                                <div
+                                    id={`page-${actualPageIndex}`}
+                                    className="card page-canvas"
+                                    style={{
+                                        height: pageHeight,
+                                        width: pageWidth,
+                                        background: page.bgColor || '#fff',
+                                        overflow: 'hidden',
+                                        position: 'absolute',
+                                        top: 0,
+                                        left: 0,
+                                        transform: `scale(${zoomLevel})`,
+                                        transformOrigin: 'top left',
+                                        transition: 'transform 0.2s ease-out',
+                                        boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+                                        border: '1px solid #e2e8f0'
+                                    }}
+                                >
+                                    {continuousScroll && <div style={{ position: 'absolute', top: -30, left: 0, color: '#888', fontSize: 14, fontWeight: 600 }}>Page {actualPageIndex + 1}</div>}
+                                    <div className="page-margins" />
+                                    {page.blocks.map((b, idx) => {
                                     if (!b || !b.props) return null;
                                     return (
                                     <div key={idx} style={{ position: 'absolute', left: b.props.x || 0, top: b.props.y || 0, zIndex: b.props.z ?? idx, padding: 6 }}>
@@ -988,8 +1090,13 @@ export default function SubAdminTemplateReview() {
                                                 ...((!isBlockVisible(b)) ? { display: 'none' } : {})
                                             }}>
                                                 {(b.props.items || []).map((it: any, i: number) => {
-                                                    // Check level
-                                                    const isAllowed = !(it.levels && it.levels.length > 0 && student?.level && !it.levels.includes(student.level));
+                                                    // Check level - item visibility for student
+                                                    const isVisibleForStudent = !(it.levels && it.levels.length > 0 && student?.level && !it.levels.includes(student.level));
+                                                    // Check if subadmin has permission to edit this toggle based on assigned levels
+                                                    const hasSubadminLevelPermission = subadminAssignedLevels.length === 0 || 
+                                                        !(it.levels && it.levels.length > 0) ||
+                                                        it.levels.some((lvl: string) => subadminAssignedLevels.includes(lvl))
+                                                    const isAllowed = isVisibleForStudent && hasSubadminLevelPermission;
 
                                                     const size = 40
                                                     const getEmoji = (item: any) => {
@@ -1021,7 +1128,7 @@ export default function SubAdminTemplateReview() {
                                                                 boxShadow: it.active ? '0 0 0 2px rgba(37, 99, 235, 0.2)' : 'none',
                                                                 transition: 'all 0.2s ease',
                                                                 transform: it.active ? 'scale(1.1)' : 'scale(1)',
-                                                                opacity: isAllowed ? (it.active ? 1 : ((editMode && canEdit) ? 0.6 : 0.9)) : 0.5,
+                                                                opacity: isAllowed ? (it.active ? 1 : ((editMode && canEdit) ? 0.6 : 0.9)) : (it.active ? 0.9 : 0.5),
                                                                 filter: 'none'
                                                             }}
                                                             onClick={(e) => {
@@ -1053,8 +1160,13 @@ export default function SubAdminTemplateReview() {
                                         {b.type === 'language_toggle' && (
                                             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: b.props.spacing || 12 }}>
                                                 {(b.props.items || []).map((it: any, i: number) => {
-                                                    // Check level
-                                                    const isAllowed = !(it.levels && it.levels.length > 0 && student?.level && !it.levels.includes(student.level));
+                                                    // Check level - item visibility for student
+                                                    const isVisibleForStudent = !(it.levels && it.levels.length > 0 && student?.level && !it.levels.includes(student.level));
+                                                    // Check if subadmin has permission to edit this toggle based on assigned levels
+                                                    const hasSubadminLevelPermission = subadminAssignedLevels.length === 0 || 
+                                                        !(it.levels && it.levels.length > 0) ||
+                                                        it.levels.some((lvl: string) => subadminAssignedLevels.includes(lvl))
+                                                    const isAllowed = isVisibleForStudent && hasSubadminLevelPermission;
 
                                                     const r = b.props.radius || 40
                                                     const size = r * 2
@@ -1070,7 +1182,7 @@ export default function SubAdminTemplateReview() {
                                                                 cursor: (editMode && canEdit) ? (isAllowed ? 'pointer' : 'not-allowed') : 'default',
                                                                 boxShadow: it.active ? '0 0 0 3px #6c5ce7' : '0 0 0 1px #ddd',
                                                                 transition: 'all 0.2s ease',
-                                                                opacity: isAllowed ? ((editMode && canEdit || it.active) ? 1 : 0.9) : 0.5
+                                                                opacity: isAllowed ? ((editMode && canEdit || it.active) ? 1 : 0.9) : (it.active ? 0.9 : 0.5)
                                                             }}
                                                             onClick={(e) => {
                                                                 e.stopPropagation()
@@ -1112,7 +1224,11 @@ export default function SubAdminTemplateReview() {
                                             // Check if dropdown is allowed for current semester (default to both semesters if not specified)
                                             const dropdownSemesters = b.props.semesters || [1, 2]
                                             const isSemesterAllowed = dropdownSemesters.includes(activeSemester)
-                                            const isDropdownAllowed = isLevelAllowed && isSemesterAllowed
+                                            // Check if subadmin has permission to edit this dropdown based on assigned levels
+                                            const hasSubadminLevelPermission = subadminAssignedLevels.length === 0 || 
+                                                !(b.props.levels && b.props.levels.length > 0) ||
+                                                b.props.levels.some((lvl: string) => subadminAssignedLevels.includes(lvl))
+                                            const isDropdownAllowed = isLevelAllowed && isSemesterAllowed && hasSubadminLevelPermission
 
                                             return (
                                                 <div style={{
@@ -1624,7 +1740,11 @@ export default function SubAdminTemplateReview() {
 
                                                                                     return currentItems.map((lang: any, li: number) => {
                                                                                         const isLevelAllowed = !lang.level || (student?.level && lang.level === student.level);
-                                                                                        const isAllowed = isLevelAllowed;
+                                                                                        // Check if subadmin has permission based on assigned levels
+                                                                                        const hasSubadminLevelPermission = subadminAssignedLevels.length === 0 || 
+                                                                                            !lang.level ||
+                                                                                            subadminAssignedLevels.includes(lang.level)
+                                                                                        const isAllowed = isLevelAllowed && hasSubadminLevelPermission;
                                                                                         const canToggle = editMode && canEdit && isAllowed;
 
                                                                                         const size = Math.max(12, Math.min(expandedRowHeight - 12, 20))
@@ -1873,6 +1993,7 @@ export default function SubAdminTemplateReview() {
                                     )
                                 })}
                             </div>
+                        </div>
                         )
                     })}
                 </div>

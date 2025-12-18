@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import api from '../api'
 import TemplateReviewPreview from '../components/TemplateReviewPreview'
+import SearchableSelect from '../components/SearchableSelect'
+import ScrollToTopButton from '../components/ScrollToTopButton'
 import './SubAdminGradebooks.css'
 
 export default function SubAdminGradebooks() {
@@ -146,6 +148,7 @@ export default function SubAdminGradebooks() {
 
     return (
         <div className="subadmin-gradebooks-container">
+            <ScrollToTopButton />
             <div className="subadmin-header">
                 <h1 className="subadmin-title">Consultation des Carnets</h1>
             </div>
@@ -188,15 +191,13 @@ export default function SubAdminGradebooks() {
 
                         <div className="filter-group">
                             <label className="filter-label">Élève</label>
-                            <select
-                                className="filter-select"
+                            <SearchableSelect
+                                options={savedStudents.map(s => ({ value: s._id, label: `${s.firstName} ${s.lastName}` }))}
                                 value={selectedSavedStudentId}
-                                onChange={e => setSelectedSavedStudentId(e.target.value)}
+                                onChange={val => setSelectedSavedStudentId(val)}
                                 disabled={!selectedSavedLevel}
-                            >
-                                <option value="">Sélectionner un élève...</option>
-                                {savedStudents.map(s => <option key={s._id} value={s._id}>{s.firstName} {s.lastName}</option>)}
-                            </select>
+                                placeholder="Sélectionner un élève..."
+                            />
                         </div>
                     </>
                 )}
@@ -221,19 +222,17 @@ export default function SubAdminGradebooks() {
 
                         <div className="filter-group">
                             <label className="filter-label">Élève</label>
-                            <select
-                                className="filter-select"
+                            <SearchableSelect
+                                options={exitedStudents.map(s => ({ 
+                                    value: s.studentId, 
+                                    label: `${s.firstName} ${s.lastName}`,
+                                    subLabel: s.exitLevel ? `(${s.exitLevel})` : undefined
+                                }))}
                                 value={selectedExitedStudentId}
-                                onChange={e => setSelectedExitedStudentId(e.target.value)}
+                                onChange={val => setSelectedExitedStudentId(val)}
                                 disabled={!selectedExitedYear}
-                            >
-                                <option value="">Sélectionner un élève...</option>
-                                {exitedStudents.map(s => (
-                                    <option key={s.studentId} value={s.studentId}>
-                                        {s.firstName} {s.lastName}{s.exitLevel ? ` (${s.exitLevel})` : ''}
-                                    </option>
-                                ))}
-                            </select>
+                                placeholder="Sélectionner un élève..."
+                            />
                         </div>
 
                         <div className="filter-group">
