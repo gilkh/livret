@@ -9,11 +9,12 @@ export const suggestionsRouter = Router()
 // Create a suggestion (SubAdmin)
 suggestionsRouter.post('/', requireAuth(['SUBADMIN']), async (req, res) => {
     try {
-        const { templateId, pageIndex, blockIndex, originalText, suggestedText } = req.body
+        const { type = 'template_edit', templateId, pageIndex, blockIndex, originalText, suggestedText } = req.body
         const subAdminId = (req as any).user.userId
 
         const suggestion = await TemplateChangeSuggestion.create({
             subAdminId,
+            type,
             templateId,
             pageIndex,
             blockIndex,
@@ -40,14 +41,14 @@ suggestionsRouter.get('/', requireAuth(['ADMIN']), async (req, res) => {
         const subAdminMap = subAdmins.reduce((acc, curr) => ({ ...acc, [String(curr._id)]: curr }), {} as any)
 
         // Populate template names
-        const templateIds = [...new Set(suggestions.map(s => s.templateId))]
+        const templateIds = [...new Set(suggestions.map(s => s.templateId).filter(Boolean))]
         const templates = await GradebookTemplate.find({ _id: { $in: templateIds } }).select('name').lean()
         const templateMap = templates.reduce((acc, curr) => ({ ...acc, [String(curr._id)]: curr }), {} as any)
 
         const enriched = suggestions.map(s => ({
             ...s,
-            subAdmin: subAdminMap[s.subAdminId],
-            template: templateMap[s.templateId]
+            subAdmin: s.subAdminId ? subAdminMap[s.subAdminId] : undefined,
+            template: s.templateId ? templateMap[s.templateId] : undefined
         }))
 
         res.json(enriched)
@@ -61,24 +62,19 @@ suggestionsRouter.patch('/:id', requireAuth(['ADMIN']), async (req, res) => {
     try {
         const { status, adminComment } = req.body
         const suggestion = await TemplateChangeSuggestion.findById(req.params.id)
-        
+
         if (!suggestion) return res.status(404).json({ error: 'not_found' })
 
-        if (status === 'approved') {
+        if (status === 'approved' && suggestion.type === 'template_edit' && suggestion.templateId) {
             // Apply change to template
             const template = await GradebookTemplate.findById(suggestion.templateId)
-            if (template) {
+            if (template && typeof suggestion.pageIndex === 'number' && typeof suggestion.blockIndex === 'number') {
                 // Ensure indices are valid
-                if (template.pages[suggestion.pageIndex] && 
+                if (template.pages[suggestion.pageIndex] &&
                     template.pages[suggestion.pageIndex].blocks[suggestion.blockIndex]) {
-                    
-                    // Update the text content
-                    // Assuming the block has a 'content' prop or similar. 
-                    // We need to know the block structure. 
-                    // Usually text blocks have props.content or props.text
-                    
+
                     const block = template.pages[suggestion.pageIndex].blocks[suggestion.blockIndex]
-                    
+
                     if (block.type === 'dropdown') {
                         block.props.options = suggestion.suggestedText.split('\n').map(s => s.trim()).filter(s => s)
                     } else if (block.props && typeof block.props.content === 'string') {
@@ -86,9 +82,6 @@ suggestionsRouter.patch('/:id', requireAuth(['ADMIN']), async (req, res) => {
                     } else if (block.props && typeof block.props.text === 'string') {
                         block.props.text = suggestion.suggestedText
                     } else {
-                        // Fallback or error? Let's assume 'content' for rich text or 'text'
-                        // If we can't apply, maybe we shouldn't approve?
-                        // For now, let's try to apply to 'content' as it's common for rich text
                         block.props = { ...block.props, content: suggestion.suggestedText }
                     }
 

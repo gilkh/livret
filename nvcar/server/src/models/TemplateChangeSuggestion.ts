@@ -2,10 +2,11 @@ import { Schema, model } from 'mongoose'
 
 const templateChangeSuggestionSchema = new Schema({
     subAdminId: { type: String, required: true },
-    templateId: { type: String, required: true },
-    pageIndex: { type: Number, required: true },
-    blockIndex: { type: Number, required: true },
-    originalText: { type: String, required: true },
+    type: { type: String, enum: ['template_edit', 'semester_request'], default: 'template_edit' },
+    templateId: { type: String },
+    pageIndex: { type: Number },
+    blockIndex: { type: Number },
+    originalText: { type: String },
     suggestedText: { type: String, required: true },
     status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
     adminComment: { type: String },

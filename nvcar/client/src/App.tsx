@@ -43,6 +43,7 @@ import AdminGlobalPermissions from './pages/AdminGlobalPermissions'
 import AdminNavigationVisibility from './pages/AdminNavigationVisibility'
 import AdminStudentPromotions from './pages/AdminStudentPromotions'
 import AdminSkillAnalytics from './pages/AdminSkillAnalytics'
+import SubAdminSemesterRequest from './pages/SubAdminSemesterRequest'
 import SystemAlertBanner from './components/SystemAlertBanner'
 
 const RequireAuth = ({ children }: { children: JSX.Element }) => {
@@ -318,6 +319,14 @@ export default function App() {
           element={
             <RequireAuth>
               <SubAdminGradebooks />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/subadmin/semester-request"
+          element={
+            <RequireAuth>
+              <SubAdminSemesterRequest />
             </RequireAuth>
           }
         />

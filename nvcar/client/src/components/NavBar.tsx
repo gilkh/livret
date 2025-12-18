@@ -25,9 +25,9 @@ export default function NavBar() {
   const logout = () => {
     // Clear both session and local storage
     if (sessionStorage.getItem('token')) {
-        sessionStorage.removeItem('token')
-        sessionStorage.removeItem('role')
-        sessionStorage.removeItem('displayName')
+      sessionStorage.removeItem('token')
+      sessionStorage.removeItem('role')
+      sessionStorage.removeItem('displayName')
     }
     localStorage.removeItem('token')
     localStorage.removeItem('role')
@@ -51,7 +51,7 @@ export default function NavBar() {
           role === 'ADMIN' ? '/admin' :
             role === 'SUBADMIN' ? '/subadmin/dashboard' :
               role === 'AEFE' ? '/aefe/dashboard' :
-              '/teacher/classes'
+                '/teacher/classes'
         } className="nav-brand" style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
           <img src="/logosklnav.jpg" alt="Logo SKL" style={{ height: '66px', objectFit: 'contain' }} />
           <img src="/logoaefenav.jpg" alt="Logo AEFE" style={{ height: '66px', objectFit: 'contain' }} />
@@ -75,6 +75,7 @@ export default function NavBar() {
             {canShow('SUBADMIN', 'gradebooks') && <Link to="/subadmin/gradebooks" className={`nav-link ${isActive('/subadmin/gradebooks') ? 'active' : ''}`}>Carnet</Link>}
             {canShow('SUBADMIN', 'eleves') && <Link to="/subadmin/eleves" className={`nav-link ${isActive('/subadmin/eleves') ? 'active' : ''}`}>Élèves</Link>}
             {canShow('SUBADMIN', 'signature') && <Link to="/subadmin/signature" className={`nav-link ${isActive('/subadmin/signature') ? 'active' : ''}`}>Ma signature</Link>}
+            <Link to="/subadmin/semester-request" className={`nav-link ${isActive('/subadmin/semester-request') ? 'active' : ''}`}>Demande de Semestre</Link>
           </>
         )}
         {role === 'AEFE' && (
@@ -122,14 +123,14 @@ export default function NavBar() {
                     </option>
                   ))}
                 </select>
-                <svg 
-                  width="10" 
-                  height="6" 
-                  viewBox="0 0 10 6" 
-                  fill="none" 
-                  stroke="currentColor" 
-                  strokeWidth="2" 
-                  strokeLinecap="round" 
+                <svg
+                  width="10"
+                  height="6"
+                  viewBox="0 0 10 6"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
                   strokeLinejoin="round"
                   style={{
                     position: 'absolute',
@@ -154,8 +155,8 @@ export default function NavBar() {
               </>
             )}
             {displayName && (
-              <span style={{ 
-                marginRight: '16px', 
+              <span style={{
+                marginRight: '16px',
                 fontWeight: '500',
                 color: '#333',
                 display: 'inline-flex',
@@ -163,7 +164,7 @@ export default function NavBar() {
                 gap: '8px'
               }}>
                 <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor" style={{ opacity: 0.6 }}>
-                  <path d="M10 10c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+                  <path d="M10 10c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
                 </svg>
                 {displayName}
               </span>
