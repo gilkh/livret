@@ -86,17 +86,23 @@ exports.analyticsRouter.get('/skills/:templateId', async (req, res) => {
                             const cells = block.props.cells || [];
                             const rowLanguages = block.props.rowLanguages || [];
                             const expandedLanguages = block.props.expandedLanguages || [];
+                            const rowIds = Array.isArray(block?.props?.rowIds) ? block.props.rowIds : [];
                             cells.forEach((row, ri) => {
                                 // Assuming skill text is in the first cell of the row
                                 const text = row[0]?.text;
                                 if (text && typeof text === 'string' && text.trim()) {
                                     const trimmed = text.trim();
+                                    const sourceId = typeof rowIds?.[ri] === 'string' && rowIds[ri].trim() ? rowIds[ri].trim() : undefined;
+                                    // CRITICAL: Aggregate by sourceId if available, otherwise by text.
+                                    // If multiple skills have the same text but NO sourceId, they still collide (legacy).
+                                    // But if they have different sourceIds, they stay separate.
+                                    const key = sourceId || trimmed;
                                     // Determine allowed languages for this specific row
-                                    // Logic matches TemplateBuilder: rowLanguages[ri] || expandedLanguages
                                     const rowLangs = rowLanguages[ri] || expandedLanguages;
                                     const allowedCodes = rowLangs ? rowLangs.map((l) => l.code) : [];
-                                    if (!skillStats[trimmed]) {
-                                        skillStats[trimmed] = {
+                                    if (!skillStats[key]) {
+                                        skillStats[key] = {
+                                            sourceId,
                                             skillText: trimmed,
                                             totalStudents: 0,
                                             allowedLanguages: allowedCodes,
@@ -104,10 +110,10 @@ exports.analyticsRouter.get('/skills/:templateId', async (req, res) => {
                                         };
                                     }
                                     else {
-                                        // If duplicate skill text exists, ensure allowedLanguages is set
-                                        if (!skillStats[trimmed].allowedLanguages) {
-                                            skillStats[trimmed].allowedLanguages = allowedCodes;
-                                        }
+                                        // If duplicate key exists, merge allowed languages (shouldn't happen with sourceId)
+                                        const existing = skillStats[key].allowedLanguages || [];
+                                        const combined = [...new Set([...existing, ...allowedCodes])];
+                                        skillStats[key].allowedLanguages = combined;
                                     }
                                 }
                             });
@@ -126,23 +132,27 @@ exports.analyticsRouter.get('/skills/:templateId', async (req, res) => {
         // Process records
         for (const record of records) {
             const text = record.skillText ? record.skillText.trim() : '';
-            if (!text)
+            const sourceId = record.sourceId ? String(record.sourceId).trim() : '';
+            // Try to find the stat by sourceId first, then fallback to text
+            const key = (sourceId && skillStats[sourceId]) ? sourceId : (skillStats[text] ? text : undefined);
+            if (!key)
                 continue;
-            if (!skillStats[text]) {
+            if (!skillStats[key]) {
                 // This handles cases where a skill was recorded but might have been removed from the template later
                 // Or if the template parsing missed it. We show it anyway.
-                skillStats[text] = {
-                    skillText: text,
+                skillStats[key] = {
+                    sourceId: sourceId || undefined,
+                    skillText: text || sourceId,
                     totalStudents: 0,
                     languages: {}
                 };
             }
-            skillStats[text].totalStudents++;
+            skillStats[key].totalStudents++;
             for (const lang of record.languages) {
-                if (!skillStats[text].languages[lang]) {
-                    skillStats[text].languages[lang] = 0;
+                if (!skillStats[key].languages[lang]) {
+                    skillStats[key].languages[lang] = 0;
                 }
-                skillStats[text].languages[lang]++;
+                skillStats[key].languages[lang]++;
             }
         }
         res.json({ templateName: template.name, totalAssigned, stats: Object.values(skillStats) });

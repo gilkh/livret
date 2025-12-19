@@ -2,22 +2,86 @@ import { Router } from 'express'
 import { requireAuth } from '../auth'
 import { TemplateChangeSuggestion } from '../models/TemplateChangeSuggestion'
 import { GradebookTemplate } from '../models/GradebookTemplate'
+import { SchoolYear } from '../models/SchoolYear'
 import { User } from '../models/User'
 
 export const suggestionsRouter = Router()
 
+const findBlockById = (pages: any[], blockId: string) => {
+    const id = String(blockId || '').trim()
+    if (!id) return null
+    for (const page of Array.isArray(pages) ? pages : []) {
+        const blocks: any[] = Array.isArray(page?.blocks) ? page.blocks : []
+        for (const block of blocks) {
+            const raw = block?.props?.blockId
+            const bid = typeof raw === 'string' && raw.trim() ? raw.trim() : null
+            if (bid && bid === id) return block
+        }
+    }
+    return null
+}
+
 // Create a suggestion (SubAdmin)
 suggestionsRouter.post('/', requireAuth(['SUBADMIN']), async (req, res) => {
     try {
-        const { type = 'template_edit', templateId, pageIndex, blockIndex, originalText, suggestedText } = req.body
+        const {
+            type = 'template_edit',
+            templateId,
+            templateVersion: incomingTemplateVersion,
+            pageIndex,
+            blockIndex,
+            blockId: incomingBlockId,
+            originalText,
+            suggestedText
+        } = req.body
         const subAdminId = (req as any).user.userId
+
+        let templateVersion: number | undefined =
+            typeof incomingTemplateVersion === 'number' ? incomingTemplateVersion : undefined
+        let blockId: string | undefined =
+            typeof incomingBlockId === 'string' && incomingBlockId.trim() ? incomingBlockId.trim() : undefined
+
+        if (type === 'template_edit' && templateId) {
+            const template = await GradebookTemplate.findById(templateId).select('pages versionHistory currentVersion').lean()
+            if (template) {
+                if (templateVersion === undefined) templateVersion = (template as any).currentVersion
+
+                const pagesTarget =
+                    typeof templateVersion === 'number' && (template as any).currentVersion !== templateVersion
+                        ? (template as any).versionHistory?.find((v: any) => v.version === templateVersion)?.pages
+                        : (template as any).pages
+
+                if (!blockId && typeof pageIndex === 'number' && typeof blockIndex === 'number') {
+                    const block = (pagesTarget as any)?.[pageIndex]?.blocks?.[blockIndex]
+                    const raw = block?.props?.blockId
+                    blockId = typeof raw === 'string' && raw.trim() ? raw.trim() : undefined
+                }
+            }
+        }
+
+        // If this is a semester request, ensure it's only allowed once per active school year
+        if (type === 'semester_request') {
+            const activeYear = await SchoolYear.findOne({ active: true }).lean()
+            if (!activeYear) return res.status(400).json({ error: 'no_active_year', message: 'Aucune année scolaire active.' })
+            if ((activeYear as any).activeSemester !== 1) return res.status(400).json({ error: 'not_in_semester_1', message: 'La demande est autorisée uniquement pendant le Semestre 1.' })
+
+            const already = await TemplateChangeSuggestion.findOne({
+                subAdminId,
+                type: 'semester_request',
+                createdAt: { $gte: activeYear.startDate, $lte: activeYear.endDate }
+            }).lean()
+
+            if (already) return res.status(400).json({ error: 'already_requested', message: 'Vous avez déjà demandé le passage pour cette année scolaire.' })
+        }
 
         const suggestion = await TemplateChangeSuggestion.create({
             subAdminId,
             type,
             templateId,
+            templateVersion,
             pageIndex,
             blockIndex,
+            blockId,
             originalText,
             suggestedText
         })
@@ -67,26 +131,66 @@ suggestionsRouter.patch('/:id', requireAuth(['ADMIN']), async (req, res) => {
 
         if (status === 'approved' && suggestion.type === 'template_edit' && suggestion.templateId) {
             // Apply change to template
-            const template = await GradebookTemplate.findById(suggestion.templateId)
-            if (template && typeof suggestion.pageIndex === 'number' && typeof suggestion.blockIndex === 'number') {
-                // Ensure indices are valid
-                if (template.pages[suggestion.pageIndex] &&
-                    template.pages[suggestion.pageIndex].blocks[suggestion.blockIndex]) {
+            const template = (await GradebookTemplate.findById(suggestion.templateId)) as any
+            if (!template) return res.status(404).json({ error: 'template_not_found' })
+            const blockId = (suggestion as any).blockId
+            const desiredVersion = (suggestion as any).templateVersion
 
-                    const block = template.pages[suggestion.pageIndex].blocks[suggestion.blockIndex]
+            const applyChangeToBlock = (b: any, text: string) => {
+                if (b.type === 'dropdown') {
+                    b.props.options = text.split('\n').map((s: any) => s.trim()).filter(Boolean)
+                } else if (b.props && typeof b.props.content === 'string') {
+                    b.props.content = text
+                } else if (b.props && typeof b.props.text === 'string') {
+                    b.props.text = text
+                } else {
+                    b.props = { ...b.props, content: text }
+                }
+            }
 
-                    if (block.type === 'dropdown') {
-                        block.props.options = suggestion.suggestedText.split('\n').map(s => s.trim()).filter(s => s)
-                    } else if (block.props && typeof block.props.content === 'string') {
-                        block.props.content = suggestion.suggestedText
-                    } else if (block.props && typeof block.props.text === 'string') {
-                        block.props.text = suggestion.suggestedText
-                    } else {
-                        block.props = { ...block.props, content: suggestion.suggestedText }
-                    }
-
+            // 1. Try to apply to current pages (prioritize stable blockId)
+            let appliedToCurrent = false
+            if (blockId) {
+                const blockInCurrent = findBlockById((template as any).pages, blockId)
+                if (blockInCurrent) {
+                    applyChangeToBlock(blockInCurrent, suggestion.suggestedText)
                     template.markModified('pages')
-                    await template.save()
+                    appliedToCurrent = true
+                }
+            }
+
+            // 2. Also apply to version history if specifically requested and it's an old version
+            if (typeof desiredVersion === 'number' && (template as any).currentVersion !== desiredVersion) {
+                const versionEntry = (template as any).versionHistory?.find((v: any) => v.version === desiredVersion)
+                if (versionEntry && versionEntry.pages) {
+                    const blockInVersion = blockId ? findBlockById(versionEntry.pages, blockId) : versionEntry.pages[suggestion.pageIndex!]?.blocks?.[suggestion.blockIndex!]
+                    if (blockInVersion) {
+                        applyChangeToBlock(blockInVersion, suggestion.suggestedText)
+                        template.markModified('versionHistory')
+                    }
+                }
+            }
+
+            // 3. Fallback: if blockId wasn't found in current (maybe it's a new block or indices changed too much), 
+            // but we didn't apply to current yet, try indices on current pages
+            if (!appliedToCurrent && typeof suggestion.pageIndex === 'number' && typeof suggestion.blockIndex === 'number') {
+                const fallbackBlock = (template as any).pages?.[suggestion.pageIndex]?.blocks?.[suggestion.blockIndex]
+                if (fallbackBlock) {
+                    applyChangeToBlock(fallbackBlock, suggestion.suggestedText)
+                    template.markModified('pages')
+                }
+            }
+
+            await template.save()
+        }
+
+        // If admin approves a semester_request, advance the active semester for the active school year
+        if (status === 'approved' && suggestion.type === 'semester_request') {
+            const activeYear = await SchoolYear.findOne({ active: true })
+            if (activeYear) {
+                if ((activeYear as any).activeSemester !== 2) {
+                    (activeYear as any).activeSemester = 2
+                    await activeYear.save()
                 }
             }
         }

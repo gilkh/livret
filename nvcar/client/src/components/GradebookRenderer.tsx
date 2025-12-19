@@ -306,8 +306,11 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                         {(() => {
                                             const toggleKeyOriginal = `language_toggle_${originalPageIdx}_${blockIdx}`
                                             const toggleKeyCurrent = `language_toggle_${pageIdx}_${blockIdx}`
+                                            const blockId = typeof b?.props?.blockId === 'string' && b.props.blockId.trim() ? b.props.blockId.trim() : null
+                                            const toggleKeyStable = blockId ? `language_toggle_${blockId}` : null
 
-                                            const items = assignment?.data?.[toggleKeyOriginal] ||
+                                            const items = (toggleKeyStable ? assignment?.data?.[toggleKeyStable] : null) ||
+                                                assignment?.data?.[toggleKeyOriginal] ||
                                                 assignment?.data?.[toggleKeyCurrent] ||
                                                 b.props.items || []
 
@@ -365,8 +368,11 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                             // This handles cases where versioning might have shifted indices or not
                                             const toggleKeyOriginal = `language_toggle_${originalPageIdx}_${blockIdx}`
                                             const toggleKeyCurrent = `language_toggle_${pageIdx}_${blockIdx}`
+                                            const blockId = typeof b?.props?.blockId === 'string' && b.props.blockId.trim() ? b.props.blockId.trim() : null
+                                            const toggleKeyStable = blockId ? `language_toggle_${blockId}` : null
 
-                                            const items = assignment?.data?.[toggleKeyOriginal] ||
+                                            const items = (toggleKeyStable ? assignment?.data?.[toggleKeyStable] : null) ||
+                                                assignment?.data?.[toggleKeyOriginal] ||
                                                 assignment?.data?.[toggleKeyCurrent] ||
                                                 b.props.items || []
 
@@ -664,9 +670,20 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                                                     }}>
                                                                         {(() => {
                                                                             // Get toggle states from assignment data
-                                                                            const toggleKey = `table_${blockIdx}_row_${ri}`
+                                                                            const blockId = typeof b?.props?.blockId === 'string' && b.props.blockId.trim() ? b.props.blockId.trim() : null
+                                                                            const rowIds = Array.isArray(b?.props?.rowIds) ? b.props.rowIds : []
+                                                                            const rowId = typeof rowIds?.[ri] === 'string' && rowIds[ri].trim() ? rowIds[ri].trim() : null
+                                                                            const toggleKeyStable = blockId && rowId ? `table_${blockId}_row_${rowId}` : null
+                                                                            const toggleKeyOriginal = `table_${originalPageIdx}_${blockIdx}_row_${ri}`
+                                                                            const toggleKeyCurrent = `table_${pageIdx}_${blockIdx}_row_${ri}`
+                                                                            const toggleKeyLegacy = `table_${blockIdx}_row_${ri}`
                                                                             const rowLanguages = b.props.rowLanguages?.[ri] || expandedLanguages
-                                                                            const toggleData = assignment?.data?.[toggleKey] || rowLanguages
+                                                                            const toggleData =
+                                                                                (toggleKeyStable ? assignment?.data?.[toggleKeyStable] : null) ||
+                                                                                assignment?.data?.[toggleKeyOriginal] ||
+                                                                                assignment?.data?.[toggleKeyCurrent] ||
+                                                                                assignment?.data?.[toggleKeyLegacy] ||
+                                                                                rowLanguages
                                                                             const toggleStyle = b.props.expandedToggleStyle || 'v2'
 
                                                                             return toggleData.map((lang: any, li: number) => {

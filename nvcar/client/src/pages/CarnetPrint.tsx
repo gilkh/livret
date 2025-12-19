@@ -112,10 +112,11 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                              templateData.pages.forEach((page: any, pIdx: number) => {
                                  page.blocks.forEach((block: any, bIdx: number) => {
                                      if (['language_toggle', 'language_toggle_v2'].includes(block.type)) {
-                                         const key = `language_toggle_${pIdx}_${bIdx}`
-                                         if (assignment.data[key]) {
-                                             block.props.items = assignment.data[key]
-                                         }
+                                         const blockId = typeof block?.props?.blockId === 'string' && block.props.blockId.trim() ? block.props.blockId.trim() : null
+                                         const keyStable = blockId ? `language_toggle_${blockId}` : null
+                                         const keyLegacy = `language_toggle_${pIdx}_${bIdx}`
+                                         const items = (keyStable ? assignment.data[keyStable] : null) || assignment.data[keyLegacy]
+                                         if (items) block.props.items = items
                                      }
                                  })
                              })
@@ -177,10 +178,11 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                         templateData.pages.forEach((page: any, pIdx: number) => {
                             page.blocks.forEach((block: any, bIdx: number) => {
                                 if (['language_toggle', 'language_toggle_v2'].includes(block.type)) {
-                                    const key = `language_toggle_${pIdx}_${bIdx}`
-                                    if (assignmentData.data[key]) {
-                                        block.props.items = assignmentData.data[key]
-                                    }
+                                    const blockId = typeof block?.props?.blockId === 'string' && block.props.blockId.trim() ? block.props.blockId.trim() : null
+                                    const keyStable = blockId ? `language_toggle_${blockId}` : null
+                                    const keyLegacy = `language_toggle_${pIdx}_${bIdx}`
+                                    const items = (keyStable ? assignmentData.data[keyStable] : null) || assignmentData.data[keyLegacy]
+                                    if (items) block.props.items = items
                                 }
                             })
                         })

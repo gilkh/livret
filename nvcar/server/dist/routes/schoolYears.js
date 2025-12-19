@@ -10,9 +10,10 @@ const Enrollment_1 = require("../models/Enrollment");
 const Class_1 = require("../models/Class");
 const Student_1 = require("../models/Student");
 const StudentCompetencyStatus_1 = require("../models/StudentCompetencyStatus");
+const cache_1 = require("../utils/cache");
 exports.schoolYearsRouter = (0, express_1.Router)();
 exports.schoolYearsRouter.get('/', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', 'AEFE', 'TEACHER']), async (req, res) => {
-    const list = await SchoolYear_1.SchoolYear.find({}).sort({ startDate: -1 }).lean();
+    const list = await (0, cache_1.withCache)('school-years-all', () => SchoolYear_1.SchoolYear.find({}).sort({ startDate: -1 }).lean());
     res.json(list);
 });
 exports.schoolYearsRouter.post('/', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN']), async (req, res) => {
@@ -22,6 +23,7 @@ exports.schoolYearsRouter.post('/', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN'
     if (active) {
         await SchoolYear_1.SchoolYear.updateMany({}, { $set: { active: false } });
     }
+    (0, cache_1.clearCache)('school-years');
     const created = await SchoolYear_1.SchoolYear.create({
         name,
         startDate: new Date(startDate),
@@ -50,11 +52,13 @@ exports.schoolYearsRouter.patch('/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBAD
     if (data.active) {
         await SchoolYear_1.SchoolYear.updateMany({ _id: { $ne: id } }, { $set: { active: false } });
     }
+    (0, cache_1.clearCache)('school-years');
     const year = await SchoolYear_1.SchoolYear.findByIdAndUpdate(id, data, { new: true });
     res.json(year);
 });
 exports.schoolYearsRouter.delete('/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN']), async (req, res) => {
     const { id } = req.params;
+    (0, cache_1.clearCache)('school-years');
     await SchoolYear_1.SchoolYear.findByIdAndDelete(id);
     res.json({ ok: true });
 });

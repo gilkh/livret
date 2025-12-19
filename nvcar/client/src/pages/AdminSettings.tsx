@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import api from '../api'
 import { useSchoolYear } from '../context/SchoolYearContext'
 import './AdminSettings.css'
 
 export default function AdminSettings() {
+  const navigate = useNavigate()
   const { years, activeYearId, setActiveYearId } = useSchoolYear()
   const [teacherLogin, setTeacherLogin] = useState(true)
   const [subAdminLogin, setSubAdminLogin] = useState(true)
@@ -19,7 +21,7 @@ export default function AdminSettings() {
   const [dirHandle, setDirHandle] = useState<any>(null)
   const [nextBackupTime, setNextBackupTime] = useState<Date | null>(null)
   const [systemStatus, setSystemStatus] = useState<{ backend: string; database: string; uptime: number } | null>(null)
-  const [backups, setBackups] = useState<{name: string, size: number, date: string}[]>([])
+  const [backups, setBackups] = useState<{ name: string, size: number, date: string }[]>([])
   const [emptyClickCount, setEmptyClickCount] = useState(0)
 
   useEffect(() => {
@@ -51,7 +53,7 @@ export default function AdminSettings() {
 
   const restoreBackup = async (filename: string) => {
     if (!confirm(`Voulez-vous vraiment restaurer la sauvegarde "${filename}" ?\nATTENTION : La base de données actuelle sera écrasée !`)) return
-    
+
     setBackupLoading(true)
     try {
       await api.post(`/backup/restore/${filename}`)
@@ -138,14 +140,14 @@ export default function AdminSettings() {
 
   const performAutoBackup = async () => {
     if (!dirHandle) return;
-    
+
     try {
       // Don't set global loading to avoid blocking UI, maybe just a toast
       const res = await api.get('/backup/full', { responseType: 'blob' });
       const blob = new Blob([res.data]);
-      
+
       const filename = `nvcar-auto-backup-${new Date().toISOString().replace(/[:.]/g, '-')}.zip`;
-      
+
       // @ts-ignore
       const fileHandle = await dirHandle.getFileHandle(filename, { create: true });
       // @ts-ignore
@@ -154,13 +156,13 @@ export default function AdminSettings() {
       await writable.write(blob);
       // @ts-ignore
       await writable.close();
-      
+
       setMsg(`Sauvegarde automatique effectuée : ${filename}`);
-      
+
       // Update next backup time
       const now = new Date();
       setNextBackupTime(new Date(now.getTime() + backupInterval * 60000));
-      
+
     } catch (err) {
       console.error('Auto backup failed', err);
       setMsg('Échec de la sauvegarde automatique');
@@ -263,7 +265,7 @@ export default function AdminSettings() {
     setBackupLoading(true)
     try {
       const response = await api.get('/backup/full', { responseType: 'blob' })
-      
+
       const url = window.URL.createObjectURL(new Blob([response.data]))
       const link = document.createElement('a')
       link.href = url
@@ -271,7 +273,7 @@ export default function AdminSettings() {
       document.body.appendChild(link)
       link.click()
       link.remove()
-      
+
       setMsg('Sauvegarde téléchargée')
     } catch (e) {
       console.error(e)
@@ -297,7 +299,7 @@ export default function AdminSettings() {
         <h1 className="settings-title">Paramètres Globaux</h1>
         <p className="settings-subtitle">Gérez les configurations et les accès de l'application</p>
       </div>
-      
+
       {msg && (
         <div className="toast-message">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-green-500">
@@ -309,7 +311,7 @@ export default function AdminSettings() {
       )}
 
       <div className="settings-grid">
-        
+
         {/* System Status Section */}
         <div className="settings-section">
           <div className="section-header">
@@ -320,7 +322,7 @@ export default function AdminSettings() {
             </div>
             <h2 className="section-title">État du Système</h2>
           </div>
-          
+
           <div className="setting-item">
             <div className="setting-info">
               <h3>Frontend (Client)</h3>
@@ -359,6 +361,34 @@ export default function AdminSettings() {
           </div>
         </div>
 
+        {/* Monitoring & Diagnostics Section */}
+        <div className="settings-section">
+          <div className="section-header">
+            <div className="section-icon-wrapper" style={{ background: 'rgba(255, 118, 117, 0.1)', color: '#ff7675' }}>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                <line x1="12" y1="22.08" x2="12" y2="12"></line>
+              </svg>
+            </div>
+            <h2 className="section-title">Surveillance & Diagnostics</h2>
+          </div>
+
+          <div className="setting-item">
+            <div className="setting-info">
+              <h3>État de Surveillance</h3>
+              <p>Consulter le bilan des fonctionnalités de monitoring et de sécurité.</p>
+            </div>
+            <button
+              className="btn"
+              onClick={() => navigate('/admin/monitoring')}
+              style={{ background: '#ff7675', fontWeight: 600 }}
+            >
+              🔍 Ouvrir les Diagnostics
+            </button>
+          </div>
+        </div>
+
         {/* Session View Section */}
         <div className="settings-section">
           <div className="section-header">
@@ -372,14 +402,14 @@ export default function AdminSettings() {
             </div>
             <h2 className="section-title">Année Scolaire (Vue Admin)</h2>
           </div>
-          
+
           <div className="setting-item">
             <div className="setting-info">
               <h3>Année active pour cette session</h3>
               <p>Changez l'année visible uniquement pour vous (n'affecte pas les autres utilisateurs)</p>
             </div>
-            <select 
-              value={activeYearId} 
+            <select
+              value={activeYearId}
               onChange={(e) => setActiveYearId(e.target.value)}
               style={{
                 padding: '8px 12px',
@@ -410,7 +440,7 @@ export default function AdminSettings() {
             </div>
             <h2 className="section-title">Accès et Sécurité</h2>
           </div>
-          
+
           <div className="setting-item">
             <div className="setting-info">
               <h3>Connexion Enseignants</h3>
@@ -424,8 +454,8 @@ export default function AdminSettings() {
                 </span>
               </div>
               <label className="switch">
-                <input 
-                  type="checkbox" 
+                <input
+                  type="checkbox"
                   checked={teacherLogin}
                   onChange={toggleTeacher}
                 />
@@ -447,8 +477,8 @@ export default function AdminSettings() {
                 </span>
               </div>
               <label className="switch">
-                <input 
-                  type="checkbox" 
+                <input
+                  type="checkbox"
                   checked={subAdminLogin}
                   onChange={toggleSubAdmin}
                 />
@@ -470,8 +500,8 @@ export default function AdminSettings() {
                 </span>
               </div>
               <label className="switch">
-                <input 
-                  type="checkbox" 
+                <input
+                  type="checkbox"
                   checked={microsoftLogin}
                   onChange={toggleMicrosoft}
                 />
@@ -495,7 +525,7 @@ export default function AdminSettings() {
             </div>
             <h2 className="section-title">Restrictions de Signature (Sous-Admin)</h2>
           </div>
-          
+
           <div className="setting-item">
             <div className="setting-info">
               <h3>Activer les restrictions</h3>
@@ -509,8 +539,8 @@ export default function AdminSettings() {
                 </span>
               </div>
               <label className="switch">
-                <input 
-                  type="checkbox" 
+                <input
+                  type="checkbox"
                   checked={subAdminRestriction}
                   onChange={toggleSubAdminRestriction}
                 />
@@ -534,8 +564,8 @@ export default function AdminSettings() {
                     </span>
                   </div>
                   <label className="switch">
-                    <input 
-                      type="checkbox" 
+                    <input
+                      type="checkbox"
                       checked={subAdminExemptStandard}
                       onChange={toggleSubAdminExemptStandard}
                     />
@@ -557,8 +587,8 @@ export default function AdminSettings() {
                     </span>
                   </div>
                   <label className="switch">
-                    <input 
-                      type="checkbox" 
+                    <input
+                      type="checkbox"
                       checked={subAdminExemptFinal}
                       onChange={toggleSubAdminExemptFinal}
                     />
@@ -588,8 +618,8 @@ export default function AdminSettings() {
               <h3>Créer une sauvegarde</h3>
               <p>Sauvegarder l'état actuel de la base de données sur le serveur.</p>
             </div>
-            <button 
-              className="btn primary" 
+            <button
+              className="btn primary"
               onClick={createBackup}
               disabled={backupLoading}
               style={{ display: 'flex', alignItems: 'center', gap: 8 }}
@@ -619,22 +649,22 @@ export default function AdminSettings() {
                         {(b.size / 1024 / 1024).toFixed(2)} MB
                       </td>
                       <td style={{ padding: '12px', textAlign: 'right' }}>
-                         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                           <button 
-                             onClick={() => restoreBackup(b.name)}
-                             disabled={backupLoading}
-                             style={{ padding: '6px 12px', borderRadius: '4px', border: '1px solid #cbd5e1', background: 'white', color: '#475569', cursor: 'pointer', fontSize: '0.8rem' }}
-                           >
-                             Restaurer
-                           </button>
-                           <button 
-                             onClick={() => deleteBackup(b.name)}
-                             disabled={backupLoading}
-                             style={{ padding: '6px', borderRadius: '4px', border: '1px solid #fca5a5', background: '#fef2f2', color: '#ef4444', cursor: 'pointer' }}
-                           >
-                             🗑️
-                           </button>
-                         </div>
+                        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                          <button
+                            onClick={() => restoreBackup(b.name)}
+                            disabled={backupLoading}
+                            style={{ padding: '6px 12px', borderRadius: '4px', border: '1px solid #cbd5e1', background: 'white', color: '#475569', cursor: 'pointer', fontSize: '0.8rem' }}
+                          >
+                            Restaurer
+                          </button>
+                          <button
+                            onClick={() => deleteBackup(b.name)}
+                            disabled={backupLoading}
+                            style={{ padding: '6px', borderRadius: '4px', border: '1px solid #fca5a5', background: '#fef2f2', color: '#ef4444', cursor: 'pointer' }}
+                          >
+                            🗑️
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -648,23 +678,23 @@ export default function AdminSettings() {
               <h3 style={{ color: '#ef4444' }}>Zone de Danger</h3>
               <p>Vider complètement la base de données (irréversible).</p>
             </div>
-            <button 
-              className="btn danger" 
+            <button
+              className="btn danger"
               onClick={emptyDb}
               disabled={backupLoading}
-              style={{ 
-                display: 'flex', 
-                alignItems: 'center', 
-                gap: 8, 
-                backgroundColor: emptyClickCount > 0 ? '#b91c1c' : '#ef4444', 
-                color: 'white', 
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                backgroundColor: emptyClickCount > 0 ? '#b91c1c' : '#ef4444',
+                color: 'white',
                 border: 'none',
                 transition: 'all 0.2s'
               }}
             >
-              {emptyClickCount > 0 
-                ? emptyClickCount === 4 
-                  ? '⚠️ DERNIÈRE CHANCE !' 
+              {emptyClickCount > 0
+                ? emptyClickCount === 4
+                  ? '⚠️ DERNIÈRE CHANCE !'
                   : `⚠️ Confirmer (${emptyClickCount}/5)`
                 : '⚠️ Vider la BDD'
               }
@@ -688,8 +718,8 @@ export default function AdminSettings() {
               <h3>Sauvegarde complète</h3>
               <p>Télécharger une archive ZIP contenant tout le code source et la base de données</p>
             </div>
-            <button 
-              className="btn secondary" 
+            <button
+              className="btn secondary"
               onClick={downloadBackup}
               disabled={backupLoading}
               style={{ display: 'flex', alignItems: 'center', gap: 8 }}
@@ -703,14 +733,14 @@ export default function AdminSettings() {
               <h3>Redémarrer le serveur</h3>
               <p>Redémarrer le backend pour appliquer les nouvelles fonctionnalités</p>
             </div>
-            <button 
-              className="btn secondary" 
+            <button
+              className="btn secondary"
               onClick={async () => {
-                if(!confirm('Voulez-vous vraiment redémarrer le serveur ? Cela peut prendre quelques secondes.')) return
+                if (!confirm('Voulez-vous vraiment redémarrer le serveur ? Cela peut prendre quelques secondes.')) return
                 try {
                   await api.post('/settings/restart')
                   setMsg('Redémarrage en cours...')
-                } catch(e) {
+                } catch (e) {
                   setMsg('Erreur lors du redémarrage')
                 }
               }}
@@ -722,115 +752,115 @@ export default function AdminSettings() {
 
 
 
-          <div className="setting-item auto-backup-container" style={{ 
-            marginTop: '1.5rem', 
-            padding: '1.5rem', 
-            background: '#f8fafc', 
+          <div className="setting-item auto-backup-container" style={{
+            marginTop: '1.5rem',
+            padding: '1.5rem',
+            background: '#f8fafc',
             borderRadius: '12px',
             border: '1px solid #e2e8f0',
             display: 'block'
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem' }}>
-                <div className="setting-info">
+              <div className="setting-info">
                 <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--accent)' }}>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--accent)' }}>
                     <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
                     <polyline points="17 21 17 13 7 13 7 21"></polyline>
                     <polyline points="7 3 7 8 15 8"></polyline>
-                    </svg>
-                    Sauvegarde Automatique
+                  </svg>
+                  Sauvegarde Automatique
                 </h3>
                 <p style={{ marginTop: '0.5rem' }}>Sauvegarder automatiquement dans un dossier local (nécessite que l'onglet reste ouvert)</p>
+              </div>
+
+              <div className="flex items-center" style={{ gap: '1rem' }}>
+                <div className="status-indicator">
+                  <span className={`dot ${autoBackupEnabled ? 'active' : 'inactive'}`}></span>
+                  <span style={{ color: autoBackupEnabled ? 'var(--success)' : '#64748b', fontWeight: 500 }}>
+                    {autoBackupEnabled ? 'Activé' : 'Désactivé'}
+                  </span>
                 </div>
-                
-                <div className="flex items-center" style={{ gap: '1rem' }}>
-                    <div className="status-indicator">
-                        <span className={`dot ${autoBackupEnabled ? 'active' : 'inactive'}`}></span>
-                        <span style={{ color: autoBackupEnabled ? 'var(--success)' : '#64748b', fontWeight: 500 }}>
-                        {autoBackupEnabled ? 'Activé' : 'Désactivé'}
-                        </span>
-                    </div>
-                    <label className="switch">
-                        <input 
-                        type="checkbox" 
-                        checked={autoBackupEnabled}
-                        onChange={(e) => {
-                            if (e.target.checked && !dirHandle) {
-                            alert("Veuillez d'abord choisir un dossier de sauvegarde.");
-                            return;
-                            }
-                            setAutoBackupEnabled(e.target.checked);
-                        }}
-                        />
-                        <span className="slider"></span>
-                    </label>
-                </div>
+                <label className="switch">
+                  <input
+                    type="checkbox"
+                    checked={autoBackupEnabled}
+                    onChange={(e) => {
+                      if (e.target.checked && !dirHandle) {
+                        alert("Veuillez d'abord choisir un dossier de sauvegarde.");
+                        return;
+                      }
+                      setAutoBackupEnabled(e.target.checked);
+                    }}
+                  />
+                  <span className="slider"></span>
+                </label>
+              </div>
             </div>
 
-            <div style={{ 
-                display: 'grid', 
-                gridTemplateColumns: '1fr 1fr', 
-                gap: '1rem',
-                alignItems: 'end'
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: '1rem',
+              alignItems: 'end'
             }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                    <label style={{ fontSize: '0.9rem', fontWeight: 500, color: '#475569' }}>Fréquence de sauvegarde</label>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <input 
-                            type="number" 
-                            min="1"
-                            value={backupInterval}
-                            onChange={(e) => setBackupInterval(parseInt(e.target.value) || 60)}
-                            style={{ 
-                                width: '80px', 
-                                padding: '8px 12px', 
-                                borderRadius: '6px', 
-                                border: '1px solid #cbd5e1',
-                                fontSize: '0.95rem'
-                            }}
-                            disabled={autoBackupEnabled}
-                        />
-                        <span style={{ color: '#64748b' }}>minutes</span>
-                    </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                <label style={{ fontSize: '0.9rem', fontWeight: 500, color: '#475569' }}>Fréquence de sauvegarde</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <input
+                    type="number"
+                    min="1"
+                    value={backupInterval}
+                    onChange={(e) => setBackupInterval(parseInt(e.target.value) || 60)}
+                    style={{
+                      width: '80px',
+                      padding: '8px 12px',
+                      borderRadius: '6px',
+                      border: '1px solid #cbd5e1',
+                      fontSize: '0.95rem'
+                    }}
+                    disabled={autoBackupEnabled}
+                  />
+                  <span style={{ color: '#64748b' }}>minutes</span>
                 </div>
+              </div>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                    <label style={{ fontSize: '0.9rem', fontWeight: 500, color: '#475569' }}>Destination</label>
-                    <button 
-                        className="btn secondary" 
-                        onClick={pickFolder}
-                        style={{ 
-                            width: '100%', 
-                            justifyContent: 'center',
-                            background: dirHandle ? '#e0f2fe' : 'white',
-                            borderColor: dirHandle ? '#7dd3fc' : '#cbd5e1',
-                            color: dirHandle ? '#0284c7' : '#475569'
-                        }}
-                    >
-                        {dirHandle ? '📁 Dossier sélectionné' : '📁 Choisir le dossier'}
-                    </button>
-                </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                <label style={{ fontSize: '0.9rem', fontWeight: 500, color: '#475569' }}>Destination</label>
+                <button
+                  className="btn secondary"
+                  onClick={pickFolder}
+                  style={{
+                    width: '100%',
+                    justifyContent: 'center',
+                    background: dirHandle ? '#e0f2fe' : 'white',
+                    borderColor: dirHandle ? '#7dd3fc' : '#cbd5e1',
+                    color: dirHandle ? '#0284c7' : '#475569'
+                  }}
+                >
+                  {dirHandle ? '📁 Dossier sélectionné' : '📁 Choisir le dossier'}
+                </button>
+              </div>
             </div>
 
             {nextBackupTime && autoBackupEnabled && (
-                <div style={{ 
-                    marginTop: '1rem', 
-                    padding: '0.75rem', 
-                    background: '#ecfdf5', 
-                    borderRadius: '6px', 
-                    border: '1px solid #a7f3d0',
-                    color: '#047857',
-                    fontSize: '0.9rem',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.5rem'
-                }}>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <circle cx="12" cy="12" r="10"></circle>
-                        <polyline points="12 6 12 12 16 14"></polyline>
-                    </svg>
-                    Prochaine sauvegarde prévue à <strong>{nextBackupTime.toLocaleTimeString()}</strong>
-                </div>
+              <div style={{
+                marginTop: '1rem',
+                padding: '0.75rem',
+                background: '#ecfdf5',
+                borderRadius: '6px',
+                border: '1px solid #a7f3d0',
+                color: '#047857',
+                fontSize: '0.9rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem'
+              }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <polyline points="12 6 12 12 16 14"></polyline>
+                </svg>
+                Prochaine sauvegarde prévue à <strong>{nextBackupTime.toLocaleTimeString()}</strong>
+              </div>
             )}
           </div>
         </div>

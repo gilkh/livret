@@ -185,7 +185,8 @@ export default function TemplateBuilder() {
   const normalizeTemplateNumbers = (t: Template): Template => {
     const pages = (t.pages || []).map(p => ({
       ...p,
-      blocks: (p.blocks || []).map(b => {
+      blocks: (p.blocks || []).map((raw: any) => {
+        const b = raw ? { ...raw, props: raw.props ?? {} } : { type: 'unknown', props: {} }
         if (b.type === 'table') {
           const parseNum = (v: any) => {
             const n = typeof v === 'number' ? v : parseFloat(String(v || '0'))
@@ -409,8 +410,9 @@ export default function TemplateBuilder() {
     const zList = (page.blocks || []).map(bb => (bb.props?.z ?? 0))
     const nextZ = (zList.length ? Math.max(...zList) : 0) + 1
 
-    // If adding a dropdown, assign it the next available number
-    let newProps = { ...b.props, x: 100, y: 100, z: nextZ }
+    // Use crypto.randomUUID() for stable IDs
+    const blockId = (window.crypto as any).randomUUID ? (window.crypto as any).randomUUID() : Math.random().toString(36).substring(2, 11)
+    let newProps = { ...b.props, x: 100, y: 100, z: nextZ, blockId }
     if (b.type === 'dropdown') {
       const allDropdowns = getAllDropdowns()
       const maxNum = allDropdowns.reduce((max, d) => Math.max(max, d.block.props.dropdownNumber || 0), 0)
@@ -442,11 +444,20 @@ export default function TemplateBuilder() {
     const nextZ = (zList.length ? Math.max(...zList) : 0) + 1
     newProps.z = nextZ
 
+    // Generate new blockId
+    const blockId = (window.crypto as any).randomUUID ? (window.crypto as any).randomUUID() : Math.random().toString(36).substring(2, 11)
+    newProps.blockId = blockId
+
     // Handle dropdown numbering if it's a dropdown
     if (blockToDuplicate.type === 'dropdown') {
       const allDropdowns = getAllDropdowns()
       const maxNum = allDropdowns.reduce((max, d) => Math.max(max, d.block.props.dropdownNumber || 0), 0)
       newProps.dropdownNumber = maxNum + 1
+    }
+    // Handle rowId generation for tables
+    if (blockToDuplicate.type === 'table' && newProps.cells) {
+      const rowCount = newProps.cells.length
+      newProps.rowIds = Array.from({ length: rowCount }, () => (window.crypto as any).randomUUID ? (window.crypto as any).randomUUID() : Math.random().toString(36).substring(2, 11))
     }
 
     const newBlock = { type: blockToDuplicate.type, props: newProps }
@@ -1020,7 +1031,7 @@ export default function TemplateBuilder() {
                 key={item._id}
                 className="card"
                 onClick={() => {
-                  setTpl(item);
+                  setTpl(normalizeTemplateNumbers(item));
                   setViewMode('edit');
                   setSelectedPage(0);
                   setSelectedIndex(null)
@@ -2013,7 +2024,9 @@ export default function TemplateBuilder() {
                         }}
                       />
                     ))}
-                    {page.blocks.map((b, idx) => {
+                    {page.blocks.map((_b, idx) => {
+                      if (!_b) return null
+                      const b = { ..._b, props: (_b as any).props ?? {} }
                       const isSelected = (selectedIndex === idx || selectedIndices.includes(idx)) && selectedPage === pageIndex
                       return (
                         <div
@@ -3733,12 +3746,16 @@ export default function TemplateBuilder() {
                                 const cells = [...(props.cells || [])]
                                 rows.push(40)
                                 cells.push(newRow)
+                                const rowIds = [...(props.rowIds || [])]
+                                // Fill rowIds for existing rows if they are missing
+                                while (rowIds.length < (props.cells?.length || 0)) {
+                                  rowIds.push((window.crypto as any).randomUUID ? (window.crypto as any).randomUUID() : Math.random().toString(36).substring(2, 11))
+                                }
+                                rowIds.push((window.crypto as any).randomUUID ? (window.crypto as any).randomUUID() : Math.random().toString(36).substring(2, 11))
+
                                 // Maintain rowLanguages array length
                                 const rowLanguages = [...(props.rowLanguages || [])]
-                                // Ensure it's at least as long as rows before pushing? No, just match length.
-                                // If rowLanguages was shorter than rows (sparse), we just ignore.
-                                // But accurate maintenance:
-                                updateSelectedTable(p => ({ ...p, rowHeights: rows, cells, rowLanguages }))
+                                updateSelectedTable(p => ({ ...p, rowHeights: rows, cells, rowLanguages, rowIds }))
                               }}>+ Ajouter ligne</button>
                             </div>
                           </div>

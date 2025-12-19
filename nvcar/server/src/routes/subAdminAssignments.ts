@@ -15,6 +15,7 @@ import { Competency } from '../models/Competency'
 import { Category } from '../models/Category'
 import { CompetencyVisibilityRule } from '../models/CompetencyVisibilityRule'
 import { StudentCompetencyStatus } from '../models/StudentCompetencyStatus'
+import { withCache } from '../utils/cache'
 
 export const subAdminAssignmentsRouter = Router()
 
@@ -79,7 +80,9 @@ subAdminAssignmentsRouter.get('/progress', requireAuth(['SUBADMIN', 'AEFE']), as
 
         // Fetch templates used in assignments
         const templateIds = [...new Set(completedAssignments.map(a => a.templateId))]
-        const templates = await GradebookTemplate.find({ _id: { $in: templateIds } }).lean()
+        const templates = (await Promise.all(templateIds.map(id =>
+            withCache(`template-${id}`, () => GradebookTemplate.findById(id).lean())
+        ))).filter((t): t is any => !!t)
         const templateMap = new Map(templates.map(t => [String(t._id), t]))
 
         const result = students.map(student => {
@@ -108,18 +111,25 @@ subAdminAssignmentsRouter.get('/progress', requireAuth(['SUBADMIN', 'AEFE']), as
                         let itemsToProcess: any[] = []
 
                         if (['language_toggle', 'language_toggle_v2'].includes(block.type)) {
-                            const key = `language_toggle_${pageIdx}_${blockIdx}`
-                            const overrideItems = assignmentData[key]
+                            const blockId = typeof block?.props?.blockId === 'string' && block.props.blockId.trim() ? block.props.blockId.trim() : null
+                            const keyStable = blockId ? `language_toggle_${blockId}` : null
+                            const keyLegacy = `language_toggle_${pageIdx}_${blockIdx}`
+                            const overrideItems = (keyStable ? assignmentData[keyStable] : null) || assignmentData[keyLegacy]
                             itemsToProcess = overrideItems || block.props.items || []
                         } else if (block.type === 'table' && block.props.expandedRows) {
                             const rows = block.props.cells || []
                             const expandedLanguages = block.props.expandedLanguages || []
                             const rowLanguages = block.props.rowLanguages || {}
+                            const rowIds = Array.isArray(block?.props?.rowIds) ? block.props.rowIds : []
+                            const blockId = typeof block?.props?.blockId === 'string' && block.props.blockId.trim() ? block.props.blockId.trim() : null
 
                             rows.forEach((_: any, ri: number) => {
-                                const toggleKey = `table_${pageIdx}_${blockIdx}_row_${ri}`
+                                const rowId = typeof rowIds?.[ri] === 'string' && rowIds[ri].trim() ? rowIds[ri].trim() : null
+                                const keyStable = blockId && rowId ? `table_${blockId}_row_${rowId}` : null
+                                const keyLegacy1 = `table_${pageIdx}_${blockIdx}_row_${ri}`
+                                const keyLegacy2 = `table_${blockIdx}_row_${ri}`
                                 const rowLangs = rowLanguages[ri] || expandedLanguages
-                                const currentItems = assignmentData[toggleKey] || rowLangs || []
+                                const currentItems = (keyStable ? assignmentData[keyStable] : null) || assignmentData[keyLegacy1] || assignmentData[keyLegacy2] || rowLangs || []
                                 if (Array.isArray(currentItems)) {
                                     itemsToProcess.push(...currentItems)
                                 }
@@ -494,7 +504,9 @@ subAdminAssignmentsRouter.get('/teacher-progress-detailed', requireAuth(['SUBADM
 
         // Get Templates
         const templateIds = [...new Set(assignments.map(a => a.templateId))]
-        const templates = await GradebookTemplate.find({ _id: { $in: templateIds } }).lean()
+        const templates = (await Promise.all(templateIds.map(id =>
+            withCache(`template-${id}`, () => GradebookTemplate.findById(id).lean())
+        ))).filter((t): t is any => !!t)
         const templateMap = new Map(templates.map(t => [String(t._id), t]))
 
         // Build result
@@ -522,26 +534,33 @@ subAdminAssignmentsRouter.get('/teacher-progress-detailed', requireAuth(['SUBADM
 
                     template.pages.forEach((page: any, pageIdx: number) => {
                         (page.blocks || []).forEach((block: any, blockIdx: number) => {
-                            let itemsToProcess: any[] = []
+                        let itemsToProcess: any[] = []
 
-                            if (block.type === 'language_toggle' || block.type === 'language_toggle_v2') {
-                                const key = `language_toggle_${pageIdx}_${blockIdx}`
-                                const overrideItems = assignmentData[key]
-                                itemsToProcess = overrideItems || block.props.items || []
-                            } else if (block.type === 'table' && block.props.expandedRows) {
-                                const rows = block.props.cells || []
-                                const expandedLanguages = block.props.expandedLanguages || []
-                                const rowLanguages = block.props.rowLanguages || {}
+                        if (block.type === 'language_toggle' || block.type === 'language_toggle_v2') {
+                            const blockId = typeof block?.props?.blockId === 'string' && block.props.blockId.trim() ? block.props.blockId.trim() : null
+                            const keyStable = blockId ? `language_toggle_${blockId}` : null
+                            const keyLegacy = `language_toggle_${pageIdx}_${blockIdx}`
+                            const overrideItems = (keyStable ? assignmentData[keyStable] : null) || assignmentData[keyLegacy]
+                            itemsToProcess = overrideItems || block.props.items || []
+                        } else if (block.type === 'table' && block.props.expandedRows) {
+                            const rows = block.props.cells || []
+                            const expandedLanguages = block.props.expandedLanguages || []
+                            const rowLanguages = block.props.rowLanguages || {}
+                            const rowIds = Array.isArray(block?.props?.rowIds) ? block.props.rowIds : []
+                            const blockId = typeof block?.props?.blockId === 'string' && block.props.blockId.trim() ? block.props.blockId.trim() : null
 
-                                rows.forEach((_: any, ri: number) => {
-                                    const toggleKey = `table_${pageIdx}_${blockIdx}_row_${ri}`
-                                    const rowLangs = rowLanguages[ri] || expandedLanguages
-                                    const currentItems = assignmentData[toggleKey] || rowLangs || []
-                                    if (Array.isArray(currentItems)) {
-                                        itemsToProcess.push(...currentItems)
-                                    }
-                                })
-                            }
+                            rows.forEach((_: any, ri: number) => {
+                                const rowId = typeof rowIds?.[ri] === 'string' && rowIds[ri].trim() ? rowIds[ri].trim() : null
+                                const keyStable = blockId && rowId ? `table_${blockId}_row_${rowId}` : null
+                                const keyLegacy1 = `table_${pageIdx}_${blockIdx}_row_${ri}`
+                                const keyLegacy2 = `table_${blockIdx}_row_${ri}`
+                                const rowLangs = rowLanguages[ri] || expandedLanguages
+                                const currentItems = (keyStable ? assignmentData[keyStable] : null) || assignmentData[keyLegacy1] || assignmentData[keyLegacy2] || rowLangs || []
+                                if (Array.isArray(currentItems)) {
+                                    itemsToProcess.push(...currentItems)
+                                }
+                            })
+                        }
 
                             if (itemsToProcess.length === 0) return
 
@@ -698,12 +717,18 @@ subAdminAssignmentsRouter.get('/teacher-progress', requireAuth(['SUBADMIN', 'AEF
 
         // Get Templates and Competencies info
         const templateIds = [...new Set(assignments.map(a => a.templateId))]
-        const templates = await GradebookTemplate.find({ _id: { $in: templateIds } }).lean()
+        const templates = (await Promise.all(templateIds.map(id =>
+            withCache(`template-${id}`, () => GradebookTemplate.findById(id).lean())
+        ))).filter((t): t is any => !!t)
 
-        const allCompetencies = await Competency.find({}).lean()
+        const allCompetencies = await withCache('competencies-active', () =>
+            Competency.find({ active: true }).lean()
+        )
         const compMap = new Map(allCompetencies.map(c => [String(c._id), c]))
 
-        const allCategories = await Category.find({}).lean()
+        const allCategories = await withCache('categories-active', () =>
+            Category.find({ active: true }).lean()
+        )
         const catMap = new Map(allCategories.map(c => [String(c._id), c]))
 
         // Helper to extract competencies from template
@@ -785,18 +810,25 @@ subAdminAssignmentsRouter.get('/teacher-progress', requireAuth(['SUBADMIN', 'AEF
                         let itemsToProcess: any[] = []
 
                         if (['language_toggle', 'language_toggle_v2'].includes(block.type)) {
-                            const key = `language_toggle_${pageIdx}_${blockIdx}`
-                            const overrideItems = assignmentData[key]
+                            const blockId = typeof block?.props?.blockId === 'string' && block.props.blockId.trim() ? block.props.blockId.trim() : null
+                            const keyStable = blockId ? `language_toggle_${blockId}` : null
+                            const keyLegacy = `language_toggle_${pageIdx}_${blockIdx}`
+                            const overrideItems = (keyStable ? assignmentData[keyStable] : null) || assignmentData[keyLegacy]
                             itemsToProcess = overrideItems || block.props.items || []
                         } else if (block.type === 'table' && block.props.expandedRows) {
                             const rows = block.props.cells || []
                             const expandedLanguages = block.props.expandedLanguages || []
                             const rowLanguages = block.props.rowLanguages || {}
+                            const rowIds = Array.isArray(block?.props?.rowIds) ? block.props.rowIds : []
+                            const blockId = typeof block?.props?.blockId === 'string' && block.props.blockId.trim() ? block.props.blockId.trim() : null
 
                             rows.forEach((_: any, ri: number) => {
-                                const toggleKey = `table_${pageIdx}_${blockIdx}_row_${ri}`
+                                const rowId = typeof rowIds?.[ri] === 'string' && rowIds[ri].trim() ? rowIds[ri].trim() : null
+                                const keyStable = blockId && rowId ? `table_${blockId}_row_${rowId}` : null
+                                const keyLegacy1 = `table_${pageIdx}_${blockIdx}_row_${ri}`
+                                const keyLegacy2 = `table_${blockIdx}_row_${ri}`
                                 const rowLangs = rowLanguages[ri] || expandedLanguages
-                                const currentItems = assignmentData[toggleKey] || rowLangs || []
+                                const currentItems = (keyStable ? assignmentData[keyStable] : null) || assignmentData[keyLegacy1] || assignmentData[keyLegacy2] || rowLangs || []
                                 if (Array.isArray(currentItems)) {
                                     itemsToProcess.push(...currentItems)
                                 }

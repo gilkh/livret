@@ -22,6 +22,7 @@ export default function AdminSuggestions() {
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState('')
     const [processing, setProcessing] = useState<string | null>(null)
+    const [totalSubadmins, setTotalSubadmins] = useState<number | null>(null)
 
     useEffect(() => {
         loadSuggestions()
@@ -32,6 +33,13 @@ export default function AdminSuggestions() {
             setLoading(true)
             const r = await api.get('/suggestions')
             setSuggestions(r.data)
+            // Also fetch subadmin list to compute totals
+            try {
+                const s = await api.get('/admin-extras/subadmins')
+                setTotalSubadmins(Array.isArray(s.data) ? s.data.length : null)
+            } catch (e) {
+                setTotalSubadmins(null)
+            }
         } catch (e: any) {
             setError('Impossible de charger les suggestions')
             console.error(e)
@@ -61,6 +69,22 @@ export default function AdminSuggestions() {
             <div className="card">
                 <h2 className="title" style={{ fontSize: 28, marginBottom: 8, color: '#1e293b' }}>💡 Suggestions et Requêtes</h2>
                 <div className="note" style={{ fontSize: 14, color: '#64748b' }}>Examinez les suggestions de modifications et les demandes de semestre des sous-admins</div>
+
+                <div style={{ marginTop: 12, display: 'flex', gap: 12, alignItems: 'center' }}>
+                    <div style={{ padding: 12, borderRadius: 10, background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+                        <div style={{ fontSize: 12, color: '#64748b' }}>Total Sous-admins</div>
+                        <div style={{ fontWeight: 700, color: '#1e293b', fontSize: 20 }}>{totalSubadmins !== null ? totalSubadmins : '—'}</div>
+                    </div>
+                    <div style={{ padding: 12, borderRadius: 10, background: '#eff6ff', border: '1px solid #bfdbfe' }}>
+                        <div style={{ fontSize: 12, color: '#2563eb' }}>Demandes de Passage (Semestre)</div>
+                        <div style={{ fontWeight: 700, color: '#1e40af', fontSize: 20 }}>
+                            {(() => {
+                                const setIds = new Set(suggestions.filter(s => s.type === 'semester_request').map(s => s.subAdminId))
+                                return setIds.size
+                            })()}
+                        </div>
+                    </div>
+                </div>
 
                 {loading && <div className="note" style={{ textAlign: 'center', padding: 24 }}>Chargement...</div>}
                 {error && <div className="note" style={{ color: '#dc2626', background: '#fef2f2', padding: 12, borderRadius: 8, border: '1px solid #fecaca', marginTop: 16 }}>{error}</div>}

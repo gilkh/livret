@@ -32,7 +32,7 @@ analyticsRouter.get('/', async (req, res) => {
       AuditLog.find().sort({ timestamp: -1 }).limit(10).lean()
     ])
 
-    const formatDistribution = (agg: any[]) => 
+    const formatDistribution = (agg: any[]) =>
       agg.reduce((acc, curr) => ({ ...acc, [curr._id || 'unknown']: curr.count }), {})
 
     res.json({
@@ -64,36 +64,37 @@ analyticsRouter.get('/skills/:templateId', async (req, res) => {
 
     // Determine Filtered Student IDs
     let studentQuery: any = {}
-    
-    if (yearId || level || classId) {
-        let enrollmentQuery: any = {}
-        
-        if (yearId) enrollmentQuery.schoolYearId = yearId
-        if (classId) enrollmentQuery.classId = classId
-        
-        // If level is provided but not classId, find all classes in that level
-        if (level && !classId) {
-            const classes = await ClassModel.find({ level, ...(yearId ? { schoolYearId: yearId } : {}) }).select('_id')
-            const classIds = classes.map(c => c._id.toString())
-            enrollmentQuery.classId = { $in: classIds }
-        }
 
-        const enrollments = await Enrollment.find(enrollmentQuery).distinct('studentId')
-        studentQuery.studentId = { $in: enrollments }
+    if (yearId || level || classId) {
+      let enrollmentQuery: any = {}
+
+      if (yearId) enrollmentQuery.schoolYearId = yearId
+      if (classId) enrollmentQuery.classId = classId
+
+      // If level is provided but not classId, find all classes in that level
+      if (level && !classId) {
+        const classes = await ClassModel.find({ level, ...(yearId ? { schoolYearId: yearId } : {}) }).select('_id')
+        const classIds = classes.map(c => c._id.toString())
+        enrollmentQuery.classId = { $in: classIds }
+      }
+
+      const enrollments = await Enrollment.find(enrollmentQuery).distinct('studentId')
+      studentQuery.studentId = { $in: enrollments }
     }
 
     // Get total assignments count for this template (denominator)
-    const totalAssigned = await TemplateAssignment.countDocuments({ 
-        templateId,
-        ...(Object.keys(studentQuery).length > 0 ? { studentId: studentQuery.studentId } : {})
+    const totalAssigned = await TemplateAssignment.countDocuments({
+      templateId,
+      ...(Object.keys(studentQuery).length > 0 ? { studentId: studentQuery.studentId } : {})
     })
 
     // Initialize stats for all skills defined in the template
-    const skillStats: Record<string, { 
-      skillText: string, 
-      totalStudents: number, 
-      allowedLanguages?: string[], // New field
-      languages: Record<string, number> 
+    const skillStats: Record<string, {
+      sourceId?: string,
+      skillText: string,
+      totalStudents: number,
+      allowedLanguages?: string[],
+      languages: Record<string, number>
     }> = {}
 
     // Scan template for skills (extended tables)
@@ -107,29 +108,36 @@ analyticsRouter.get('/skills/:templateId', async (req, res) => {
               const rowLanguages = block.props.rowLanguages || []
               const expandedLanguages = block.props.expandedLanguages || []
 
+              const rowIds = Array.isArray(block?.props?.rowIds) ? block.props.rowIds : []
               cells.forEach((row: any[], ri: number) => {
                 // Assuming skill text is in the first cell of the row
                 const text = row[0]?.text
                 if (text && typeof text === 'string' && text.trim()) {
                   const trimmed = text.trim()
-                  
+                  const sourceId = typeof rowIds?.[ri] === 'string' && rowIds[ri].trim() ? rowIds[ri].trim() : undefined
+
+                  // CRITICAL: Aggregate by sourceId if available, otherwise by text.
+                  // If multiple skills have the same text but NO sourceId, they still collide (legacy).
+                  // But if they have different sourceIds, they stay separate.
+                  const key = sourceId || trimmed
+
                   // Determine allowed languages for this specific row
-                  // Logic matches TemplateBuilder: rowLanguages[ri] || expandedLanguages
                   const rowLangs = rowLanguages[ri] || expandedLanguages
                   const allowedCodes = rowLangs ? rowLangs.map((l: any) => l.code) : []
 
-                  if (!skillStats[trimmed]) {
-                    skillStats[trimmed] = {
+                  if (!skillStats[key]) {
+                    skillStats[key] = {
+                      sourceId,
                       skillText: trimmed,
                       totalStudents: 0,
                       allowedLanguages: allowedCodes,
                       languages: {}
                     }
                   } else {
-                     // If duplicate skill text exists, ensure allowedLanguages is set
-                     if (!skillStats[trimmed].allowedLanguages) {
-                         skillStats[trimmed].allowedLanguages = allowedCodes
-                     }
+                    // If duplicate key exists, merge allowed languages (shouldn't happen with sourceId)
+                    const existing = skillStats[key].allowedLanguages || []
+                    const combined = [...new Set([...existing, ...allowedCodes])]
+                    skillStats[key].allowedLanguages = combined
                   }
                 }
               })
@@ -141,7 +149,7 @@ analyticsRouter.get('/skills/:templateId', async (req, res) => {
 
     // Fetch all acquired skills for this template
     // Only fetch records where at least one language is acquired (languages array not empty)
-    const records = await StudentAcquiredSkill.find({ 
+    const records = await StudentAcquiredSkill.find({
       templateId,
       languages: { $exists: true, $not: { $size: 0 } },
       ...(Object.keys(studentQuery).length > 0 ? { studentId: studentQuery.studentId } : {})
@@ -150,25 +158,30 @@ analyticsRouter.get('/skills/:templateId', async (req, res) => {
     // Process records
     for (const record of records) {
       const text = record.skillText ? record.skillText.trim() : ''
-      if (!text) continue
+      const sourceId = record.sourceId ? String(record.sourceId).trim() : ''
 
-      if (!skillStats[text]) {
+      // Try to find the stat by sourceId first, then fallback to text
+      const key = (sourceId && skillStats[sourceId]) ? sourceId : (skillStats[text] ? text : undefined)
+      if (!key) continue
+
+      if (!skillStats[key]) {
         // This handles cases where a skill was recorded but might have been removed from the template later
         // Or if the template parsing missed it. We show it anyway.
-        skillStats[text] = {
-          skillText: text,
+        skillStats[key] = {
+          sourceId: sourceId || undefined,
+          skillText: text || sourceId,
           totalStudents: 0,
           languages: {}
         }
       }
 
-      skillStats[text].totalStudents++
+      skillStats[key].totalStudents++
 
       for (const lang of record.languages) {
-        if (!skillStats[text].languages[lang]) {
-            skillStats[text].languages[lang] = 0
+        if (!skillStats[key].languages[lang]) {
+          skillStats[key].languages[lang] = 0
         }
-        skillStats[text].languages[lang]++
+        skillStats[key].languages[lang]++
       }
     }
 

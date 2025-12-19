@@ -34,7 +34,7 @@ export default function SubAdminSemesterRequest() {
             }
 
             await api.post('/suggestions', {
-                type: 'semester_request',
+                type: requestType === 'semester_switch' ? 'semester_request' : 'template_edit',
                 originalText,
                 suggestedText
             })
@@ -93,136 +93,49 @@ export default function SubAdminSemesterRequest() {
                         <label style={{ display: 'block', fontSize: 14, fontWeight: 600, color: '#475569', marginBottom: 12 }}>
                             Type de demande
                         </label>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 12 }}>
-                            <div
-                                onClick={() => setRequestType('work_done')}
-                                style={{
-                                    padding: '16px 20px',
-                                    border: `2px solid ${requestType === 'work_done' ? '#3b82f6' : '#e2e8f0'}`,
-                                    borderRadius: 12,
-                                    background: requestType === 'work_done' ? '#eff6ff' : 'white',
-                                    cursor: 'pointer',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 16,
-                                    transition: 'all 0.2s'
-                                }}
-                            >
-                                <div style={{
-                                    width: 40,
-                                    height: 40,
-                                    background: requestType === 'work_done' ? '#3b82f6' : '#f1f5f9',
-                                    borderRadius: 10,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    color: requestType === 'work_done' ? 'white' : '#64748b'
-                                }}>
-                                    <CheckCircle2 size={20} />
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 12 }}>
+                                    <div
+                                        style={{
+                                            padding: '16px 20px',
+                                            border: `2px solid #3b82f6`,
+                                            borderRadius: 12,
+                                            background: '#eff6ff',
+                                            cursor: 'default',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: 16,
+                                            transition: 'all 0.2s'
+                                        }}
+                                    >
+                                        <div style={{
+                                            width: 40,
+                                            height: 40,
+                                            background: '#3b82f6',
+                                            borderRadius: 10,
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            color: 'white'
+                                        }}>
+                                            <Clock size={20} />
+                                        </div>
+                                        <div style={{ flex: 1 }}>
+                                            <div style={{ fontWeight: 700, color: '#1e293b', marginBottom: 2 }}>Demander le passage au Semestre 2</div>
+                                            <div style={{ fontSize: 13, color: '#64748b' }}>Ouvrir la saisie pour la deuxième période de l'année.</div>
+                                        </div>
+                                        <div style={{
+                                            width: 20,
+                                            height: 20,
+                                            borderRadius: '50%',
+                                            border: `2px solid #3b82f6`,
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center'
+                                        }}>
+                                            <div style={{ width: 10, height: 10, background: '#3b82f6', borderRadius: '50%' }} />
+                                        </div>
+                                    </div>
                                 </div>
-                                <div style={{ flex: 1 }}>
-                                    <div style={{ fontWeight: 700, color: '#1e293b', marginBottom: 2 }}>Travail terminé (Semestre 1)</div>
-                                    <div style={{ fontSize: 13, color: '#64748b' }}>Informer l'admin que les carnets du S1 sont prêts.</div>
-                                </div>
-                                <div style={{
-                                    width: 20,
-                                    height: 20,
-                                    borderRadius: '50%',
-                                    border: `2px solid ${requestType === 'work_done' ? '#3b82f6' : '#cbd5e1'}`,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center'
-                                }}>
-                                    {requestType === 'work_done' && <div style={{ width: 10, height: 10, background: '#3b82f6', borderRadius: '50%' }} />}
-                                </div>
-                            </div>
-
-                            <div
-                                onClick={() => setRequestType('semester_switch')}
-                                style={{
-                                    padding: '16px 20px',
-                                    border: `2px solid ${requestType === 'semester_switch' ? '#3b82f6' : '#e2e8f0'}`,
-                                    borderRadius: 12,
-                                    background: requestType === 'semester_switch' ? '#eff6ff' : 'white',
-                                    cursor: 'pointer',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 16,
-                                    transition: 'all 0.2s'
-                                }}
-                            >
-                                <div style={{
-                                    width: 40,
-                                    height: 40,
-                                    background: requestType === 'semester_switch' ? '#3b82f6' : '#f1f5f9',
-                                    borderRadius: 10,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    color: requestType === 'semester_switch' ? 'white' : '#64748b'
-                                }}>
-                                    <Clock size={20} />
-                                </div>
-                                <div style={{ flex: 1 }}>
-                                    <div style={{ fontWeight: 700, color: '#1e293b', marginBottom: 2 }}>Demander le passage au Semestre 2</div>
-                                    <div style={{ fontSize: 13, color: '#64748b' }}>Ouvrir la saisie pour la deuxième période de l'année.</div>
-                                </div>
-                                <div style={{
-                                    width: 20,
-                                    height: 20,
-                                    borderRadius: '50%',
-                                    border: `2px solid ${requestType === 'semester_switch' ? '#3b82f6' : '#cbd5e1'}`,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center'
-                                }}>
-                                    {requestType === 'semester_switch' && <div style={{ width: 10, height: 10, background: '#3b82f6', borderRadius: '50%' }} />}
-                                </div>
-                            </div>
-
-                            <div
-                                onClick={() => setRequestType('next_semester')}
-                                style={{
-                                    padding: '16px 20px',
-                                    border: `2px solid ${requestType === 'next_semester' ? '#3b82f6' : '#e2e8f0'}`,
-                                    borderRadius: 12,
-                                    background: requestType === 'next_semester' ? '#eff6ff' : 'white',
-                                    cursor: 'pointer',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 16,
-                                    transition: 'all 0.2s'
-                                }}
-                            >
-                                <div style={{
-                                    width: 40,
-                                    height: 40,
-                                    background: requestType === 'next_semester' ? '#3b82f6' : '#f1f5f9',
-                                    borderRadius: 10,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    color: requestType === 'next_semester' ? 'white' : '#64748b'
-                                }}>
-                                    <Send size={20} />
-                                </div>
-                                <div style={{ flex: 1 }}>
-                                    <div style={{ fontWeight: 700, color: '#1e293b', marginBottom: 2 }}>Demander le prochain semestre</div>
-                                    <div style={{ fontSize: 13, color: '#64748b' }}>Préparer la structure pour la période suivante.</div>
-                                </div>
-                                <div style={{
-                                    width: 20,
-                                    height: 20,
-                                    borderRadius: '50%',
-                                    border: `2px solid ${requestType === 'next_semester' ? '#3b82f6' : '#cbd5e1'}`,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center'
-                                }}>
-                                    {requestType === 'next_semester' && <div style={{ width: 10, height: 10, background: '#3b82f6', borderRadius: '50%' }} />}
-                                </div>
-                            </div>
-                        </div>
                     </div>
 
                     <div style={{ marginBottom: 28 }}>

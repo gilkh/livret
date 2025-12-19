@@ -9,10 +9,14 @@ import { ClassModel } from '../models/Class'
 import { Student } from '../models/Student'
 import { StudentCompetencyStatus } from '../models/StudentCompetencyStatus'
 
+import { withCache, clearCache } from '../utils/cache'
+
 export const schoolYearsRouter = Router()
 
 schoolYearsRouter.get('/', requireAuth(['ADMIN', 'SUBADMIN', 'AEFE', 'TEACHER']), async (req, res) => {
-  const list = await SchoolYear.find({}).sort({ startDate: -1 }).lean()
+  const list = await withCache('school-years-all', () =>
+    SchoolYear.find({}).sort({ startDate: -1 }).lean()
+  )
   res.json(list)
 })
 
@@ -24,6 +28,7 @@ schoolYearsRouter.post('/', requireAuth(['ADMIN', 'SUBADMIN']), async (req, res)
     await SchoolYear.updateMany({}, { $set: { active: false } })
   }
 
+  clearCache('school-years')
   const created = await SchoolYear.create({
     name,
     startDate: new Date(startDate),
@@ -57,12 +62,14 @@ schoolYearsRouter.patch('/:id', requireAuth(['ADMIN', 'SUBADMIN']), async (req, 
     await SchoolYear.updateMany({ _id: { $ne: id } }, { $set: { active: false } })
   }
 
+  clearCache('school-years')
   const year = await SchoolYear.findByIdAndUpdate(id, data, { new: true })
   res.json(year)
 })
 
 schoolYearsRouter.delete('/:id', requireAuth(['ADMIN', 'SUBADMIN']), async (req, res) => {
   const { id } = req.params
+  clearCache('school-years')
   await SchoolYear.findByIdAndDelete(id)
   res.json({ ok: true })
 })
@@ -109,11 +116,11 @@ schoolYearsRouter.post('/:id/archive', requireAuth(['ADMIN']), async (req, res) 
     const statuses = await StudentCompetencyStatus.find({ studentId: assignment.studentId }).lean()
 
     const snapshotData = {
-        student: student,
-        enrollment: enrollment,
-        statuses: statuses,
-        assignment: assignment,
-        className: cls.name
+      student: student,
+      enrollment: enrollment,
+      statuses: statuses,
+      assignment: assignment,
+      className: cls.name
     }
 
     await SavedGradebook.create({

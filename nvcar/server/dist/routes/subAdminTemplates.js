@@ -26,6 +26,7 @@ const SavedGradebook_1 = require("../models/SavedGradebook");
 const StudentCompetencyStatus_1 = require("../models/StudentCompetencyStatus");
 const auditLogger_1 = require("../utils/auditLogger");
 const templateUtils_1 = require("../utils/templateUtils");
+const cache_1 = require("../utils/cache");
 const multer_1 = __importDefault(require("multer"));
 const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
@@ -64,9 +65,9 @@ exports.subAdminTemplatesRouter.get('/templates/:templateAssignmentId/debug-sign
     try {
         const { templateAssignmentId } = req.params;
         const allSignatures = await TemplateSignature_1.TemplateSignature.find({ templateAssignmentId }).lean();
-        const activeSchoolYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
+        const activeSchoolYear = await (0, cache_1.withCache)('school-years-active', () => SchoolYear_1.SchoolYear.findOne({ active: true }).lean());
         const previousYear = activeSchoolYear
-            ? await SchoolYear_1.SchoolYear.findOne({ endDate: { $lt: activeSchoolYear.startDate } }).sort({ endDate: -1 }).lean()
+            ? await (0, cache_1.withCache)(`school-year-before-${activeSchoolYear.startDate}`, () => SchoolYear_1.SchoolYear.findOne({ endDate: { $lt: activeSchoolYear.startDate } }).sort({ endDate: -1 }).lean())
             : null;
         res.json({
             totalSignatures: allSignatures.length,
@@ -185,7 +186,7 @@ exports.subAdminTemplatesRouter.get('/promoted-students', (0, auth_1.requireAuth
     try {
         const subAdminId = req.user.userId;
         // Get active school year
-        const activeSchoolYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
+        const activeSchoolYear = await (0, cache_1.withCache)('school-years-active', () => SchoolYear_1.SchoolYear.findOne({ active: true }).lean());
         if (!activeSchoolYear)
             return res.json([]);
         const activeSchoolYearId = String(activeSchoolYear._id);
@@ -255,7 +256,7 @@ exports.subAdminTemplatesRouter.get('/classes', (0, auth_1.requireAuth)(['SUBADM
     try {
         const subAdminId = req.user.userId;
         // Get active school year
-        const activeSchoolYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
+        const activeSchoolYear = await (0, cache_1.withCache)('school-years-active', () => SchoolYear_1.SchoolYear.findOne({ active: true }).lean());
         if (!activeSchoolYear)
             return res.json([]);
         // Get teachers assigned to this sub-admin
@@ -358,7 +359,7 @@ exports.subAdminTemplatesRouter.get('/teachers/:teacherId/changes', (0, auth_1.r
             const templateAssignment = templateAssignments.find(a => String(a._id) === change.templateAssignmentId);
             if (!templateAssignment)
                 return change;
-            const template = await GradebookTemplate_1.GradebookTemplate.findById(templateAssignment.templateId).lean();
+            const template = await (0, cache_1.withCache)(`template-${templateAssignment.templateId}`, () => GradebookTemplate_1.GradebookTemplate.findById(templateAssignment.templateId).lean());
             const student = await Student_1.Student.findById(templateAssignment.studentId).lean();
             return {
                 ...change,
@@ -377,7 +378,7 @@ exports.subAdminTemplatesRouter.get('/pending-signatures', (0, auth_1.requireAut
     try {
         const subAdminId = req.user.userId;
         // Get active school year
-        const activeSchoolYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
+        const activeSchoolYear = await (0, cache_1.withCache)('school-years-active', () => SchoolYear_1.SchoolYear.findOne({ active: true }).lean());
         if (!activeSchoolYear) {
             return res.json([]);
         }
@@ -597,10 +598,10 @@ exports.subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote',
             }
         }
         // Calculate Next Level dynamically
-        const currentLevelDoc = await Level_1.Level.findOne({ name: currentLevel }).lean();
+        const currentLevelDoc = await (0, cache_1.withCache)(`level-name-${currentLevel}`, () => Level_1.Level.findOne({ name: currentLevel }).lean());
         let calculatedNextLevel = '';
         if (currentLevelDoc) {
-            const nextLevelDoc = await Level_1.Level.findOne({ order: currentLevelDoc.order + 1 }).lean();
+            const nextLevelDoc = await (0, cache_1.withCache)(`level-order-${currentLevelDoc.order + 1}`, () => Level_1.Level.findOne({ order: currentLevelDoc.order + 1 }).lean());
             if (nextLevelDoc) {
                 calculatedNextLevel = nextLevelDoc.name;
             }
@@ -739,19 +740,7 @@ exports.subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote',
         const updatedStudent = await Student_1.Student.findById(student._id).lean();
         // Re-fetch template to ensure consistency (though it shouldn't change)
         const template = await GradebookTemplate_1.GradebookTemplate.findById(assignment.templateId).lean();
-        const versionedTemplate = JSON.parse(JSON.stringify(template));
-        if (updatedAssignment && updatedAssignment.data) {
-            for (const [key, value] of Object.entries(updatedAssignment.data)) {
-                if (key.startsWith('language_toggle_')) {
-                    const [, , pageIdx, blockIdx] = key.split('_');
-                    const pageIndex = parseInt(pageIdx);
-                    const blockIndex = parseInt(blockIdx);
-                    if (versionedTemplate.pages?.[pageIndex]?.blocks?.[blockIndex]?.props?.items) {
-                        versionedTemplate.pages[pageIndex].blocks[blockIndex].props.items = value;
-                    }
-                }
-            }
-        }
+        const versionedTemplate = (0, templateUtils_1.mergeAssignmentDataIntoTemplate)(template, updatedAssignment);
         res.json({
             ok: true,
             assignment: updatedAssignment,
@@ -803,11 +792,13 @@ exports.subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', (0
         }
         // Apply Settings-based Restrictions
         const settings = await Setting_1.Setting.find({
-            key: { $in: [
+            key: {
+                $in: [
                     'subadmin_restriction_enabled',
                     'subadmin_restriction_exempt_standard',
                     'subadmin_restriction_exempt_final'
-                ] }
+                ]
+            }
         }).lean();
         const settingsMap = {};
         settings.forEach(s => settingsMap[s.key] = s.value);
@@ -1355,21 +1346,8 @@ exports.subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', (
         console.log('[/review] finalSignature:', finalSignature ? { id: finalSignature._id, type: finalSignature.type } : 'none');
         const isSignedByMe = signature && signature.subAdminId === subAdminId;
         // Level and className already calculated above
-        // Merge assignment data into template (for language toggles, dropdowns, etc.)
-        const versionedTemplate = JSON.parse(JSON.stringify(template));
-        if (assignment.data) {
-            for (const [key, value] of Object.entries(assignment.data)) {
-                // Handle language_toggle_X_Y format
-                if (key.startsWith('language_toggle_')) {
-                    const [, , pageIdx, blockIdx] = key.split('_');
-                    const pageIndex = parseInt(pageIdx);
-                    const blockIndex = parseInt(blockIdx);
-                    if (versionedTemplate.pages?.[pageIndex]?.blocks?.[blockIndex]?.props?.items) {
-                        versionedTemplate.pages[pageIndex].blocks[blockIndex].props.items = value;
-                    }
-                }
-            }
-        }
+        // Use centralized helper for versioning and data merging
+        const versionedTemplate = (0, templateUtils_1.mergeAssignmentDataIntoTemplate)(template, assignment);
         const canEdit = authorized && req.user.role !== 'AEFE';
         // Get active school year
         const activeSchoolYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
@@ -1816,11 +1794,14 @@ exports.subAdminTemplatesRouter.patch('/templates/:assignmentId/data', (0, auth_
             if (pageIndex === undefined || blockIndex === undefined || !items) {
                 return res.status(400).json({ error: 'missing_payload' });
             }
-            const key = `language_toggle_${pageIndex}_${blockIndex}`;
+            const template = await GradebookTemplate_1.GradebookTemplate.findById(assignment.templateId).select('pages').lean();
+            const block = template?.pages?.[pageIndex]?.blocks?.[blockIndex];
+            const blockId = typeof block?.props?.blockId === 'string' && block.props.blockId.trim() ? block.props.blockId.trim() : null;
+            const keyStable = blockId ? `language_toggle_${blockId}` : `language_toggle_${pageIndex}_${blockIndex}`;
             // Update assignment data
             const updated = await TemplateAssignment_1.TemplateAssignment.findByIdAndUpdate(assignmentId, {
                 $set: {
-                    [`data.${key}`]: items
+                    [`data.${keyStable}`]: items
                 }
             }, { new: true });
             // Log audit

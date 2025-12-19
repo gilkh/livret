@@ -44,6 +44,7 @@ import AdminNavigationVisibility from './pages/AdminNavigationVisibility'
 import AdminStudentPromotions from './pages/AdminStudentPromotions'
 import AdminSkillAnalytics from './pages/AdminSkillAnalytics'
 import SubAdminSemesterRequest from './pages/SubAdminSemesterRequest'
+import AdminMonitoring from './pages/AdminMonitoring'
 import SystemAlertBanner from './components/SystemAlertBanner'
 
 const RequireAuth = ({ children }: { children: JSX.Element }) => {
@@ -455,6 +456,14 @@ export default function App() {
           element={
             <RequireAuth>
               <AdminOnlineUsers />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/admin/monitoring"
+          element={
+            <RequireAuth>
+              <AdminMonitoring />
             </RequireAuth>
           }
         />

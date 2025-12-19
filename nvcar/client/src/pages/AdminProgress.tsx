@@ -44,26 +44,26 @@ type ClassProgress = {
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d'];
 
-const ProgressSection = ({ title, subtitle, progress, byCategory, color = '#fff' }: any) => (
+const ProgressSection = ({ title, subtitle, progress, byCategory, color = '#fff', compact = false }: any) => (
     <div style={{ 
         background: color, 
-        borderRadius: 12, 
+        borderRadius: compact ? 10 : 12, 
         border: '1px solid #e2e8f0',
-        padding: 24,
+        padding: compact ? 16 : 24,
         boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
     }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: 24 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: compact ? 12 : 24 }}>
             <div>
-                <h4 style={{ fontSize: 20, fontWeight: 600, color: '#0f172a', margin: 0 }}>{title}</h4>
-                {subtitle && <div style={{ color: '#64748b', fontSize: 15, marginTop: 4 }}>{subtitle}</div>}
+                <h4 style={{ fontSize: compact ? 16 : 20, fontWeight: 600, color: '#0f172a', margin: 0 }}>{title}</h4>
+                {subtitle && <div style={{ color: '#64748b', fontSize: compact ? 13 : 15, marginTop: 4 }}>{subtitle}</div>}
             </div>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: 32 }}>
+        <div style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: compact ? 16 : 32 }}>
             {/* Global Progress Pie Chart */}
-            <div style={{ flex: '0 0 250px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                <h5 style={{ fontSize: 16, fontWeight: 600, color: '#475569', marginBottom: 12 }}>Progression Globale</h5>
-                <div style={{ width: 200, height: 200, position: 'relative' }}>
+            <div style={{ flex: compact ? '0 0 180px' : '0 0 250px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <h5 style={{ fontSize: compact ? 13 : 16, fontWeight: 600, color: '#475569', marginBottom: compact ? 8 : 12 }}>Progression Globale</h5>
+                <div style={{ width: compact ? 140 : 200, height: compact ? 140 : 200, position: 'relative' }}>
                     <ResponsiveContainer width="100%" height="100%">
                         <PieChart>
                             <Pie
@@ -73,8 +73,8 @@ const ProgressSection = ({ title, subtitle, progress, byCategory, color = '#fff'
                                 ]}
                                 cx="50%"
                                 cy="50%"
-                                innerRadius={60}
-                                outerRadius={80}
+                                innerRadius={compact ? 42 : 60}
+                                outerRadius={compact ? 58 : 80}
                                 fill="#8884d8"
                                 paddingAngle={5}
                                 dataKey="value"
@@ -92,29 +92,29 @@ const ProgressSection = ({ title, subtitle, progress, byCategory, color = '#fff'
                         transform: 'translate(-50%, -50%)',
                         textAlign: 'center'
                     }}>
-                        <div style={{ fontSize: 24, fontWeight: 700, color: '#0f172a' }}>{progress.percentage}%</div>
-                        <div style={{ fontSize: 12, color: '#64748b' }}>complété</div>
+                        <div style={{ fontSize: compact ? 18 : 24, fontWeight: 700, color: '#0f172a' }}>{progress.percentage}%</div>
+                        <div style={{ fontSize: compact ? 11 : 12, color: '#64748b' }}>complété</div>
                     </div>
                 </div>
             </div>
 
             {/* Category Progress Bar Chart */}
-            <div style={{ flex: 1, minWidth: 300 }}>
-                <h5 style={{ fontSize: 16, fontWeight: 600, color: '#475569', marginBottom: 12 }}>Par Domaine / Langue</h5>
-                <div style={{ width: '100%', height: 250 }}>
+            <div style={{ flex: 1, minWidth: compact ? 260 : 300 }}>
+                <h5 style={{ fontSize: compact ? 13 : 16, fontWeight: 600, color: '#475569', marginBottom: compact ? 8 : 12 }}>Par Domaine / Langue</h5>
+                <div style={{ width: '100%', height: compact ? 160 : 250 }}>
                     <ResponsiveContainer width="100%" height="100%">
                         <BarChart
                             data={byCategory}
                             layout="vertical"
-                            margin={{ top: 5, right: 30, left: 40, bottom: 5 }}
+                            margin={{ top: 5, right: 18, left: compact ? 18 : 40, bottom: 5 }}
                         >
                             <CartesianGrid strokeDasharray="3 3" horizontal={false} />
                             <XAxis type="number" domain={[0, 100]} unit="%" />
                             <YAxis 
                                 dataKey="name" 
                                 type="category" 
-                                width={100} 
-                                tick={{ fontSize: 12 }}
+                                width={compact ? 80 : 100} 
+                                tick={{ fontSize: compact ? 11 : 12 }}
                             />
                             <Tooltip 
                                 formatter={(value: number, name: string, props: any) => {
@@ -123,7 +123,7 @@ const ProgressSection = ({ title, subtitle, progress, byCategory, color = '#fff'
                                 }}
                                 contentStyle={{ borderRadius: 8, border: 'none', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}
                             />
-                            <Bar dataKey="percentage" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={20}>
+                            <Bar dataKey="percentage" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={compact ? 12 : 20}>
                                 {byCategory.map((entry: any, index: number) => (
                                     <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                                 ))}
@@ -213,7 +213,7 @@ export default function AdminProgress() {
 
     return (
         <div className="container">
-            <div className="card" style={{ maxWidth: 1200, margin: '0 auto' }}>
+            <div className="card" style={{ maxWidth: 1400, margin: '0 auto' }}>
                 <h2 className="title" style={{ fontSize: 28, marginBottom: 20, color: '#1e293b' }}>
                     📈 Suivi Global des Classes
                 </h2>
@@ -307,11 +307,12 @@ export default function AdminProgress() {
                                             progress={levelStats.progress}
                                             byCategory={levelStats.byCategory}
                                             color="#f8fafc"
+                                            compact
                                         />
                                     </div>
 
                                     {/* Classes Grid */}
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 24 }}>
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 16 }}>
                                         {levelClasses.map(cls => (
                                             <ProgressSection 
                                                 key={cls.classId}
@@ -319,6 +320,7 @@ export default function AdminProgress() {
                                                 subtitle={`${cls.teachers.join(', ') || 'Aucun enseignant'} • ${cls.studentCount} élèves`}
                                                 progress={cls.progress}
                                                 byCategory={cls.byCategory}
+                                                compact
                                             />
                                         ))}
                                     </div>
@@ -334,17 +336,17 @@ export default function AdminProgress() {
                         <h2 className="title" style={{ fontSize: 24, marginBottom: 20, color: '#1e293b' }}>
                             👥 Suivi des Sous-Administrateurs
                         </h2>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))', gap: 24 }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
                             {subAdmins.map(sa => (
                                 <div key={sa.subAdminId} style={{ 
                                     background: '#fff', 
-                                    borderRadius: 12, 
+                                    borderRadius: 10, 
                                     border: '1px solid #e2e8f0',
-                                    padding: 24,
+                                    padding: 16,
                                     boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
                                 }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                                        <h4 style={{ fontSize: 18, fontWeight: 600, margin: 0 }}>{sa.displayName}</h4>
+                                        <h4 style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>{sa.displayName}</h4>
                                         <span style={{ background: '#f1f5f9', padding: '4px 8px', borderRadius: 4, fontSize: 12, color: '#64748b' }}>
                                             {sa.percentage}% Signé
                                         </span>

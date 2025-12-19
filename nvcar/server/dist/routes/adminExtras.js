@@ -18,6 +18,7 @@ const TemplateSignature_1 = require("../models/TemplateSignature");
 const Student_1 = require("../models/Student");
 const AdminSignature_1 = require("../models/AdminSignature");
 const signatureService_1 = require("../services/signatureService");
+const templateUtils_1 = require("../utils/templateUtils");
 exports.adminExtrasRouter = (0, express_1.Router)();
 // 1. Progress (All Classes)
 exports.adminExtrasRouter.get('/progress', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
@@ -41,7 +42,8 @@ exports.adminExtrasRouter.get('/progress', (0, auth_1.requireAuth)(['ADMIN']), a
         const teacherMap = new Map(allTeachers.map(t => [String(t._id), t]));
         const enrollments = await Enrollment_1.Enrollment.find({
             classId: { $in: classIds },
-            schoolYearId: String(activeYear._id)
+            schoolYearId: String(activeYear._id),
+            status: { $ne: 'archived' }
         }).lean();
         const studentIds = enrollments.map(e => e.studentId);
         const assignments = await TemplateAssignment_1.TemplateAssignment.find({
@@ -49,66 +51,163 @@ exports.adminExtrasRouter.get('/progress', (0, auth_1.requireAuth)(['ADMIN']), a
         }).lean();
         const templateIds = [...new Set(assignments.map(a => a.templateId))];
         const templates = await GradebookTemplate_1.GradebookTemplate.find({ _id: { $in: templateIds } }).lean();
+        const templateMap = new Map(templates.map(t => [String(t._id), t]));
+        const teacherAssignmentsByClassId = new Map();
+        for (const ta of teacherAssignments) {
+            const classId = String(ta.classId);
+            if (!teacherAssignmentsByClassId.has(classId))
+                teacherAssignmentsByClassId.set(classId, []);
+            teacherAssignmentsByClassId.get(classId).push(ta);
+        }
+        const studentToClassId = new Map();
+        for (const e of enrollments) {
+            if (e.studentId && e.classId)
+                studentToClassId.set(String(e.studentId), String(e.classId));
+        }
+        const assignmentsByClassId = new Map();
+        for (const a of assignments) {
+            const classId = studentToClassId.get(String(a.studentId));
+            if (!classId)
+                continue;
+            if (!assignmentsByClassId.has(classId))
+                assignmentsByClassId.set(classId, []);
+            assignmentsByClassId.get(classId).push(a);
+        }
         const classesResult = classes.map(cls => {
             const clsId = String(cls._id);
-            const clsTeacherAssignments = teacherAssignments.filter(ta => ta.classId === clsId);
-            const clsTeachers = clsTeacherAssignments.map(ta => teacherMap.get(ta.teacherId)?.displayName || 'Unknown');
+            const clsTeacherAssignments = teacherAssignmentsByClassId.get(clsId) || [];
+            const clsTeachers = clsTeacherAssignments.map(ta => {
+                const t = teacherMap.get(String(ta.teacherId));
+                return t?.displayName || t?.email || 'Unknown';
+            });
             // Categorize teachers
             const polyvalentTeachers = [];
             const englishTeachers = [];
             const arabicTeachers = [];
             clsTeacherAssignments.forEach(ta => {
-                const teacherName = teacherMap.get(ta.teacherId)?.displayName || 'Unknown';
-                const langs = ta.languages || [];
+                const t = teacherMap.get(String(ta.teacherId));
+                const teacherName = t?.displayName || t?.email || 'Unknown';
+                const langs = (ta.languages || []).map((l) => String(l).toLowerCase());
                 if (ta.isProfPolyvalent) {
                     polyvalentTeachers.push(teacherName);
                 }
-                if (langs.includes('ar')) {
+                if (langs.includes('ar') || langs.includes('lb')) {
                     arabicTeachers.push(teacherName);
                 }
-                if (langs.includes('en')) {
+                if (langs.includes('en') || langs.includes('uk') || langs.includes('gb')) {
                     englishTeachers.push(teacherName);
                 }
             });
-            const clsEnrollments = enrollments.filter(e => e.classId === clsId);
-            const clsStudentIds = new Set(clsEnrollments.map(e => e.studentId));
-            const clsAssignments = assignments.filter(a => clsStudentIds.has(a.studentId));
+            const clsEnrollments = enrollments.filter(e => String(e.classId) === clsId);
+            const clsStudentIds = new Set(clsEnrollments.map(e => String(e.studentId)));
+            const clsAssignments = assignmentsByClassId.get(clsId) || [];
             let totalCompetencies = 0;
             let filledCompetencies = 0;
             const categoryStats = {};
             clsAssignments.forEach(assignment => {
-                const templateId = assignment.templateId;
-                const template = templates.find(t => String(t._id) === templateId);
+                const templateId = String(assignment.templateId);
+                const template = templateMap.get(templateId);
                 if (!template)
                     return;
                 const assignmentData = assignment.data || {};
                 const level = cls.level;
+                const teacherCompletions = (assignment.teacherCompletions || []);
+                const completionMemo = new Map();
+                const isCategoryCompleted = (categoryName, langCode) => {
+                    const key = `${categoryName}|${langCode || ''}`;
+                    if (completionMemo.has(key))
+                        return completionMemo.get(key);
+                    const l = categoryName.toLowerCase();
+                    const code = (langCode || '').toLowerCase();
+                    const isArabic = code === 'ar' || code === 'lb' || l.includes('arabe') || l.includes('arabic') || l.includes('العربية');
+                    const isEnglish = code === 'en' || code === 'uk' || code === 'gb' || l.includes('anglais') || l.includes('english');
+                    let responsibleTeachers = clsTeacherAssignments
+                        .filter((ta) => {
+                        const langs = (ta.languages || []).map((tl) => String(tl).toLowerCase());
+                        if (isArabic) {
+                            if (langs.length === 0)
+                                return !ta.isProfPolyvalent;
+                            return langs.some((v) => v === 'ar' || v === 'lb' || v.includes('arabe') || v.includes('arabic') || v.includes('العربية'));
+                        }
+                        if (isEnglish) {
+                            if (langs.length === 0)
+                                return !ta.isProfPolyvalent;
+                            return langs.some((v) => v === 'en' || v === 'uk' || v === 'gb' || v.includes('anglais') || v.includes('english'));
+                        }
+                        return !!ta.isProfPolyvalent;
+                    })
+                        .map((ta) => String(ta.teacherId));
+                    if (responsibleTeachers.length === 0) {
+                        responsibleTeachers = (assignment.assignedTeachers || []).map(id => String(id));
+                    }
+                    const completed = responsibleTeachers.some(tid => teacherCompletions.some(tc => String(tc.teacherId) === String(tid) &&
+                        (tc.completed || tc.completedSem1 || tc.completedSem2)));
+                    completionMemo.set(key, completed);
+                    return completed;
+                };
                 template.pages.forEach((page, pageIdx) => {
                     (page.blocks || []).forEach((block, blockIdx) => {
-                        if (block.type === 'language_toggle') {
-                            const key = `language_toggle_${pageIdx}_${blockIdx}`;
-                            const overrideItems = assignmentData[key];
-                            const items = overrideItems || block.props.items || [];
-                            items.forEach((item) => {
-                                let isAssigned = true;
-                                if (item.levels && Array.isArray(item.levels) && item.levels.length > 0) {
-                                    if (!level || !item.levels.includes(level)) {
-                                        isAssigned = false;
-                                    }
-                                }
-                                if (isAssigned) {
-                                    const lang = item.type || item.label || 'Autre';
-                                    if (!categoryStats[lang])
-                                        categoryStats[lang] = { total: 0, filled: 0, name: lang };
-                                    categoryStats[lang].total++;
-                                    totalCompetencies++;
-                                    if (item.active) {
-                                        categoryStats[lang].filled++;
-                                        filledCompetencies++;
-                                    }
+                        let itemsToProcess = [];
+                        if (['language_toggle', 'language_toggle_v2'].includes(block.type)) {
+                            const blockId = typeof block?.props?.blockId === 'string' && block.props.blockId.trim() ? block.props.blockId.trim() : null;
+                            const keyStable = blockId ? `language_toggle_${blockId}` : null;
+                            const keyLegacy = `language_toggle_${pageIdx}_${blockIdx}`;
+                            const overrideItems = (keyStable ? assignmentData[keyStable] : null) || assignmentData[keyLegacy];
+                            itemsToProcess = overrideItems || block.props.items || [];
+                        }
+                        else if (block.type === 'table' && block.props.expandedRows) {
+                            const rows = block.props.cells || [];
+                            const expandedLanguages = block.props.expandedLanguages || [];
+                            const rowLanguages = block.props.rowLanguages || {};
+                            const rowIds = Array.isArray(block?.props?.rowIds) ? block.props.rowIds : [];
+                            const blockId = typeof block?.props?.blockId === 'string' && block.props.blockId.trim() ? block.props.blockId.trim() : null;
+                            rows.forEach((_, ri) => {
+                                const rowId = typeof rowIds?.[ri] === 'string' && rowIds[ri].trim() ? rowIds[ri].trim() : null;
+                                const keyStable = blockId && rowId ? `table_${blockId}_row_${rowId}` : null;
+                                const keyLegacy1 = `table_${pageIdx}_${blockIdx}_row_${ri}`;
+                                const keyLegacy2 = `table_${blockIdx}_row_${ri}`;
+                                const rowLangs = rowLanguages[ri] || expandedLanguages;
+                                const currentItems = (keyStable ? assignmentData[keyStable] : null) || assignmentData[keyLegacy1] || assignmentData[keyLegacy2] || rowLangs || [];
+                                if (Array.isArray(currentItems)) {
+                                    itemsToProcess.push(...currentItems);
                                 }
                             });
                         }
+                        if (itemsToProcess.length === 0)
+                            return;
+                        itemsToProcess.forEach((item) => {
+                            let isAssigned = true;
+                            let itemLevels = item.levels && Array.isArray(item.levels) ? item.levels : [];
+                            if (itemLevels.length === 0 && item.level)
+                                itemLevels = [item.level];
+                            if (itemLevels.length > 0) {
+                                if (!level || !itemLevels.includes(level)) {
+                                    isAssigned = false;
+                                }
+                            }
+                            if (!isAssigned)
+                                return;
+                            const code = (item.code || '').toLowerCase();
+                            const rawLang = item.type || item.label || '';
+                            const lang = (() => {
+                                const ll = String(rawLang).toLowerCase();
+                                if (code === 'fr' || ll.includes('français') || ll.includes('french'))
+                                    return 'Polyvalent';
+                                if (code === 'ar' || code === 'lb' || ll.includes('arabe') || ll.includes('arabic') || ll.includes('العربية'))
+                                    return 'Arabe';
+                                if (code === 'en' || code === 'uk' || code === 'gb' || ll.includes('anglais') || ll.includes('english'))
+                                    return 'Anglais';
+                                return 'Autre';
+                            })();
+                            if (!categoryStats[lang])
+                                categoryStats[lang] = { total: 0, filled: 0, name: lang };
+                            categoryStats[lang].total++;
+                            totalCompetencies++;
+                            if (isCategoryCompleted(lang, code) || item.active) {
+                                categoryStats[lang].filled++;
+                                filledCompetencies++;
+                            }
+                        });
                     });
                 });
             });
@@ -148,7 +247,7 @@ exports.adminExtrasRouter.get('/progress', (0, auth_1.requireAuth)(['ADMIN']), a
             const assignedLevels = scope?.levels || [];
             // Get directly assigned teachers
             const directAssignments = await SubAdminAssignment_1.SubAdminAssignment.find({ subAdminId: saId }).lean();
-            const assignedTeacherIds = directAssignments.map(da => da.teacherId);
+            const assignedTeacherIds = [...new Set(directAssignments.map(da => String(da.teacherId)))];
             // Find classes matching levels OR teachers
             // 1. By Level
             const levelClasses = await Class_1.ClassModel.find({
@@ -168,18 +267,20 @@ exports.adminExtrasRouter.get('/progress', (0, auth_1.requireAuth)(['ADMIN']), a
             // Find students in these classes
             const saEnrollments = await Enrollment_1.Enrollment.find({
                 classId: { $in: uniqueClassIds },
-                schoolYearId: String(activeYear._id)
+                schoolYearId: String(activeYear._id),
+                status: { $ne: 'archived' }
             }).lean();
-            const saStudentIds = saEnrollments.map(e => e.studentId);
+            const saStudentIds = [...new Set(saEnrollments.map(e => String(e.studentId)))];
             // Find assignments for these students
             const saAssignments = await TemplateAssignment_1.TemplateAssignment.find({
                 studentId: { $in: saStudentIds }
             }).lean();
             const totalAssignments = saAssignments.length;
-            const signedAssignments = saAssignments.filter(a => {
-                const anyA = a;
-                return anyA.signatures && anyA.signatures.some((s) => s.signedBy === saId);
-            }).length;
+            const saAssignmentIds = saAssignments.map(a => String(a._id));
+            const signatures = saAssignmentIds.length
+                ? await TemplateSignature_1.TemplateSignature.find({ templateAssignmentId: { $in: saAssignmentIds }, subAdminId: saId }).lean()
+                : [];
+            const signedAssignments = new Set(signatures.map(s => String(s.templateAssignmentId))).size;
             return {
                 subAdminId: saId,
                 displayName: sa.displayName,
@@ -427,11 +528,14 @@ exports.adminExtrasRouter.patch('/templates/:assignmentId/data', (0, auth_1.requ
             if (pageIndex === undefined || blockIndex === undefined || !items) {
                 return res.status(400).json({ error: 'missing_payload' });
             }
-            const key = `language_toggle_${pageIndex}_${blockIndex}`;
+            const template = await GradebookTemplate_1.GradebookTemplate.findById(assignment.templateId).select('pages').lean();
+            const block = template?.pages?.[pageIndex]?.blocks?.[blockIndex];
+            const blockId = typeof block?.props?.blockId === 'string' && block.props.blockId.trim() ? block.props.blockId.trim() : null;
+            const keyStable = blockId ? `language_toggle_${blockId}` : `language_toggle_${pageIndex}_${blockIndex}`;
             // Update assignment data
             if (!assignment.data)
                 assignment.data = {};
-            assignment.data[key] = items;
+            assignment.data[keyStable] = items;
             assignment.markModified('data');
             await assignment.save();
             return res.json({ success: true });
@@ -466,22 +570,8 @@ exports.adminExtrasRouter.get('/templates/:templateAssignmentId/review', (0, aut
         const student = await Student_1.Student.findById(assignment.studentId).lean();
         const signature = await TemplateSignature_1.TemplateSignature.findOne({ templateAssignmentId, type: { $ne: 'end_of_year' } }).sort({ signedAt: -1 }).lean();
         const finalSignature = await TemplateSignature_1.TemplateSignature.findOne({ templateAssignmentId, type: 'end_of_year' }).lean();
-        // Apply language toggles from assignment data
-        const versionedTemplate = JSON.parse(JSON.stringify(template));
-        if (assignment.data) {
-            for (const [key, value] of Object.entries(assignment.data)) {
-                if (key.startsWith('language_toggle_')) {
-                    const parts = key.split('_');
-                    if (parts.length >= 4) {
-                        const pageIndex = parseInt(parts[2]);
-                        const blockIndex = parseInt(parts[3]);
-                        if (versionedTemplate.pages?.[pageIndex]?.blocks?.[blockIndex]?.props?.items) {
-                            versionedTemplate.pages[pageIndex].blocks[blockIndex].props.items = value;
-                        }
-                    }
-                }
-            }
-        }
+        // Use centralized helper for versioning and data merging
+        const versionedTemplate = (0, templateUtils_1.mergeAssignmentDataIntoTemplate)(template, assignment);
         // Check if signed by ME
         const isSignedByMe = !!(signature && String(signature.subAdminId) === String(adminId));
         // Get active semester

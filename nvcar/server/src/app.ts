@@ -34,9 +34,12 @@ import { levelsRouter } from './routes/levels'
 import { savedGradebooksRouter } from './routes/savedGradebooks'
 import { Level } from './models/Level'
 import { adminExtrasRouter } from './routes/adminExtras'
+import compression from 'compression'
 
 export const createApp = () => {
   const app = express()
+
+  app.use(compression())
 
   // Allow all origins with credentials
   app.use(cors({

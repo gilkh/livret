@@ -11,6 +11,7 @@ const acquiredSkillSchema = new mongoose_1.Schema({
     skillText: { type: String, required: true }, // The actual text of the skill
     languages: { type: [String], default: [] }, // Codes of languages acquired: ['fr', 'en', 'ar']
     // Metadata for recovery and tracking
+    sourceId: { type: String },
     sourceKey: { type: String }, // e.g., "table_0_1_row_3"
     recordedAt: { type: Date, default: () => new Date() },
     recordedBy: { type: String }
@@ -18,6 +19,7 @@ const acquiredSkillSchema = new mongoose_1.Schema({
 // Compound index to quickly find a specific skill for a student in a template
 // We use upsert, so this combination should be unique per source key if we want to overwrite
 // Or we can just query by studentId + templateId + skillText
-acquiredSkillSchema.index({ studentId: 1, templateId: 1, sourceKey: 1 }, { unique: true });
+acquiredSkillSchema.index({ studentId: 1, templateId: 1, sourceId: 1 }, { unique: true, sparse: true });
+acquiredSkillSchema.index({ studentId: 1, templateId: 1, sourceKey: 1 });
 acquiredSkillSchema.index({ templateId: 1, skillText: 1 });
 exports.StudentAcquiredSkill = (0, mongoose_1.model)('StudentAcquiredSkill', acquiredSkillSchema);

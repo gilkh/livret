@@ -73,8 +73,10 @@ const levels_1 = require("./routes/levels");
 const savedGradebooks_1 = require("./routes/savedGradebooks");
 const Level_1 = require("./models/Level");
 const adminExtras_1 = require("./routes/adminExtras");
+const compression_1 = __importDefault(require("compression"));
 const createApp = () => {
     const app = (0, express_1.default)();
+    app.use((0, compression_1.default)());
     // Allow all origins with credentials
     app.use((0, cors_1.default)({
         origin: true,

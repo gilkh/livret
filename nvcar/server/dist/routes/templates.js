@@ -13,11 +13,13 @@ const path_1 = __importDefault(require("path"));
 const archiver_1 = __importDefault(require("archiver"));
 const jszip_1 = __importDefault(require("jszip"));
 const pptxImporter_1 = require("../utils/pptxImporter");
+const templateUtils_1 = require("../utils/templateUtils");
+const cache_1 = require("../utils/cache");
 const fs_1 = __importDefault(require("fs"));
 exports.templatesRouter = (0, express_1.Router)();
 const upload = (0, multer_1.default)({ storage: multer_1.default.memoryStorage() });
 exports.templatesRouter.get('/', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', 'AEFE', 'TEACHER']), async (req, res) => {
-    const list = await GradebookTemplate_1.GradebookTemplate.find({}).lean();
+    const list = await (0, cache_1.withCache)('templates-all', () => GradebookTemplate_1.GradebookTemplate.find({}).lean());
     res.json(list);
 });
 exports.templatesRouter.post('/import-pptx', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', 'TEACHER']), upload.single('file'), async (req, res) => {
@@ -28,13 +30,27 @@ exports.templatesRouter.post('/import-pptx', (0, auth_1.requireAuth)(['ADMIN', '
         // Pass empty baseUrl to generate relative paths (/uploads/media/...)
         const importer = new pptxImporter_1.PptxImporter(uploadDir, '');
         const templateData = await importer.parse(req.file.buffer);
+        const pagesWithBlockIds = (0, templateUtils_1.ensureStableBlockIds)(undefined, templateData?.pages);
+        const pagesWithRowIds = (0, templateUtils_1.ensureStableExpandedTableRowIds)(undefined, pagesWithBlockIds);
         // Create the template in DB
         const tpl = await GradebookTemplate_1.GradebookTemplate.create({
             ...templateData,
+            pages: pagesWithRowIds,
             createdBy: req.user.userId,
             updatedAt: new Date(),
-            status: 'draft'
+            status: 'draft',
+            currentVersion: 1,
+            versionHistory: [{
+                    version: 1,
+                    pages: pagesWithRowIds,
+                    variables: templateData?.variables || {},
+                    watermark: templateData?.watermark,
+                    createdAt: new Date(),
+                    createdBy: req.user.userId,
+                    changeDescription: 'Initial version'
+                }]
         });
+        (0, cache_1.clearCache)('templates');
         res.json(tpl);
     }
     catch (e) {
@@ -68,9 +84,12 @@ exports.templatesRouter.post('/import-package', (0, auth_1.requireAuth)(['ADMIN'
         const userId = req.user.userId;
         // Remove system fields
         const { _id, __v, createdBy, createdAt, updatedAt, ...cleanData } = templateData;
+        const pagesWithBlockIds = (0, templateUtils_1.ensureStableBlockIds)(undefined, cleanData?.pages);
+        const pagesWithRowIds = (0, templateUtils_1.ensureStableExpandedTableRowIds)(undefined, pagesWithBlockIds);
         const newTemplate = await GradebookTemplate_1.GradebookTemplate.create({
             ...cleanData,
             name: `${cleanData.name} (Imported)`,
+            pages: pagesWithRowIds,
             createdBy: userId,
             updatedAt: new Date(),
             createdAt: new Date(),
@@ -78,7 +97,7 @@ exports.templatesRouter.post('/import-package', (0, auth_1.requireAuth)(['ADMIN'
             currentVersion: 1,
             versionHistory: [{
                     version: 1,
-                    pages: cleanData.pages || [],
+                    pages: pagesWithRowIds,
                     variables: cleanData.variables || {},
                     watermark: cleanData.watermark,
                     createdAt: new Date(),
@@ -86,6 +105,7 @@ exports.templatesRouter.post('/import-package', (0, auth_1.requireAuth)(['ADMIN'
                     changeDescription: 'Imported from package'
                 }]
         });
+        (0, cache_1.clearCache)('templates');
         res.json(newTemplate);
     }
     catch (e) {
@@ -99,9 +119,11 @@ exports.templatesRouter.post('/', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', 
         if (!name)
             return res.status(400).json({ error: 'missing_name' });
         const userId = req.user.actualUserId || req.user.userId;
+        const pagesWithBlockIds = (0, templateUtils_1.ensureStableBlockIds)(undefined, Array.isArray(pages) ? pages : []);
+        const pagesWithRowIds = (0, templateUtils_1.ensureStableExpandedTableRowIds)(undefined, pagesWithBlockIds);
         const templateData = {
             name,
-            pages: Array.isArray(pages) ? pages : [],
+            pages: pagesWithRowIds,
             variables: variables || {},
             watermark,
             permissions,
@@ -112,7 +134,7 @@ exports.templatesRouter.post('/', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', 
             currentVersion: 1,
             versionHistory: [{
                     version: 1,
-                    pages: Array.isArray(pages) ? pages : [],
+                    pages: pagesWithRowIds,
                     variables: variables || {},
                     watermark,
                     createdAt: new Date(),
@@ -121,6 +143,7 @@ exports.templatesRouter.post('/', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', 
                 }]
         };
         const tpl = await GradebookTemplate_1.GradebookTemplate.create(templateData);
+        (0, cache_1.clearCache)('templates');
         res.json(tpl);
     }
     catch (e) {
@@ -192,7 +215,7 @@ pause
 });
 exports.templatesRouter.get('/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', 'AEFE', 'TEACHER']), async (req, res) => {
     const { id } = req.params;
-    const tpl = await GradebookTemplate_1.GradebookTemplate.findById(id).lean();
+    const tpl = await (0, cache_1.withCache)(`template-${id}`, () => GradebookTemplate_1.GradebookTemplate.findById(id).lean());
     if (!tpl)
         return res.status(404).json({ error: 'not_found' });
     res.json(tpl);
@@ -206,6 +229,11 @@ exports.templatesRouter.patch('/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
         const currentTemplate = await GradebookTemplate_1.GradebookTemplate.findById(id);
         if (!currentTemplate)
             return res.status(404).json({ error: 'template_not_found' });
+        const previousPages = Array.isArray(currentTemplate.pages) ? currentTemplate.pages : [];
+        const hasIncomingPages = Object.prototype.hasOwnProperty.call(rest, 'pages');
+        const incomingPages = hasIncomingPages ? (Array.isArray(rest.pages) ? rest.pages : []) : undefined;
+        const pagesWithBlockIds = hasIncomingPages ? (0, templateUtils_1.ensureStableBlockIds)(previousPages, incomingPages) : undefined;
+        const pagesWithRowIds = hasIncomingPages ? (0, templateUtils_1.ensureStableExpandedTableRowIds)(previousPages, pagesWithBlockIds) : undefined;
         // Check if this is a significant change (pages, variables, or watermark changed)
         const hasSignificantChange = rest.pages || rest.variables !== undefined || rest.watermark !== undefined;
         // Check if there are existing assignments using this template
@@ -217,7 +245,7 @@ exports.templatesRouter.patch('/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
             // Add current state to version history
             const newHistoryEntry = {
                 version: newVersion,
-                pages: rest.pages || currentTemplate.pages,
+                pages: hasIncomingPages ? pagesWithRowIds : currentTemplate.pages,
                 variables: rest.variables !== undefined ? rest.variables : currentTemplate.variables,
                 watermark: rest.watermark !== undefined ? rest.watermark : currentTemplate.watermark,
                 createdAt: new Date(),
@@ -229,8 +257,8 @@ exports.templatesRouter.patch('/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
         }
         // Update the template
         const data = { ...rest, updatedAt: new Date() };
-        if (rest.pages && !Array.isArray(rest.pages))
-            data.pages = [];
+        if (hasIncomingPages)
+            data.pages = pagesWithRowIds;
         if (hasActiveAssignments && hasSignificantChange) {
             data.versionHistory = currentTemplate.versionHistory;
             data.currentVersion = currentTemplate.currentVersion;
@@ -240,6 +268,7 @@ exports.templatesRouter.patch('/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
         if (hasActiveAssignments && hasSignificantChange && tpl) {
             await TemplateAssignment_1.TemplateAssignment.updateMany({ templateId: id }, { $set: { templateVersion: tpl.currentVersion } });
         }
+        (0, cache_1.clearCache)('templates');
         res.json(tpl);
     }
     catch (e) {
@@ -248,6 +277,7 @@ exports.templatesRouter.patch('/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
 });
 exports.templatesRouter.delete('/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN']), async (req, res) => {
     const { id } = req.params;
+    (0, cache_1.clearCache)('templates');
     await GradebookTemplate_1.GradebookTemplate.findByIdAndDelete(id);
     res.json({ ok: true });
 });

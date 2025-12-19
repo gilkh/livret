@@ -1335,9 +1335,13 @@ exports.pdfRouter.get('/class/:classId/batch', (0, auth_1.requireAuth)(['ADMIN',
                                     doc.strokeColor(expandedDividerColor).lineWidth(0.5);
                                     doc.moveTo(cx + 10, cy).lineTo(cx + totalW - 10, cy).stroke();
                                     doc.restore();
-                                    const toggleKey = `table_${blockIdx}_row_${ri}`;
+                                    const blockId = typeof b?.props?.blockId === 'string' && b.props.blockId.trim() ? b.props.blockId.trim() : null;
+                                    const rowIds = Array.isArray(b?.props?.rowIds) ? b.props.rowIds : [];
+                                    const rowId = typeof rowIds?.[ri] === 'string' && rowIds[ri].trim() ? rowIds[ri].trim() : null;
+                                    const toggleKeyStable = blockId && rowId ? `table_${blockId}_row_${rowId}` : null;
+                                    const toggleKeyLegacy = `table_${blockIdx}_row_${ri}`;
                                     const rowLanguages = b.props.rowLanguages?.[ri] || expandedLanguages;
-                                    const toggleData = assignmentData?.[toggleKey] || rowLanguages;
+                                    const toggleData = (toggleKeyStable ? assignmentData?.[toggleKeyStable] : null) || assignmentData?.[toggleKeyLegacy] || rowLanguages;
                                     let tx = cx + 15;
                                     const ty = cy + (expandedH - 12) / 2;
                                     const size = Math.min(expandedH - 5, 12);

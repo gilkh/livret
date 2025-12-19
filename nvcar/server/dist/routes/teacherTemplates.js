@@ -13,6 +13,8 @@ const Class_1 = require("../models/Class");
 const SchoolYear_1 = require("../models/SchoolYear");
 const StudentAcquiredSkill_1 = require("../models/StudentAcquiredSkill");
 const auditLogger_1 = require("../utils/auditLogger");
+const templateUtils_1 = require("../utils/templateUtils");
+const cache_1 = require("../utils/cache");
 exports.teacherTemplatesRouter = (0, express_1.Router)();
 const normalizeLevel = (v) => String(v || '').trim().toUpperCase();
 const getBlockLevel = (block) => {
@@ -38,21 +40,6 @@ const getBlockLevel = (block) => {
         return 'KG3';
     return null;
 };
-const getVersionedTemplate = (template, templateVersion) => {
-    if (!templateVersion || templateVersion === template.currentVersion)
-        return template;
-    const versionData = template.versionHistory?.find((v) => v.version === templateVersion);
-    if (!versionData)
-        return template;
-    return {
-        ...template,
-        pages: versionData.pages,
-        variables: versionData.variables || {},
-        watermark: versionData.watermark,
-        _versionUsed: templateVersion,
-        _isOldVersion: templateVersion < (template.currentVersion || 1),
-    };
-};
 const isLanguageAllowedForTeacher = (code, allowedLanguages, isProfPolyvalent) => {
     const c = String(code || '').toLowerCase();
     const langs = Array.isArray(allowedLanguages) ? allowedLanguages.map((v) => String(v || '').toLowerCase()) : [];
@@ -71,7 +58,7 @@ const isLanguageAllowedForTeacher = (code, allowedLanguages, isProfPolyvalent) =
     return false;
 };
 const findEnrollmentForStudent = async (studentId) => {
-    const activeYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
+    const activeYear = await (0, cache_1.withCache)('school-years-active', () => SchoolYear_1.SchoolYear.findOne({ active: true }).lean());
     let enrollment = null;
     if (activeYear) {
         enrollment = await Enrollment_1.Enrollment.findOne({
@@ -96,7 +83,7 @@ exports.teacherTemplatesRouter.get('/classes', (0, auth_1.requireAuth)(['TEACHER
             query.schoolYearId = schoolYearId;
         }
         else {
-            const activeYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
+            const activeYear = await (0, cache_1.withCache)('school-years-active', () => SchoolYear_1.SchoolYear.findOne({ active: true }).lean());
             if (activeYear) {
                 query.schoolYearId = String(activeYear._id);
             }
@@ -139,10 +126,10 @@ exports.teacherTemplatesRouter.get('/students/:studentId/templates', (0, auth_1.
         }).lean();
         // Fetch template details
         const templateIds = assignments.map(a => a.templateId);
-        const templates = await GradebookTemplate_1.GradebookTemplate.find({ _id: { $in: templateIds } }).lean();
+        const templates = await Promise.all(templateIds.map(id => (0, cache_1.withCache)(`template-${id}`, () => GradebookTemplate_1.GradebookTemplate.findById(id).lean())));
         // Combine assignment data with template data
         const result = assignments.map(assignment => {
-            const template = templates.find(t => String(t._id) === assignment.templateId);
+            const template = templates.find(t => t && String(t._id) === assignment.templateId);
             const myCompletion = assignment.teacherCompletions?.find((tc) => tc.teacherId === teacherId);
             return {
                 ...assignment,
@@ -171,51 +158,65 @@ exports.teacherTemplatesRouter.get('/template-assignments/:assignmentId', (0, au
             return res.status(403).json({ error: 'not_assigned_to_template' });
         }
         // Get the template
-        const template = await GradebookTemplate_1.GradebookTemplate.findById(assignment.templateId).lean();
+        const template = await (0, cache_1.withCache)(`template-${assignment.templateId}`, () => GradebookTemplate_1.GradebookTemplate.findById(assignment.templateId).lean());
         if (!template)
             return res.status(404).json({ error: 'template_not_found' });
-        let versionedTemplate = getVersionedTemplate(template, assignment.templateVersion);
-        if (assignment.data) {
-            versionedTemplate = JSON.parse(JSON.stringify(versionedTemplate));
-            for (const [key, value] of Object.entries(assignment.data)) {
-                if (key.startsWith('language_toggle_')) {
-                    const parts = key.split('_');
-                    const pageIdx = parseInt(parts[2]);
-                    const blockIdx = parseInt(parts[3]);
-                    if (['language_toggle', 'language_toggle_v2'].includes(versionedTemplate.pages[pageIdx]?.blocks[blockIdx]?.type)) {
-                        versionedTemplate.pages[pageIdx].blocks[blockIdx].props.items = value;
-                    }
-                }
-            }
-        }
+        // Use centralized helper for versioning and data merging
+        const versionedTemplate = (0, templateUtils_1.mergeAssignmentDataIntoTemplate)(template, assignment);
         if (assignment.data && versionedTemplate?.pages) {
             const normalizedData = { ...(assignment.data || {}) };
-            versionedTemplate.pages.forEach((page, pageIdx) => {
+            const pages = Array.isArray(versionedTemplate.pages) ? versionedTemplate.pages : [];
+            const blocksById = (0, templateUtils_1.buildBlocksById)(pages);
+            pages.forEach((page, pageIdx) => {
                 ;
                 (page?.blocks || []).forEach((block, blockIdx) => {
+                    if (['language_toggle', 'language_toggle_v2'].includes(block?.type)) {
+                        const blockId = typeof block?.props?.blockId === 'string' && block.props.blockId.trim() ? block.props.blockId.trim() : null;
+                        const keyStable = blockId ? `language_toggle_${blockId}` : `language_toggle_${pageIdx}_${blockIdx}`;
+                        const keyLegacy = `language_toggle_${pageIdx}_${blockIdx}`;
+                        const sourceItems = Array.isArray(block?.props?.items) ? block.props.items : [];
+                        const savedRaw = Array.isArray(assignment.data?.[keyStable])
+                            ? assignment.data[keyStable]
+                            : Array.isArray(assignment.data?.[keyLegacy])
+                                ? assignment.data[keyLegacy]
+                                : null;
+                        if (Array.isArray(savedRaw) && sourceItems.length > 0) {
+                            const merged = sourceItems.map((src, i) => ({ ...src, active: !!savedRaw?.[i]?.active }));
+                            normalizedData[keyStable] = merged;
+                        }
+                        else if (Array.isArray(savedRaw)) {
+                            normalizedData[keyStable] = savedRaw;
+                        }
+                    }
                     if (block?.type !== 'table' || !block?.props?.expandedRows)
                         return;
                     const cells = block?.props?.cells || [];
                     const expandedLanguages = block?.props?.expandedLanguages || [];
                     const rowLanguages = block?.props?.rowLanguages || {};
+                    const rowIds = Array.isArray(block?.props?.rowIds) ? block.props.rowIds : [];
+                    const blockId = typeof block?.props?.blockId === 'string' && block.props.blockId.trim() ? block.props.blockId.trim() : null;
                     for (let rowIdx = 0; rowIdx < (cells.length || 0); rowIdx++) {
-                        const keyNew = `table_${pageIdx}_${blockIdx}_row_${rowIdx}`;
-                        const keyOld = `table_${blockIdx}_row_${rowIdx}`;
+                        const rowId = typeof rowIds?.[rowIdx] === 'string' && rowIds[rowIdx].trim() ? rowIds[rowIdx].trim() : null;
+                        const keyStable = blockId && rowId ? `table_${blockId}_row_${rowId}` : `table_${pageIdx}_${blockIdx}_row_${rowIdx}`;
+                        const keyLegacy1 = `table_${pageIdx}_${blockIdx}_row_${rowIdx}`;
+                        const keyLegacy2 = `table_${blockIdx}_row_${rowIdx}`;
                         const source = rowLanguages?.[rowIdx] || expandedLanguages;
                         if (!Array.isArray(source) || source.length === 0)
                             continue;
-                        const saved = Array.isArray(assignment.data?.[keyNew])
-                            ? assignment.data[keyNew]
-                            : Array.isArray(assignment.data?.[keyOld])
-                                ? assignment.data[keyOld]
-                                : null;
+                        const saved = Array.isArray(assignment.data?.[keyStable])
+                            ? assignment.data[keyStable]
+                            : Array.isArray(assignment.data?.[keyLegacy1])
+                                ? assignment.data[keyLegacy1]
+                                : Array.isArray(assignment.data?.[keyLegacy2])
+                                    ? assignment.data[keyLegacy2]
+                                    : null;
                         if (!Array.isArray(saved))
                             continue;
                         const merged = source.map((src, i) => {
                             const active = !!saved?.[i]?.active;
                             return { ...src, active };
                         });
-                        normalizedData[keyNew] = merged;
+                        normalizedData[keyStable] = merged;
                     }
                 });
             });
@@ -228,7 +229,7 @@ exports.teacherTemplatesRouter.get('/template-assignments/:assignmentId', (0, au
         let className = '';
         let allowedLanguages = [];
         // Try to find enrollment in active year first
-        const activeYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
+        const activeYear = await (0, cache_1.withCache)('school-years-active', () => SchoolYear_1.SchoolYear.findOne({ active: true }).lean());
         let enrollment = null;
         if (activeYear) {
             enrollment = await Enrollment_1.Enrollment.findOne({
@@ -296,8 +297,11 @@ exports.teacherTemplatesRouter.patch('/template-assignments/:assignmentId/langua
     try {
         const teacherId = req.user.userId;
         const { assignmentId } = req.params;
-        const { pageIndex, blockIndex, items } = req.body;
-        if (pageIndex === undefined || blockIndex === undefined || !Array.isArray(items)) {
+        const { pageIndex, blockIndex, blockId: incomingBlockId, items } = req.body;
+        if ((pageIndex === undefined || blockIndex === undefined) && !incomingBlockId) {
+            return res.status(400).json({ error: 'missing_payload' });
+        }
+        if (!Array.isArray(items)) {
             return res.status(400).json({ error: 'missing_payload' });
         }
         // Get assignment and verify teacher is assigned
@@ -308,10 +312,28 @@ exports.teacherTemplatesRouter.patch('/template-assignments/:assignmentId/langua
             return res.status(403).json({ error: 'not_assigned_to_template' });
         }
         // Get the template to verify the block
-        const template = await GradebookTemplate_1.GradebookTemplate.findById(assignment.templateId).lean();
+        const template = await (0, cache_1.withCache)(`template-${assignment.templateId}`, () => GradebookTemplate_1.GradebookTemplate.findById(assignment.templateId).lean());
         if (!template)
             return res.status(404).json({ error: 'template_not_found' });
-        const versionedTemplate = getVersionedTemplate(template, assignment.templateVersion);
+        const versionedTemplate = (0, templateUtils_1.getVersionedTemplate)(template, assignment.templateVersion);
+        // Find the block
+        let targetBlock = null;
+        let actualPageIndex = pageIndex;
+        let actualBlockIndex = blockIndex;
+        if (incomingBlockId) {
+            const blocksById = (0, templateUtils_1.buildBlocksById)(versionedTemplate.pages || []);
+            const found = blocksById.get(incomingBlockId);
+            if (found) {
+                targetBlock = found.block;
+                actualPageIndex = found.pageIdx;
+                actualBlockIndex = found.blockIdx;
+            }
+        }
+        if (!targetBlock && pageIndex !== undefined && blockIndex !== undefined) {
+            targetBlock = versionedTemplate.pages?.[pageIndex]?.blocks?.[blockIndex];
+        }
+        if (!targetBlock)
+            return res.status(400).json({ error: 'block_not_found' });
         const { enrollment } = await findEnrollmentForStudent(assignment.studentId);
         if (!enrollment || !enrollment.classId) {
             return res.status(403).json({ error: 'student_not_enrolled' });
@@ -319,16 +341,10 @@ exports.teacherTemplatesRouter.patch('/template-assignments/:assignmentId/langua
         const classDoc = await Class_1.ClassModel.findById(enrollment.classId).lean();
         const studentLevel = normalizeLevel(classDoc?.level || '');
         // Verify the block is a language_toggle
-        const page = versionedTemplate.pages?.[pageIndex];
-        if (!page)
-            return res.status(400).json({ error: 'invalid_page_index' });
-        const block = page.blocks[blockIndex];
-        if (!block)
-            return res.status(400).json({ error: 'invalid_block_index' });
-        if (!['language_toggle', 'language_toggle_v2'].includes(block.type)) {
+        if (!['language_toggle', 'language_toggle_v2'].includes(targetBlock.type)) {
             return res.status(403).json({ error: 'can_only_edit_language_toggle' });
         }
-        const blockLevel = getBlockLevel(block);
+        const blockLevel = getBlockLevel(targetBlock);
         if (blockLevel && studentLevel && blockLevel !== studentLevel) {
             return res.status(403).json({ error: 'level_mismatch', details: { studentLevel, blockLevel } });
         }
@@ -341,13 +357,15 @@ exports.teacherTemplatesRouter.patch('/template-assignments/:assignmentId/langua
         }
         const allowedLanguages = teacherClassAssignment?.languages || [];
         const isProfPolyvalent = !!teacherClassAssignment?.isProfPolyvalent;
-        const sourceItems = Array.isArray(block?.props?.items) ? block.props.items : [];
+        const sourceItems = Array.isArray(targetBlock?.props?.items) ? targetBlock.props.items : [];
         const sanitizedItems = sourceItems.length > 0
             ? sourceItems.map((src, i) => ({ ...src, active: !!items?.[i]?.active }))
             : items;
         const currentData = assignment.data || {};
-        const key = `language_toggle_${pageIndex}_${blockIndex}`;
-        const previousItems = currentData[key] || sourceItems || [];
+        const blockId = typeof targetBlock?.props?.blockId === 'string' && targetBlock.props.blockId.trim() ? targetBlock.props.blockId.trim() : null;
+        const keyStable = blockId ? `language_toggle_${blockId}` : `language_toggle_${actualPageIndex}_${actualBlockIndex}`;
+        const keyLegacy = `language_toggle_${actualPageIndex}_${actualBlockIndex}`;
+        const previousItems = currentData[keyStable] || currentData[keyLegacy] || sourceItems || [];
         for (let i = 0; i < sanitizedItems.length; i++) {
             const newItem = sanitizedItems[i];
             const oldItem = previousItems[i] || sourceItems[i];
@@ -358,11 +376,11 @@ exports.teacherTemplatesRouter.patch('/template-assignments/:assignmentId/langua
                 }
             }
         }
-        const before = currentData[key];
+        const before = currentData[keyStable] || currentData[keyLegacy];
         // Update assignment data (NOT the global template)
         const updated = await TemplateAssignment_1.TemplateAssignment.findByIdAndUpdate(assignmentId, {
             $set: {
-                [`data.${key}`]: sanitizedItems,
+                [`data.${keyStable}`]: sanitizedItems,
                 status: assignment.status === 'draft' ? 'in_progress' : assignment.status
             }
         }, { new: true });
@@ -371,9 +389,9 @@ exports.teacherTemplatesRouter.patch('/template-assignments/:assignmentId/langua
             templateAssignmentId: assignmentId,
             teacherId,
             changeType: 'language_toggle',
-            pageIndex,
-            blockIndex,
-            before: before || block.props.items,
+            pageIndex: actualPageIndex,
+            blockIndex: actualBlockIndex,
+            before: before || targetBlock.props.items,
             after: sanitizedItems,
             timestamp: new Date(),
         });
@@ -612,7 +630,7 @@ exports.teacherTemplatesRouter.get('/classes/:classId/completion-stats', (0, aut
         const semester = Number(req.query.semester) === 2 ? 2 : 1;
         const templateIds = Array.from(new Set(assignments.map(a => a.templateId).filter(Boolean)));
         const templates = templateIds.length
-            ? await GradebookTemplate_1.GradebookTemplate.find({ _id: { $in: templateIds } }).select('name').lean()
+            ? await Promise.all(templateIds.map(id => (0, cache_1.withCache)(`template-summary-${id}`, () => GradebookTemplate_1.GradebookTemplate.findById(id).select('name').lean())))
             : [];
         const templateMap = new Map();
         templates.forEach(t => {
@@ -694,9 +712,10 @@ exports.teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data',
         const template = await GradebookTemplate_1.GradebookTemplate.findById(assignment.templateId).lean();
         if (!template)
             return res.status(404).json({ error: 'template_not_found' });
-        const versionedTemplate = getVersionedTemplate(template, assignment.templateVersion);
+        const versionedTemplate = (0, templateUtils_1.getVersionedTemplate)(template, assignment.templateVersion);
         const sanitizedPatch = {};
         const activeSemester = activeYear?.activeSemester || 1;
+        const blocksById = (0, templateUtils_1.buildBlocksById)(versionedTemplate?.pages || []);
         for (const [key, value] of Object.entries(data)) {
             const langToggleMatch = key.match(/^language_toggle_(\d+)_(\d+)$/);
             if (langToggleMatch) {
@@ -705,6 +724,40 @@ exports.teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data',
                 const page = versionedTemplate.pages?.[pageIdx];
                 const block = page?.blocks?.[blockIdx];
                 if (!page || !block || !['language_toggle', 'language_toggle_v2'].includes(block.type)) {
+                    return res.status(400).json({ error: 'invalid_language_toggle_key', details: key });
+                }
+                const blockLevel = getBlockLevel(block);
+                if (blockLevel && studentLevel && blockLevel !== studentLevel) {
+                    return res.status(403).json({ error: 'level_mismatch', details: { studentLevel, blockLevel } });
+                }
+                const sourceItems = Array.isArray(block?.props?.items) ? block.props.items : [];
+                if (!Array.isArray(value))
+                    return res.status(400).json({ error: 'invalid_language_toggle_payload', details: key });
+                const nextItems = sourceItems.length > 0
+                    ? sourceItems.map((src, i) => ({ ...src, active: !!value?.[i]?.active }))
+                    : value;
+                const previousItems = assignment.data?.[key] || sourceItems || [];
+                for (let i = 0; i < nextItems.length; i++) {
+                    const newItem = nextItems[i];
+                    const oldItem = previousItems[i] || sourceItems[i];
+                    if (newItem && oldItem && newItem.active !== oldItem.active) {
+                        const langCode = sourceItems?.[i]?.code;
+                        if (!isLanguageAllowedForTeacher(langCode, allowedLanguages, isProfPolyvalent)) {
+                            return res.status(403).json({ error: 'language_not_allowed', details: langCode });
+                        }
+                    }
+                }
+                const blockId = typeof block?.props?.blockId === 'string' && block.props.blockId.trim() ? block.props.blockId.trim() : null;
+                const stableKey = blockId ? `language_toggle_${blockId}` : key;
+                sanitizedPatch[stableKey] = nextItems;
+                continue;
+            }
+            const langToggleStableMatch = key.match(/^language_toggle_(.+)$/);
+            if (langToggleStableMatch) {
+                const blockId = String(langToggleStableMatch[1] || '').trim();
+                const found = blockId ? blocksById.get(blockId) : null;
+                const block = found?.block;
+                if (!found || !block || !['language_toggle', 'language_toggle_v2'].includes(block.type)) {
                     return res.status(400).json({ error: 'invalid_language_toggle_key', details: key });
                 }
                 const blockLevel = getBlockLevel(block);
@@ -741,6 +794,53 @@ exports.teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data',
                 if (!page || !block || block.type !== 'table' || !block?.props?.expandedRows) {
                     return res.status(400).json({ error: 'invalid_table_key', details: key });
                 }
+                const blockLevel = getBlockLevel(block);
+                if (blockLevel && studentLevel && blockLevel !== studentLevel) {
+                    return res.status(403).json({ error: 'level_mismatch', details: { studentLevel, blockLevel } });
+                }
+                const expandedLanguages = block?.props?.expandedLanguages || [];
+                const rowLanguages = block?.props?.rowLanguages || {};
+                const sourceItems = rowLanguages?.[rowIdx] || expandedLanguages;
+                if (!Array.isArray(sourceItems))
+                    return res.status(400).json({ error: 'invalid_table_source', details: key });
+                if (!Array.isArray(value))
+                    return res.status(400).json({ error: 'invalid_table_payload', details: key });
+                const nextItems = sourceItems.map((src, i) => ({ ...src, active: !!value?.[i]?.active }));
+                const previousItems = assignment.data?.[key] || sourceItems;
+                for (let i = 0; i < nextItems.length; i++) {
+                    const newItem = nextItems[i];
+                    const oldItem = previousItems?.[i] || sourceItems[i];
+                    if (newItem && oldItem && newItem.active !== oldItem.active) {
+                        const itemLevel = normalizeLevel(sourceItems?.[i]?.level);
+                        if (itemLevel && studentLevel && itemLevel !== studentLevel) {
+                            return res.status(403).json({ error: 'level_mismatch', details: { studentLevel, itemLevel } });
+                        }
+                        const langCode = sourceItems?.[i]?.code;
+                        if (!isLanguageAllowedForTeacher(langCode, allowedLanguages, isProfPolyvalent)) {
+                            return res.status(403).json({ error: 'language_not_allowed', details: langCode });
+                        }
+                    }
+                }
+                const blockId = typeof block?.props?.blockId === 'string' && block.props.blockId.trim() ? block.props.blockId.trim() : null;
+                const rowIds = Array.isArray(block?.props?.rowIds) ? block.props.rowIds : [];
+                const rowId = typeof rowIds?.[rowIdx] === 'string' && rowIds[rowIdx].trim() ? rowIds[rowIdx].trim() : null;
+                const stableKey = blockId && rowId ? `table_${blockId}_row_${rowId}` : key;
+                sanitizedPatch[stableKey] = nextItems;
+                continue;
+            }
+            const tableStableMatch = key.match(/^table_(.+)_row_(.+)$/);
+            if (tableStableMatch) {
+                const blockId = String(tableStableMatch[1] || '').trim();
+                const rowId = String(tableStableMatch[2] || '').trim();
+                const found = blockId ? blocksById.get(blockId) : null;
+                const block = found?.block;
+                if (!found || !block || block.type !== 'table' || !block?.props?.expandedRows) {
+                    return res.status(400).json({ error: 'invalid_table_key', details: key });
+                }
+                const rowIds = Array.isArray(block?.props?.rowIds) ? block.props.rowIds : [];
+                const rowIdx = rowIds.findIndex((v) => typeof v === 'string' && v.trim() === rowId);
+                if (rowIdx < 0)
+                    return res.status(400).json({ error: 'invalid_table_key', details: key });
                 const blockLevel = getBlockLevel(block);
                 if (blockLevel && studentLevel && blockLevel !== studentLevel) {
                     return res.status(403).json({ error: 'level_mismatch', details: { studentLevel, blockLevel } });
@@ -851,50 +951,90 @@ exports.teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data',
         if (Object.keys(sanitizedPatch).some(k => k.startsWith('table_'))) {
             try {
                 if (template) {
+                    const blocksByIdForSnapshot = (0, templateUtils_1.buildBlocksById)(versionedTemplate?.pages || []);
                     for (const [key, value] of Object.entries(sanitizedPatch)) {
                         // Key format: table_{pageIdx}_{blockIdx}_row_{rowIdx}
                         // Regex to parse: table_(\d+)_(\d+)_row_(\d+)
-                        const match = key.match(/^table_(\d+)_(\d+)_row_(\d+)$/);
-                        if (match && Array.isArray(value)) {
-                            const pageIdx = parseInt(match[1]);
-                            const blockIdx = parseInt(match[2]);
-                            const rowIdx = parseInt(match[3]);
-                            // Navigate to the block
-                            const page = template.pages[pageIdx];
-                            if (page) {
-                                const block = page.blocks[blockIdx];
-                                if (block && block.props && block.props.cells) {
-                                    // Get the text from the row. Assuming the text is in the first cell of the row.
-                                    // Structure: cells is array of rows, each row is array of cells.
-                                    const row = block.props.cells[rowIdx];
-                                    if (row && row.length > 0) {
-                                        // The text might be in the first cell
-                                        const cellText = row[0]?.text;
-                                        if (cellText) {
-                                            // Extract active languages
-                                            // Value is array of { code, active, ... }
-                                            const activeLangs = value
-                                                .filter((v) => v.active)
-                                                .map((v) => v.code);
-                                            // Upsert snapshot
-                                            await StudentAcquiredSkill_1.StudentAcquiredSkill.findOneAndUpdate({
-                                                studentId: assignment.studentId,
-                                                templateId: assignment.templateId,
-                                                sourceKey: key
-                                            }, {
-                                                studentId: assignment.studentId,
-                                                templateId: assignment.templateId,
-                                                assignmentId: assignment._id,
-                                                skillText: cellText,
-                                                languages: activeLangs,
-                                                sourceKey: key,
-                                                recordedAt: new Date(),
-                                                recordedBy: teacherId
-                                            }, { upsert: true });
-                                        }
-                                    }
-                                }
+                        if (!Array.isArray(value))
+                            continue;
+                        let cellText = undefined;
+                        let sourceId = undefined;
+                        const legacyMatch = key.match(/^table_(\d+)_(\d+)_row_(\d+)$/);
+                        if (legacyMatch) {
+                            const pageIdx = parseInt(legacyMatch[1]);
+                            const blockIdx = parseInt(legacyMatch[2]);
+                            const rowIdx = parseInt(legacyMatch[3]);
+                            const page = versionedTemplate.pages?.[pageIdx];
+                            const block = page?.blocks?.[blockIdx];
+                            const row = block?.props?.cells?.[rowIdx];
+                            cellText = row?.[0]?.text;
+                            const rowId = Array.isArray(block?.props?.rowIds) ? block.props.rowIds[rowIdx] : undefined;
+                            sourceId = typeof rowId === 'string' && rowId.trim() ? rowId : undefined;
+                        }
+                        else {
+                            const stableMatch = key.match(/^table_(.+)_row_(.+)$/);
+                            if (!stableMatch)
+                                continue;
+                            const blockId = String(stableMatch[1] || '').trim();
+                            const rowId = String(stableMatch[2] || '').trim();
+                            if (!blockId || !rowId)
+                                continue;
+                            const found = blocksByIdForSnapshot.get(blockId);
+                            const block = found?.block;
+                            if (!block || block.type !== 'table' || !block?.props?.expandedRows)
+                                continue;
+                            const rowIds = Array.isArray(block?.props?.rowIds) ? block.props.rowIds : [];
+                            const rowIdx = rowIds.findIndex((v) => typeof v === 'string' && v.trim() === rowId);
+                            if (rowIdx < 0)
+                                continue;
+                            const row = block?.props?.cells?.[rowIdx];
+                            cellText = row?.[0]?.text;
+                            sourceId = rowId;
+                        }
+                        if (!cellText)
+                            continue;
+                        const activeLangs = value
+                            .filter((v) => v && v.active)
+                            .map((v) => v.code);
+                        const updateDoc = {
+                            studentId: assignment.studentId,
+                            templateId: assignment.templateId,
+                            assignmentId: assignment._id,
+                            skillText: cellText,
+                            languages: activeLangs,
+                            sourceKey: key,
+                            sourceId,
+                            recordedAt: new Date(),
+                            recordedBy: teacherId
+                        };
+                        if (sourceId) {
+                            let updated = await StudentAcquiredSkill_1.StudentAcquiredSkill.findOneAndUpdate({
+                                studentId: assignment.studentId,
+                                templateId: assignment.templateId,
+                                sourceId
+                            }, updateDoc, { new: true });
+                            if (!updated) {
+                                updated = await StudentAcquiredSkill_1.StudentAcquiredSkill.findOneAndUpdate({
+                                    studentId: assignment.studentId,
+                                    templateId: assignment.templateId,
+                                    assignmentId: assignment._id,
+                                    skillText: cellText
+                                }, updateDoc, { new: true });
                             }
+                            if (!updated) {
+                                await StudentAcquiredSkill_1.StudentAcquiredSkill.findOneAndUpdate({
+                                    studentId: assignment.studentId,
+                                    templateId: assignment.templateId,
+                                    sourceId
+                                }, updateDoc, { upsert: true });
+                            }
+                        }
+                        else {
+                            await StudentAcquiredSkill_1.StudentAcquiredSkill.findOneAndUpdate({
+                                studentId: assignment.studentId,
+                                templateId: assignment.templateId,
+                                sourceKey: key
+                            }, updateDoc, { upsert: true });
                         }
                     }
                 }

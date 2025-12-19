@@ -14,6 +14,7 @@ import { Level } from '../models/Level'
 import { logAudit } from '../utils/auditLogger'
 import { requireAuth } from '../auth'
 import { checkAndAssignTemplates } from '../utils/templateUtils'
+import { withCache, clearCache } from '../utils/cache'
 
 export const studentsRouter = Router()
 
@@ -25,14 +26,10 @@ studentsRouter.get('/', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), async (re
   const query: any = { studentId: { $in: ids } }
   if (schoolYearId) {
     query.schoolYearId = schoolYearId
-    // If we are looking at a specific year, we want active or promoted enrollments for that year
-    // But actually, an enrollment record is unique to a year.
   } else {
-    // If no year specified, maybe default to active? Or return all?
-    // For backward compatibility, if no year, we might get mixed results if we don't filter.
-    // But the frontend should send it.
-    // Let's try to find the active year if not provided?
-    const activeYear = await SchoolYear.findOne({ active: true }).lean()
+    const activeYear = await withCache('school-years-active', () =>
+      SchoolYear.findOne({ active: true }).lean()
+    )
     if (activeYear) query.schoolYearId = String(activeYear._id)
   }
 
@@ -50,18 +47,18 @@ studentsRouter.get('/', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), async (re
     const cur = enrollByStudent[e.studentId]
     if (isBetterEnrollment(e, cur)) enrollByStudent[e.studentId] = e
   }
-  const classIds = enrolls.map(e => e.classId).filter(Boolean) // Filter out undefined/null classIds
+  const classIds = enrolls.map(e => e.classId).filter(Boolean)
   const classes = await ClassModel.find({ _id: { $in: classIds } }).lean()
   const classMap: Record<string, any> = {}
   for (const c of classes) classMap[String(c._id)] = c
   const out = students.map(s => {
     const enr = enrollByStudent[String(s._id)]
     const cls = enr && enr.classId ? classMap[enr.classId] : null
-    return { 
-      ...s, 
-      classId: enr ? enr.classId : undefined, 
-      className: cls ? cls.name : undefined, 
-      level: cls ? cls.level : s.level 
+    return {
+      ...s,
+      classId: enr ? enr.classId : undefined,
+      className: cls ? cls.name : undefined,
+      level: cls ? cls.level : s.level
     }
   })
   res.json(out)
@@ -232,13 +229,12 @@ studentsRouter.get('/unassigned/:schoolYearId', requireAuth(['ADMIN', 'SUBADMIN'
 
 studentsRouter.post('/:id/assign-section', requireAuth(['ADMIN', 'SUBADMIN']), async (req, res) => {
   const { id } = req.params
-  const { schoolYearId, level, section } = req.body // section is 'A', 'B', etc.
+  const { schoolYearId, level, section } = req.body
 
   if (!schoolYearId || !level || !section) return res.status(400).json({ error: 'missing_params' })
 
   const className = `${level} ${section}`
 
-  // Find or create class
   let cls = await ClassModel.findOne({ schoolYearId, name: className }).lean()
   if (!cls) {
     cls = await ClassModel.create({
@@ -248,7 +244,6 @@ studentsRouter.post('/:id/assign-section', requireAuth(['ADMIN', 'SUBADMIN']), a
     })
   }
 
-  // Create enrollment
   const existing = await Enrollment.findOne({ studentId: id, schoolYearId })
   if (existing) {
     existing.classId = String(cls._id)
@@ -261,7 +256,6 @@ studentsRouter.post('/:id/assign-section', requireAuth(['ADMIN', 'SUBADMIN']), a
     })
   }
 
-  // Check and assign templates if needed (this also updates teachers and resets status if needed)
   await checkAndAssignTemplates(id, level, schoolYearId, String(cls._id), (req as any).user.userId)
 
   res.json({ ok: true })
@@ -274,7 +268,6 @@ studentsRouter.get('/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), async 
 
   const enrollments = await Enrollment.find({ studentId: id }).lean()
 
-  // Populate class names
   const classIds = enrollments.map(e => e.classId).filter(Boolean)
   const classes = await ClassModel.find({ _id: { $in: classIds } }).lean()
   const classMap = new Map(classes.map(c => [String(c._id), c.name]))
@@ -324,6 +317,7 @@ studentsRouter.patch('/:id/competencies/bulk', requireAuth(['TEACHER', 'ADMIN', 
   }
   res.json({ ok: true })
 })
+
 studentsRouter.get('/by-class/:classId', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), async (req, res) => {
   const { classId } = req.params
   const enrolls = await Enrollment.find({ classId }).lean()
@@ -364,14 +358,13 @@ studentsRouter.patch('/:id', requireAuth(['ADMIN', 'SUBADMIN']), async (req, res
     const classId = String(req.body.classId)
     const clsDoc = await ClassModel.findById(classId).lean()
     if (!clsDoc) return res.status(404).json({ error: 'class_not_found' })
-    
-    // Find active enrollment for this school year
-    let enr = await Enrollment.findOne({ 
-      studentId: id, 
+
+    let enr = await Enrollment.findOne({
+      studentId: id,
       schoolYearId: clsDoc.schoolYearId,
       status: { $ne: 'promoted' }
     })
-    
+
     if (enr) {
       if (enr.classId !== classId) {
         enr.classId = classId
@@ -381,8 +374,6 @@ studentsRouter.patch('/:id', requireAuth(['ADMIN', 'SUBADMIN']), async (req, res
         }
       }
     } else {
-      // If no active enrollment for this year, check if there's any enrollment (maybe from import without year?)
-      // Or just create new one
       await Enrollment.create({ studentId: id, classId, schoolYearId: clsDoc.schoolYearId, status: 'active' })
       if (clsDoc.level) {
         await checkAndAssignTemplates(id, clsDoc.level, clsDoc.schoolYearId, classId, (req as any).user.userId)
@@ -392,7 +383,6 @@ studentsRouter.patch('/:id', requireAuth(['ADMIN', 'SUBADMIN']), async (req, res
   res.json(updated)
 })
 
-// Admin: Promote student
 studentsRouter.post('/:studentId/promote', requireAuth(['ADMIN']), async (req, res) => {
   try {
     const adminId = (req as any).user.userId
@@ -402,7 +392,6 @@ studentsRouter.post('/:studentId/promote', requireAuth(['ADMIN']), async (req, r
     const student = await Student.findById(studentId)
     if (!student) return res.status(404).json({ error: 'student_not_found' })
 
-    // Get current enrollment to find school year
     const enrollment = await Enrollment.findOne({
       studentId,
       $or: [{ status: 'active' }, { status: { $exists: false } }]
@@ -435,7 +424,6 @@ studentsRouter.post('/:studentId/promote', requireAuth(['ADMIN']), async (req, r
       }
     }
 
-    // Check if already promoted in current school year
     if (currentSchoolYearId) {
       const alreadyPromoted = student.promotions?.some((p: any) => p.schoolYearId === currentSchoolYearId)
       if (alreadyPromoted) {
@@ -443,12 +431,15 @@ studentsRouter.post('/:studentId/promote', requireAuth(['ADMIN']), async (req, r
       }
     }
 
-    // Calculate Next Level dynamically if not provided
     let calculatedNextLevel = nextLevel
     if (!calculatedNextLevel) {
-      const currentLevelDoc = await Level.findOne({ name: currentLevel }).lean()
+      const currentLevelDoc = await withCache(`level-name-${currentLevel}`, () =>
+        Level.findOne({ name: currentLevel }).lean()
+      )
       if (currentLevelDoc) {
-        const nextLevelDoc = await Level.findOne({ order: currentLevelDoc.order + 1 }).lean()
+        const nextLevelDoc = await withCache(`level-order-${currentLevelDoc.order + 1}`, () =>
+          Level.findOne({ order: currentLevelDoc.order + 1 }).lean()
+        )
         if (nextLevelDoc) {
           calculatedNextLevel = nextLevelDoc.name
         }
@@ -457,7 +448,6 @@ studentsRouter.post('/:studentId/promote', requireAuth(['ADMIN']), async (req, r
 
     if (!calculatedNextLevel) return res.status(400).json({ error: 'cannot_determine_next_level' })
 
-    // Find next school year by sequence
     let nextSchoolYearId = ''
     if (currentSchoolYearSequence > 0) {
       const nextSy = await SchoolYear.findOne({ sequence: currentSchoolYearSequence + 1 }).lean()
@@ -465,7 +455,6 @@ studentsRouter.post('/:studentId/promote', requireAuth(['ADMIN']), async (req, r
         nextSchoolYearId = String(nextSy._id)
       }
     } else {
-      // Fallback: Try to find sequence by sorting
       const allYears = await SchoolYear.find({}).sort({ startDate: 1 }).lean()
       const idx = allYears.findIndex(y => String(y._id) === currentSchoolYearId)
       if (idx >= 0 && idx < allYears.length - 1) {
@@ -474,7 +463,6 @@ studentsRouter.post('/:studentId/promote', requireAuth(['ADMIN']), async (req, r
     }
 
     if (!nextSchoolYearId && currentSchoolYearId) {
-      // Fallback to old logic if sequence is missing
       const currentSy = await SchoolYear.findById(currentSchoolYearId).lean()
       if (currentSy && currentSy.name) {
         const match = currentSy.name.match(/(\d{4})([-/.])(\d{4})/)
@@ -493,33 +481,27 @@ studentsRouter.post('/:studentId/promote', requireAuth(['ADMIN']), async (req, r
       return res.status(400).json({ error: 'no_next_year', message: 'Next school year not found' })
     }
 
-    // Find assignment for snapshot
     const assignment = await TemplateAssignment.findOne({
       studentId: student._id,
       schoolYearId: currentSchoolYearId
     })
 
-    // Create Gradebook Snapshot for all promotions (except EB1) to ensure they appear in "en cours"
     if (currentSchoolYearId && enrollment) {
       const statuses = await StudentCompetencyStatus.find({ studentId: student._id }).lean()
-      
+
       let signatures: any[] = []
       let templateId = assignment?.templateId
       let templateData = null
-      
+
       if (assignment) {
-        // Fetch signatures only if assignment exists
-        signatures = await TemplateSignature.find({ 
-          templateAssignmentId: assignment._id 
+        signatures = await TemplateSignature.find({
+          templateAssignmentId: assignment._id
         }).lean()
-        
-        // Fetch complete template data for visual rendering
+
         if (assignment.templateId) {
           const template = await GradebookTemplate.findById(assignment.templateId).lean()
           if (template) {
             templateData = template
-            
-            // If there's a specific template version in the assignment, use that version's data
             if (assignment.templateVersion && template.versionHistory) {
               const version = template.versionHistory.find((v: any) => v.version === assignment.templateVersion)
               if (version) {
@@ -535,14 +517,13 @@ studentsRouter.post('/:studentId/promote', requireAuth(['ADMIN']), async (req, r
         }
       }
 
-      // Create comprehensive snapshot with all relevant data including complete template
       const snapshotData = {
         student: student.toObject ? student.toObject() : student,
         enrollment: enrollment,
         statuses: statuses,
         assignment: assignment?.toObject ? assignment.toObject() : assignment,
-        signatures: signatures, // Include signatures if assignment exists
-        template: templateData // Include complete template data for visual rendering
+        signatures: signatures,
+        template: templateData
       }
 
       await SavedGradebook.create({
@@ -564,54 +545,26 @@ studentsRouter.post('/:studentId/promote', requireAuth(['ADMIN']), async (req, r
       decision: 'promoted'
     }
 
-    // Update Student: add promotion and set nextLevel
     await Student.findByIdAndUpdate(studentId, {
       $push: { promotions: promotion },
       nextLevel: calculatedNextLevel
     })
 
-    // Update current enrollment
     if (enrollment) {
       await Enrollment.findByIdAndUpdate(enrollment._id, { promotionStatus: 'promoted', status: 'promoted' })
     }
 
-    // Create new Enrollment for next year ONLY if not an exit level
-    // Check next level doc
     const nextLevelDoc = await Level.findOne({ name: calculatedNextLevel }).lean()
-    const isExit = nextLevelDoc?.isExitLevel || (calculatedNextLevel.toLowerCase() === 'eb1') // Backwards compat
+    const isExit = nextLevelDoc?.isExitLevel || (calculatedNextLevel.toLowerCase() === 'eb1')
 
     if (!isExit) {
       await Enrollment.create({
         studentId: studentId,
         schoolYearId: nextSchoolYearId,
         status: 'active',
-        // classId is optional, will be assigned later
       })
-
-      // NEW: Create a new template assignment for the next year, copying data from the previous one
-      // This ensures the gradebook "follows" the student
-      if (assignment) {
-         // Check if template exists for next level?
-         // For now, we assume the same template might be used or a new one assigned later.
-         // BUT the user wants the "same one that was worked on".
-         // This implies we should clone the assignment for the new year/level?
-         // OR, simply create a new assignment with the SAME template and COPIED data.
-         
-         // Let's create a new assignment for the student, but we don't know the teacher yet.
-         // We'll leave assignedTeachers empty for now.
-         
-         // However, usually assignments are created when students are added to a class (checkAndAssignTemplates).
-         // If we create it here, we might pre-empt that.
-         
-         // Strategy:
-         // We will NOT create the assignment here immediately because we don't know the class yet.
-         // Instead, we will rely on `checkAndAssignTemplates` which is called when the student is assigned to a class.
-         // WE MUST MODIFY `checkAndAssignTemplates` or the place where new assignments are created
-         // to look for a previous assignment and copy its data.
-      }
     }
 
-    // Record promotion in assignment data
     if (assignment) {
       let className = ''
       if (enrollment && enrollment.classId) {
@@ -652,26 +605,16 @@ studentsRouter.post('/:studentId/promote', requireAuth(['ADMIN']), async (req, r
 })
 
 async function fetchUnassignedStudents(schoolYearId: string) {
-  // 1. Get all enrollments for this year
   const yearEnrollments = await Enrollment.find({ schoolYearId }).lean()
-
-  // 2. Identify students assigned to a class
   const assignedStudentIds = new Set(
     yearEnrollments.filter(e => e.classId).map(e => e.studentId)
   )
-
-  // 3. Identify students enrolled but NOT assigned (e.g. promoted)
   const enrolledUnassignedIds = yearEnrollments
     .filter(e => !e.classId)
     .map(e => e.studentId)
 
-  // 4. Get students tagged with this schoolYearId (Legacy/Import)
   const taggedStudents = await Student.find({ schoolYearId }).lean()
-
-  // 5. Filter tagged students: Exclude those who are already assigned to a class
   const validTaggedStudents = taggedStudents.filter(s => !assignedStudentIds.has(String(s._id)))
-
-  // 6. Fetch students from step 3 who were not in step 4
   const taggedIds = new Set(validTaggedStudents.map(s => String(s._id)))
   const missingIds = enrolledUnassignedIds.filter(id => !taggedIds.has(id))
 
@@ -681,11 +624,8 @@ async function fetchUnassignedStudents(schoolYearId: string) {
   }
 
   const unassigned = [...validTaggedStudents, ...extraStudents]
-
-  // Find assignments with promotions for these students
   const unassignedIds = unassigned.map(s => String(s._id))
 
-  // Find previous school year to get previous class
   const allYears = await SchoolYear.find({}).sort({ startDate: 1 }).lean()
   const currentIndex = allYears.findIndex(y => String(y._id) === schoolYearId)
   let previousYearId: string | null = null
@@ -731,7 +671,6 @@ async function fetchUnassignedStudents(schoolYearId: string) {
 
   return unassigned.map(s => {
     const promo = promotionMap[String(s._id)]
-    // Use nextLevel if available (staging), otherwise try promo.to (history), otherwise fallback to current level
     const effectiveLevel = s.nextLevel || (promo ? promo.to : s.level)
 
     return {
@@ -741,10 +680,7 @@ async function fetchUnassignedStudents(schoolYearId: string) {
       previousClassName: previousClassMap[String(s._id)]
     }
   }).filter(s => {
-    // Filter out students promoted to EB1 as they leave the system
     const lvl = s.level ? s.level.toLowerCase() : ''
     return lvl !== 'eb1'
   })
 }
-
-

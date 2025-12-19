@@ -15,6 +15,7 @@ import { TemplateSignature } from '../models/TemplateSignature'
 import { Student } from '../models/Student'
 import { AdminSignature } from '../models/AdminSignature'
 import { signTemplateAssignment, unsignTemplateAssignment } from '../services/signatureService'
+import { mergeAssignmentDataIntoTemplate } from '../utils/templateUtils'
 
 export const adminExtrasRouter = Router()
 
@@ -45,6 +46,7 @@ adminExtrasRouter.get('/progress', requireAuth(['ADMIN']), async (req, res) => {
         const enrollments = await Enrollment.find({
             classId: { $in: classIds },
             schoolYearId: String(activeYear._id)
+            , status: { $ne: 'archived' }
         }).lean()
 
         const studentIds = enrollments.map(e => e.studentId)
@@ -55,12 +57,36 @@ adminExtrasRouter.get('/progress', requireAuth(['ADMIN']), async (req, res) => {
 
         const templateIds = [...new Set(assignments.map(a => a.templateId))]
         const templates = await GradebookTemplate.find({ _id: { $in: templateIds } }).lean()
+        const templateMap = new Map(templates.map(t => [String((t as any)._id), t]))
+
+        const teacherAssignmentsByClassId = new Map<string, any[]>()
+        for (const ta of teacherAssignments) {
+            const classId = String((ta as any).classId)
+            if (!teacherAssignmentsByClassId.has(classId)) teacherAssignmentsByClassId.set(classId, [])
+            teacherAssignmentsByClassId.get(classId)!.push(ta)
+        }
+
+        const studentToClassId = new Map<string, string>()
+        for (const e of enrollments) {
+            if (e.studentId && e.classId) studentToClassId.set(String(e.studentId), String(e.classId))
+        }
+
+        const assignmentsByClassId = new Map<string, any[]>()
+        for (const a of assignments as any[]) {
+            const classId = studentToClassId.get(String(a.studentId))
+            if (!classId) continue
+            if (!assignmentsByClassId.has(classId)) assignmentsByClassId.set(classId, [])
+            assignmentsByClassId.get(classId)!.push(a)
+        }
 
         const classesResult = classes.map(cls => {
             const clsId = String(cls._id)
-            
-            const clsTeacherAssignments = teacherAssignments.filter(ta => ta.classId === clsId)
-            const clsTeachers = clsTeacherAssignments.map(ta => teacherMap.get(ta.teacherId)?.displayName || 'Unknown')
+
+            const clsTeacherAssignments = teacherAssignmentsByClassId.get(clsId) || []
+            const clsTeachers = clsTeacherAssignments.map(ta => {
+                const t = teacherMap.get(String((ta as any).teacherId)) as any
+                return t?.displayName || t?.email || 'Unknown'
+            })
 
             // Categorize teachers
             const polyvalentTeachers: string[] = []
@@ -68,66 +94,145 @@ adminExtrasRouter.get('/progress', requireAuth(['ADMIN']), async (req, res) => {
             const arabicTeachers: string[] = []
 
             clsTeacherAssignments.forEach(ta => {
-                const teacherName = teacherMap.get(ta.teacherId)?.displayName || 'Unknown'
-                const langs = ta.languages || []
+                const t = teacherMap.get(String((ta as any).teacherId)) as any
+                const teacherName = t?.displayName || t?.email || 'Unknown'
+                const langs = ((ta as any).languages || []).map((l: string) => String(l).toLowerCase())
 
-                if (ta.isProfPolyvalent) {
+                if ((ta as any).isProfPolyvalent) {
                     polyvalentTeachers.push(teacherName)
-                } 
-                
-                if (langs.includes('ar')) {
+                }
+
+                if (langs.includes('ar') || langs.includes('lb')) {
                     arabicTeachers.push(teacherName)
-                } 
-                
-                if (langs.includes('en')) {
+                }
+
+                if (langs.includes('en') || langs.includes('uk') || langs.includes('gb')) {
                     englishTeachers.push(teacherName)
                 }
             })
 
-            const clsEnrollments = enrollments.filter(e => e.classId === clsId)
-            const clsStudentIds = new Set(clsEnrollments.map(e => e.studentId))
-
-            const clsAssignments = assignments.filter(a => clsStudentIds.has(a.studentId))
+            const clsEnrollments = enrollments.filter(e => String(e.classId) === clsId)
+            const clsStudentIds = new Set(clsEnrollments.map(e => String(e.studentId)))
+            const clsAssignments = assignmentsByClassId.get(clsId) || []
 
             let totalCompetencies = 0
             let filledCompetencies = 0
             const categoryStats: Record<string, { total: number, filled: number, name: string }> = {}
 
             clsAssignments.forEach(assignment => {
-                const templateId = assignment.templateId
-                const template = templates.find(t => String(t._id) === templateId)
+                const templateId = String((assignment as any).templateId)
+                const template = templateMap.get(templateId) as any
                 if (!template) return
 
-                const assignmentData = assignment.data || {}
+                const assignmentData = (assignment as any).data || {}
                 const level = cls.level
+                const teacherCompletions = ((assignment as any).teacherCompletions || []) as any[]
+                const completionMemo = new Map<string, boolean>()
+
+                const isCategoryCompleted = (categoryName: string, langCode?: string) => {
+                    const key = `${categoryName}|${langCode || ''}`
+                    if (completionMemo.has(key)) return completionMemo.get(key)!
+
+                    const l = categoryName.toLowerCase()
+                    const code = (langCode || '').toLowerCase()
+                    const isArabic = code === 'ar' || code === 'lb' || l.includes('arabe') || l.includes('arabic') || l.includes('العربية')
+                    const isEnglish = code === 'en' || code === 'uk' || code === 'gb' || l.includes('anglais') || l.includes('english')
+
+                    let responsibleTeachers = (clsTeacherAssignments as any[])
+                        .filter((ta: any) => {
+                            const langs = (ta.languages || []).map((tl: string) => String(tl).toLowerCase())
+                            if (isArabic) {
+                                if (langs.length === 0) return !ta.isProfPolyvalent
+                                return langs.some((v: string) => v === 'ar' || v === 'lb' || v.includes('arabe') || v.includes('arabic') || v.includes('العربية'))
+                            }
+                            if (isEnglish) {
+                                if (langs.length === 0) return !ta.isProfPolyvalent
+                                return langs.some((v: string) => v === 'en' || v === 'uk' || v === 'gb' || v.includes('anglais') || v.includes('english'))
+                            }
+                            return !!ta.isProfPolyvalent
+                        })
+                        .map((ta: any) => String(ta.teacherId))
+
+                    if (responsibleTeachers.length === 0) {
+                        responsibleTeachers = (((assignment as any).assignedTeachers || []) as any[]).map(id => String(id))
+                    }
+
+                    const completed = responsibleTeachers.some(tid =>
+                        teacherCompletions.some(tc =>
+                            String(tc.teacherId) === String(tid) &&
+                            (tc.completed || tc.completedSem1 || tc.completedSem2)
+                        )
+                    )
+
+                    completionMemo.set(key, completed)
+                    return completed
+                }
 
                 template.pages.forEach((page: any, pageIdx: number) => {
                     (page.blocks || []).forEach((block: any, blockIdx: number) => {
-                        if (block.type === 'language_toggle') {
-                            const key = `language_toggle_${pageIdx}_${blockIdx}`
-                            const overrideItems = assignmentData[key]
-                            const items = overrideItems || block.props.items || []
+                        let itemsToProcess: any[] = []
 
-                            items.forEach((item: any) => {
-                                let isAssigned = true
-                                if (item.levels && Array.isArray(item.levels) && item.levels.length > 0) {
-                                    if (!level || !item.levels.includes(level)) {
-                                        isAssigned = false
-                                    }
-                                }
+                        if (['language_toggle', 'language_toggle_v2'].includes(block.type)) {
+                            const blockId = typeof block?.props?.blockId === 'string' && block.props.blockId.trim() ? block.props.blockId.trim() : null
+                            const keyStable = blockId ? `language_toggle_${blockId}` : null
+                            const keyLegacy = `language_toggle_${pageIdx}_${blockIdx}`
+                            const overrideItems = (keyStable ? assignmentData[keyStable] : null) || assignmentData[keyLegacy]
+                            itemsToProcess = overrideItems || block.props.items || []
+                        } else if (block.type === 'table' && block.props.expandedRows) {
+                            const rows = block.props.cells || []
+                            const expandedLanguages = block.props.expandedLanguages || []
+                            const rowLanguages = block.props.rowLanguages || {}
+                            const rowIds = Array.isArray(block?.props?.rowIds) ? block.props.rowIds : []
+                            const blockId = typeof block?.props?.blockId === 'string' && block.props.blockId.trim() ? block.props.blockId.trim() : null
 
-                                if (isAssigned) {
-                                    const lang = item.type || item.label || 'Autre'
-                                    if (!categoryStats[lang]) categoryStats[lang] = { total: 0, filled: 0, name: lang }
-                                    categoryStats[lang].total++
-                                    totalCompetencies++
-                                    if (item.active) {
-                                        categoryStats[lang].filled++
-                                        filledCompetencies++
-                                    }
+                            rows.forEach((_: any, ri: number) => {
+                                const rowId = typeof rowIds?.[ri] === 'string' && rowIds[ri].trim() ? rowIds[ri].trim() : null
+                                const keyStable = blockId && rowId ? `table_${blockId}_row_${rowId}` : null
+                                const keyLegacy1 = `table_${pageIdx}_${blockIdx}_row_${ri}`
+                                const keyLegacy2 = `table_${blockIdx}_row_${ri}`
+                                const rowLangs = rowLanguages[ri] || expandedLanguages
+                                const currentItems = (keyStable ? assignmentData[keyStable] : null) || assignmentData[keyLegacy1] || assignmentData[keyLegacy2] || rowLangs || []
+                                if (Array.isArray(currentItems)) {
+                                    itemsToProcess.push(...currentItems)
                                 }
                             })
                         }
+
+                        if (itemsToProcess.length === 0) return
+
+                        itemsToProcess.forEach((item: any) => {
+                            let isAssigned = true
+                            let itemLevels = item.levels && Array.isArray(item.levels) ? item.levels : []
+                            if (itemLevels.length === 0 && item.level) itemLevels = [item.level]
+
+                            if (itemLevels.length > 0) {
+                                if (!level || !itemLevels.includes(level)) {
+                                    isAssigned = false
+                                }
+                            }
+
+                            if (!isAssigned) return
+
+                            const code = (item.code || '').toLowerCase()
+                            const rawLang = item.type || item.label || ''
+                            const lang = (() => {
+                                const ll = String(rawLang).toLowerCase()
+                                if (code === 'fr' || ll.includes('français') || ll.includes('french')) return 'Polyvalent'
+                                if (code === 'ar' || code === 'lb' || ll.includes('arabe') || ll.includes('arabic') || ll.includes('العربية')) return 'Arabe'
+                                if (code === 'en' || code === 'uk' || code === 'gb' || ll.includes('anglais') || ll.includes('english')) return 'Anglais'
+                                return 'Autre'
+                            })()
+
+                            if (!categoryStats[lang]) categoryStats[lang] = { total: 0, filled: 0, name: lang }
+
+                            categoryStats[lang].total++
+                            totalCompetencies++
+
+                            if (isCategoryCompleted(lang, code) || item.active) {
+                                categoryStats[lang].filled++
+                                filledCompetencies++
+                            }
+                        })
                     })
                 })
             })
@@ -171,7 +276,7 @@ adminExtrasRouter.get('/progress', requireAuth(['ADMIN']), async (req, res) => {
 
             // Get directly assigned teachers
             const directAssignments = await SubAdminAssignment.find({ subAdminId: saId }).lean()
-            const assignedTeacherIds = directAssignments.map(da => da.teacherId)
+            const assignedTeacherIds = [...new Set(directAssignments.map(da => String(da.teacherId)))]
 
             // Find classes matching levels OR teachers
             // 1. By Level
@@ -196,8 +301,9 @@ adminExtrasRouter.get('/progress', requireAuth(['ADMIN']), async (req, res) => {
             const saEnrollments = await Enrollment.find({
                 classId: { $in: uniqueClassIds },
                 schoolYearId: String(activeYear._id)
+                , status: { $ne: 'archived' }
             }).lean()
-            const saStudentIds = saEnrollments.map(e => e.studentId)
+            const saStudentIds = [...new Set(saEnrollments.map(e => String(e.studentId)))]
 
             // Find assignments for these students
             const saAssignments = await TemplateAssignment.find({
@@ -205,10 +311,11 @@ adminExtrasRouter.get('/progress', requireAuth(['ADMIN']), async (req, res) => {
             }).lean()
 
             const totalAssignments = saAssignments.length
-            const signedAssignments = saAssignments.filter(a => {
-                const anyA = a as any
-                return anyA.signatures && anyA.signatures.some((s: any) => s.signedBy === saId)
-            }).length
+            const saAssignmentIds = saAssignments.map(a => String((a as any)._id))
+            const signatures = saAssignmentIds.length
+                ? await TemplateSignature.find({ templateAssignmentId: { $in: saAssignmentIds }, subAdminId: saId }).lean()
+                : []
+            const signedAssignments = new Set(signatures.map(s => String((s as any).templateAssignmentId))).size
 
             return {
                 subAdminId: saId,
@@ -468,11 +575,14 @@ adminExtrasRouter.patch('/templates/:assignmentId/data', requireAuth(['ADMIN']),
                 return res.status(400).json({ error: 'missing_payload' })
             }
 
-            const key = `language_toggle_${pageIndex}_${blockIndex}`
+            const template = await GradebookTemplate.findById(assignment.templateId).select('pages').lean()
+            const block = template?.pages?.[pageIndex]?.blocks?.[blockIndex]
+            const blockId = typeof block?.props?.blockId === 'string' && block.props.blockId.trim() ? block.props.blockId.trim() : null
+            const keyStable = blockId ? `language_toggle_${blockId}` : `language_toggle_${pageIndex}_${blockIndex}`
 
             // Update assignment data
             if (!assignment.data) assignment.data = {}
-            assignment.data[key] = items
+            assignment.data[keyStable] = items
             assignment.markModified('data')
             await assignment.save()
 
@@ -511,22 +621,8 @@ adminExtrasRouter.get('/templates/:templateAssignmentId/review', requireAuth(['A
         const signature = await TemplateSignature.findOne({ templateAssignmentId, type: { $ne: 'end_of_year' } }).sort({ signedAt: -1 }).lean()
         const finalSignature = await TemplateSignature.findOne({ templateAssignmentId, type: 'end_of_year' }).lean()
 
-        // Apply language toggles from assignment data
-        const versionedTemplate = JSON.parse(JSON.stringify(template))
-        if (assignment.data) {
-            for (const [key, value] of Object.entries(assignment.data)) {
-                if (key.startsWith('language_toggle_')) {
-                    const parts = key.split('_')
-                    if (parts.length >= 4) {
-                        const pageIndex = parseInt(parts[2])
-                        const blockIndex = parseInt(parts[3])
-                        if (versionedTemplate.pages?.[pageIndex]?.blocks?.[blockIndex]?.props?.items) {
-                            versionedTemplate.pages[pageIndex].blocks[blockIndex].props.items = value
-                        }
-                    }
-                }
-            }
-        }
+        // Use centralized helper for versioning and data merging
+        const versionedTemplate = mergeAssignmentDataIntoTemplate(template, assignment)
 
         // Check if signed by ME
         const isSignedByMe = !!(signature && String(signature.subAdminId) === String(adminId))

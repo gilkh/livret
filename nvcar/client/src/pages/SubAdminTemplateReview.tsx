@@ -25,6 +25,7 @@ type TeacherStatus = {
 type Assignment = { 
     _id: string; 
     status: string; 
+    templateVersion?: number;
     data?: any;
     isCompleted?: boolean;
     isCompletedSem1?: boolean;
@@ -248,10 +249,14 @@ export default function SubAdminTemplateReview() {
     const submitSuggestion = async () => {
         if (!suggestionModal || !template) return
         try {
+            const block = template?.pages?.[suggestionModal.pageIndex]?.blocks?.[suggestionModal.blockIndex]
+            const blockId = typeof block?.props?.blockId === 'string' && block.props.blockId.trim() ? block.props.blockId.trim() : undefined
             await api.post('/suggestions', {
                 templateId: template._id,
+                templateVersion: assignment?.templateVersion,
                 pageIndex: suggestionModal.pageIndex,
                 blockIndex: suggestionModal.blockIndex,
+                blockId,
                 originalText: suggestionModal.originalText,
                 suggestedText: suggestionText
             })
@@ -1733,10 +1738,18 @@ export default function SubAdminTemplateReview() {
                                                                                 gap: 8
                                                                             }}>
                                                                                 {(() => {
-                                                                                    const toggleKey = `table_${actualPageIndex}_${idx}_row_${ri}`
+                                                                                    const blockId = typeof b?.props?.blockId === 'string' && b.props.blockId.trim() ? b.props.blockId.trim() : null
+                                                                                    const rowIds = Array.isArray(b?.props?.rowIds) ? b.props.rowIds : []
+                                                                                    const rowId = typeof rowIds?.[ri] === 'string' && rowIds[ri].trim() ? rowIds[ri].trim() : null
+                                                                                    const toggleKeyStable = blockId && rowId ? `table_${blockId}_row_${rowId}` : null
+                                                                                    const toggleKeyLegacy = `table_${actualPageIndex}_${idx}_row_${ri}`
+                                                                                    const toggleKey = toggleKeyStable || toggleKeyLegacy
                                                                                     const rowLangs = b.props.rowLanguages?.[ri] || expandedLanguages
                                                                                     const blockLevel = getBlockLevel(b)
-                                                                                    const currentItems = getScopedData(toggleKey, blockLevel) || rowLangs
+                                                                                    const currentItems =
+                                                                                        (toggleKeyStable ? getScopedData(toggleKeyStable, blockLevel) : null) ||
+                                                                                        getScopedData(toggleKeyLegacy, blockLevel) ||
+                                                                                        rowLangs
 
                                                                                     return currentItems.map((lang: any, li: number) => {
                                                                                         const isLevelAllowed = !lang.level || (student?.level && lang.level === student.level);

@@ -1,11 +1,116 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.buildBlocksById = void 0;
+exports.getVersionedTemplate = getVersionedTemplate;
+exports.mergeAssignmentDataIntoTemplate = mergeAssignmentDataIntoTemplate;
 exports.checkAndAssignTemplates = checkAndAssignTemplates;
+exports.ensureStableBlockIds = ensureStableBlockIds;
+exports.ensureStableExpandedTableRowIds = ensureStableExpandedTableRowIds;
 const Class_1 = require("../models/Class");
 const Enrollment_1 = require("../models/Enrollment");
 const TemplateAssignment_1 = require("../models/TemplateAssignment");
 const TeacherClassAssignment_1 = require("../models/TeacherClassAssignment");
 const GradebookTemplate_1 = require("../models/GradebookTemplate");
+const crypto_1 = require("crypto");
+function getVersionedTemplate(template, templateVersion) {
+    if (!templateVersion || templateVersion === template.currentVersion)
+        return template;
+    const versionData = template.versionHistory?.find((v) => v.version === templateVersion);
+    if (!versionData)
+        return template;
+    return {
+        ...template,
+        pages: versionData.pages,
+        variables: versionData.variables || {},
+        watermark: versionData.watermark,
+        _versionUsed: templateVersion,
+        _isOldVersion: templateVersion < (template.currentVersion || 1),
+    };
+}
+const buildBlocksById = (pages) => {
+    const map = new Map();
+    (Array.isArray(pages) ? pages : []).forEach((page, pageIdx) => {
+        ;
+        (Array.isArray(page?.blocks) ? page.blocks : []).forEach((block, blockIdx) => {
+            const raw = block?.props?.blockId;
+            const id = typeof raw === 'string' && raw.trim() ? raw.trim() : null;
+            if (!id)
+                return;
+            map.set(id, { block, pageIdx, blockIdx });
+        });
+    });
+    return map;
+};
+exports.buildBlocksById = buildBlocksById;
+function mergeAssignmentDataIntoTemplate(template, assignment) {
+    if (!template)
+        return null;
+    const templateVersion = assignment?.templateVersion;
+    let versionedTemplate = getVersionedTemplate(template, templateVersion);
+    // Deep clone to avoid mutating the original template object (especially if it came from cache)
+    versionedTemplate = JSON.parse(JSON.stringify(versionedTemplate));
+    if (assignment?.data) {
+        const blocksById = (0, exports.buildBlocksById)(versionedTemplate?.pages || []);
+        const pages = versionedTemplate?.pages || [];
+        for (const [key, value] of Object.entries(assignment.data)) {
+            // 1. Language Toggle Merging
+            if (key.startsWith('language_toggle_')) {
+                const mStable = key.match(/^language_toggle_(.+)$/);
+                const mLegacy = key.match(/^language_toggle_(\d+)_(\d+)$/);
+                if (mStable) {
+                    const blockId = String(mStable[1] || '').trim();
+                    const found = blockId ? blocksById.get(blockId) : null;
+                    if (found && ['language_toggle', 'language_toggle_v2'].includes(found.block?.type)) {
+                        found.block.props = found.block.props || {};
+                        found.block.props.items = value;
+                    }
+                }
+                if (mLegacy) {
+                    const pageIdx = parseInt(mLegacy[1]);
+                    const blockIdx = parseInt(mLegacy[2]);
+                    const block = pages[pageIdx]?.blocks?.[blockIdx];
+                    // Only use legacy if stable ID didn't already populate this (or if it doesn't have an ID)
+                    if (block && ['language_toggle', 'language_toggle_v2'].includes(block.type)) {
+                        // If the block has no stable ID, or if the data specifically targeted these coordinates
+                        block.props = block.props || {};
+                        block.props.items = value;
+                    }
+                }
+            }
+            // 2. Table Row Merging (Skills)
+            const mTableStable = key.match(/^table_(.+)_row_(.+)$/);
+            const mTableLegacy = key.match(/^table_(\d+)_(\d+)_row_(\d+)$/);
+            if (mTableStable) {
+                const blockId = String(mTableStable[1] || '').trim();
+                const rowId = String(mTableStable[2] || '').trim();
+                const found = blockId ? blocksById.get(blockId) : null;
+                const block = found?.block;
+                if (block && block.type === 'table' && block.props?.expandedRows) {
+                    const rowIds = Array.isArray(block.props.rowIds) ? block.props.rowIds : [];
+                    const rowIdx = rowIds.findIndex((v) => typeof v === 'string' && v.trim() === rowId);
+                    if (rowIdx >= 0) {
+                        block.props.rowLanguages = block.props.rowLanguages || {};
+                        block.props.rowLanguages[rowIdx] = value;
+                    }
+                }
+            }
+            if (mTableLegacy) {
+                const pageIdx = parseInt(mTableLegacy[1]);
+                const blockIdx = parseInt(mTableLegacy[2]);
+                const rowIdx = parseInt(mTableLegacy[3]);
+                const block = pages[pageIdx]?.blocks?.[blockIdx];
+                if (block && block.type === 'table' && block.props?.expandedRows) {
+                    block.props.rowLanguages = block.props.rowLanguages || {};
+                    block.props.rowLanguages[rowIdx] = value;
+                }
+            }
+            // 3. Dropdowns and Other coordinates (Variable Names)
+            // If key matches a variableName, we can overlay it (though UI usually handles this)
+            // No specific structural overlay needed for simple variable keys as they are reactive in UI
+        }
+    }
+    return versionedTemplate;
+}
 async function checkAndAssignTemplates(studentId, level, schoolYearId, classId, userId) {
     try {
         // 1. Find other students in the same level for this school year
@@ -100,4 +205,154 @@ async function checkAndAssignTemplates(studentId, level, schoolYearId, classId, 
     catch (err) {
         console.error('Error in checkAndAssignTemplates:', err);
     }
+}
+function getRowSignature(row) {
+    if (!Array.isArray(row))
+        return '';
+    return row
+        .map((cell) => {
+        if (!cell)
+            return '';
+        if (typeof cell === 'string')
+            return cell;
+        if (typeof cell?.text === 'string')
+            return cell.text;
+        return '';
+    })
+        .join('|')
+        .trim();
+}
+function getBlockSignature(block) {
+    if (!block || typeof block !== 'object')
+        return '';
+    const t = String(block.type || '');
+    const p = block.props || {};
+    const keyProps = {};
+    if (t === 'language_toggle' || t === 'language_toggle_v2') {
+        const items = Array.isArray(p.items) ? p.items : [];
+        keyProps.items = items.map((it) => ({
+            code: it?.code,
+            type: it?.type,
+            label: it?.label,
+            level: it?.level,
+            levels: it?.levels,
+        }));
+    }
+    else if (t === 'dropdown') {
+        keyProps.dropdownNumber = p.dropdownNumber;
+        keyProps.variableName = p.variableName;
+        keyProps.field = p.field;
+    }
+    else if (t === 'table') {
+        const cells = Array.isArray(p.cells) ? p.cells : [];
+        keyProps.firstRow = cells[0] ? getRowSignature(cells[0]) : '';
+        keyProps.firstCol = cells.map((r) => (Array.isArray(r) && r[0] ? r[0]?.text : '')).join('|').slice(0, 300);
+        keyProps.expandedRows = !!p.expandedRows;
+    }
+    else {
+        if (typeof p.content === 'string')
+            keyProps.content = p.content.slice(0, 300);
+        if (typeof p.text === 'string')
+            keyProps.text = p.text.slice(0, 300);
+        if (typeof p.title === 'string')
+            keyProps.title = p.title.slice(0, 120);
+        if (typeof p.field === 'string')
+            keyProps.field = p.field;
+    }
+    return `${t}:${JSON.stringify(keyProps)}`;
+}
+function ensureStableBlockIds(previousPages, nextPages) {
+    const pages = Array.isArray(nextPages) ? JSON.parse(JSON.stringify(nextPages)) : [];
+    const prevBlocksById = new Map();
+    const prevIdsBySignature = new Map();
+    const prevPagesArr = Array.isArray(previousPages) ? previousPages : [];
+    for (const prevPage of prevPagesArr) {
+        const prevBlocks = Array.isArray(prevPage?.blocks) ? prevPage.blocks : [];
+        for (const prevBlock of prevBlocks) {
+            const prevIdRaw = prevBlock?.props?.blockId;
+            const prevId = typeof prevIdRaw === 'string' && prevIdRaw.trim() ? prevIdRaw.trim() : (0, crypto_1.randomUUID)();
+            const sig = getBlockSignature(prevBlock);
+            const list = prevIdsBySignature.get(sig) || [];
+            list.push(prevId);
+            prevIdsBySignature.set(sig, list);
+            prevBlocksById.set(prevId, prevBlock);
+        }
+    }
+    for (const page of pages) {
+        const blocks = Array.isArray(page?.blocks) ? page.blocks : [];
+        for (const block of blocks) {
+            if (!block)
+                continue;
+            const currentId = block?.props?.blockId;
+            const currentIdValid = typeof currentId === 'string' && currentId.trim();
+            if (currentIdValid)
+                continue;
+            const sig = getBlockSignature(block);
+            const candidates = prevIdsBySignature.get(sig) || [];
+            const nextId = candidates.shift() || (0, crypto_1.randomUUID)();
+            prevIdsBySignature.set(sig, candidates);
+            block.props = block.props || {};
+            block.props.blockId = nextId;
+        }
+    }
+    return pages;
+}
+function ensureStableExpandedTableRowIds(previousPages, nextPages) {
+    const pages = Array.isArray(nextPages) ? JSON.parse(JSON.stringify(nextPages)) : [];
+    const prevTableBlocksById = new Map();
+    const prevPagesArr = Array.isArray(previousPages) ? previousPages : [];
+    for (const prevPage of prevPagesArr) {
+        const prevBlocks = Array.isArray(prevPage?.blocks) ? prevPage.blocks : [];
+        for (const prevBlock of prevBlocks) {
+            if (!prevBlock || prevBlock.type !== 'table' || !prevBlock?.props?.expandedRows)
+                continue;
+            const id = prevBlock?.props?.blockId;
+            if (typeof id === 'string' && id.trim())
+                prevTableBlocksById.set(id.trim(), prevBlock);
+        }
+    }
+    for (let pageIdx = 0; pageIdx < pages.length; pageIdx++) {
+        const page = pages[pageIdx];
+        const blocks = Array.isArray(page?.blocks) ? page.blocks : [];
+        for (let blockIdx = 0; blockIdx < blocks.length; blockIdx++) {
+            const block = blocks[blockIdx];
+            if (!block || block.type !== 'table' || !block?.props?.expandedRows)
+                continue;
+            const nextCells = Array.isArray(block?.props?.cells) ? block.props.cells : [];
+            const rowCount = nextCells.length;
+            if (rowCount === 0)
+                continue;
+            const nextRowIds = Array.isArray(block?.props?.rowIds) ? block.props.rowIds : null;
+            const nextRowIdsValid = nextRowIds &&
+                nextRowIds.length === rowCount &&
+                nextRowIds.every((v) => typeof v === 'string' && v.trim());
+            if (nextRowIdsValid)
+                continue;
+            const blockId = block?.props?.blockId;
+            const prevBlock = typeof blockId === 'string' && blockId.trim()
+                ? prevTableBlocksById.get(blockId.trim())
+                : previousPages?.[pageIdx]?.blocks?.[blockIdx];
+            const prevCells = Array.isArray(prevBlock?.props?.cells) ? prevBlock.props.cells : [];
+            const prevRowIds = Array.isArray(prevBlock?.props?.rowIds) ? prevBlock.props.rowIds : [];
+            const idsBySignature = new Map();
+            for (let rowIdx = 0; rowIdx < prevCells.length; rowIdx++) {
+                const signature = getRowSignature(prevCells[rowIdx]);
+                const id = typeof prevRowIds[rowIdx] === 'string' && prevRowIds[rowIdx].trim() ? prevRowIds[rowIdx] : (0, crypto_1.randomUUID)();
+                const list = idsBySignature.get(signature) || [];
+                list.push(id);
+                idsBySignature.set(signature, list);
+            }
+            const assignedRowIds = [];
+            for (let rowIdx = 0; rowIdx < rowCount; rowIdx++) {
+                const signature = getRowSignature(nextCells[rowIdx]);
+                const candidates = idsBySignature.get(signature) || [];
+                const id = candidates.shift() || (0, crypto_1.randomUUID)();
+                assignedRowIds.push(id);
+                idsBySignature.set(signature, candidates);
+            }
+            block.props = block.props || {};
+            block.props.rowIds = assignedRowIds;
+        }
+    }
+    return pages;
 }
