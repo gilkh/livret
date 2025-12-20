@@ -8,7 +8,7 @@ const jszip_1 = __importDefault(require("jszip"));
 const xml2js_1 = require("xml2js");
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
-const uuid_1 = require("uuid");
+const crypto_1 = require("crypto");
 const axios_1 = __importDefault(require("axios"));
 const child_process_1 = require("child_process");
 const EMU_PER_PIXEL = 9525; // 914400 / 96
@@ -342,7 +342,7 @@ class PptxImporter {
         const tmpDir = path_1.default.join(this.uploadDir, 'tmp');
         if (!fs_1.default.existsSync(tmpDir))
             fs_1.default.mkdirSync(tmpDir, { recursive: true });
-        const id = (0, uuid_1.v4)();
+        const id = (0, crypto_1.randomUUID)();
         const inPath = path_1.default.join(tmpDir, `in-${id}${ext}`);
         const outPath = path_1.default.join(tmpDir, `out-${id}.png`);
         fs_1.default.writeFileSync(inPath, imgData, { encoding: null });
@@ -549,7 +549,7 @@ class PptxImporter {
                 return null;
             }
             // Save image
-            const filename = `imported-${(0, uuid_1.v4)()}${ext}`;
+            const filename = `imported-${(0, crypto_1.randomUUID)()}${ext}`;
             const savePath = path_1.default.join(this.uploadDir, filename);
             if (!fs_1.default.existsSync(this.uploadDir)) {
                 fs_1.default.mkdirSync(this.uploadDir, { recursive: true });

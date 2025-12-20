@@ -6,6 +6,7 @@ const templateAssignmentSchema = new mongoose_1.Schema({
     templateId: { type: String, required: true },
     templateVersion: { type: Number, required: true, default: 1 },
     studentId: { type: String, required: true },
+    completionSchoolYearId: { type: String },
     assignedTeachers: { type: [String], default: [] },
     teacherCompletions: {
         type: [{

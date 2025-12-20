@@ -5,12 +5,14 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.objectId = exports.connectDb = void 0;
 const mongoose_1 = __importDefault(require("mongoose"));
-const uri = process.env.MONGO_URI || 'mongodb://localhost:27017/nvcarn';
 let isConnecting = false;
 const connectDb = async () => {
+    if (mongoose_1.default.connection.readyState === 1)
+        return;
     if (isConnecting)
         return;
     isConnecting = true;
+    const uri = process.env.MONGO_URI || 'mongodb://localhost:27017/nvcarn';
     try {
         await mongoose_1.default.connect(uri, {
             serverSelectionTimeoutMS: 5000,

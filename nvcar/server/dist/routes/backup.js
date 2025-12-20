@@ -43,7 +43,7 @@ const archiver_1 = __importDefault(require("archiver"));
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 const mongoose_1 = __importDefault(require("mongoose"));
-const uuid_1 = require("uuid");
+const crypto_1 = require("crypto");
 const os_1 = __importDefault(require("os"));
 const jszip_1 = __importDefault(require("jszip"));
 const User_1 = require("../models/User");
@@ -82,7 +82,7 @@ exports.backupRouter.get('/list', (0, auth_1.requireAuth)(['ADMIN']), async (req
 });
 // Create new DB backup (stored on server)
 exports.backupRouter.post('/create', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
-    const tempDir = path_1.default.join(os_1.default.tmpdir(), `nvcar-db-backup-${(0, uuid_1.v4)()}`);
+    const tempDir = path_1.default.join(os_1.default.tmpdir(), `nvcar-db-backup-${(0, crypto_1.randomUUID)()}`);
     const fileName = `backup-db-${new Date().toISOString().replace(/[:.]/g, '-')}.zip`;
     const archivePath = path_1.default.join(BACKUP_DIR, fileName);
     try {
@@ -196,7 +196,7 @@ exports.backupRouter.delete('/:filename', (0, auth_1.requireAuth)(['ADMIN']), as
     }
 });
 exports.backupRouter.get('/full', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
-    const tempDir = path_1.default.join(os_1.default.tmpdir(), `nvcar-backup-${(0, uuid_1.v4)()}`);
+    const tempDir = path_1.default.join(os_1.default.tmpdir(), `nvcar-backup-${(0, crypto_1.randomUUID)()}`);
     const archivePath = path_1.default.join(tempDir, 'backup.zip');
     try {
         // Create temp directory

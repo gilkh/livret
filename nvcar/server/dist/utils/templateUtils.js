@@ -11,6 +11,7 @@ const Enrollment_1 = require("../models/Enrollment");
 const TemplateAssignment_1 = require("../models/TemplateAssignment");
 const TeacherClassAssignment_1 = require("../models/TeacherClassAssignment");
 const GradebookTemplate_1 = require("../models/GradebookTemplate");
+const SchoolYear_1 = require("../models/SchoolYear");
 const crypto_1 = require("crypto");
 function getVersionedTemplate(template, templateVersion) {
     if (!templateVersion || templateVersion === template.currentVersion)
@@ -113,6 +114,8 @@ function mergeAssignmentDataIntoTemplate(template, assignment) {
 }
 async function checkAndAssignTemplates(studentId, level, schoolYearId, classId, userId) {
     try {
+        const targetYear = schoolYearId ? await SchoolYear_1.SchoolYear.findById(schoolYearId).select({ startDate: 1 }).lean() : null;
+        const targetStartDate = targetYear?.startDate ? new Date(targetYear.startDate).getTime() : null;
         // 1. Find other students in the same level for this school year
         const classesInLevel = await Class_1.ClassModel.find({ level, schoolYearId }).lean();
         const classIdsInLevel = classesInLevel.map(c => String(c._id));
@@ -166,14 +169,39 @@ async function checkAndAssignTemplates(studentId, level, schoolYearId, classId, 
                     .sort({ assignedAt: -1 })
                     .lean();
                 if (lastAssignment && lastAssignment.data) {
-                    initialData = lastAssignment.data;
-                    // We might need to clear specific fields that are year-specific?
-                    // For now, we copy everything as requested.
+                    // Copy previous year's data but sanitize year-specific progress markers
+                    const sanitize = (input) => {
+                        if (input == null)
+                            return input;
+                        if (Array.isArray(input))
+                            return input.map(i => sanitize(i));
+                        if (typeof input === 'object') {
+                            const out = {};
+                            for (const [k, v] of Object.entries(input)) {
+                                // Remove known year-/user-specific fields
+                                if (k === 'signatures' || k === 'promotions')
+                                    continue;
+                                if (k === 'active' || k === 'completed' || k === 'completedSem1' || k === 'completedSem2' || k === 'completedAt' || k === 'completedAtSem1' || k === 'completedAtSem2') {
+                                    // reset boolean flags and timestamps
+                                    if (typeof v === 'boolean')
+                                        out[k] = false;
+                                    else
+                                        out[k] = null;
+                                    continue;
+                                }
+                                out[k] = sanitize(v);
+                            }
+                            return out;
+                        }
+                        return input;
+                    };
+                    initialData = sanitize(lastAssignment.data);
                 }
                 await TemplateAssignment_1.TemplateAssignment.create({
                     templateId,
                     templateVersion: template.currentVersion || 1,
                     studentId,
+                    completionSchoolYearId: schoolYearId,
                     assignedTeachers: teacherIds,
                     assignedBy: userId,
                     assignedAt: new Date(),
@@ -188,13 +216,30 @@ async function checkAndAssignTemplates(studentId, level, schoolYearId, classId, 
                 if (exists.templateVersion !== template.currentVersion) {
                     updates.templateVersion = template.currentVersion;
                 }
-                // Reset status if it was completed/signed in previous years
-                if (['completed', 'signed'].includes(exists.status)) {
-                    updates.status = 'in_progress';
+                const completionYearId = String(exists.completionSchoolYearId || '');
+                const existsAssignedAt = exists?.assignedAt ? new Date(exists.assignedAt).getTime() : null;
+                const inferredIsCurrentYear = !completionYearId &&
+                    targetStartDate !== null &&
+                    existsAssignedAt !== null &&
+                    existsAssignedAt >= targetStartDate;
+                const shouldResetForNewYear = (completionYearId && completionYearId !== String(schoolYearId)) ||
+                    (!completionYearId && !inferredIsCurrentYear);
+                if (shouldResetForNewYear) {
+                    updates.status = 'draft';
                     updates.isCompleted = false;
                     updates.completedAt = null;
                     updates.completedBy = null;
+                    updates.isCompletedSem1 = false;
+                    updates.completedAtSem1 = null;
+                    updates.isCompletedSem2 = false;
+                    updates.completedAtSem2 = null;
                     updates.teacherCompletions = [];
+                    updates.assignedAt = new Date();
+                    updates.assignedBy = userId;
+                    updates.completionSchoolYearId = schoolYearId;
+                }
+                else if (!completionYearId) {
+                    updates.completionSchoolYearId = schoolYearId;
                 }
                 // Always update teachers to the new class teachers
                 updates.assignedTeachers = teacherIds;

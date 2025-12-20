@@ -557,6 +557,7 @@ exports.subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote',
         if (!authorized) {
             return res.status(403).json({ error: 'not_authorized' });
         }
+        const activeSchoolYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
         const student = await Student_1.Student.findById(assignment.studentId);
         if (!student)
             return res.status(404).json({ error: 'student_not_found' });
@@ -564,18 +565,20 @@ exports.subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote',
         // Handle missing status field by treating it as active
         const enrollment = await Enrollment_1.Enrollment.findOne({
             studentId: assignment.studentId,
-            $or: [{ status: 'active' }, { status: { $exists: false } }]
+            ...(activeSchoolYear ? { schoolYearId: String(activeSchoolYear._id) } : {}),
+            $or: [{ status: 'active' }, { status: 'promoted' }, { status: { $exists: false } }]
         }).lean();
-        let yearName = new Date().getFullYear().toString();
+        let yearName = activeSchoolYear?.name || new Date().getFullYear().toString();
         let currentLevel = student.level || '';
-        let currentSchoolYearId = '';
-        let currentSchoolYearSequence = 0;
+        let currentSchoolYearId = activeSchoolYear ? String(activeSchoolYear._id) : '';
+        let currentSchoolYearSequence = activeSchoolYear?.sequence || 0;
         if (enrollment) {
             if (enrollment.classId) {
                 const cls = await Class_1.ClassModel.findById(enrollment.classId).lean();
                 if (cls) {
                     currentLevel = cls.level || '';
-                    currentSchoolYearId = cls.schoolYearId;
+                    if (!currentSchoolYearId)
+                        currentSchoolYearId = cls.schoolYearId;
                 }
             }
             // Fallback to enrollment's schoolYearId if class lookup failed or no class
@@ -585,8 +588,9 @@ exports.subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote',
             if (currentSchoolYearId) {
                 const sy = await SchoolYear_1.SchoolYear.findById(currentSchoolYearId).lean();
                 if (sy) {
-                    yearName = sy.name;
-                    currentSchoolYearSequence = sy.sequence || 0;
+                    yearName = sy.name || yearName;
+                    if (!currentSchoolYearSequence)
+                        currentSchoolYearSequence = sy.sequence || 0;
                 }
             }
         }
@@ -612,16 +616,13 @@ exports.subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote',
         if (!calculatedNextLevel)
             return res.status(400).json({ error: 'cannot_determine_next_level' });
         // Find next school year by sequence
-        let nextSchoolYearId = '';
+        let nextSy = null;
         if (currentSchoolYearSequence > 0) {
-            const nextSy = await SchoolYear_1.SchoolYear.findOne({ sequence: currentSchoolYearSequence + 1 }).lean();
-            if (nextSy) {
-                nextSchoolYearId = String(nextSy._id);
-            }
+            nextSy = await SchoolYear_1.SchoolYear.findOne({ sequence: currentSchoolYearSequence + 1 }).lean();
         }
-        if (!nextSchoolYearId && currentSchoolYearId) {
-            // Fallback to old logic if sequence is missing (shouldn't happen after migration)
-            const currentSy = await SchoolYear_1.SchoolYear.findById(currentSchoolYearId).lean();
+        let currentSy = null;
+        if (!nextSy && currentSchoolYearId) {
+            currentSy = await SchoolYear_1.SchoolYear.findById(currentSchoolYearId).lean();
             if (currentSy && currentSy.name) {
                 const match = currentSy.name.match(/(\d{4})([-/.])(\d{4})/);
                 if (match) {
@@ -629,15 +630,24 @@ exports.subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote',
                     const separator = match[2];
                     const endYear = parseInt(match[3]);
                     const nextName = `${startYear + 1}${separator}${endYear + 1}`;
-                    const nextSy = await SchoolYear_1.SchoolYear.findOne({ name: nextName }).lean();
-                    if (nextSy)
-                        nextSchoolYearId = String(nextSy._id);
+                    nextSy = await SchoolYear_1.SchoolYear.findOne({ name: nextName }).lean();
                 }
             }
         }
-        if (!nextSchoolYearId) {
+        if (!nextSy && currentSchoolYearId) {
+            if (!currentSy)
+                currentSy = await SchoolYear_1.SchoolYear.findById(currentSchoolYearId).lean();
+            if (currentSy?.endDate) {
+                nextSy = await SchoolYear_1.SchoolYear.findOne({ startDate: { $gte: currentSy.endDate } }).sort({ startDate: 1 }).lean();
+            }
+            if (!nextSy && currentSy?.startDate) {
+                nextSy = await SchoolYear_1.SchoolYear.findOne({ startDate: { $gt: currentSy.startDate } }).sort({ startDate: 1 }).lean();
+            }
+        }
+        if (!nextSy?._id) {
             return res.status(400).json({ error: 'no_next_year', message: 'Next school year not found' });
         }
+        const nextSchoolYearId = String(nextSy._id);
         // Create Gradebook Snapshot
         if (currentSchoolYearId && enrollment) {
             const statuses = await StudentCompetencyStatus_1.StudentCompetencyStatus.find({ studentId: student._id }).lean();
@@ -666,15 +676,19 @@ exports.subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote',
         }
         // Update Enrollment Status (Destructive Fix)
         if (enrollment) {
-            await Enrollment_1.Enrollment.findByIdAndUpdate(enrollment._id, { status: 'promoted' });
+            if (enrollment.status !== 'promoted') {
+                await Enrollment_1.Enrollment.findByIdAndUpdate(enrollment._id, { status: 'promoted' });
+            }
         }
         // Create new Enrollment for next year
-        await Enrollment_1.Enrollment.create({
-            studentId: student._id,
-            schoolYearId: nextSchoolYearId,
-            status: 'active',
-            // classId is optional
-        });
+        const existingNextEnrollment = await Enrollment_1.Enrollment.findOne({ studentId: String(student._id), schoolYearId: nextSchoolYearId }).lean();
+        if (!existingNextEnrollment) {
+            await Enrollment_1.Enrollment.create({
+                studentId: student._id,
+                schoolYearId: nextSchoolYearId,
+                status: 'active',
+            });
+        }
         // NEW: Create a new template assignment for the next year, copying data from the previous one
         // This ensures the gradebook "follows" the student
         if (assignment) {
@@ -1532,6 +1546,24 @@ exports.subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', (
         assignment.data.signatures = mergedDataSignatures;
         const roleScope = await RoleScope_1.RoleScope.findOne({ userId: subAdminId }).lean();
         const subadminAssignedLevels = roleScope?.levels || [];
+        // Ensure level and className are populated from resolvedClassId or fallback to last known enrollment/student
+        try {
+            if ((!level || !className) && resolvedClassId) {
+                const clsDoc = await Class_1.ClassModel.findById(resolvedClassId).lean();
+                if (clsDoc) {
+                    level = level || clsDoc.level || (student?.level || '');
+                    className = className || clsDoc.name || (student?.className || '');
+                }
+            }
+            if ((!level || !className) && enrollments && enrollments.length > 0) {
+                const lastEnrollment = enrollments[enrollments.length - 1];
+                level = level || lastEnrollment.level || (student?.level || '');
+                className = className || lastEnrollment.className || (student?.className || '');
+            }
+        }
+        catch (err) {
+            console.warn('[/review] Error resolving class info for student:', err);
+        }
         res.json({
             assignment,
             template: versionedTemplate,

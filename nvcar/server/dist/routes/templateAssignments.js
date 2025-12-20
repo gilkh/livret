@@ -15,6 +15,7 @@ exports.templateAssignmentsRouter = (0, express_1.Router)();
 // Admin: Assign template to all students in a level
 exports.templateAssignmentsRouter.post('/bulk-level', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
     try {
+        console.log('[template-assignments] POST /bulk-level', { time: new Date().toISOString(), body: req.body, user: req.user });
         const { templateId, level, schoolYearId } = req.body;
         if (!templateId || !level)
             return res.status(400).json({ error: 'missing_payload' });
@@ -87,6 +88,15 @@ exports.templateAssignmentsRouter.post('/bulk-level', (0, auth_1.requireAuth)(['
                             assignedBy,
                             assignedAt: now,
                             status: 'draft',
+                            completionSchoolYearId: String(targetYearId),
+                            isCompleted: false,
+                            completedAt: null,
+                            completedBy: null,
+                            isCompletedSem1: false,
+                            completedAtSem1: null,
+                            isCompletedSem2: false,
+                            completedAtSem2: null,
+                            teacherCompletions: [],
                         },
                     },
                     upsert: true,
@@ -140,7 +150,7 @@ exports.templateAssignmentsRouter.delete('/bulk-level/:templateId/:level', (0, a
 // Admin: Assign template to student with teachers
 exports.templateAssignmentsRouter.post('/', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
     try {
-        const { templateId, studentId, assignedTeachers } = req.body;
+        const { templateId, studentId, assignedTeachers, schoolYearId } = req.body;
         if (!templateId || !studentId)
             return res.status(400).json({ error: 'missing_payload' });
         // Verify template exists
@@ -172,6 +182,13 @@ exports.templateAssignmentsRouter.post('/', (0, auth_1.requireAuth)(['ADMIN']), 
                 }
             }
         }
+        let targetYearId = schoolYearId;
+        if (!targetYearId) {
+            const activeYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
+            if (!activeYear)
+                return res.status(400).json({ error: 'no_active_year' });
+            targetYearId = String(activeYear._id);
+        }
         // Create or update assignment
         const assignment = await TemplateAssignment_1.TemplateAssignment.findOneAndUpdate({ templateId, studentId }, {
             templateId,
@@ -181,6 +198,15 @@ exports.templateAssignmentsRouter.post('/', (0, auth_1.requireAuth)(['ADMIN']), 
             assignedBy: req.user.userId,
             assignedAt: new Date(),
             status: 'draft',
+            completionSchoolYearId: String(targetYearId),
+            isCompleted: false,
+            completedAt: null,
+            completedBy: null,
+            isCompletedSem1: false,
+            completedAtSem1: null,
+            isCompletedSem2: false,
+            completedAtSem2: null,
+            teacherCompletions: [],
         }, { upsert: true, new: true });
         res.json(assignment);
     }

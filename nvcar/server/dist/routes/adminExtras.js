@@ -1,4 +1,7 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.adminExtrasRouter = void 0;
 const express_1 = require("express");
@@ -19,6 +22,9 @@ const Student_1 = require("../models/Student");
 const AdminSignature_1 = require("../models/AdminSignature");
 const signatureService_1 = require("../services/signatureService");
 const templateUtils_1 = require("../utils/templateUtils");
+const child_process_1 = require("child_process");
+const path_1 = __importDefault(require("path"));
+const promises_1 = __importDefault(require("fs/promises"));
 exports.adminExtrasRouter = (0, express_1.Router)();
 // 1. Progress (All Classes)
 exports.adminExtrasRouter.get('/progress', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
@@ -606,5 +612,105 @@ exports.adminExtrasRouter.get('/templates/:templateAssignmentId/review', (0, aut
     }
     catch (e) {
         res.status(500).json({ error: 'fetch_failed', message: e.message });
+    }
+});
+// --- Server tests: list available test files ---
+exports.adminExtrasRouter.get('/run-tests/list', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
+    try {
+        const cwd = path_1.default.join(__dirname, '..', '..'); // server root
+        const testsDir = path_1.default.join(__dirname, '..', '__tests__');
+        const isTestFile = (f) => f.endsWith('.test.ts') || f.endsWith('.test.js') || f.endsWith('.spec.ts') || f.endsWith('.spec.js');
+        const walk = async (dir) => {
+            const entries = await promises_1.default.readdir(dir, { withFileTypes: true });
+            const out = [];
+            for (const entry of entries) {
+                const full = path_1.default.join(dir, entry.name);
+                if (entry.isDirectory()) {
+                    out.push(...await walk(full));
+                }
+                else if (entry.isFile() && isTestFile(entry.name)) {
+                    const rel = path_1.default.relative(cwd, full).split(path_1.default.sep).join('/');
+                    out.push(rel);
+                }
+            }
+            return out;
+        };
+        const testFiles = await walk(testsDir);
+        testFiles.sort();
+        res.json({ tests: testFiles });
+    }
+    catch (e) {
+        console.error('run-tests/list error', e);
+        res.status(500).json({ error: 'failed' });
+    }
+});
+// --- Server tests: run tests (admin only) ---
+exports.adminExtrasRouter.post('/run-tests', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
+    const { pattern } = req.body || {};
+    try {
+        const cwd = path_1.default.join(__dirname, '..', '..'); // server root
+        const trimmedPattern = typeof pattern === 'string' ? pattern.trim() : '';
+        const shouldPassPattern = !!trimmedPattern;
+        let cmd = 'npx';
+        let cmdArgs = ['jest', '--json', '--runInBand'];
+        try {
+            const jestJsPath = path_1.default.join(cwd, 'node_modules', 'jest', 'bin', 'jest.js');
+            await promises_1.default.access(jestJsPath);
+            cmd = process.execPath;
+            cmdArgs = [jestJsPath, '--json', '--runInBand'];
+        }
+        catch (e) {
+            cmd = 'npx';
+            cmdArgs = ['jest', '--json', '--runInBand'];
+        }
+        if (shouldPassPattern)
+            cmdArgs.push(trimmedPattern);
+        // If we are still set to use 'npx' and it's not available on the system, return 501 with clear message
+        if (cmd === 'npx') {
+            try {
+                const childProc = require('child_process').spawnSync(process.platform === 'win32' ? 'where' : 'which', ['npx']);
+                if (childProc.status !== 0) {
+                    return res.status(501).json({ error: 'npx_not_found', message: 'npx is not available on PATH and local jest binary not found' });
+                }
+            }
+            catch (e) {
+                return res.status(501).json({ error: 'npx_check_failed', message: String(e) });
+            }
+        }
+        let responded = false;
+        const sendJson = (status, body) => {
+            if (responded)
+                return;
+            responded = true;
+            return res.status(status).json(body);
+        };
+        let proc;
+        try {
+            proc = (0, child_process_1.spawn)(cmd, cmdArgs, { cwd, env: { ...process.env, CI: 'true' } });
+        }
+        catch (err) {
+            return sendJson(500, { error: 'spawn_failed', message: String(err), cmd, cmdArgs });
+        }
+        let stdout = '';
+        let stderr = '';
+        proc.stdout?.on('data', (d) => { stdout += String(d); });
+        proc.stderr?.on('data', (d) => { stderr += String(d); });
+        proc.on('error', (err) => {
+            console.error('run-tests spawn error', err);
+            return sendJson(500, { error: 'spawn_failed', message: String(err), cmd, cmdArgs });
+        });
+        proc.on('close', (code) => {
+            try {
+                const parsed = JSON.parse(stdout);
+                return sendJson(200, { ok: true, code, results: parsed, stdout, stderr });
+            }
+            catch (e) {
+                return sendJson(200, { ok: code === 0, code, stdout, stderr, parseError: String(e) });
+            }
+        });
+    }
+    catch (e) {
+        console.error('run-tests error', e);
+        res.status(500).json({ error: 'run_failed', message: e.message });
     }
 });

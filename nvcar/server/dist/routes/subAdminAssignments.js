@@ -55,10 +55,14 @@ exports.subAdminAssignmentsRouter.get('/progress', (0, auth_1.requireAuth)(['SUB
         if (studentIds.length === 0) {
             return res.json([]);
         }
-        // Find completed assignments (Carnet Done)
+        // Find completed assignments (Carnet Done) for active school year
         const completedAssignments = await TemplateAssignment_1.TemplateAssignment.find({
             studentId: { $in: studentIds },
-            isCompleted: true
+            isCompleted: true,
+            $or: [
+                { completionSchoolYearId: String(activeYear._id) },
+                { completionSchoolYearId: { $exists: false }, assignedAt: { $gte: new Date(activeYear.startDate) } }
+            ]
         }).lean();
         const completedStudentIds = new Set(completedAssignments.map(a => a.studentId));
         // Filter students
@@ -416,9 +420,13 @@ exports.subAdminAssignmentsRouter.get('/teacher-progress-detailed', (0, auth_1.r
         const studentIds = enrollments.map(e => e.studentId);
         const students = await Student_1.Student.find({ _id: { $in: studentIds } }).lean();
         const studentMap = new Map(students.map(s => [String(s._id), s]));
-        // Find assignments
+        // Find assignments for active school year
         const assignments = await TemplateAssignment_1.TemplateAssignment.find({
-            studentId: { $in: studentIds }
+            studentId: { $in: studentIds },
+            $or: [
+                { completionSchoolYearId: String(activeYear._id) },
+                { completionSchoolYearId: { $exists: false }, assignedAt: { $gte: new Date(activeYear.startDate) } }
+            ]
         }).lean();
         // Get Templates
         const templateIds = [...new Set(assignments.map(a => a.templateId))];
@@ -602,9 +610,13 @@ exports.subAdminAssignmentsRouter.get('/teacher-progress', (0, auth_1.requireAut
             schoolYearId: String(activeYear._id)
         }).lean();
         const studentIds = enrollments.map(e => e.studentId);
-        // Find assignments
+        // Find assignments for active school year
         const assignments = await TemplateAssignment_1.TemplateAssignment.find({
-            studentId: { $in: studentIds }
+            studentId: { $in: studentIds },
+            $or: [
+                { completionSchoolYearId: String(activeYear._id) },
+                { completionSchoolYearId: { $exists: false }, assignedAt: { $gte: new Date(activeYear.startDate) } }
+            ]
         }).lean();
         // Get Templates and Competencies info
         const templateIds = [...new Set(assignments.map(a => a.templateId))];
