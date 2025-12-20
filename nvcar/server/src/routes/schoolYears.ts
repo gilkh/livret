@@ -64,6 +64,7 @@ schoolYearsRouter.patch('/:id', requireAuth(['ADMIN', 'SUBADMIN']), async (req, 
 
   clearCache('school-years')
   const year = await SchoolYear.findByIdAndUpdate(id, data, { new: true })
+
   res.json(year)
 })
 

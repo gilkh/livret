@@ -189,25 +189,49 @@ export const signTemplateAssignment = async ({
     })
 
     // Persist signature metadata in assignment data
+    let assignmentDoc: any = null
     {
         const now = new Date()
 
         const { schoolYearId, schoolYearName } = await resolveSignatureSchoolYear(activeYear, type, now)
-        await TemplateAssignment.findByIdAndUpdate(templateAssignmentId, {
-            $push: {
-                'data.signatures': {
-                    type,
-                    signedAt: now,
-                    subAdminId: signerId,
-                    schoolYearId,
-                    schoolYearName,
-                    level
+        // Ensure assignment data.signatures exists and persist signature metadata
+        assignmentDoc = await TemplateAssignment.findById(templateAssignmentId)
+        if (assignmentDoc) {
+            const data: any = assignmentDoc.data || {}
+            data.signatures = data.signatures || []
+            data.signatures.push({
+                type,
+                signedAt: now,
+                subAdminId: signerId,
+                schoolYearId,
+                schoolYearName,
+                level
+            })
+            assignmentDoc.data = data
+            assignmentDoc.markModified('data')
+            await assignmentDoc.save()
+        } else {
+            // Fallback to atomic update
+            await TemplateAssignment.findByIdAndUpdate(templateAssignmentId, {
+                $push: {
+                    'data.signatures': {
+                        type,
+                        signedAt: now,
+                        subAdminId: signerId,
+                        schoolYearId,
+                        schoolYearName,
+                        level
+                    }
                 }
-            }
-        })
+            })
+        }
     }
 
     if (assignment.status !== 'signed') {
+        // Ensure we don't overwrite data.signatures when saving assignment
+        if (assignmentDoc) {
+            (assignment as any).data = (assignmentDoc as any).data
+        }
         assignment.status = 'signed'
         await assignment.save()
     }

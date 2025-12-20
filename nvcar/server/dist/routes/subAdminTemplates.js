@@ -1790,6 +1790,11 @@ exports.subAdminTemplatesRouter.patch('/templates/:assignmentId/data', (0, auth_
         if (!authorized) {
             return res.status(403).json({ error: 'not_authorized' });
         }
+        // Prevent AEFE/RPP users from making direct edits here — they can only make suggestions
+        const userRole = req.user.role;
+        if (userRole === 'AEFE') {
+            return res.status(403).json({ error: 'not_authorized_to_edit', message: 'AEFE users may only suggest changes' });
+        }
         if (type === 'language_toggle') {
             if (pageIndex === undefined || blockIndex === undefined || !items) {
                 return res.status(400).json({ error: 'missing_payload' });

@@ -16,6 +16,9 @@ import { Student } from '../models/Student'
 import { AdminSignature } from '../models/AdminSignature'
 import { signTemplateAssignment, unsignTemplateAssignment } from '../services/signatureService'
 import { mergeAssignmentDataIntoTemplate } from '../utils/templateUtils'
+import { spawn } from 'child_process'
+import path from 'path'
+import fs from 'fs/promises'
 
 export const adminExtrasRouter = Router()
 
@@ -661,5 +664,78 @@ adminExtrasRouter.get('/templates/:templateAssignmentId/review', requireAuth(['A
         })
     } catch (e: any) {
         res.status(500).json({ error: 'fetch_failed', message: e.message })
+    }
+})
+
+// --- Server tests: list available test files ---
+adminExtrasRouter.get('/run-tests/list', requireAuth(['ADMIN']), async (req, res) => {
+    try {
+        const testsDir = path.join(__dirname, '..', '__tests__')
+        const files = await fs.readdir(testsDir)
+        const testFiles = files.filter((f: string) => f.endsWith('.test.ts') || f.endsWith('.test.js') || f.endsWith('.spec.ts') || f.endsWith('.spec.js'))
+        res.json({ tests: testFiles })
+    } catch (e: any) {
+        console.error('run-tests/list error', e)
+        res.status(500).json({ error: 'failed' })
+    }
+})
+
+// --- Server tests: run tests (admin only) ---
+adminExtrasRouter.post('/run-tests', requireAuth(['ADMIN']), async (req, res) => {
+    const { pattern } = req.body || {}
+    try {
+        const args = ['jest', '--json', '--runInBand']
+        if (pattern && typeof pattern === 'string' && pattern.trim()) args.push(pattern)
+
+        const cwd = path.join(__dirname, '..', '..') // server root
+        // Try to prefer local node_modules binary if available, otherwise fallback to npx
+        let cmd = 'npx'
+        let cmdArgs = args
+        try {
+            const jestPath = path.join(cwd, 'node_modules', '.bin', process.platform === 'win32' ? 'jest.cmd' : 'jest')
+            await fs.access(jestPath)
+            cmd = jestPath
+            cmdArgs = ['--json', '--runInBand']
+            if (pattern && typeof pattern === 'string' && pattern.trim()) cmdArgs.push(pattern)
+        } catch (e) {
+            // fallback stays as npx with args
+        }
+
+        // If we are still set to use 'npx' and it's not available on the system, return 501 with clear message
+        if (cmd === 'npx') {
+            try {
+                const childProc = require('child_process').spawnSync(process.platform === 'win32' ? 'where' : 'which', ['npx'])
+                if (childProc.status !== 0) {
+                    return res.status(501).json({ error: 'npx_not_found', message: 'npx is not available on PATH and local jest binary not found' })
+                }
+            } catch (e) {
+                return res.status(501).json({ error: 'npx_check_failed', message: String(e) })
+            }
+        }
+
+        const proc = spawn(cmd, cmdArgs, { cwd, env: { ...process.env, CI: 'true' } })
+        let stdout = ''
+        let stderr = ''
+
+        proc.stdout.on('data', (d) => { stdout += String(d) })
+        proc.stderr.on('data', (d) => { stderr += String(d) })
+
+        proc.on('error', (err) => {
+            console.error('run-tests spawn error', err)
+            // return a helpful error to client
+            return res.status(500).json({ error: 'spawn_failed', message: String(err) })
+        })
+
+        proc.on('close', (code) => {
+            try {
+                const parsed = JSON.parse(stdout)
+                return res.json({ ok: true, code, results: parsed, stdout, stderr })
+            } catch (e: any) {
+                return res.json({ ok: code === 0, code, stdout, stderr, parseError: String(e) })
+            }
+        })
+    } catch (e: any) {
+        console.error('run-tests error', e)
+        res.status(500).json({ error: 'run_failed', message: e.message })
     }
 })

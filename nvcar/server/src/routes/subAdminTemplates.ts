@@ -622,6 +622,8 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote', require
             return res.status(403).json({ error: 'not_authorized' })
         }
 
+        const activeSchoolYear = await SchoolYear.findOne({ active: true }).lean()
+
         const student = await Student.findById(assignment.studentId)
         if (!student) return res.status(404).json({ error: 'student_not_found' })
 
@@ -629,19 +631,20 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote', require
         // Handle missing status field by treating it as active
         const enrollment = await Enrollment.findOne({
             studentId: assignment.studentId,
-            $or: [{ status: 'active' }, { status: { $exists: false } }]
+            ...(activeSchoolYear ? { schoolYearId: String(activeSchoolYear._id) } : {}),
+            $or: [{ status: 'active' }, { status: 'promoted' }, { status: { $exists: false } }]
         }).lean()
-        let yearName = new Date().getFullYear().toString()
+        let yearName = activeSchoolYear?.name || new Date().getFullYear().toString()
         let currentLevel = student.level || ''
-        let currentSchoolYearId = ''
-        let currentSchoolYearSequence = 0
+        let currentSchoolYearId = activeSchoolYear ? String(activeSchoolYear._id) : ''
+        let currentSchoolYearSequence = activeSchoolYear?.sequence || 0
 
         if (enrollment) {
             if (enrollment.classId) {
                 const cls = await ClassModel.findById(enrollment.classId).lean()
                 if (cls) {
                     currentLevel = cls.level || ''
-                    currentSchoolYearId = cls.schoolYearId
+                    if (!currentSchoolYearId) currentSchoolYearId = cls.schoolYearId
                 }
             }
 
@@ -653,8 +656,8 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote', require
             if (currentSchoolYearId) {
                 const sy = await SchoolYear.findById(currentSchoolYearId).lean()
                 if (sy) {
-                    yearName = sy.name
-                    currentSchoolYearSequence = sy.sequence || 0
+                    yearName = sy.name || yearName
+                    if (!currentSchoolYearSequence) currentSchoolYearSequence = sy.sequence || 0
                 }
             }
         }
@@ -687,17 +690,14 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote', require
         if (!calculatedNextLevel) return res.status(400).json({ error: 'cannot_determine_next_level' })
 
         // Find next school year by sequence
-        let nextSchoolYearId = ''
+        let nextSy: any = null
         if (currentSchoolYearSequence > 0) {
-            const nextSy = await SchoolYear.findOne({ sequence: currentSchoolYearSequence + 1 }).lean()
-            if (nextSy) {
-                nextSchoolYearId = String(nextSy._id)
-            }
+            nextSy = await SchoolYear.findOne({ sequence: currentSchoolYearSequence + 1 }).lean()
         }
 
-        if (!nextSchoolYearId && currentSchoolYearId) {
-            // Fallback to old logic if sequence is missing (shouldn't happen after migration)
-            const currentSy = await SchoolYear.findById(currentSchoolYearId).lean()
+        let currentSy: any = null
+        if (!nextSy && currentSchoolYearId) {
+            currentSy = await SchoolYear.findById(currentSchoolYearId).lean()
             if (currentSy && currentSy.name) {
                 const match = currentSy.name.match(/(\d{4})([-/.])(\d{4})/)
                 if (match) {
@@ -705,15 +705,25 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote', require
                     const separator = match[2]
                     const endYear = parseInt(match[3])
                     const nextName = `${startYear + 1}${separator}${endYear + 1}`
-                    const nextSy = await SchoolYear.findOne({ name: nextName }).lean()
-                    if (nextSy) nextSchoolYearId = String(nextSy._id)
+                    nextSy = await SchoolYear.findOne({ name: nextName }).lean()
                 }
             }
         }
 
-        if (!nextSchoolYearId) {
+        if (!nextSy && currentSchoolYearId) {
+            if (!currentSy) currentSy = await SchoolYear.findById(currentSchoolYearId).lean()
+            if (currentSy?.endDate) {
+                nextSy = await SchoolYear.findOne({ startDate: { $gte: currentSy.endDate } }).sort({ startDate: 1 }).lean()
+            }
+            if (!nextSy && currentSy?.startDate) {
+                nextSy = await SchoolYear.findOne({ startDate: { $gt: currentSy.startDate } }).sort({ startDate: 1 }).lean()
+            }
+        }
+
+        if (!nextSy?._id) {
             return res.status(400).json({ error: 'no_next_year', message: 'Next school year not found' })
         }
+        const nextSchoolYearId = String(nextSy._id)
 
         // Create Gradebook Snapshot
         if (currentSchoolYearId && enrollment) {
@@ -746,16 +756,20 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote', require
 
         // Update Enrollment Status (Destructive Fix)
         if (enrollment) {
-            await Enrollment.findByIdAndUpdate(enrollment._id, { status: 'promoted' })
+            if (enrollment.status !== 'promoted') {
+                await Enrollment.findByIdAndUpdate(enrollment._id, { status: 'promoted' })
+            }
         }
 
         // Create new Enrollment for next year
-        await Enrollment.create({
-            studentId: student._id,
-            schoolYearId: nextSchoolYearId,
-            status: 'active',
-            // classId is optional
-        })
+        const existingNextEnrollment = await Enrollment.findOne({ studentId: String(student._id), schoolYearId: nextSchoolYearId }).lean()
+        if (!existingNextEnrollment) {
+            await Enrollment.create({
+                studentId: student._id,
+                schoolYearId: nextSchoolYearId,
+                status: 'active',
+            })
+        }
 
         // NEW: Create a new template assignment for the next year, copying data from the previous one
         // This ensures the gradebook "follows" the student
@@ -1698,6 +1712,25 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
         const roleScope = await RoleScope.findOne({ userId: subAdminId }).lean()
         const subadminAssignedLevels = roleScope?.levels || []
 
+        // Ensure level and className are populated from resolvedClassId or fallback to last known enrollment/student
+        try {
+            if ((!level || !className) && resolvedClassId) {
+                const clsDoc = await ClassModel.findById(resolvedClassId).lean()
+                if (clsDoc) {
+                    level = level || (clsDoc as any).level || ((student as any)?.level || '')
+                    className = className || (clsDoc as any).name || ((student as any)?.className || '')
+                }
+            }
+
+            if ((!level || !className) && enrollments && enrollments.length > 0) {
+                const lastEnrollment = enrollments[enrollments.length - 1]
+                level = level || (lastEnrollment as any).level || ((student as any)?.level || '')
+                className = className || (lastEnrollment as any).className || ((student as any)?.className || '')
+            }
+        } catch (err) {
+            console.warn('[/review] Error resolving class info for student:', err)
+        }
+
         res.json({
             assignment,
             template: versionedTemplate,
@@ -1992,6 +2025,12 @@ subAdminTemplatesRouter.patch('/templates/:assignmentId/data', requireAuth(['SUB
 
         if (!authorized) {
             return res.status(403).json({ error: 'not_authorized' })
+        }
+
+        // Prevent AEFE/RPP users from making direct edits here — they can only make suggestions
+        const userRole = (req as any).user.role
+        if (userRole === 'AEFE') {
+            return res.status(403).json({ error: 'not_authorized_to_edit', message: 'AEFE users may only suggest changes' })
         }
 
         if (type === 'language_toggle') {

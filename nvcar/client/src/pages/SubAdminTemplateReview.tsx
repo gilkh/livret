@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import api from '../api'
 import { useSocket } from '../context/SocketContext'
@@ -83,6 +83,9 @@ export default function SubAdminTemplateReview() {
     const [activeSemester, setActiveSemester] = useState<number>(1)
     const [eligibleForSign, setEligibleForSign] = useState<boolean>(false)
 
+    // AEFE-only UI state: toggle to enable suggestion mode (they can only suggest, not edit)
+    const [suggestMode, setSuggestMode] = useState<boolean>(false)
+
     const [promoting, setPromoting] = useState(false)
     const [canEdit, setCanEdit] = useState(false)
     const [editMode, setEditMode] = useState(false)
@@ -90,6 +93,7 @@ export default function SubAdminTemplateReview() {
     const [subadminAssignedLevels, setSubadminAssignedLevels] = useState<string[]>([])
     const [zoomLevel, setZoomLevel] = useState(1)
     const [isFitToScreen, setIsFitToScreen] = useState(false)
+    const containerRef = useRef<HTMLDivElement | null>(null)
 
     // UI State
     const [toast, setToast] = useState<{ message: string, type: ToastType } | null>(null)
@@ -113,8 +117,11 @@ export default function SubAdminTemplateReview() {
         const handleResize = () => {
             if (isFitToScreen) {
                 // 48px is approx padding/margins. Adjust if necessary.
-                // We want to fit 800px into the window width.
-                const availableWidth = window.innerWidth - 48
+                // Prefer measuring the actual container width instead of the full window,
+                // because the viewer may be embedded inside a narrower pane (gradebooks view).
+                const availableWidth = containerRef.current
+                    ? Math.max(0, containerRef.current.clientWidth - 48)
+                    : window.innerWidth - 48
                 const scale = Math.min(1, availableWidth / pageWidth)
                 setZoomLevel(scale)
             }
@@ -715,6 +722,38 @@ export default function SubAdminTemplateReview() {
                             </div>
                         </div>
                     )}
+
+                    {isAefeUser && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ fontSize: 14, fontWeight: 500, color: suggestMode ? '#f59e0b' : '#64748b' }}>
+                                {suggestMode ? 'Mode Suggestion' : 'Suggérer des modifications'}
+                            </span>
+                            <div
+                                onClick={() => setSuggestMode(!suggestMode)}
+                                style={{
+                                    width: 48,
+                                    height: 24,
+                                    background: suggestMode ? '#f59e0b' : '#cbd5e1',
+                                    borderRadius: 12,
+                                    position: 'relative',
+                                    cursor: 'pointer',
+                                    transition: 'background 0.3s ease'
+                                }}
+                            >
+                                <div style={{
+                                    width: 20,
+                                    height: 20,
+                                    background: 'white',
+                                    borderRadius: '50%',
+                                    position: 'absolute',
+                                    top: 2,
+                                    left: suggestMode ? 26 : 2,
+                                    transition: 'left 0.3s ease',
+                                    boxShadow: '0 1px 3px rgba(0,0,0,0.2)'
+                                }} />
+                            </div>
+                        </div>
+                    )}
                 </div>
                 <div style={{
                     marginTop: 14,
@@ -762,9 +801,6 @@ export default function SubAdminTemplateReview() {
                             }}>
                                 Semestre {activeSemester}
                             </div>
-                        </div>
-                        <div style={{ marginTop: 8, fontSize: 12, color: '#64748b' }}>
-                            Avancement enseignants (carnet)
                         </div>
                     </div>
                     <div style={{ flex: '2 1 520px', display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'stretch' }}>
@@ -997,7 +1033,7 @@ export default function SubAdminTemplateReview() {
                     </div>
                 </div>
 
-                <div style={{ 
+                <div ref={containerRef} style={{ 
                     display: 'flex', 
                     flexDirection: 'column', 
                     gap: 24, 
@@ -1044,7 +1080,7 @@ export default function SubAdminTemplateReview() {
                                         {b.type === 'text' && (
                                             <div style={{ position: 'relative' }}>
                                                 <div style={{ color: b.props.color, fontSize: b.props.fontSize }}>{b.props.text}</div>
-                                                {editMode && canEdit && (
+                                                {((editMode && canEdit) || (isAefeUser && suggestMode)) && (
                                                     <div
                                                         onClick={(e) => {
                                                             e.stopPropagation()
@@ -1075,7 +1111,7 @@ export default function SubAdminTemplateReview() {
                                                     >
                                                         ✎
                                                     </div>
-                                                )}
+                                                )}  
                                             </div>
                                         )}
                                         {b.type === 'language_toggle_v2' && (
@@ -1242,7 +1278,7 @@ export default function SubAdminTemplateReview() {
                                                     opacity: isDropdownAllowed ? 1 : 0.5,
                                                     pointerEvents: isDropdownAllowed ? 'auto' : 'none'
                                                 }}>
-                                                    {editMode && canEdit && (
+                                                    {((editMode && canEdit) || (isAefeUser && suggestMode)) && (
                                                         <div
                                                             onClick={(e) => {
                                                                 e.stopPropagation()
@@ -1274,7 +1310,7 @@ export default function SubAdminTemplateReview() {
                                                         >
                                                             ✎
                                                         </div>
-                                                    )}
+                                                    )}  
                                                     <div style={{ fontSize: 10, fontWeight: 'bold', color: '#6c5ce7', marginBottom: 2 }}>Dropdown #{b.props.dropdownNumber || '?'}</div>
                                                     {b.props.label && <div style={{ fontSize: 10, color: '#666', marginBottom: 2 }}>{b.props.label}</div>}
                                                     <div
@@ -1377,7 +1413,7 @@ export default function SubAdminTemplateReview() {
                                                                     onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}
                                                                 >
                                                                     <span>{opt}</span>
-                                                                    {editMode && canEdit && (
+                                                                    {((editMode && canEdit) || (isAefeUser && suggestMode)) && (
                                                                         <div
                                                                             onClick={(e) => {
                                                                                 e.stopPropagation()
@@ -1407,7 +1443,7 @@ export default function SubAdminTemplateReview() {
                                                                         >
                                                                             ✎
                                                                         </div>
-                                                                    )}
+                                                                    )} 
                                                                 </div>
                                                             ))}
                                                         </div>

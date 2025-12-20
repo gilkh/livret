@@ -39,7 +39,9 @@ export default defineConfig({
           )) {
             return null
           }
-          if (req.headers.accept && req.headers.accept.includes('text/html')) {
+          // Only bypass for GET navigation requests that accept text/html. This avoids treating POST/PUT/DELETE
+          // requests (which sometimes include 'text/html' in the Accept header) as static file lookups that return 404.
+          if (req.method === 'GET' && req.headers.accept && req.headers.accept.includes('text/html')) {
             return req.url
           }
         }

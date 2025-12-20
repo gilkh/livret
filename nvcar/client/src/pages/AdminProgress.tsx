@@ -1,17 +1,7 @@
 import { useEffect, useState } from 'react'
 import api from '../api'
-import { 
-    BarChart, 
-    Bar, 
-    XAxis, 
-    YAxis, 
-    CartesianGrid, 
-    Tooltip, 
-    ResponsiveContainer,
-    PieChart, 
-    Pie, 
-    Cell
-} from 'recharts'
+import './AdminProgress.css'
+import ProgressSection from '../components/ProgressSection' 
 
 type CategoryProgress = {
     name: string
@@ -42,100 +32,7 @@ type ClassProgress = {
     }
 }
 
-const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d'];
-
-const ProgressSection = ({ title, subtitle, progress, byCategory, color = '#fff', compact = false }: any) => (
-    <div style={{ 
-        background: color, 
-        borderRadius: compact ? 10 : 12, 
-        border: '1px solid #e2e8f0',
-        padding: compact ? 16 : 24,
-        boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
-    }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: compact ? 12 : 24 }}>
-            <div>
-                <h4 style={{ fontSize: compact ? 16 : 20, fontWeight: 600, color: '#0f172a', margin: 0 }}>{title}</h4>
-                {subtitle && <div style={{ color: '#64748b', fontSize: compact ? 13 : 15, marginTop: 4 }}>{subtitle}</div>}
-            </div>
-        </div>
-
-        <div style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: compact ? 16 : 32 }}>
-            {/* Global Progress Pie Chart */}
-            <div style={{ flex: compact ? '0 0 180px' : '0 0 250px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                <h5 style={{ fontSize: compact ? 13 : 16, fontWeight: 600, color: '#475569', marginBottom: compact ? 8 : 12 }}>Progression Globale</h5>
-                <div style={{ width: compact ? 140 : 200, height: compact ? 140 : 200, position: 'relative' }}>
-                    <ResponsiveContainer width="100%" height="100%">
-                        <PieChart>
-                            <Pie
-                                data={[
-                                    { name: 'Rempli', value: progress.filled },
-                                    { name: 'Restant', value: progress.total - progress.filled }
-                                ]}
-                                cx="50%"
-                                cy="50%"
-                                innerRadius={compact ? 42 : 60}
-                                outerRadius={compact ? 58 : 80}
-                                fill="#8884d8"
-                                paddingAngle={5}
-                                dataKey="value"
-                            >
-                                <Cell key="filled" fill="#22c55e" />
-                                <Cell key="remaining" fill="#e2e8f0" />
-                            </Pie>
-                            <Tooltip />
-                        </PieChart>
-                    </ResponsiveContainer>
-                    <div style={{ 
-                        position: 'absolute', 
-                        top: '50%', 
-                        left: '50%', 
-                        transform: 'translate(-50%, -50%)',
-                        textAlign: 'center'
-                    }}>
-                        <div style={{ fontSize: compact ? 18 : 24, fontWeight: 700, color: '#0f172a' }}>{progress.percentage}%</div>
-                        <div style={{ fontSize: compact ? 11 : 12, color: '#64748b' }}>complété</div>
-                    </div>
-                </div>
-            </div>
-
-            {/* Category Progress Bar Chart */}
-            <div style={{ flex: 1, minWidth: compact ? 260 : 300 }}>
-                <h5 style={{ fontSize: compact ? 13 : 16, fontWeight: 600, color: '#475569', marginBottom: compact ? 8 : 12 }}>Par Domaine / Langue</h5>
-                <div style={{ width: '100%', height: compact ? 160 : 250 }}>
-                    <ResponsiveContainer width="100%" height="100%">
-                        <BarChart
-                            data={byCategory}
-                            layout="vertical"
-                            margin={{ top: 5, right: 18, left: compact ? 18 : 40, bottom: 5 }}
-                        >
-                            <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-                            <XAxis type="number" domain={[0, 100]} unit="%" />
-                            <YAxis 
-                                dataKey="name" 
-                                type="category" 
-                                width={compact ? 80 : 100} 
-                                tick={{ fontSize: compact ? 11 : 12 }}
-                            />
-                            <Tooltip 
-                                formatter={(value: number, name: string, props: any) => {
-                                    const data = props.payload;
-                                    return [`${data.filled}/${data.total} (${value}%)`, 'Progression']
-                                }}
-                                contentStyle={{ borderRadius: 8, border: 'none', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}
-                            />
-                            <Bar dataKey="percentage" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={compact ? 12 : 20}>
-                                {byCategory.map((entry: any, index: number) => (
-                                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                                ))}
-                            </Bar>
-                        </BarChart>
-                    </ResponsiveContainer>
-                </div>
-            </div>
-        </div>
-    </div>
-)
-
+// ProgressSection extracted to components/ProgressSection.tsx (keeps behavior and adds accessibility)
 type SubAdminProgress = {
     subAdminId: string
     displayName: string
@@ -152,6 +49,21 @@ export default function AdminProgress() {
     const [subAdmins, setSubAdmins] = useState<SubAdminProgress[]>([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState('')
+
+    // UI state: filters & sorting
+    const [searchQuery, setSearchQuery] = useState('')
+    const [levelFilter, setLevelFilter] = useState('all')
+    const [sortBy, setSortBy] = useState('className')
+
+    const filteredClasses = classes
+      .filter(c => (levelFilter === 'all' || c.level === levelFilter) && c.className.toLowerCase().includes(searchQuery.toLowerCase()))
+      .sort((a, b) => {
+        if (sortBy === 'progress_desc') return b.progress.percentage - a.progress.percentage
+        if (sortBy === 'progress_asc') return a.progress.percentage - b.progress.percentage
+        return a.className.localeCompare(b.className)
+      })
+
+    const filteredSubAdmins = subAdmins.filter(sa => levelFilter === 'all' || sa.assignedLevels.includes(levelFilter))
 
     useEffect(() => {
         const loadData = async () => {
@@ -177,6 +89,11 @@ export default function AdminProgress() {
     }, {} as Record<string, ClassProgress[]>)
 
     const sortedLevels = Object.keys(groupedByLevel).sort()
+
+    const levelsToShow = levelFilter === 'all' ? sortedLevels : sortedLevels.filter(l => l === levelFilter)
+
+    // Helper: clear filters
+    const clearFilters = () => { setSearchQuery(''); setLevelFilter('all'); setSortBy('className') }
 
     const getLevelStats = (levelClasses: ClassProgress[]) => {
         const stats = {
@@ -214,9 +131,40 @@ export default function AdminProgress() {
     return (
         <div className="container">
             <div className="card" style={{ maxWidth: 1400, margin: '0 auto' }}>
-                <h2 className="title" style={{ fontSize: 28, marginBottom: 20, color: '#1e293b' }}>
+                <h2 className="title" style={{ fontSize: 28, marginBottom: 12, color: '#1e293b' }}>
                     📈 Suivi Global des Classes
                 </h2>
+
+                {/* Filter / Controls */}
+                <div className="filter-bar" style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
+                    <input
+                        className="search-input"
+                        aria-label="Rechercher une classe"
+                        placeholder="Rechercher une classe..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #e2e8f0', minWidth: 220 }}
+                    />
+
+                    <select aria-label="Filtrer par niveau" value={levelFilter} onChange={(e) => setLevelFilter(e.target.value)} style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #e2e8f0' }}>
+                        <option value="all">Tous niveaux</option>
+                        {sortedLevels.map(lv => <option key={lv} value={lv}>{lv}</option>)}
+                    </select>
+
+                    <select aria-label="Trier" value={sortBy} onChange={(e) => setSortBy(e.target.value)} style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #e2e8f0' }}>
+                        <option value="className">Trier: Nom</option>
+                        <option value="progress_desc">Trier: Progression desc.</option>
+                        <option value="progress_asc">Trier: Progression asc.</option>
+                    </select>
+
+                    <button className="btn-clear" onClick={clearFilters} style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff' }}>
+                        Réinitialiser
+                    </button>
+                </div>
+
+                <div style={{ marginBottom: 12, color: '#475569', fontSize: 13 }}>
+                    <strong>{filteredClasses.length}</strong> classes affichées • <strong>{filteredSubAdmins.length}</strong> sous-admins
+                </div>
 
                 {loading && <div className="note" style={{ textAlign: 'center', padding: 24 }}>Chargement...</div>}
                 {error && <div className="note" style={{ color: '#dc2626', background: '#fef2f2', padding: 12, borderRadius: 8, border: '1px solid #fecaca' }}>{error}</div>}
@@ -243,7 +191,7 @@ export default function AdminProgress() {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {classes.sort((a, b) => a.className.localeCompare(b.className)).map(cls => {
+                                    {filteredClasses.map(cls => {
                                         const check = cls.teachersCheck || { 
                                             polyvalent: [], english: [], arabic: [], 
                                             hasPolyvalent: false, hasEnglish: false, hasArabic: false 
@@ -278,7 +226,7 @@ export default function AdminProgress() {
 
                 {!loading && !error && classes.length > 0 && (
                     <div>
-                        {sortedLevels.map(level => {
+                        {levelsToShow.map(level => {
                             const levelClasses = groupedByLevel[level]
                             const levelStats = getLevelStats(levelClasses)
                             
@@ -313,7 +261,7 @@ export default function AdminProgress() {
 
                                     {/* Classes Grid */}
                                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 16 }}>
-                                        {levelClasses.map(cls => (
+                                        {levelClasses.filter(c => c.className.toLowerCase().includes(searchQuery.toLowerCase())).map(cls => (
                                             <ProgressSection 
                                                 key={cls.classId}
                                                 title={cls.className}
@@ -337,7 +285,7 @@ export default function AdminProgress() {
                             👥 Suivi des Sous-Administrateurs
                         </h2>
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
-                            {subAdmins.map(sa => (
+                            {filteredSubAdmins.map(sa => (
                                 <div key={sa.subAdminId} style={{ 
                                     background: '#fff', 
                                     borderRadius: 10, 

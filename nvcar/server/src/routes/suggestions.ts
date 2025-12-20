@@ -21,8 +21,8 @@ const findBlockById = (pages: any[], blockId: string) => {
     return null
 }
 
-// Create a suggestion (SubAdmin)
-suggestionsRouter.post('/', requireAuth(['SUBADMIN']), async (req, res) => {
+// Create a suggestion (SubAdmin or RPP/AEFE)
+suggestionsRouter.post('/', requireAuth(['SUBADMIN', 'AEFE']), async (req, res) => {
     try {
         const {
             type = 'template_edit',

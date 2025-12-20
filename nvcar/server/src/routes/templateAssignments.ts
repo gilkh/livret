@@ -14,6 +14,7 @@ export const templateAssignmentsRouter = Router()
 // Admin: Assign template to all students in a level
 templateAssignmentsRouter.post('/bulk-level', requireAuth(['ADMIN']), async (req, res) => {
     try {
+        console.log('[template-assignments] POST /bulk-level', { time: new Date().toISOString(), body: req.body, user: (req as any).user })
         const { templateId, level, schoolYearId } = req.body
         if (!templateId || !level) return res.status(400).json({ error: 'missing_payload' })
 
@@ -90,6 +91,15 @@ templateAssignmentsRouter.post('/bulk-level', requireAuth(['ADMIN']), async (req
                             assignedBy,
                             assignedAt: now,
                             status: 'draft',
+                            completionSchoolYearId: String(targetYearId),
+                            isCompleted: false,
+                            completedAt: null,
+                            completedBy: null,
+                            isCompletedSem1: false,
+                            completedAtSem1: null,
+                            isCompletedSem2: false,
+                            completedAtSem2: null,
+                            teacherCompletions: [],
                         },
                     },
                     upsert: true,
@@ -148,7 +158,7 @@ templateAssignmentsRouter.delete('/bulk-level/:templateId/:level', requireAuth([
 // Admin: Assign template to student with teachers
 templateAssignmentsRouter.post('/', requireAuth(['ADMIN']), async (req, res) => {
     try {
-        const { templateId, studentId, assignedTeachers } = req.body
+        const { templateId, studentId, assignedTeachers, schoolYearId } = req.body
         if (!templateId || !studentId) return res.status(400).json({ error: 'missing_payload' })
 
         // Verify template exists
@@ -183,6 +193,13 @@ templateAssignmentsRouter.post('/', requireAuth(['ADMIN']), async (req, res) => 
             }
         }
 
+        let targetYearId = schoolYearId
+        if (!targetYearId) {
+            const activeYear = await SchoolYear.findOne({ active: true }).lean()
+            if (!activeYear) return res.status(400).json({ error: 'no_active_year' })
+            targetYearId = String(activeYear._id)
+        }
+
         // Create or update assignment
         const assignment = await TemplateAssignment.findOneAndUpdate(
             { templateId, studentId },
@@ -194,6 +211,15 @@ templateAssignmentsRouter.post('/', requireAuth(['ADMIN']), async (req, res) => 
                 assignedBy: (req as any).user.userId,
                 assignedAt: new Date(),
                 status: 'draft',
+                completionSchoolYearId: String(targetYearId),
+                isCompleted: false,
+                completedAt: null,
+                completedBy: null,
+                isCompletedSem1: false,
+                completedAtSem1: null,
+                isCompletedSem2: false,
+                completedAtSem2: null,
+                teacherCompletions: [],
             },
             { upsert: true, new: true }
         )

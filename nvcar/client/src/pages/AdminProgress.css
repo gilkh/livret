@@ -1,0 +1,5 @@
+.filter-bar { display:flex; gap:12px; align-items:center; margin-bottom:16px; flex-wrap:wrap; }
+.search-input { min-width:200px; padding:8px 12px; border-radius:8px; border:1px solid #e2e8f0 }
+.btn-clear { background:#fff; border-radius:8px; border:1px solid #e2e8f0; padding:8px 12px }
+.note { background:#fff; padding:12px; border-radius:8px }
+@media (max-width: 640px){ .filter-bar { flex-direction: column; align-items: stretch } .search-input{ width:100% } }

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../api'
+import { useSocket } from '../context/SocketContext'
 import './AdminMonitoring.css'
 
 type SystemStatus = {
@@ -43,6 +44,19 @@ type SystemAlert = {
     expiresAt?: string
 }
 
+type DiagnosticMode = 'core' | 'extended'
+
+type DiagnosticStatus = 'idle' | 'running' | 'pass' | 'fail'
+
+type DiagnosticResult = {
+    id: string
+    name: string
+    status: DiagnosticStatus
+    durationMs?: number
+    message?: string
+    detail?: string
+}
+
 const formatDuration = (seconds: number) => {
     if (!isFinite(seconds) || seconds <= 0) return '0m'
     const s = Math.floor(seconds)
@@ -66,8 +80,105 @@ const formatBytes = (bytes: number) => {
     return `${n.toFixed(i === 0 ? 0 : 1)} ${units[i]}`
 }
 
+const formatMs = (ms?: number) => {
+    if (!ms || !isFinite(ms)) return '—'
+    if (ms < 1000) return `${Math.round(ms)}ms`
+    return `${(ms / 1000).toFixed(2)}s`
+}
+
+const errorToMessage = (e: any) => {
+    const httpStatus = e?.response?.status
+    const apiError = e?.response?.data?.error
+    const apiMessage = e?.response?.data?.message
+    const rawMessage = e?.message
+    const pieces = [
+        typeof httpStatus === 'number' ? `HTTP ${httpStatus}` : null,
+        apiError ? String(apiError) : null,
+        apiMessage ? String(apiMessage) : null,
+        rawMessage ? String(rawMessage) : null,
+    ].filter(Boolean)
+    if (pieces.length) return pieces.join(' - ')
+    try {
+        return JSON.stringify(e)
+    } catch {
+        return String(e)
+    }
+}
+
+const DiagnosticsPanel = ({
+    mode,
+    setMode,
+    running,
+    results,
+    summary,
+    lastRunLabel,
+    onRun,
+    onReset,
+}: {
+    mode: DiagnosticMode
+    setMode: (m: DiagnosticMode) => void
+    running: boolean
+    results: DiagnosticResult[]
+    summary: { total: number; passed: number; failed: number; running: number }
+    lastRunLabel: string
+    onRun: () => void
+    onReset: () => void
+}) => {
+    return (
+        <div className="diag-root">
+            <div className="diag-top">
+                <div className="diag-summary">
+                    <div className="diag-summary-line">
+                        <span className="diag-summary-count">{summary.passed}</span> / {summary.total} OK
+                        {summary.failed > 0 && <> · <span className="diag-summary-fail">{summary.failed} KO</span></>}
+                        {summary.running > 0 && <> · <span className="diag-summary-running">{summary.running} en cours</span></>}
+                    </div>
+                    <div className="diag-last-run">{lastRunLabel}</div>
+                </div>
+
+                <div className="diag-actions">
+                    <button
+                        className="btn secondary"
+                        disabled={running}
+                        onClick={() => setMode(mode === 'core' ? 'extended' : 'core')}
+                        style={{ padding: '6px 12px', fontSize: 14 }}
+                    >
+                        {mode === 'core' ? 'Mode: Essentiel' : 'Mode: Complet'}
+                    </button>
+                    <button className="btn secondary" disabled={running} onClick={onReset} style={{ padding: '6px 12px', fontSize: 14 }}>
+                        Réinitialiser
+                    </button>
+                    <button className="btn primary" disabled={running} onClick={onRun} style={{ padding: '6px 12px', fontSize: 14 }}>
+                        {running ? 'Tests en cours…' : 'Lancer les tests'}
+                    </button>
+                </div>
+            </div>
+
+            <div className="diag-table">
+                {results.length === 0 ? (
+                    <div className="diag-empty">Aucun test configuré.</div>
+                ) : (
+                    results.map(r => (
+                        <div key={r.id} className="diag-row">
+                            <div className="diag-name">{r.name}</div>
+                            <div className="diag-status">
+                                <span className={`diag-pill diag-${r.status}`}>{r.status}</span>
+                            </div>
+                            <div className="diag-duration">{formatMs(r.durationMs)}</div>
+                            <div className="diag-message" title={r.detail || r.message || ''}>
+                                {r.message || '—'}
+                            </div>
+                        </div>
+                    ))
+                )}
+            </div>
+        </div>
+    )
+}
+
 export default function AdminMonitoring() {
     const navigate = useNavigate()
+    const socket = useSocket()
 
     const [loading, setLoading] = useState(true)
     const [status, setStatus] = useState<SystemStatus | null>(null)
@@ -76,6 +187,17 @@ export default function AdminMonitoring() {
     const [analytics, setAnalytics] = useState<AnalyticsData | null>(null)
     const [backups, setBackups] = useState<Backup[]>([])
     const [alert, setAlert] = useState<SystemAlert | null>(null)
+
+    const [diagMode, setDiagMode] = useState<DiagnosticMode>('core')
+    const [diagRunning, setDiagRunning] = useState(false)
+    const [diagResults, setDiagResults] = useState<DiagnosticResult[]>([])
+    const [diagLastRunAt, setDiagLastRunAt] = useState<string>('')
+
+    // Server tests (Jest) panel
+    const [serverTests, setServerTests] = useState<string[]>([])
+    const [selectedServerTest, setSelectedServerTest] = useState<string>('')
+    const [serverTestsRunning, setServerTestsRunning] = useState<boolean>(false)
+    const [serverTestsResult, setServerTestsResult] = useState<any | null>(null)
 
     const loadAll = useCallback(async () => {
         setLoading(true)
@@ -103,6 +225,567 @@ export default function AdminMonitoring() {
     useEffect(() => {
         loadAll()
     }, [navigate, loadAll])
+
+    const buildDiagnostics = useCallback(
+        (mode: DiagnosticMode) => {
+            const checks: Array<{ id: string; name: string; run: () => Promise<{ message?: string; detail?: string } | void> }> = [
+                {
+                    id: 'browser-storage',
+                    name: 'Navigateur: stockage local/session',
+                    run: async () => {
+                        const k = `diag_${Date.now()}`
+                        try {
+                            localStorage.setItem(k, '1')
+                            const v = localStorage.getItem(k)
+                            localStorage.removeItem(k)
+                            if (v !== '1') throw new Error('localStorage_read_mismatch')
+                        } catch (e: any) {
+                            throw new Error(`localStorage_failed - ${errorToMessage(e)}`)
+                        }
+
+                        try {
+                            sessionStorage.setItem(k, '1')
+                            const v = sessionStorage.getItem(k)
+                            sessionStorage.removeItem(k)
+                            if (v !== '1') throw new Error('sessionStorage_read_mismatch')
+                        } catch (e: any) {
+                            throw new Error(`sessionStorage_failed - ${errorToMessage(e)}`)
+                        }
+                        return { message: 'OK' }
+                    },
+                },
+                {
+                    id: 'settings-public',
+                    name: 'API: /settings/public',
+                    run: async () => {
+                        const r = await api.get('/settings/public')
+                        const data = r.data
+                        const ok = data && typeof data === 'object'
+                        if (!ok) throw new Error('invalid_response_shape')
+                        return { message: 'OK' }
+                    },
+                },
+                {
+                    id: 'settings-status',
+                    name: 'API: /settings/status (auth admin)',
+                    run: async () => {
+                        const r = await api.get('/settings/status')
+                        const data = r.data as SystemStatus
+                        if (!data || typeof data !== 'object') throw new Error('invalid_response_shape')
+                        if (data.backend !== 'online') throw new Error(`backend_not_online - ${String(data.backend)}`)
+                        if (typeof data.database !== 'string') throw new Error('database_missing')
+                        if (typeof data.uptime !== 'number') throw new Error('uptime_missing')
+                        return { message: `${data.backend} · ${data.database}` }
+                    },
+                },
+                {
+                    id: 'admin-online-users',
+                    name: 'API: /admin-extras/online-users',
+                    run: async () => {
+                        const r = await api.get('/admin-extras/online-users')
+                        if (!Array.isArray(r.data)) throw new Error('expected_array')
+                        return { message: `${r.data.length} en ligne` }
+                    },
+                },
+                {
+                    id: 'audit-stats',
+                    name: 'API: /audit-logs/stats',
+                    run: async () => {
+                        const r = await api.get('/audit-logs/stats')
+                        const data = r.data as AuditStats
+                        if (!data || typeof data !== 'object') throw new Error('invalid_response_shape')
+                        if (typeof data.totalLogs !== 'number') throw new Error('missing_totalLogs')
+                        if (typeof data.recentLogs !== 'number') throw new Error('missing_recentLogs')
+                        if (!Array.isArray(data.actionCounts)) throw new Error('missing_actionCounts')
+                        return { message: `${data.recentLogs} (24h)` }
+                    },
+                },
+                {
+                    id: 'analytics',
+                    name: 'API: /analytics',
+                    run: async () => {
+                        const r = await api.get('/analytics')
+                        const data = r.data as AnalyticsData
+                        if (!data || typeof data !== 'object') throw new Error('invalid_response_shape')
+                        const users = data?.counts?.users
+                        const classes = data?.counts?.classes
+                        const students = data?.counts?.students
+                        if (typeof users !== 'number' || typeof classes !== 'number' || typeof students !== 'number') throw new Error('missing_counts')
+                        return { message: `${users} users · ${classes} classes · ${students} élèves` }
+                    },
+                },
+                {
+                    id: 'backup-list',
+                    name: 'API: /backup/list',
+                    run: async () => {
+                        const r = await api.get('/backup/list')
+                        if (!Array.isArray(r.data)) throw new Error('expected_array')
+                        return { message: `${r.data.length} sauvegardes` }
+                    },
+                },
+                {
+                    id: 'media-list',
+                    name: 'API: /media/list',
+                    run: async () => {
+                        const r = await api.get('/media/list')
+                        if (!Array.isArray(r.data)) throw new Error('expected_array')
+                        return { message: `${r.data.length} éléments` }
+                    },
+                },
+                {
+                    id: 'socket',
+                    name: 'Socket: connexion temps-réel',
+                    run: async () => {
+                        if (!socket) throw new Error('socket_not_initialized')
+                        if (socket.connected) return { message: 'connecté' }
+
+                        await new Promise<void>((resolve, reject) => {
+                            let done = false
+                            const finish = (fn: () => void) => {
+                                if (done) return
+                                done = true
+                                fn()
+                            }
+
+                            const t = window.setTimeout(() => {
+                                finish(() => {
+                                    socket.off('connect', onConnect)
+                                    socket.off('connect_error', onError)
+                                    reject(new Error('socket_connect_timeout'))
+                                })
+                            }, 4000)
+
+                            const onConnect = () => {
+                                finish(() => {
+                                    window.clearTimeout(t)
+                                    socket.off('connect_error', onError)
+                                    resolve()
+                                })
+                            }
+
+                            const onError = (err: any) => {
+                                finish(() => {
+                                    window.clearTimeout(t)
+                                    socket.off('connect', onConnect)
+                                    reject(new Error(errorToMessage(err)))
+                                })
+                            }
+
+                            socket.once('connect', onConnect)
+                            socket.once('connect_error', onError)
+                        })
+
+                        return { message: 'connecté' }
+                    },
+                },
+            ]
+
+            if (mode === 'extended') {
+                checks.push(
+                    {
+                        id: 'levels',
+                        name: 'API: /levels',
+                        run: async () => {
+                            const r = await api.get('/levels')
+                            if (!Array.isArray(r.data)) throw new Error('expected_array')
+                            return { message: `${r.data.length} niveaux` }
+                        },
+                    },
+                    {
+                        id: 'school-years',
+                        name: 'API: /school-years',
+                        run: async () => {
+                            const r = await api.get('/school-years')
+                            if (!Array.isArray(r.data)) throw new Error('expected_array')
+                            return { message: `${r.data.length} années` }
+                        },
+                    },
+                    {
+                        id: 'users',
+                        name: 'API: /users',
+                        run: async () => {
+                            const r = await api.get('/users')
+                            if (!Array.isArray(r.data)) throw new Error('expected_array')
+                            return { message: `${r.data.length} utilisateurs` }
+                        },
+                    },
+                    {
+                        id: 'classes',
+                        name: 'API: /classes',
+                        run: async () => {
+                            const r = await api.get('/classes')
+                            if (!Array.isArray(r.data)) throw new Error('expected_array')
+                            return { message: `${r.data.length} classes` }
+                        },
+                    },
+                    {
+                        id: 'students',
+                        name: 'API: /students',
+                        run: async () => {
+                            const r = await api.get('/students')
+                            if (!Array.isArray(r.data)) throw new Error('expected_array')
+                            return { message: `${r.data.length} élèves` }
+                        },
+                    },
+                    {
+                        id: 'templates',
+                        name: 'API: /templates',
+                        run: async () => {
+                            const r = await api.get('/templates')
+                            if (!Array.isArray(r.data)) throw new Error('expected_array')
+                            return { message: `${r.data.length} templates` }
+                        },
+                    },
+                    // Promotion / bulk-assign smoke test: create a temporary template, assign to a level, then cleanup
+                    {
+                        id: 'bulk-assign-level',
+                        name: 'Promotion: assignation en masse (bulk-level create/delete)',
+                        run: async () => {
+                            const lvRes = await api.get('/levels')
+                            const levels = lvRes.data
+                            if (!Array.isArray(levels) || levels.length === 0) throw new Error('no_levels')
+                            const level = levels[0].name || levels[0]._id
+
+                            // Create temporary template
+                            const tpl = await api.post('/templates', { name: `diag-template-${Date.now()}`, pages: [] })
+                            const templateId = tpl.data?._id || tpl.data?.id
+                            if (!templateId) throw new Error('template_create_failed')
+
+                            try {
+                                const bulk = await api.post('/template-assignments/bulk-level', { templateId, level })
+                                const count = bulk.data && typeof bulk.data.count === 'number' ? bulk.data.count : 0
+
+                                // Attempt to delete the assignments we just created
+                                await api.delete(`/template-assignments/bulk-level/${templateId}/${encodeURIComponent(level)}`)
+
+                                return { message: `assigned ${count} then removed` }
+                            } finally {
+                                // Cleanup template
+                                try {
+                                    await api.delete(`/templates/${templateId}`)
+                                } catch (e) {
+                                    // swallow - cleanup best-effort
+                                }
+                            }
+                        },
+                    },
+                    // Admin signatures flow: create -> activate -> delete
+                    {
+                        id: 'signatures-admin',
+                        name: 'Signatures: create/activate/delete admin signature',
+                        run: async () => {
+                            const create = await api.post('/signatures/admin', { name: `diag-sig-${Date.now()}`, dataUrl: 'data:image/png;base64,AAA' })
+                            const id = create.data?._id || create.data?.id
+                            if (!id) throw new Error('signature_create_failed')
+
+                            await api.post(`/signatures/admin/${id}/activate`, {})
+                            await api.delete(`/signatures/admin/${id}`)
+                            return { message: 'created/activated/deleted' }
+                        },
+                    },
+                    // Admin sign on non-existent assignment should return 404
+                    {
+                        id: 'admin-sign-nonexistent',
+                        name: 'Sign: admin sign non-existent assignment returns 404',
+                        run: async () => {
+                            try {
+                                await api.post('/admin-extras/templates/000000000000000000000000/sign')
+                                throw new Error('expected_404')
+                            } catch (e: any) {
+                                if (e?.response?.status === 404) return { message: '404 as expected' }
+                                throw e
+                            }
+                        },
+                    },
+                    // SubAdmin signature endpoint accessibility (may be forbidden for ADMIN but that's acceptable)
+                    {
+                        id: 'subadmin-signature-endpoint',
+                        name: 'SubAdmin signature endpoint',
+                        run: async () => {
+                            try {
+                                const r = await api.get('/subadmin/signature')
+                                if (Array.isArray(r.data)) return { message: `${r.data.length} signatures` }
+                                return { message: 'ok' }
+                            } catch (e: any) {
+                                if (e?.response?.status === 403) return { message: 'forbidden for admin' }
+                                if (e?.response?.status === 404 && e?.response?.data?.error === 'no_signature') return { message: 'no_signature' }
+                                throw e
+                            }
+                        },
+                    },
+                    // Levels coverage: ensure each level has classes/students for active year
+                    {
+                        id: 'levels-coverage',
+                        name: 'Levels coverage (classes per level)',
+                        run: async () => {
+                            const levelsRes = await api.get('/levels')
+                            const levels = Array.isArray(levelsRes.data) ? levelsRes.data : []
+                            if (levels.length === 0) throw new Error('no_levels')
+
+                            const syRes = await api.get('/school-years')
+                            const years = Array.isArray(syRes.data) ? syRes.data : []
+                            const active = years.find((y: any) => y.active) || years[0]
+                            if (!active) throw new Error('no_school_years')
+
+                            const classesRes = await api.get(`/classes?schoolYearId=${String(active._id)}`)
+                            const classes = Array.isArray(classesRes.data) ? classesRes.data : []
+
+                            const counts = levels.map((lv: any) => {
+                                const cls = classes.filter((c: any) => String(c.level || '').toUpperCase() === String(lv.name || '').toUpperCase())
+                                return `${lv.name}:${cls.length}`
+                            })
+
+                            return { message: counts.join(', ') }
+                        },
+                    },
+                    // Impersonate a SUBADMIN and check subadmin endpoints (will restore token afterwards)
+                    {
+                        id: 'impersonate-subadmin',
+                        name: 'Impersonate SUBADMIN and check endpoints',
+                        run: async () => {
+                            const u = await api.get('/users')
+                            const users = Array.isArray(u.data) ? u.data : []
+                            const sub = users.find((x: any) => x.role === 'SUBADMIN' || x.role === 'AEFE')
+                            if (!sub) throw new Error('no_subadmin_user')
+
+                            const originalToken = sessionStorage.getItem('token') || localStorage.getItem('token') || ''
+                            // start impersonation
+                            const start = await api.post('/impersonation/start', { targetUserId: sub._id || sub.id })
+                            const token = start.data?.token
+                            if (!token) throw new Error('impersonation_failed')
+
+                            sessionStorage.setItem('token', token)
+
+                            try {
+                                const p = await api.get('/subadmin/promoted-students')
+                                const classes = await api.get('/subadmin/classes')
+                                return { message: `promoted:${(p.data || []).length} classes:${(classes.data || []).length}` }
+                            } finally {
+                                // Attempt to stop impersonation; always restore original token
+                                try {
+                                    const stop = await api.post('/impersonation/stop')
+                                    const restored = stop.data?.token
+                                    if (restored) sessionStorage.setItem('token', restored)
+                                    else if (originalToken) {
+                                        if (localStorage.getItem('token')) localStorage.setItem('token', originalToken)
+                                        else sessionStorage.setItem('token', originalToken)
+                                    }
+                                } catch (e) {
+                                    if (originalToken) {
+                                        if (localStorage.getItem('token')) localStorage.setItem('token', originalToken)
+                                        else sessionStorage.setItem('token', originalToken)
+                                    } else {
+                                        sessionStorage.removeItem('token')
+                                    }
+                                }
+                            }
+                        },
+                    },
+                    // Impersonate a TEACHER and check teacher endpoints
+                    {
+                        id: 'impersonate-teacher',
+                        name: 'Impersonate TEACHER and check endpoints',
+                        run: async () => {
+                            const u = await api.get('/users')
+                            const users = Array.isArray(u.data) ? u.data : []
+                            const teacher = users.find((x: any) => x.role === 'TEACHER')
+                            if (!teacher) throw new Error('no_teacher_user')
+
+                            const originalToken = sessionStorage.getItem('token') || localStorage.getItem('token') || ''
+                            const start = await api.post('/impersonation/start', { targetUserId: teacher._id || teacher.id })
+                            const token = start.data?.token
+                            if (!token) throw new Error('impersonation_failed')
+
+                            sessionStorage.setItem('token', token)
+
+                            try {
+                                        const classesRes = await api.get('/teacher/classes')
+                                const classes = Array.isArray(classesRes.data) ? classesRes.data : []
+                                if (classes.length === 0) return { message: 'no_classes' }
+
+                                const classId = classes[0]._id || classes[0].id
+                                const assignRes = await api.get(`/teacher/classes/${classId}/assignments`)
+                                const assignments = Array.isArray(assignRes.data) ? assignRes.data : []
+                                return { message: `classes:${classes.length} assignments:${assignments.length}` }
+                            } finally {
+                                try {
+                                    const stop = await api.post('/impersonation/stop')
+                                    const restored = stop.data?.token
+                                    if (restored) sessionStorage.setItem('token', restored)
+                                    else if (originalToken) {
+                                        if (localStorage.getItem('token')) localStorage.setItem('token', originalToken)
+                                        else sessionStorage.setItem('token', originalToken)
+                                    }
+                                } catch (e) {
+                                    if (originalToken) {
+                                        if (localStorage.getItem('token')) localStorage.setItem('token', originalToken)
+                                        else sessionStorage.setItem('token', originalToken)
+                                    } else {
+                                        sessionStorage.removeItem('token')
+                                    }
+                                }
+                            }
+                        },
+                    },
+                    // Subadmin promote protected test: impersonate subadmin and try to promote an assignment (expect 403/not_authorized or not_signed_by_you)
+                    {
+                        id: 'subadmin-promote-protected',
+                        name: 'SubAdmin promote endpoint protection',
+                        run: async () => {
+                            const u = await api.get('/users')
+                            const users = Array.isArray(u.data) ? u.data : []
+                            const sub = users.find((x: any) => x.role === 'SUBADMIN' || x.role === 'AEFE')
+                            if (!sub) throw new Error('no_subadmin_user')
+
+                            const assignmentsRes = await api.get('/template-assignments')
+                            const assignments = Array.isArray(assignmentsRes.data) ? assignmentsRes.data : []
+                            if (assignments.length === 0) return { message: 'no_assignments' }
+
+                            const assignmentId = assignments[0]._id || assignments[0].id
+
+                            const originalToken = sessionStorage.getItem('token') || localStorage.getItem('token') || ''
+                            const start = await api.post('/impersonation/start', { targetUserId: sub._id || sub.id })
+                            const token = start.data?.token
+                            if (!token) throw new Error('impersonation_failed')
+
+                            sessionStorage.setItem('token', token)
+
+                            try {
+                                try {
+                                    await api.post(`/subadmin/templates/${assignmentId}/promote`, { nextLevel: 'TEST' })
+                                    return { message: 'promote_succeeded' }
+                                } catch (e: any) {
+                                    const status = e?.response?.status
+                                    const err = e?.response?.data?.error || e?.message
+                                    if (status === 403 || status === 400) return { message: `protected:${String(err)}` }
+                                    throw e
+                                }
+                            } finally {
+                                try {
+                                    const stop = await api.post('/impersonation/stop')
+                                    const restored = stop.data?.token
+                                    if (restored) sessionStorage.setItem('token', restored)
+                                    else if (originalToken) {
+                                        if (localStorage.getItem('token')) localStorage.setItem('token', originalToken)
+                                        else sessionStorage.setItem('token', originalToken)
+                                    }
+                                } catch (e) {
+                                    if (originalToken) {
+                                        if (localStorage.getItem('token')) localStorage.setItem('token', originalToken)
+                                        else sessionStorage.setItem('token', originalToken)
+                                    } else {
+                                        sessionStorage.removeItem('token')
+                                    }
+                                }
+                            }
+                        },
+                    }
+                )
+            }
+
+            return checks
+        },
+        [socket]
+    )
+
+    const diagSummary = useMemo(() => {
+        const total = diagResults.length
+        const passed = diagResults.filter(r => r.status === 'pass').length
+        const failed = diagResults.filter(r => r.status === 'fail').length
+        const running = diagResults.filter(r => r.status === 'running').length
+        return { total, passed, failed, running }
+    }, [diagResults])
+
+    const diagLastRunLabel = useMemo(() => {
+        if (!diagLastRunAt) return 'Jamais exécuté'
+        const d = new Date(diagLastRunAt)
+        if (Number.isNaN(d.getTime())) return 'Dernière exécution: —'
+        return `Dernière exécution: ${d.toLocaleString()}`
+    }, [diagLastRunAt])
+
+    const resetDiagnostics = useCallback(() => {
+        const checks = buildDiagnostics(diagMode)
+        setDiagResults(checks.map(c => ({ id: c.id, name: c.name, status: 'idle' as const })))
+        setDiagLastRunAt('')
+        setDiagRunning(false)
+    }, [buildDiagnostics, diagMode])
+
+    // Load available server test files for the Server Tests panel
+    const loadServerTestsList = useCallback(async () => {
+        try {
+            const r = await api.get('/admin-extras/run-tests/list')
+            const tests = Array.isArray(r.data?.tests) ? r.data.tests : []
+            setServerTests(tests)
+        } catch (e: any) {
+            // ignore
+            console.error('failed to fetch server tests list', e)
+        }
+    }, [])
+
+    useEffect(() => {
+        loadServerTestsList()
+    }, [loadServerTestsList])
+
+    const runServerTests = useCallback(async () => {
+        setServerTestsRunning(true)
+        setServerTestsResult(null)
+        try {
+            const body: any = {}
+            if (selectedServerTest) body.pattern = selectedServerTest
+            const r = await api.post('/admin-extras/run-tests', body)
+            setServerTestsResult(r.data)
+        } catch (e: any) {
+            if (e?.response?.data) setServerTestsResult(e.response.data)
+            else setServerTestsResult({ error: errorToMessage(e) })
+        } finally {
+            setServerTestsRunning(false)
+            loadServerTestsList()
+        }
+    }, [selectedServerTest, loadServerTestsList])
+
+    useEffect(() => {
+        resetDiagnostics()
+    }, [resetDiagnostics])
+
+    const runDiagnostics = useCallback(async () => {
+        const checks = buildDiagnostics(diagMode)
+        setDiagRunning(true)
+        setDiagLastRunAt(new Date().toISOString())
+        setDiagResults(checks.map(c => ({ id: c.id, name: c.name, status: 'running' as const })))
+
+        for (const c of checks) {
+            const start = performance.now()
+            try {
+                const out = await c.run()
+                const durationMs = performance.now() - start
+                setDiagResults(prev =>
+                    prev.map(r =>
+                        r.id === c.id
+                            ? {
+                                  ...r,
+                                  status: 'pass',
+                                  durationMs,
+                                  message: out && (out as any).message ? String((out as any).message) : 'OK',
+                                  detail: out && (out as any).detail ? String((out as any).detail) : undefined,
+                              }
+                            : r
+                    )
+                )
+            } catch (e: any) {
+                const durationMs = performance.now() - start
+                const msg = errorToMessage(e)
+                setDiagResults(prev =>
+                    prev.map(r =>
+                        r.id === c.id
+                            ? { ...r, status: 'fail', durationMs, message: msg, detail: msg }
+                            : r
+                    )
+                )
+            }
+        }
+
+        setDiagRunning(false)
+    }, [buildDiagnostics, diagMode])
 
     const cards = useMemo(() => {
         const backendOk = status?.backend === 'online'
@@ -346,8 +1029,108 @@ export default function AdminMonitoring() {
                 ),
                 color: '#fb7185',
             },
+            {
+                title: 'Tests Automatiques',
+                status: diagSummary.failed > 0 ? 'KO' : diagSummary.passed > 0 ? 'OK' : '—',
+                description: (
+                    <DiagnosticsPanel
+                        mode={diagMode}
+                        setMode={setDiagMode}
+                        running={diagRunning}
+                        results={diagResults}
+                        summary={diagSummary}
+                        lastRunLabel={diagLastRunLabel}
+                        onRun={runDiagnostics}
+                        onReset={resetDiagnostics}
+                    />
+                ),
+                footerLabel: 'Diagnostic',
+                progress: diagSummary.total > 0 ? Math.round((diagSummary.passed / diagSummary.total) * 100) : 0,
+                icon: (
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M4 19V5"></path>
+                        <path d="M4 12h16"></path>
+                        <path d="M20 19V5"></path>
+                        <path d="M8 9l2 2 4-4"></path>
+                    </svg>
+                ),
+                color: diagSummary.failed > 0 ? '#ef4444' : diagSummary.passed > 0 ? '#22c55e' : '#64748b',
+            },
+            {
+                title: 'Tests Serveur (Jest)',
+                status: serverTestsResult && serverTestsResult.results ? (serverTestsResult.results.numFailedTests > 0 ? 'KO' : 'OK') : (serverTestsRunning ? 'En cours' : '—'),
+                description: (
+                    <div style={{ padding: 8 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <select value={selectedServerTest} onChange={e => setSelectedServerTest(e.target.value)} style={{ minWidth: 320 }}>
+                                <option value="">Executer tous les tests</option>
+                                {serverTests.map(t => (
+                                    <option key={t} value={t}>{t}</option>
+                                ))}
+                            </select>
+                            <button className="btn primary" onClick={runServerTests} disabled={serverTestsRunning} style={{ padding: '6px 12px' }}>
+                                {serverTestsRunning ? 'Exécution…' : 'Lancer les tests'}
+                            </button>
+                            <button className="btn secondary" onClick={loadServerTestsList} disabled={serverTestsRunning} style={{ padding: '6px 12px' }}>
+                                Actualiser
+                            </button>
+                        </div>
+
+                        {serverTestsResult && (
+                            <div style={{ marginTop: 8 }}>
+                                <div style={{ fontSize: 13, color: '#334155' }}>
+                                    Exit code: {String(serverTestsResult.code ?? 'n/a')}
+                                </div>
+
+                                {serverTestsResult.results ? (
+                                    <div style={{ marginTop: 8 }}>
+                                        <div style={{ fontSize: 13, color: '#334155' }}>
+                                            Suites: {serverTestsResult.results.numTotalTestSuites} · Tests: {serverTestsResult.results.numTotalTests} · Failed: {serverTestsResult.results.numFailedTests}
+                                        </div>
+                                        <pre style={{ maxHeight: 220, overflow: 'auto', background: '#0f172a', color: '#fff', padding: 8, marginTop: 8 }}>
+                                            {JSON.stringify(serverTestsResult.results.testResults.map((r: any) => ({ file: r.name, status: r.status, assertions: r.assertionResults?.length })), null, 2)}
+                                        </pre>
+                                    </div>
+                                ) : (
+                                    serverTestsResult.stdout && <pre style={{ maxHeight: 220, overflow: 'auto', background: '#0f172a', color: '#fff', padding: 8, marginTop: 8 }}>{serverTestsResult.stdout}</pre>
+                                )}
+
+                                {serverTestsResult.error && (
+                                    <div style={{ marginTop: 8, color: '#ef4444' }}>Error: {String(serverTestsResult.error)}</div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                ),
+                footerLabel: 'Server tests',
+                progress: serverTestsResult && serverTestsResult.results ? Math.round(((serverTestsResult.results.numTotalTests - serverTestsResult.results.numFailedTests) / serverTestsResult.results.numTotalTests) * 100) : 0,
+                icon: (
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="7 10 12 15 17 10"></polyline>
+                        <line x1="12" y1="15" x2="12" y2="3"></line>
+                    </svg>
+                ),
+                color: serverTestsResult && serverTestsResult.results && serverTestsResult.results.numFailedTests > 0 ? '#ef4444' : '#334155',
+            },
         ]
-    }, [alert, analytics, auditStats, backups, onlineUsers, status])
+    }, [
+        alert,
+        analytics,
+        auditStats,
+        backups,
+        diagLastRunLabel,
+        diagMode,
+        diagResults,
+        diagRunning,
+        diagSummary.failed,
+        diagSummary.passed,
+        diagSummary.total,
+        onlineUsers,
+        resetDiagnostics,
+        runDiagnostics,
+        status,
+    ])
 
     return (
         <div className="monitoring-page">

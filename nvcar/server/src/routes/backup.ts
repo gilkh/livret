@@ -4,7 +4,7 @@ import archiver from 'archiver'
 import fs from 'fs'
 import path from 'path'
 import mongoose from 'mongoose'
-import { v4 as uuidv4 } from 'uuid'
+import { randomUUID } from 'crypto'
 import os from 'os'
 import JSZip from 'jszip'
 import { User } from '../models/User'
@@ -47,7 +47,7 @@ backupRouter.get('/list', requireAuth(['ADMIN']), async (req, res) => {
 
 // Create new DB backup (stored on server)
 backupRouter.post('/create', requireAuth(['ADMIN']), async (req, res) => {
-  const tempDir = path.join(os.tmpdir(), `nvcar-db-backup-${uuidv4()}`)
+  const tempDir = path.join(os.tmpdir(), `nvcar-db-backup-${randomUUID()}`)
   const fileName = `backup-db-${new Date().toISOString().replace(/[:.]/g, '-')}.zip`
   const archivePath = path.join(BACKUP_DIR, fileName)
 
@@ -174,7 +174,7 @@ backupRouter.delete('/:filename', requireAuth(['ADMIN']), async (req, res) => {
 })
 
 backupRouter.get('/full', requireAuth(['ADMIN']), async (req, res) => {
-  const tempDir = path.join(os.tmpdir(), `nvcar-backup-${uuidv4()}`)
+  const tempDir = path.join(os.tmpdir(), `nvcar-backup-${randomUUID()}`)
   const archivePath = path.join(tempDir, 'backup.zip')
 
   try {

@@ -213,3 +213,147 @@
     gap: 16px;
   }
 }
+
+.diag-root {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.diag-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.diag-summary-line {
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.diag-summary-count {
+  font-size: 16px;
+}
+
+.diag-summary-fail {
+  color: #dc2626;
+}
+
+.diag-summary-running {
+  color: #d97706;
+}
+
+.diag-last-run {
+  font-size: 12px;
+  color: #64748b;
+  margin-top: 4px;
+}
+
+.diag-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.diag-table {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #f8fafc;
+}
+
+.diag-row {
+  display: grid;
+  grid-template-columns: 1.4fr 90px 70px 1.6fr;
+  gap: 10px;
+  padding: 10px 12px;
+  border-top: 1px solid #e2e8f0;
+  align-items: center;
+}
+
+.diag-row:first-child {
+  border-top: none;
+}
+
+.diag-name {
+  font-weight: 600;
+  color: #0f172a;
+  font-size: 13px;
+}
+
+.diag-duration {
+  font-size: 12px;
+  color: #64748b;
+  text-align: right;
+}
+
+.diag-message {
+  font-size: 12px;
+  color: #64748b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.diag-status {
+  display: flex;
+  justify-content: center;
+}
+
+.diag-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  background: #e2e8f0;
+  color: #334155;
+}
+
+.diag-idle {
+  background: #e2e8f0;
+  color: #334155;
+}
+
+.diag-running {
+  background: #ffedd5;
+  color: #9a3412;
+}
+
+.diag-pass {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.diag-fail {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.diag-empty {
+  padding: 14px 12px;
+  color: #64748b;
+  font-size: 13px;
+}
+
+@media (max-width: 640px) {
+  .diag-row {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .diag-duration {
+    text-align: left;
+  }
+
+  .diag-status {
+    justify-content: flex-start;
+  }
+}

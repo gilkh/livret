@@ -91,7 +91,14 @@ export default function TeacherDashboard() {
         <div style={{ marginBottom: 24 }}>
           <h2 className="title" style={{ fontSize: 32, marginBottom: 8, color: '#1e293b' }}>📚 Mes Classes</h2>
           <div className="note" style={{ fontSize: 14 }}>Sélectionnez une classe pour voir les élèves et gérer leurs carnets.</div>
-          <div className="note" style={{ fontSize: 14, marginTop: 6 }}>Semestre actif : S{activeSemester}</div>
+          <div style={{ display: 'flex', gap: 12, marginTop: 6, alignItems: 'center' }}>
+            <div className="note" style={{ fontSize: 14 }}>Semestre actif : S{activeSemester}</div>
+            {activeYear?.name && (
+              <div className="note" style={{ fontSize: 14, background: '#eef2ff', padding: '4px 10px', borderRadius: 8, color: '#3730a3' }}>
+                Année : {activeYear.name}
+              </div>
+            )}
+          </div>
         </div>
 
         {loading && <div className="note" style={{ textAlign: 'center', padding: 24 }}>Chargement...</div>}

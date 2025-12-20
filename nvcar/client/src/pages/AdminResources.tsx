@@ -4,6 +4,7 @@ import api from '../api'
 import { useSchoolYear } from '../context/SchoolYearContext'
 import { useLevels } from '../context/LevelContext'
 import './AdminResources.css'
+import Toast, { ToastType } from '../components/Toast' 
 
 type Year = { _id: string; name: string; startDate: string; endDate: string; active: boolean; activeSemester?: number }
 type ClassDoc = { _id: string; name: string; level?: string; schoolYearId: string }
@@ -50,6 +51,10 @@ export default function AdminResources() {
   const [editingStudentId, setEditingStudentId] = useState<string | null>(null)
   const [showImportModal, setShowImportModal] = useState(false)
   const [showBulkAssignModal, setShowBulkAssignModal] = useState(false)
+
+  // Toast notification
+  const [toast, setToast] = useState<{message: string, type: ToastType} | null>(null)
+  const showToast = (message: string, type: ToastType = 'success') => setToast({ message, type })
 
   const promotedStudents = useMemo(() => {
       return unassignedStudents.filter(s => s.promotion && s.promotion.from !== s.promotion.to)
@@ -208,9 +213,19 @@ export default function AdminResources() {
 
   const saveYear = async () => {
     if (selectedYear) {
-      const r = await api.patch(`/school-years/${selectedYear._id}`, yearForm)
-      await loadYears()
-      setSelectedYear(r.data)
+      try {
+        const r = await api.patch(`/school-years/${selectedYear._id}`, yearForm)
+        await loadYears()
+        setSelectedYear(r.data)
+        if (r.data.active) {
+          const sem = r.data.activeSemester || 1
+          showToast(`L'année ${r.data.name} — Semestre S${sem} est maintenant actif`, 'success')
+        } else {
+          showToast(`Modifications enregistrées pour ${r.data.name}`, 'success')
+        }
+      } catch (e) {
+        showToast('Erreur lors de l\'enregistrement', 'error')
+      }
     }
   }
 
@@ -224,9 +239,15 @@ export default function AdminResources() {
 
   const toggleSemester = async (semester: number) => {
     if (!selectedYear) return
-    await api.patch(`/school-years/${selectedYear._id}`, { activeSemester: semester })
-    setSelectedYear({ ...selectedYear, activeSemester: semester })
-    loadYears()
+    try {
+      const r = await api.patch(`/school-years/${selectedYear._id}`, { activeSemester: semester })
+      setSelectedYear({ ...selectedYear, activeSemester: semester })
+      await loadYears()
+      const name = r.data?.name || selectedYear.name
+      showToast(`Semestre S${semester} pour ${name} est maintenant actif`, 'success')
+    } catch (e) {
+      showToast('Erreur lors de la mise à jour du semestre', 'error')
+    }
   }
 
   // Classes
@@ -331,6 +352,7 @@ export default function AdminResources() {
 
   return (
     <div className="resources-page">
+      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
       {/* Header */}
       <header className="resources-header">
         <div className="resources-header-left">

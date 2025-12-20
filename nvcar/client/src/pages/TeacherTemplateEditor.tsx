@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useParams } from 'react-router-dom'
 import api from '../api'
 import { useSocket } from '../context/SocketContext'
@@ -34,6 +34,7 @@ export default function TeacherTemplateEditor() {
     const [activeSemester, setActiveSemester] = useState<number>(1)
     const [zoomLevel, setZoomLevel] = useState(1)
     const [isFitToScreen, setIsFitToScreen] = useState(false)
+    const containerRef = useRef<HTMLDivElement | null>(null)
 
     const { levels } = useLevels()
     const socket = useSocket()
@@ -55,11 +56,12 @@ export default function TeacherTemplateEditor() {
         const handleResize = () => {
             if (isFitToScreen) {
                 // 48px is approx padding/margins. Adjust if necessary.
-                // We want to fit 800px into the window width.
-                const availableWidth = window.innerWidth - 48
-                // Limit max scale to 1 if we only want to shrink-to-fit, 
-                // or allow > 1 if we want to fill screen even if it means zooming in.
-                // Usually "Fit to Screen" means showing the whole width.
+                // Prefer measuring the actual container width instead of the full window,
+                // because the viewer may be embedded inside a narrower pane (gradebooks view).
+                const availableWidth = containerRef.current
+                    ? Math.max(0, containerRef.current.clientWidth - 48)
+                    : window.innerWidth - 48
+                // Limit max scale to 1 so we only shrink-to-fit.
                 const scale = Math.min(1, availableWidth / pageWidth)
                 setZoomLevel(scale)
             }
@@ -498,7 +500,7 @@ export default function TeacherTemplateEditor() {
                     </div>
                 </div>
 
-                <div style={{
+                <div ref={containerRef} style={{
                     display: 'flex',
                     flexDirection: 'column',
                     gap: 24,

@@ -67,10 +67,14 @@ subAdminAssignmentsRouter.get('/progress', requireAuth(['SUBADMIN', 'AEFE']), as
             return res.json([])
         }
 
-        // Find completed assignments (Carnet Done)
+        // Find completed assignments (Carnet Done) for active school year
         const completedAssignments = await TemplateAssignment.find({
             studentId: { $in: studentIds },
-            isCompleted: true
+            isCompleted: true,
+            $or: [
+                { completionSchoolYearId: String(activeYear._id) },
+                { completionSchoolYearId: { $exists: false }, assignedAt: { $gte: new Date(activeYear.startDate) } }
+            ]
         }).lean()
 
         const completedStudentIds = new Set(completedAssignments.map(a => a.studentId))
@@ -497,9 +501,13 @@ subAdminAssignmentsRouter.get('/teacher-progress-detailed', requireAuth(['SUBADM
         const students = await Student.find({ _id: { $in: studentIds } }).lean()
         const studentMap = new Map(students.map(s => [String(s._id), s]))
 
-        // Find assignments
+        // Find assignments for active school year
         const assignments = await TemplateAssignment.find({
-            studentId: { $in: studentIds }
+            studentId: { $in: studentIds },
+            $or: [
+                { completionSchoolYearId: String(activeYear._id) },
+                { completionSchoolYearId: { $exists: false }, assignedAt: { $gte: new Date(activeYear.startDate) } }
+            ]
         }).lean()
 
         // Get Templates
@@ -710,9 +718,13 @@ subAdminAssignmentsRouter.get('/teacher-progress', requireAuth(['SUBADMIN', 'AEF
 
         const studentIds = enrollments.map(e => e.studentId)
 
-        // Find assignments
+        // Find assignments for active school year
         const assignments = await TemplateAssignment.find({
-            studentId: { $in: studentIds }
+            studentId: { $in: studentIds },
+            $or: [
+                { completionSchoolYearId: String(activeYear._id) },
+                { completionSchoolYearId: { $exists: false }, assignedAt: { $gte: new Date(activeYear.startDate) } }
+            ]
         }).lean()
 
         // Get Templates and Competencies info

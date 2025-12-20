@@ -1,0 +1,104 @@
+/// <reference path="../../test/types.d.ts" />
+// @ts-ignore: allow test-time import when @types not installed
+const request = require('supertest')
+import { connectTestDb, clearTestDb, closeTestDb } from '../../test/utils'
+import { signToken } from '../../auth'
+import { createApp } from '../../app'
+import { User } from '../../models/User'
+import { GradebookTemplate } from '../../models/GradebookTemplate'
+import { Student } from '../../models/Student'
+import { SchoolYear } from '../../models/SchoolYear'
+import { ClassModel } from '../../models/Class'
+import { Enrollment } from '../../models/Enrollment'
+import { TeacherClassAssignment } from '../../models/TeacherClassAssignment'
+import { SubAdminAssignment } from '../../models/SubAdminAssignment'
+import { TemplateAssignment } from '../../models/TemplateAssignment'
+
+let app: any
+
+describe('signatures and promote integration', () => {
+  beforeAll(async () => {
+    await connectTestDb()
+    app = createApp()
+  })
+
+  afterAll(async () => {
+    await closeTestDb()
+  })
+
+  beforeEach(async () => {
+    await clearTestDb()
+  })
+
+  it('admin signatures create/activate/delete', async () => {
+    const admin = await User.create({ email: 'admin2', role: 'ADMIN', displayName: 'Admin2', passwordHash: 'hash' })
+    const token = signToken({ userId: String(admin._id), role: 'ADMIN' })
+
+    const createRes = await request(app).post('/signatures/admin').set('Authorization', `Bearer ${token}`).send({ name: 't', dataUrl: 'data:image/png;base64,AAA' })
+    expect(createRes.status).toBe(200)
+    const id = createRes.body._id
+    expect(id).toBeDefined()
+
+    const activateRes = await request(app).post(`/signatures/admin/${id}/activate`).set('Authorization', `Bearer ${token}`).send()
+    expect(activateRes.status).toBe(200)
+    expect(activateRes.body.isActive).toBe(true)
+
+    const delRes = await request(app).delete(`/signatures/admin/${id}`).set('Authorization', `Bearer ${token}`).send()
+    expect(delRes.status).toBe(200)
+  })
+
+  it('subadmin can sign end_of_year and promote when authorized', async () => {
+    const admin = await User.create({ email: 'admin3', role: 'ADMIN', displayName: 'Admin3', passwordHash: 'hash' })
+    const sub = await User.create({ email: 'sub4', role: 'SUBADMIN', displayName: 'Sub4', passwordHash: 'hash' })
+    const teacher = await User.create({ email: 't1', role: 'TEACHER', displayName: 'Teacher1', passwordHash: 'hash' })
+
+    const sy = await SchoolYear.create({ name: 'Y1', active: true, activeSemester: 2, startDate: new Date('2024-09-01'), endDate: new Date('2025-07-01'), sequence: 1 })
+    const nextSy = await SchoolYear.create({ name: 'Y2', startDate: new Date('2025-09-01'), endDate: new Date('2026-07-01'), sequence: 2 })
+    const cls = await ClassModel.create({ name: 'Class A', level: 'PS', schoolYearId: String(sy._id) })
+
+    await TeacherClassAssignment.create({ teacherId: String(teacher._id), classId: String(cls._id), schoolYearId: String(sy._id), assignedBy: String(admin._id) })
+    await SubAdminAssignment.create({ subAdminId: String(sub._id), teacherId: String(teacher._id), assignedBy: String(sub._id) })
+
+    const student = await Student.create({ firstName: 'S', lastName: 'P', dateOfBirth: new Date('2018-01-05'), logicalKey: 'SP1' })
+    await Enrollment.create({ studentId: String(student._id), classId: String(cls._id), schoolYearId: String(sy._id), status: 'active' })
+
+    const tpl = await GradebookTemplate.create({ name: 'tpl', pages: [], currentVersion: 1 })
+    const assignment = await TemplateAssignment.create({ templateId: String(tpl._id), studentId: String(student._id), status: 'completed', isCompleted: true, isCompletedSem2: true, assignedBy: String(admin._id) })
+
+    const subToken = signToken({ userId: String(sub._id), role: 'SUBADMIN' })
+
+    const signRes = await request(app).post(`/subadmin/templates/${assignment._id}/sign`).set('Authorization', `Bearer ${subToken}`).send({ type: 'end_of_year' })
+    console.log('SIGN RES', signRes.status, signRes.body)
+    expect(signRes.status).toBe(200)
+
+    const promoteRes = await request(app).post(`/subadmin/templates/${assignment._id}/promote`).set('Authorization', `Bearer ${subToken}`).send({ nextLevel: 'MS' })
+    console.log('PROMOTE RES', promoteRes.status, promoteRes.body)
+    expect(promoteRes.status).toBe(200)
+    expect(promoteRes.body.ok).toBe(true)
+  })
+
+  it('review endpoint returns student level and className when available', async () => {
+    const sub = await User.create({ email: 'sub5', role: 'SUBADMIN', displayName: 'Sub5', passwordHash: 'hash' })
+    const teacher = await User.create({ email: 't2', role: 'TEACHER', displayName: 'Teacher2', passwordHash: 'hash' })
+
+    const sy = await SchoolYear.create({ name: 'Y2', active: true, startDate: new Date('2024-09-01'), endDate: new Date('2025-07-01'), sequence: 1 })
+    const cls = await ClassModel.create({ name: 'Class B', level: 'GS', schoolYearId: String(sy._id) })
+
+    await TeacherClassAssignment.create({ teacherId: String(teacher._id), classId: String(cls._id), schoolYearId: String(sy._id), assignedBy: String(sub._id) })
+    await SubAdminAssignment.create({ subAdminId: String(sub._id), teacherId: String(teacher._id), assignedBy: String(sub._id) })
+
+    const student = await Student.create({ firstName: 'R', lastName: 'T', dateOfBirth: new Date('2018-01-06'), logicalKey: 'RT1' })
+    await Enrollment.create({ studentId: String(student._id), classId: String(cls._id), schoolYearId: String(sy._id), status: 'active' })
+
+    const tpl = await GradebookTemplate.create({ name: 'tpl2', pages: [], currentVersion: 1 })
+    const assignment = await TemplateAssignment.create({ templateId: String(tpl._id), studentId: String(student._id), status: 'completed', isCompleted: true, isCompletedSem2: true, assignedBy: String(sub._id) })
+
+    const subToken = signToken({ userId: String(sub._id), role: 'SUBADMIN' })
+
+    const res = await request(app).get(`/subadmin/templates/${assignment._id}/review`).set('Authorization', `Bearer ${subToken}`)
+    expect(res.status).toBe(200)
+    expect(res.body.student).toBeDefined()
+    expect(res.body.student.level).toBe('GS')
+    expect(res.body.student.className).toBe('Class B')
+  })
+})

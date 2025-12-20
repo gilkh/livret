@@ -23,8 +23,8 @@ const findBlockById = (pages, blockId) => {
     }
     return null;
 };
-// Create a suggestion (SubAdmin)
-exports.suggestionsRouter.post('/', (0, auth_1.requireAuth)(['SUBADMIN']), async (req, res) => {
+// Create a suggestion (SubAdmin or RPP/AEFE)
+exports.suggestionsRouter.post('/', (0, auth_1.requireAuth)(['SUBADMIN', 'AEFE']), async (req, res) => {
     try {
         const { type = 'template_edit', templateId, templateVersion: incomingTemplateVersion, pageIndex, blockIndex, blockId: incomingBlockId, originalText, suggestedText } = req.body;
         const subAdminId = req.user.userId;

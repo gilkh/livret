@@ -1,0 +1,36 @@
+name: E2E Tests (Playwright)
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node.js 18
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+      - name: Install server deps
+        working-directory: nvcar/server
+        run: npm ci
+      - name: Install client deps
+        working-directory: nvcar/client
+        run: npm ci
+      - name: Start server
+        working-directory: nvcar/server
+        run: nohup npm run dev > server.log 2>&1 &
+      - name: Start client
+        working-directory: nvcar/client
+        run: nohup npm run dev > client.log 2>&1 &
+      - name: Wait for services
+        run: sleep 10
+      - name: Install Playwright browsers
+        working-directory: nvcar/server
+        run: npx playwright install --with-deps
+      - name: Run E2E tests
+        working-directory: nvcar/server
+        env:
+          RUN_E2E: '1'
+        run: npm run test:e2e

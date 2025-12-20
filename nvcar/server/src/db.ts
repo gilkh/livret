@@ -1,12 +1,13 @@
 import mongoose from 'mongoose'
 
-const uri = process.env.MONGO_URI || 'mongodb://localhost:27017/nvcarn'
-
 let isConnecting = false
 
 export const connectDb = async () => {
+  if (mongoose.connection.readyState === 1) return
   if (isConnecting) return
   isConnecting = true
+
+  const uri = process.env.MONGO_URI || 'mongodb://localhost:27017/nvcarn'
 
   try {
     await mongoose.connect(uri, {

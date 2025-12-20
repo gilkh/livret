@@ -203,8 +203,13 @@ export default function TeacherClassView() {
                             <span>🏛️ Élèves de la classe</span>
                             {className && <span style={{ background: '#e2e8f0', padding: '4px 12px', borderRadius: 8, fontSize: '0.9em', color: '#334155' }}>{className}</span>}
                         </h2>
-                        <div className="note" style={{ fontSize: 14, color: '#64748b', marginTop: 4 }}>
-                            Semestre actif : S{activeSemester}
+                        <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginTop: 4 }}>
+                            <div className="note" style={{ fontSize: 14, color: '#64748b' }}>Semestre actif : S{activeSemester}</div>
+                            {activeYear?.name && (
+                              <div className="note" style={{ fontSize: 13, background: '#eef2ff', padding: '4px 10px', borderRadius: 8, color: '#3730a3' }}>
+                                Année : {activeYear.name}
+                              </div>
+                            )}
                         </div>
                     </div>
                 </div>

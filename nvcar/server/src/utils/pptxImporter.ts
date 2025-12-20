@@ -2,7 +2,7 @@ import JSZip from 'jszip';
 import { parseStringPromise } from 'xml2js';
 import fs from 'fs';
 import path from 'path';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 import axios from 'axios';
 import { execFile } from 'child_process';
 
@@ -358,7 +358,7 @@ export class PptxImporter {
     private async convertEmfWmfLocally(imgData: Buffer, ext: string, target?: { width: number; height: number }): Promise<Buffer | null> {
         const tmpDir = path.join(this.uploadDir, 'tmp');
         if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
-        const id = uuidv4();
+        const id = randomUUID();
         const inPath = path.join(tmpDir, `in-${id}${ext}`);
         const outPath = path.join(tmpDir, `out-${id}.png`);
         fs.writeFileSync(inPath, imgData, { encoding: null });
@@ -548,7 +548,7 @@ export class PptxImporter {
             }
 
             // Save image
-            const filename = `imported-${uuidv4()}${ext}`;
+            const filename = `imported-${randomUUID()}${ext}`;
             const savePath = path.join(this.uploadDir, filename);
 
             if (!fs.existsSync(this.uploadDir)) {

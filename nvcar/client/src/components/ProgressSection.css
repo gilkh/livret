@@ -1,0 +1,4 @@
+.progress-section{ transition: box-shadow .18s ease, transform .12s ease; }
+.progress-section:focus{ outline: 3px solid rgba(59,130,246,0.25); box-shadow: 0 6px 18px rgba(2,6,23,0.08); }
+.progress-section:hover{ transform: translateY(-3px); box-shadow: 0 8px 20px rgba(2,6,23,0.08); }
+.progress-section:focus:not(:focus-visible){ outline: none; }

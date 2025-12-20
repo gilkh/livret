@@ -3,6 +3,7 @@ import { Enrollment } from '../models/Enrollment'
 import { TemplateAssignment } from '../models/TemplateAssignment'
 import { TeacherClassAssignment } from '../models/TeacherClassAssignment'
 import { GradebookTemplate } from '../models/GradebookTemplate'
+import { SchoolYear } from '../models/SchoolYear'
 import { randomUUID } from 'crypto'
 
 export function getVersionedTemplate(template: any, templateVersion: any) {
@@ -113,6 +114,9 @@ export function mergeAssignmentDataIntoTemplate(template: any, assignment: any) 
 
 export async function checkAndAssignTemplates(studentId: string, level: string, schoolYearId: string, classId: string, userId: string) {
   try {
+    const targetYear = schoolYearId ? await SchoolYear.findById(schoolYearId).select({ startDate: 1 }).lean() : null
+    const targetStartDate = targetYear?.startDate ? new Date(targetYear.startDate).getTime() : null
+
     // 1. Find other students in the same level for this school year
     const classesInLevel = await ClassModel.find({ level, schoolYearId }).lean()
     const classIdsInLevel = classesInLevel.map(c => String(c._id))
@@ -179,15 +183,36 @@ export async function checkAndAssignTemplates(studentId: string, level: string, 
           .lean();
 
         if (lastAssignment && lastAssignment.data) {
-          initialData = lastAssignment.data;
-          // We might need to clear specific fields that are year-specific?
-          // For now, we copy everything as requested.
+          // Copy previous year's data but sanitize year-specific progress markers
+          const sanitize = (input: any): any => {
+            if (input == null) return input
+            if (Array.isArray(input)) return input.map(i => sanitize(i))
+            if (typeof input === 'object') {
+              const out: any = {}
+              for (const [k, v] of Object.entries(input)) {
+                // Remove known year-/user-specific fields
+                if (k === 'signatures' || k === 'promotions') continue
+                if (k === 'active' || k === 'completed' || k === 'completedSem1' || k === 'completedSem2' || k === 'completedAt' || k === 'completedAtSem1' || k === 'completedAtSem2') {
+                  // reset boolean flags and timestamps
+                  if (typeof v === 'boolean') out[k] = false
+                  else out[k] = null
+                  continue
+                }
+                out[k] = sanitize(v)
+              }
+              return out
+            }
+            return input
+          }
+
+          initialData = sanitize(lastAssignment.data)
         }
 
         await TemplateAssignment.create({
           templateId,
           templateVersion: template.currentVersion || 1,
           studentId,
+          completionSchoolYearId: schoolYearId,
           assignedTeachers: teacherIds,
           assignedBy: userId,
           assignedAt: new Date(),
@@ -203,13 +228,33 @@ export async function checkAndAssignTemplates(studentId: string, level: string, 
           updates.templateVersion = template.currentVersion
         }
 
-        // Reset status if it was completed/signed in previous years
-        if (['completed', 'signed'].includes(exists.status)) {
-          updates.status = 'in_progress'
+        const completionYearId = String((exists as any).completionSchoolYearId || '')
+        const existsAssignedAt = (exists as any)?.assignedAt ? new Date((exists as any).assignedAt).getTime() : null
+        const inferredIsCurrentYear =
+          !completionYearId &&
+          targetStartDate !== null &&
+          existsAssignedAt !== null &&
+          existsAssignedAt >= targetStartDate
+
+        const shouldResetForNewYear =
+          (completionYearId && completionYearId !== String(schoolYearId)) ||
+          (!completionYearId && !inferredIsCurrentYear)
+
+        if (shouldResetForNewYear) {
+          updates.status = 'draft'
           updates.isCompleted = false
           updates.completedAt = null
           updates.completedBy = null
+          updates.isCompletedSem1 = false
+          updates.completedAtSem1 = null
+          updates.isCompletedSem2 = false
+          updates.completedAtSem2 = null
           updates.teacherCompletions = []
+          updates.assignedAt = new Date()
+          updates.assignedBy = userId
+          updates.completionSchoolYearId = schoolYearId
+        } else if (!completionYearId) {
+          updates.completionSchoolYearId = schoolYearId
         }
 
         // Always update teachers to the new class teachers
