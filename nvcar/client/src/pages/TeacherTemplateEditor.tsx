@@ -317,9 +317,6 @@ export default function TeacherTemplateEditor() {
                             S{activeSemester}
                         </span>
                     </h2>
-                    <div className="note" style={{ fontSize: 15, color: '#64748b', marginBottom: 8 }}>
-                        📚 {template.name}
-                    </div>
                     <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 6, fontSize: 13, fontWeight: 500, background: assignment?.status === 'signed' ? '#d1fae5' : assignment?.status === 'completed' ? '#dbeafe' : '#fef3c7', color: assignment?.status === 'signed' ? '#065f46' : assignment?.status === 'completed' ? '#1e40af' : '#92400e', border: `1px solid ${assignment?.status === 'signed' ? '#6ee7b7' : assignment?.status === 'completed' ? '#93c5fd' : '#fcd34d'}` }}>
                         {assignment?.status === 'draft' && '📝 Brouillon'}
                         {assignment?.status === 'in_progress' && '🔄 En cours'}

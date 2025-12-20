@@ -36,7 +36,7 @@ export default function AdminResources() {
   }
   
   // Year editing state
-  const [yearForm, setYearForm] = useState({ name: '', startDate: '', endDate: '', active: true })
+  const [yearForm, setYearForm] = useState({ name: '', startDate: '', endDate: '', active: true, activeSemester: 1 })
 
   // Class state
   const [classes, setClasses] = useState<ClassDoc[]>([])
@@ -128,7 +128,8 @@ export default function AdminResources() {
         name: y.name,
         startDate: y.startDate?.slice(0,10) || '',
         endDate: y.endDate?.slice(0,10) || '',
-        active: !!y.active
+        active: !!y.active,
+        activeSemester: y.activeSemester || 1
     })
     await loadClasses(y._id)
     await loadUnassignedStudents(y._id)
@@ -214,11 +215,17 @@ export default function AdminResources() {
   const saveYear = async () => {
     if (selectedYear) {
       try {
-        const r = await api.patch(`/school-years/${selectedYear._id}`, yearForm)
+        // Build payload from form; if semester changed compared to server, ensure the year becomes active
+        const payload: any = { ...yearForm }
+        if (selectedYear.activeSemester !== payload.activeSemester) {
+          payload.active = true
+        }
+
+        const r = await api.patch(`/school-years/${selectedYear._id}`, payload)
         await loadYears()
         setSelectedYear(r.data)
         if (r.data.active) {
-          const sem = r.data.activeSemester || 1
+          const sem = r.data.activeSemester || payload.activeSemester || 1
           showToast(`L'année ${r.data.name} — Semestre S${sem} est maintenant actif`, 'success')
         } else {
           showToast(`Modifications enregistrées pour ${r.data.name}`, 'success')
@@ -237,18 +244,6 @@ export default function AdminResources() {
       if(selectedYear?._id === id) setSelectedYear(null)
   }
 
-  const toggleSemester = async (semester: number) => {
-    if (!selectedYear) return
-    try {
-      const r = await api.patch(`/school-years/${selectedYear._id}`, { activeSemester: semester })
-      setSelectedYear({ ...selectedYear, activeSemester: semester })
-      await loadYears()
-      const name = r.data?.name || selectedYear.name
-      showToast(`Semestre S${semester} pour ${name} est maintenant actif`, 'success')
-    } catch (e) {
-      showToast('Erreur lors de la mise à jour du semestre', 'error')
-    }
-  }
 
   // Classes
   const addSection = async (level: string) => {
@@ -494,14 +489,14 @@ export default function AdminResources() {
                   <label className="form-label">Semestre actif</label>
                   <div className="semester-toggle">
                     <button 
-                      className={`semester-btn ${(selectedYear.activeSemester || 1) === 1 ? 'active' : ''}`}
-                      onClick={() => toggleSemester(1)}
+                      className={`semester-btn ${(yearForm.activeSemester || 1) === 1 ? 'active' : ''}`}
+                      onClick={() => setYearForm({...yearForm, activeSemester: 1})}
                     >
                       Semestre 1
                     </button>
                     <button 
-                      className={`semester-btn ${selectedYear.activeSemester === 2 ? 'active' : ''}`}
-                      onClick={() => toggleSemester(2)}
+                      className={`semester-btn ${(yearForm.activeSemester || 1) === 2 ? 'active' : ''}`}
+                      onClick={() => setYearForm({...yearForm, activeSemester: 2})}
                     >
                       Semestre 2
                     </button>
