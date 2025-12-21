@@ -83,9 +83,6 @@ export default function SubAdminTemplateReview() {
     const [activeSemester, setActiveSemester] = useState<number>(1)
     const [eligibleForSign, setEligibleForSign] = useState<boolean>(false)
 
-    // AEFE-only UI state: toggle to enable suggestion mode (they can only suggest, not edit)
-    const [suggestMode, setSuggestMode] = useState<boolean>(false)
-
     const [promoting, setPromoting] = useState(false)
     const [canEdit, setCanEdit] = useState(false)
     const [editMode, setEditMode] = useState(false)
@@ -98,13 +95,6 @@ export default function SubAdminTemplateReview() {
     // UI State
     const [toast, setToast] = useState<{ message: string, type: ToastType } | null>(null)
     const [confirmModal, setConfirmModal] = useState<{ isOpen: boolean, title: string, content: React.ReactNode, onConfirm: () => void } | null>(null)
-    const [suggestionModal, setSuggestionModal] = useState<{
-        pageIndex: number,
-        blockIndex: number,
-        originalText: string,
-        isOpen: boolean
-    } | null>(null)
-    const [suggestionText, setSuggestionText] = useState('')
 
     const { levels } = useLevels()
     const socket = useSocket()
@@ -273,28 +263,6 @@ export default function SubAdminTemplateReview() {
                 showToast('Échec de l\'enregistrement', 'error')
                 console.error(e)
             }
-        }
-    }
-
-    const submitSuggestion = async () => {
-        if (!suggestionModal || !template) return
-        try {
-            const block = template?.pages?.[suggestionModal.pageIndex]?.blocks?.[suggestionModal.blockIndex]
-            const blockId = typeof block?.props?.blockId === 'string' && block.props.blockId.trim() ? block.props.blockId.trim() : undefined
-            await api.post('/suggestions', {
-                templateId: template._id,
-                templateVersion: assignment?.templateVersion,
-                pageIndex: suggestionModal.pageIndex,
-                blockIndex: suggestionModal.blockIndex,
-                blockId,
-                originalText: suggestionModal.originalText,
-                suggestedText: suggestionText
-            })
-            showToast('Suggestion envoyée !', 'success')
-            setSuggestionModal(null)
-            setSuggestionText('')
-        } catch (e) {
-            showToast('Erreur lors de l\'envoi', 'error')
         }
     }
 
@@ -670,32 +638,7 @@ export default function SubAdminTemplateReview() {
                 {confirmModal?.content}
             </Modal>
 
-            <Modal
-                isOpen={!!suggestionModal}
-                onClose={() => setSuggestionModal(null)}
-                title="Suggérer une modification"
-                footer={
-                    <>
-                        <button className="btn secondary" onClick={() => setSuggestionModal(null)}>Annuler</button>
-                        <button className="btn" onClick={submitSuggestion}>Envoyer</button>
-                    </>
-                }
-            >
-                <div style={{ marginBottom: 12 }}>
-                    <label style={{ display: 'block', marginBottom: 4, fontSize: 12, color: '#666' }}>Texte original</label>
-                    <div style={{ padding: 8, background: '#f1f5f9', borderRadius: 4, fontSize: 14 }}>{suggestionModal?.originalText}</div>
-                </div>
-                <div style={{ marginBottom: 16 }}>
-                    <label style={{ display: 'block', marginBottom: 4, fontSize: 12, color: '#666' }}>Suggestion</label>
-                    <textarea
-                        value={suggestionText}
-                        onChange={e => setSuggestionText(e.target.value)}
-                        style={{ width: '100%', height: 100, padding: 8, borderRadius: 4, border: '1px solid #ccc' }}
-                        placeholder="Entrez votre suggestion..."
-                        autoFocus
-                    />
-                </div>
-            </Modal>
+
 
             <div className="card">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
@@ -746,37 +689,7 @@ export default function SubAdminTemplateReview() {
                         </div>
                     )}
 
-                    {isAefeUser && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <span style={{ fontSize: 14, fontWeight: 500, color: suggestMode ? '#f59e0b' : '#64748b' }}>
-                                {suggestMode ? 'Mode Suggestion' : 'Suggérer des modifications'}
-                            </span>
-                            <div
-                                onClick={() => setSuggestMode(!suggestMode)}
-                                style={{
-                                    width: 48,
-                                    height: 24,
-                                    background: suggestMode ? '#f59e0b' : '#cbd5e1',
-                                    borderRadius: 12,
-                                    position: 'relative',
-                                    cursor: 'pointer',
-                                    transition: 'background 0.3s ease'
-                                }}
-                            >
-                                <div style={{
-                                    width: 20,
-                                    height: 20,
-                                    background: 'white',
-                                    borderRadius: '50%',
-                                    position: 'absolute',
-                                    top: 2,
-                                    left: suggestMode ? 26 : 2,
-                                    transition: 'left 0.3s ease',
-                                    boxShadow: '0 1px 3px rgba(0,0,0,0.2)'
-                                }} />
-                            </div>
-                        </div>
-                    )}
+
                 </div>
                 <div style={{
                     marginTop: 14,
@@ -1103,38 +1016,6 @@ export default function SubAdminTemplateReview() {
                                         {b.type === 'text' && (
                                             <div style={{ position: 'relative' }}>
                                                 <div style={{ color: b.props.color, fontSize: b.props.fontSize }}>{b.props.text}</div>
-                                                {((editMode && canEdit) || (isAefeUser && suggestMode)) && (
-                                                    <div
-                                                        onClick={(e) => {
-                                                            e.stopPropagation()
-                                                            setSuggestionModal({
-                                                                pageIndex: actualPageIndex,
-                                                                blockIndex: idx,
-                                                                originalText: b.props.text,
-                                                                isOpen: true
-                                                            })
-                                                        }}
-                                                        style={{
-                                                            position: 'absolute',
-                                                            top: -10,
-                                                            right: -10,
-                                                            background: '#f59e0b',
-                                                            color: 'white',
-                                                            borderRadius: '50%',
-                                                            width: 20,
-                                                            height: 20,
-                                                            display: 'flex',
-                                                            alignItems: 'center',
-                                                            justifyContent: 'center',
-                                                            cursor: 'pointer',
-                                                            fontSize: 12,
-                                                            boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
-                                                        }}
-                                                        title="Suggérer une modification"
-                                                    >
-                                                        ✎
-                                                    </div>
-                                                )}  
                                             </div>
                                         )}
                                         {b.type === 'language_toggle_v2' && (
@@ -1301,39 +1182,6 @@ export default function SubAdminTemplateReview() {
                                                     opacity: isDropdownAllowed ? 1 : 0.5,
                                                     pointerEvents: isDropdownAllowed ? 'auto' : 'none'
                                                 }}>
-                                                    {((editMode && canEdit) || (isAefeUser && suggestMode)) && (
-                                                        <div
-                                                            onClick={(e) => {
-                                                                e.stopPropagation()
-                                                                setSuggestionModal({
-                                                                    pageIndex: actualPageIndex,
-                                                                    blockIndex: idx,
-                                                                    originalText: (b.props.options || []).join('\n'),
-                                                                    isOpen: true
-                                                                })
-                                                            }}
-                                                            style={{
-                                                                position: 'absolute',
-                                                                top: -10,
-                                                                right: -10,
-                                                                background: '#f59e0b',
-                                                                color: 'white',
-                                                                borderRadius: '50%',
-                                                                width: 20,
-                                                                height: 20,
-                                                                display: 'flex',
-                                                                alignItems: 'center',
-                                                                justifyContent: 'center',
-                                                                cursor: 'pointer',
-                                                                fontSize: 12,
-                                                                boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
-                                                                zIndex: 10
-                                                            }}
-                                                            title="Suggérer une modification des options"
-                                                        >
-                                                            ✎
-                                                        </div>
-                                                    )}  
                                                     <div style={{ fontSize: 10, fontWeight: 'bold', color: '#6c5ce7', marginBottom: 2 }}>Dropdown #{b.props.dropdownNumber || '?'}</div>
                                                     {b.props.label && <div style={{ fontSize: 10, color: '#666', marginBottom: 2 }}>{b.props.label}</div>}
                                                     <div
@@ -1436,37 +1284,6 @@ export default function SubAdminTemplateReview() {
                                                                     onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}
                                                                 >
                                                                     <span>{opt}</span>
-                                                                    {((editMode && canEdit) || (isAefeUser && suggestMode)) && (
-                                                                        <div
-                                                                            onClick={(e) => {
-                                                                                e.stopPropagation()
-                                                                                setSuggestionModal({
-                                                                                    pageIndex: actualPageIndex,
-                                                                                    blockIndex: idx,
-                                                                                    originalText: opt,
-                                                                                    isOpen: true
-                                                                                })
-                                                                                setOpenDropdown(null)
-                                                                            }}
-                                                                            style={{
-                                                                                background: '#f59e0b',
-                                                                                color: 'white',
-                                                                                borderRadius: '50%',
-                                                                                width: 20,
-                                                                                height: 20,
-                                                                                display: 'flex',
-                                                                                alignItems: 'center',
-                                                                                justifyContent: 'center',
-                                                                                cursor: 'pointer',
-                                                                                fontSize: 12,
-                                                                                boxShadow: '0 1px 2px rgba(0,0,0,0.2)',
-                                                                                flexShrink: 0
-                                                                            }}
-                                                                            title="Suggérer une modification pour cette option"
-                                                                        >
-                                                                            ✎
-                                                                        </div>
-                                                                    )} 
                                                                 </div>
                                                             ))}
                                                         </div>

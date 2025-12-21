@@ -667,13 +667,29 @@ adminExtrasRouter.get('/templates/:templateAssignmentId/review', requireAuth(['A
     }
 })
 
-// --- Server tests: list available test files ---
+// --- Server tests: list available test files (recursive) ---
 adminExtrasRouter.get('/run-tests/list', requireAuth(['ADMIN']), async (req, res) => {
     try {
-        const testsDir = path.join(__dirname, '..', '__tests__')
-        const files = await fs.readdir(testsDir)
-        const testFiles = files.filter((f: string) => f.endsWith('.test.ts') || f.endsWith('.test.js') || f.endsWith('.spec.ts') || f.endsWith('.spec.js'))
-        res.json({ tests: testFiles })
+        // Search recursively under server `src` for test files so we include nested suites
+        const startDir = path.join(__dirname, '..') // server/src
+        const matches: string[] = []
+
+        async function walk(dir: string) {
+            const entries = await fs.readdir(dir, { withFileTypes: true })
+            for (const ent of entries) {
+                const p = path.join(dir, ent.name)
+                if (ent.isDirectory()) {
+                    await walk(p)
+                } else if (ent.isFile() && (/\.(?:test|spec)\.[tj]s$/).test(ent.name)) {
+                    // return paths relative to server/src for client-friendly display
+                    matches.push(path.relative(startDir, p))
+                }
+            }
+        }
+
+        await walk(startDir)
+        matches.sort()
+        res.json({ tests: matches })
     } catch (e: any) {
         console.error('run-tests/list error', e)
         res.status(500).json({ error: 'failed' })
@@ -682,21 +698,29 @@ adminExtrasRouter.get('/run-tests/list', requireAuth(['ADMIN']), async (req, res
 
 // --- Server tests: run tests (admin only) ---
 adminExtrasRouter.post('/run-tests', requireAuth(['ADMIN']), async (req, res) => {
-    const { pattern } = req.body || {}
+    const { pattern, patterns } = req.body || {}
     try {
-        const args = ['jest', '--json', '--runInBand']
-        if (pattern && typeof pattern === 'string' && pattern.trim()) args.push(pattern)
+        const argsBase = ['--json', '--runInBand']
+        const patternArgs: string[] = []
+
+        const addPatterns = (p: any) => {
+            if (Array.isArray(p)) {
+                for (const it of p) if (typeof it === 'string' && it.trim()) patternArgs.push(it)
+            } else if (typeof p === 'string' && p.trim()) patternArgs.push(p)
+        }
+
+        addPatterns(patterns)
+        addPatterns(pattern)
 
         const cwd = path.join(__dirname, '..', '..') // server root
         // Try to prefer local node_modules binary if available, otherwise fallback to npx
         let cmd = 'npx'
-        let cmdArgs = args
+        let cmdArgs: string[] = ['jest', ...argsBase, ...patternArgs]
         try {
             const jestPath = path.join(cwd, 'node_modules', '.bin', process.platform === 'win32' ? 'jest.cmd' : 'jest')
             await fs.access(jestPath)
             cmd = jestPath
-            cmdArgs = ['--json', '--runInBand']
-            if (pattern && typeof pattern === 'string' && pattern.trim()) cmdArgs.push(pattern)
+            cmdArgs = [...argsBase, ...patternArgs]
         } catch (e) {
             // fallback stays as npx with args
         }
@@ -713,7 +737,8 @@ adminExtrasRouter.post('/run-tests', requireAuth(['ADMIN']), async (req, res) =>
             }
         }
 
-        const proc = spawn(cmd, cmdArgs, { cwd, env: { ...process.env, CI: 'true' } })
+        let responded = false
+        const proc = spawn(cmd, cmdArgs, { cwd, env: { ...process.env, CI: 'true' }, shell: process.platform === 'win32' })
         let stdout = ''
         let stderr = ''
 
@@ -723,10 +748,14 @@ adminExtrasRouter.post('/run-tests', requireAuth(['ADMIN']), async (req, res) =>
         proc.on('error', (err) => {
             console.error('run-tests spawn error', err)
             // return a helpful error to client
+            if (responded || res.headersSent) return
+            responded = true
             return res.status(500).json({ error: 'spawn_failed', message: String(err) })
         })
 
         proc.on('close', (code) => {
+            if (responded || res.headersSent) return
+            responded = true
             try {
                 const parsed = JSON.parse(stdout)
                 return res.json({ ok: true, code, results: parsed, stdout, stderr })

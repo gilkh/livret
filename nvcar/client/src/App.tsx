@@ -44,6 +44,7 @@ import AdminNavigationVisibility from './pages/AdminNavigationVisibility'
 import AdminStudentPromotions from './pages/AdminStudentPromotions'
 import AdminSkillAnalytics from './pages/AdminSkillAnalytics'
 import SubAdminSemesterRequest from './pages/SubAdminSemesterRequest'
+import SuggestionGradebookTemplates from './pages/SuggestionGradebookTemplates'
 import AdminMonitoring from './pages/AdminMonitoring'
 import SystemAlertBanner from './components/SystemAlertBanner'
 
@@ -332,6 +333,22 @@ export default function App() {
           }
         />
         <Route
+          path="/subadmin/suggestion"
+          element={
+            <RequireAuth>
+              <SubAdminSemesterRequest />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/subadmin/suggestion/gradebooks"
+          element={
+            <RequireAuth>
+              <SuggestionGradebookTemplates />
+            </RequireAuth>
+          }
+        />
+        <Route
           path="/aefe/dashboard"
           element={
             <RequireAuth>
@@ -376,6 +393,22 @@ export default function App() {
           element={
             <RequireAuth>
               <SubAdminGradebooks />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/aefe/suggestion"
+          element={
+            <RequireAuth>
+              <SubAdminSemesterRequest />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/aefe/suggestion/gradebooks"
+          element={
+            <RequireAuth>
+              <SuggestionGradebookTemplates />
             </RequireAuth>
           }
         />

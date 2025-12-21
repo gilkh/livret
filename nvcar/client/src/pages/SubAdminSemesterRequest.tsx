@@ -1,8 +1,12 @@
 import { useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import api from '../api'
 import { CheckCircle2, Send, AlertCircle, Clock } from 'lucide-react'
 
 export default function SubAdminSemesterRequest() {
+    const navigate = useNavigate()
+    const location = useLocation()
+    const isAefeUser = location.pathname.includes('/aefe/')
     const [loading, setLoading] = useState(false)
     const [success, setSuccess] = useState(false)
     const [error, setError] = useState('')
@@ -84,8 +88,17 @@ export default function SubAdminSemesterRequest() {
         <div className="container">
             <div className="card">
                 <div style={{ marginBottom: 32 }}>
-                    <h2 className="title" style={{ fontSize: 32, marginBottom: 8, color: '#1e293b' }}>🚀 Demandes de Semestre</h2>
+                    <h2 className="title" style={{ fontSize: 32, marginBottom: 8, color: '#1e293b' }}>🚀 Suggestion</h2>
                     <p className="note" style={{ fontSize: 16 }}>Communiquez vos avancements et demandez les changements de période à l'administration.</p>
+                    <div style={{ marginTop: 14 }}>
+                        <button
+                            className="btn secondary"
+                            onClick={() => navigate(isAefeUser ? '/aefe/suggestion/gradebooks' : '/subadmin/suggestion/gradebooks')}
+                            style={{ padding: '10px 14px' }}
+                        >
+                            Suggérer des modifications sur les carnets
+                        </button>
+                    </div>
                 </div>
 
                 <form onSubmit={handleSubmit} style={{ maxWidth: 600 }}>

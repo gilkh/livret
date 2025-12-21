@@ -125,52 +125,93 @@ const DiagnosticsPanel = ({
     onReset: () => void
 }) => {
     return (
-        <div className="diag-root">
-            <div className="diag-top">
-                <div className="diag-summary">
-                    <div className="diag-summary-line">
-                        <span className="diag-summary-count">{summary.passed}</span> / {summary.total} OK
-                        {summary.failed > 0 && <> · <span className="diag-summary-fail">{summary.failed} KO</span></>}
-                        {summary.running > 0 && <> · <span className="diag-summary-running">{summary.running} en cours</span></>}
-                    </div>
-                    <div className="diag-last-run">{lastRunLabel}</div>
+        <div className="server-tests-section">
+            <div className="server-tests-header">
+                <div className="header-title">
+                    <h2>Tests Automatiques (Client/API)</h2>
+                    <p>Vérifications de santé du système, API, stockage navigateur et connectivité.</p>
                 </div>
-
-                <div className="diag-actions">
-                    <button
-                        className="btn secondary"
-                        disabled={running}
-                        onClick={() => setMode(mode === 'core' ? 'extended' : 'core')}
-                        style={{ padding: '6px 12px', fontSize: 14 }}
-                    >
-                        {mode === 'core' ? 'Mode: Essentiel' : 'Mode: Complet'}
-                    </button>
-                    <button className="btn secondary" disabled={running} onClick={onReset} style={{ padding: '6px 12px', fontSize: 14 }}>
-                        Réinitialiser
-                    </button>
-                    <button className="btn primary" disabled={running} onClick={onRun} style={{ padding: '6px 12px', fontSize: 14 }}>
-                        {running ? 'Tests en cours…' : 'Lancer les tests'}
-                    </button>
+                <div className="header-actions">
+                    {running ? (
+                        <span className="badge running">En cours...</span>
+                    ) : summary.total > 0 ? (
+                        summary.failed > 0 ? (
+                            <span className="badge fail">Échec ({summary.failed})</span>
+                        ) : (
+                            <span className="badge success">Succès ({summary.passed})</span>
+                        )
+                    ) : (
+                        <span className="badge idle">Prêt</span>
+                    )}
                 </div>
             </div>
 
-            <div className="diag-table">
-                {results.length === 0 ? (
-                    <div className="diag-empty">Aucun test configuré.</div>
-                ) : (
-                    results.map(r => (
-                        <div key={r.id} className="diag-row">
-                            <div className="diag-name">{r.name}</div>
-                            <div className="diag-status">
-                                <span className={`diag-pill diag-${r.status}`}>{r.status}</span>
-                            </div>
-                            <div className="diag-duration">{formatMs(r.durationMs)}</div>
-                            <div className="diag-message" title={r.detail || r.message || ''}>
-                                {r.message || '—'}
-                            </div>
+            <div className="diag-content-wrapper">
+                <div className="diag-toolbar">
+                    <div className="diag-modes">
+                        <button 
+                            className={`btn ${mode === 'core' ? 'primary' : 'secondary'} small`} 
+                            onClick={() => setMode('core')}
+                            disabled={running}
+                        >
+                            Essentiel
+                        </button>
+                        <button 
+                            className={`btn ${mode === 'extended' ? 'primary' : 'secondary'} small`} 
+                            onClick={() => setMode('extended')}
+                            disabled={running}
+                        >
+                            Complet
+                        </button>
+                    </div>
+                    <div className="diag-controls">
+                        <span className="diag-last-run">{lastRunLabel}</span>
+                        <button className="btn secondary small" onClick={onReset} disabled={running}>
+                            Réinitialiser
+                        </button>
+                        <button className="btn primary small" onClick={onRun} disabled={running}>
+                            {running ? '...' : 'Lancer'}
+                        </button>
+                    </div>
+                </div>
+
+                <div className="diag-grid">
+                    {results.length === 0 ? (
+                        <div className="empty-state">
+                            <div className="empty-icon">🩺</div>
+                            <h3>Aucun diagnostic lancé</h3>
+                            <p>Sélectionnez un mode et cliquez sur "Lancer" pour vérifier l'état du système.</p>
                         </div>
-                    ))
-                )}
+                    ) : (
+                        <div className="diag-results-list">
+                            {results.map(r => (
+                                <div key={r.id} className={`diag-result-card ${r.status}`}>
+                                    <div className="diag-card-status">
+                                        {r.status === 'running' && <div className="spinner small"></div>}
+                                        {r.status === 'pass' && (
+                                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                                        )}
+                                        {r.status === 'fail' && (
+                                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                                        )}
+                                        {r.status === 'idle' && (
+                                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle></svg>
+                                        )}
+                                    </div>
+                                    <div className="diag-card-content">
+                                        <div className="diag-card-header">
+                                            <span className="diag-card-title">{r.name}</span>
+                                            {r.durationMs !== undefined && <span className="diag-card-time">{formatMs(r.durationMs)}</span>}
+                                        </div>
+                                        <div className="diag-card-message" title={r.detail || r.message}>
+                                            {r.message || 'En attente...'}
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
             </div>
         </div>
     )
@@ -195,9 +236,12 @@ export default function AdminMonitoring() {
 
     // Server tests (Jest) panel
     const [serverTests, setServerTests] = useState<string[]>([])
-    const [selectedServerTest, setSelectedServerTest] = useState<string>('')
+    const [selectedServerTests, setSelectedServerTests] = useState<string[]>([])
+    const [serverTestsFilter, setServerTestsFilter] = useState<string>('')
     const [serverTestsRunning, setServerTestsRunning] = useState<boolean>(false)
     const [serverTestsResult, setServerTestsResult] = useState<any | null>(null)
+    // UI state for expanded/collapsed test suites
+    const [expandedSuites, setExpandedSuites] = useState<Record<string, boolean>>({})
 
     const loadAll = useCallback(async () => {
         setLoading(true)
@@ -716,6 +760,8 @@ export default function AdminMonitoring() {
             const r = await api.get('/admin-extras/run-tests/list')
             const tests = Array.isArray(r.data?.tests) ? r.data.tests : []
             setServerTests(tests)
+            // keep only selections that still exist
+            setSelectedServerTests(prev => (prev || []).filter(p => tests.includes(p)))
         } catch (e: any) {
             // ignore
             console.error('failed to fetch server tests list', e)
@@ -726,12 +772,46 @@ export default function AdminMonitoring() {
         loadServerTestsList()
     }, [loadServerTestsList])
 
+    // Filtered tests list and selection helpers
+    const filteredServerTests = useMemo(() => {
+        const q = serverTestsFilter.trim().toLowerCase()
+        if (!q) return serverTests
+        return serverTests.filter(t => t.toLowerCase().includes(q))
+    }, [serverTests, serverTestsFilter])
+
+    const toggleSelectServerTest = useCallback((t: string) => {
+        setSelectedServerTests(prev => (prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t]))
+    }, [])
+
+    const areAllVisibleSelected = useMemo(() => filteredServerTests.length > 0 && filteredServerTests.every(t => selectedServerTests.includes(t)), [filteredServerTests, selectedServerTests])
+
+    const toggleSelectAllVisible = useCallback(() => {
+        setSelectedServerTests(prev => {
+            if (areAllVisibleSelected) {
+                return prev.filter(p => !filteredServerTests.includes(p))
+            }
+            return Array.from(new Set([...(prev || []), ...filteredServerTests]))
+        })
+    }, [filteredServerTests, areAllVisibleSelected])
+
+    const toggleSuiteExpand = useCallback((name: string) => {
+        setExpandedSuites(prev => ({ ...prev, [name]: !prev[name] }))
+    }, [])
+
+    const copyText = useCallback((text: string) => {
+        try {
+            navigator.clipboard?.writeText(text)
+        } catch (e) {
+            // ignore
+        }
+    }, [])
+
     const runServerTests = useCallback(async () => {
         setServerTestsRunning(true)
         setServerTestsResult(null)
         try {
             const body: any = {}
-            if (selectedServerTest) body.pattern = selectedServerTest
+            if (selectedServerTests && selectedServerTests.length > 0) body.patterns = selectedServerTests
             const r = await api.post('/admin-extras/run-tests', body)
             setServerTestsResult(r.data)
         } catch (e: any) {
@@ -741,7 +821,7 @@ export default function AdminMonitoring() {
             setServerTestsRunning(false)
             loadServerTestsList()
         }
-    }, [selectedServerTest, loadServerTestsList])
+    }, [selectedServerTests, loadServerTestsList])
 
     useEffect(() => {
         resetDiagnostics()
@@ -1029,90 +1109,7 @@ export default function AdminMonitoring() {
                 ),
                 color: '#fb7185',
             },
-            {
-                title: 'Tests Automatiques',
-                status: diagSummary.failed > 0 ? 'KO' : diagSummary.passed > 0 ? 'OK' : '—',
-                description: (
-                    <DiagnosticsPanel
-                        mode={diagMode}
-                        setMode={setDiagMode}
-                        running={diagRunning}
-                        results={diagResults}
-                        summary={diagSummary}
-                        lastRunLabel={diagLastRunLabel}
-                        onRun={runDiagnostics}
-                        onReset={resetDiagnostics}
-                    />
-                ),
-                footerLabel: 'Diagnostic',
-                progress: diagSummary.total > 0 ? Math.round((diagSummary.passed / diagSummary.total) * 100) : 0,
-                icon: (
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M4 19V5"></path>
-                        <path d="M4 12h16"></path>
-                        <path d="M20 19V5"></path>
-                        <path d="M8 9l2 2 4-4"></path>
-                    </svg>
-                ),
-                color: diagSummary.failed > 0 ? '#ef4444' : diagSummary.passed > 0 ? '#22c55e' : '#64748b',
-            },
-            {
-                title: 'Tests Serveur (Jest)',
-                status: serverTestsResult && serverTestsResult.results ? (serverTestsResult.results.numFailedTests > 0 ? 'KO' : 'OK') : (serverTestsRunning ? 'En cours' : '—'),
-                description: (
-                    <div style={{ padding: 8 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <select value={selectedServerTest} onChange={e => setSelectedServerTest(e.target.value)} style={{ minWidth: 320 }}>
-                                <option value="">Executer tous les tests</option>
-                                {serverTests.map(t => (
-                                    <option key={t} value={t}>{t}</option>
-                                ))}
-                            </select>
-                            <button className="btn primary" onClick={runServerTests} disabled={serverTestsRunning} style={{ padding: '6px 12px' }}>
-                                {serverTestsRunning ? 'Exécution…' : 'Lancer les tests'}
-                            </button>
-                            <button className="btn secondary" onClick={loadServerTestsList} disabled={serverTestsRunning} style={{ padding: '6px 12px' }}>
-                                Actualiser
-                            </button>
-                        </div>
 
-                        {serverTestsResult && (
-                            <div style={{ marginTop: 8 }}>
-                                <div style={{ fontSize: 13, color: '#334155' }}>
-                                    Exit code: {String(serverTestsResult.code ?? 'n/a')}
-                                </div>
-
-                                {serverTestsResult.results ? (
-                                    <div style={{ marginTop: 8 }}>
-                                        <div style={{ fontSize: 13, color: '#334155' }}>
-                                            Suites: {serverTestsResult.results.numTotalTestSuites} · Tests: {serverTestsResult.results.numTotalTests} · Failed: {serverTestsResult.results.numFailedTests}
-                                        </div>
-                                        <pre style={{ maxHeight: 220, overflow: 'auto', background: '#0f172a', color: '#fff', padding: 8, marginTop: 8 }}>
-                                            {JSON.stringify(serverTestsResult.results.testResults.map((r: any) => ({ file: r.name, status: r.status, assertions: r.assertionResults?.length })), null, 2)}
-                                        </pre>
-                                    </div>
-                                ) : (
-                                    serverTestsResult.stdout && <pre style={{ maxHeight: 220, overflow: 'auto', background: '#0f172a', color: '#fff', padding: 8, marginTop: 8 }}>{serverTestsResult.stdout}</pre>
-                                )}
-
-                                {serverTestsResult.error && (
-                                    <div style={{ marginTop: 8, color: '#ef4444' }}>Error: {String(serverTestsResult.error)}</div>
-                                )}
-                            </div>
-                        )}
-                    </div>
-                ),
-                footerLabel: 'Server tests',
-                progress: serverTestsResult && serverTestsResult.results ? Math.round(((serverTestsResult.results.numTotalTests - serverTestsResult.results.numFailedTests) / serverTestsResult.results.numTotalTests) * 100) : 0,
-                icon: (
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                        <polyline points="7 10 12 15 17 10"></polyline>
-                        <line x1="12" y1="15" x2="12" y2="3"></line>
-                    </svg>
-                ),
-                color: serverTestsResult && serverTestsResult.results && serverTestsResult.results.numFailedTests > 0 ? '#ef4444' : '#334155',
-            },
         ]
     }, [
         alert,
@@ -1130,6 +1127,11 @@ export default function AdminMonitoring() {
         resetDiagnostics,
         runDiagnostics,
         status,
+        serverTestsFilter,
+        selectedServerTests,
+        serverTestsRunning,
+        serverTestsResult,
+        serverTests,
     ])
 
     return (
@@ -1167,6 +1169,173 @@ export default function AdminMonitoring() {
                         </div>
                     </div>
                 ))}
+            </div>
+
+            {/* Diagnostics Section (Full Width) */}
+            <DiagnosticsPanel
+                mode={diagMode}
+                setMode={setDiagMode}
+                running={diagRunning}
+                results={diagResults}
+                summary={diagSummary}
+                lastRunLabel={diagLastRunLabel}
+                onRun={runDiagnostics}
+                onReset={resetDiagnostics}
+            />
+
+            {/* Server Tests Section (Full Width) */}
+            <div className="server-tests-section">
+                <div className="server-tests-header">
+                    <div className="header-title">
+                        <h2>Tests Serveur (Jest)</h2>
+                        <p>Exécuter les tests d'intégration et unitaires côté serveur.</p>
+                    </div>
+                    <div className="header-actions">
+                        {serverTestsRunning ? (
+                            <span className="badge running">Tests en cours...</span>
+                        ) : serverTestsResult ? (
+                            serverTestsResult.results?.numFailedTests > 0 ? (
+                                <span className="badge fail">Échec ({serverTestsResult.results.numFailedTests})</span>
+                            ) : (
+                                <span className="badge success">Succès</span>
+                            )
+                        ) : (
+                            <span className="badge idle">Prêt</span>
+                        )}
+                    </div>
+                </div>
+
+                <div className="server-tests-container">
+                    <div className="tests-sidebar">
+                        <div className="sidebar-search">
+                            <input
+                                type="text"
+                                placeholder="Filtrer les tests..."
+                                value={serverTestsFilter}
+                                onChange={e => setServerTestsFilter(e.target.value)}
+                            />
+                        </div>
+                        <div className="sidebar-actions">
+                            <button className="btn primary small" onClick={runServerTests} disabled={serverTestsRunning}>
+                                {serverTestsRunning ? '...' : 'Lancer'}
+                            </button>
+                            <button className="btn secondary small" onClick={loadServerTestsList} disabled={serverTestsRunning}>
+                                ↻
+                            </button>
+                        </div>
+
+                        <div className="tests-list">
+                            <div className="list-header">
+                                <label>
+                                    <input type="checkbox" checked={areAllVisibleSelected} onChange={toggleSelectAllVisible} />
+                                    <span>Tout ({filteredServerTests.length})</span>
+                                </label>
+                            </div>
+                            {filteredServerTests.map(t => (
+                                <label key={t} className={`test-item ${selectedServerTests.includes(t) ? 'selected' : ''}`}>
+                                    <input type="checkbox" checked={selectedServerTests.includes(t)} onChange={() => toggleSelectServerTest(t)} />
+                                    <span className="test-name" title={t}>
+                                        {t.split('/').pop()}
+                                    </span>
+                                </label>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="tests-content">
+                        {!serverTestsResult && !serverTestsRunning && (
+                            <div className="empty-state">
+                                <div className="empty-icon">🧪</div>
+                                <h3>Aucun résultat</h3>
+                                <p>Sélectionnez des tests dans la colonne de gauche et cliquez sur "Lancer".</p>
+                            </div>
+                        )}
+
+                        {serverTestsRunning && (
+                            <div className="loading-state">
+                                <div className="spinner"></div>
+                                <p>Exécution des tests en cours...</p>
+                            </div>
+                        )}
+
+                        {serverTestsResult && (
+                            <div className="results-view">
+                                {/* Summary Header */}
+                                {serverTestsResult.results && (
+                                    <div className="results-stats">
+                                        <div className="stat-item success">
+                                            <span className="stat-value">{serverTestsResult.results.numTotalTests - serverTestsResult.results.numFailedTests}</span>
+                                            <span className="stat-label">Passés</span>
+                                        </div>
+                                        <div className="stat-item fail">
+                                            <span className="stat-value">{serverTestsResult.results.numFailedTests}</span>
+                                            <span className="stat-label">Échoués</span>
+                                        </div>
+                                        <div className="stat-item">
+                                            <span className="stat-value">{serverTestsResult.results.numTotalTestSuites}</span>
+                                            <span className="stat-label">Suites</span>
+                                        </div>
+                                        <div className="stat-item">
+                                            <span className="stat-value">{serverTestsResult.results.startTime ? new Date(serverTestsResult.results.startTime).toLocaleTimeString() : '-'}</span>
+                                            <span className="stat-label">Démarré</span>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Console Output / Errors */}
+                                {serverTestsResult.error && <div className="error-banner">{String(serverTestsResult.error)}</div>}
+
+                                {serverTestsResult.stdout && (
+                                    <div className="console-output">
+                                        <h4>Console Output</h4>
+                                        <pre>{serverTestsResult.stdout}</pre>
+                                    </div>
+                                )}
+
+                                {/* Suites List */}
+                                {serverTestsResult.results?.testResults && (
+                                    <div className="suites-list">
+                                        {serverTestsResult.results.testResults.map((suite: any) => {
+                                            const failedCount = (suite.assertionResults || []).filter((a: any) => a.status === 'failed').length
+                                            const expanded = !!expandedSuites[suite.name]
+                                            return (
+                                                <div key={suite.name} className={`suite-card ${failedCount > 0 ? 'suite-fail' : 'suite-pass'}`}>
+                                                    <div className="suite-header" onClick={() => toggleSuiteExpand(suite.name)}>
+                                                        <div className={`status-icon ${failedCount > 0 ? 'fail' : 'pass'}`}>{failedCount > 0 ? '✕' : '✓'}</div>
+                                                        <div className="suite-info">
+                                                            <div className="suite-name">{suite.name.split('/').pop()}</div>
+                                                            <div className="suite-path">{suite.name}</div>
+                                                        </div>
+                                                        <div className="suite-meta">{suite.assertionResults?.length} tests</div>
+                                                    </div>
+
+                                                    {expanded && (
+                                                        <div className="suite-body">
+                                                            {suite.assertionResults.map((a: any, i: number) => (
+                                                                <div key={i} className={`assertion-row ${a.status}`}>
+                                                                    <div className="assertion-status">{a.status === 'failed' ? '✕' : '✓'}</div>
+                                                                    <div className="assertion-content">
+                                                                        <div className="assertion-title">{a.title}</div>
+                                                                        {a.status === 'failed' && (
+                                                                            <div className="assertion-error">
+                                                                                <pre>{(a.failureMessages || []).join('\n')}</pre>
+                                                                                <button className="copy-btn btn secondary" onClick={() => copyText((a.failureMessages || []).join('\n\n'))}>Copier</button>
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )
+                                        })}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                </div>
             </div>
 
             <div className="monitoring-footer-info">
