@@ -2072,19 +2072,37 @@ subAdminTemplatesRouter.patch('/templates/:assignmentId/data', requireAuth(['SUB
         } else if (data) {
             const currentData = assignment.data || {}
 
-            const updated = await TemplateAssignment.findByIdAndUpdate(
-                assignmentId,
+            // Use optimistic concurrency if client provides expectedDataVersion
+            const { expectedDataVersion } = req.body as any
+            const { generateChangeId } = require('../utils/changeId')
+            const changeId = generateChangeId()
+
+            const filter: any = { _id: assignmentId }
+            if (typeof expectedDataVersion === 'number') filter.dataVersion = expectedDataVersion
+
+            // Build targeted $set operations for each top-level key in the incoming data patch
+            const setOps: any = {}
+            for (const k of Object.keys(data || {})) {
+                setOps[`data.${k}`] = data[k]
+            }
+
+            // Ensure we preserve other data keys and mark status
+            const updated = await TemplateAssignment.findOneAndUpdate(
+                filter,
                 {
                     $set: {
-                        data: {
-                            ...currentData,
-                            ...data
-                        }
+                        ...setOps,
+                        status: assignment.status === 'draft' ? 'in_progress' : assignment.status
                     },
-                    status: assignment.status === 'draft' ? 'in_progress' : assignment.status
+                    $inc: { dataVersion: 1 }
                 },
                 { new: true }
             )
+
+            if (!updated) {
+                const current = await TemplateAssignment.findById(assignmentId).lean()
+                return res.status(409).json({ error: 'conflict', message: 'data_version_mismatch', current })
+            }
 
             await logAudit({
                 userId: subAdminId,
@@ -2097,7 +2115,22 @@ subAdminTemplatesRouter.patch('/templates/:assignmentId/data', requireAuth(['SUB
                 req,
             })
 
-            res.json({ success: true, assignment: updated })
+            // Persist change log entry
+            await TemplateChangeLog.create({
+                templateAssignmentId: assignmentId,
+                teacherId: subAdminId,
+                changeType: type || 'generic',
+                pageIndex: typeof pageIndex === 'number' ? pageIndex : -1,
+                blockIndex: typeof blockIndex === 'number' ? blockIndex : -1,
+                before: currentData,
+                after: updated.data,
+                changeId,
+                dataVersion: (updated as any).dataVersion,
+                userId: subAdminId,
+                timestamp: new Date(),
+            })
+
+            res.json({ success: true, assignment: updated, changeId, dataVersion: (updated as any).dataVersion })
         } else {
             res.status(400).json({ error: 'unsupported_type' })
         }

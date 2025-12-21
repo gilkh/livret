@@ -114,12 +114,18 @@ export default function TeacherTemplateEditor() {
 
     const emitAssignmentDataUpdate = (dataPatch: Record<string, any>) => {
         if (!socket || !assignmentId) return
+        const payload = {
+            type: 'assignment-data',
+            assignmentId,
+            data: dataPatch,
+            dataVersion: (assignment as any)?.dataVersion
+        }
         socket.emit('broadcast-update', {
             roomId: `assignment:${assignmentId}`,
-            payload: {
-                type: 'assignment-data',
-                assignmentId,
-                data: dataPatch
+            payload
+        }, (ack: any) => {
+            if (!ack || ack.status !== 'ok') {
+                console.warn('Socket update ack failed or not received', ack)
             }
         })
     }
@@ -163,12 +169,12 @@ export default function TeacherTemplateEditor() {
             setSaveStatus('Enregistrement...')
             const block = template?.pages?.[pageIndex]?.blocks?.[blockIndex]
             const blockId = block?.props?.blockId
-            await api.patch(`/teacher/template-assignments/${assignmentId}/language-toggle`, {
-                pageIndex,
-                blockIndex,
-                blockId,
-                items,
-            })
+
+            const payload:any = { pageIndex, blockIndex, blockId, items }
+            const expected = (assignment as any)?.dataVersion
+            if (typeof expected === 'number') payload.expectedDataVersion = expected
+
+            const res = await api.patch(`/teacher/template-assignments/${assignmentId}/language-toggle`, payload)
 
             // Update local state
             if (template) {
@@ -183,16 +189,36 @@ export default function TeacherTemplateEditor() {
                             type: 'language-toggle',
                             pageIndex,
                             blockIndex,
-                            items
+                            items,
+                            changeId: res.data?.changeId,
+                            dataVersion: res.data?.dataVersion
                         }
+                    }, (ack: any) => {
+                        if (!ack || ack.status !== 'ok') console.warn('Socket ack failed')
                     })
                 }
+            }
+
+            // Update local cached assignment dataVersion if server returned it
+            if (res && res.data && typeof res.data.dataVersion === 'number') {
+                setAssignment(prev => prev ? ({ ...prev, data: prev.data, dataVersion: res.data.dataVersion } as any) : prev)
             }
 
             setSaveStatus('Enregistré avec succès ✓')
             setTimeout(() => setSaveStatus(''), 3000)
         } catch (e: any) {
-            setError('Échec de l\'enregistrement')
+            if (e?.response?.status === 409) {
+                setError('Conflit détecté — vos modifications n\'ont pas été appliquées. Rechargez et réessayez.')
+                try {
+                    const fresh = await api.get(`/teacher/template-assignments/${assignmentId}`)
+                    setTemplate(fresh.data.template)
+                    setAssignment(fresh.data.assignment)
+                } catch (err) {
+                    console.error('Failed to reload after conflict', err)
+                }
+            } else {
+                setError('Échec de l\'enregistrement')
+            }
             setSaveStatus('')
             console.error(e)
         }

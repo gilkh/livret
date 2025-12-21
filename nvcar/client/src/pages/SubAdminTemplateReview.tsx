@@ -174,13 +174,17 @@ export default function SubAdminTemplateReview() {
 
     const emitAssignmentDataUpdate = (dataPatch: Record<string, any>) => {
         if (!socket || !assignmentId) return
+        const payload = {
+            type: 'assignment-data',
+            assignmentId,
+            data: dataPatch,
+            dataVersion: (assignment as any)?.dataVersion
+        }
         socket.emit('broadcast-update', {
             roomId: `assignment:${assignmentId}`,
-            payload: {
-                type: 'assignment-data',
-                assignmentId,
-                data: dataPatch
-            }
+            payload
+        }, (ack: any) => {
+            if (!ack || ack.status !== 'ok') console.warn('Socket update ack failed', ack)
         })
     }
 
@@ -222,12 +226,11 @@ export default function SubAdminTemplateReview() {
 
     const updateLanguageToggle = async (pageIndex: number, blockIndex: number, items: any[]) => {
         try {
-            await api.patch(`${apiPrefix}/templates/${assignmentId}/data`, {
-                type: 'language_toggle',
-                pageIndex,
-                blockIndex,
-                items,
-            })
+            const payload:any = { type: 'language_toggle', pageIndex, blockIndex, items }
+            const expected = (assignment as any)?.dataVersion
+            if (typeof expected === 'number') payload.expectedDataVersion = expected
+
+            const res = await api.patch(`${apiPrefix}/templates/${assignmentId}/data`, payload)
 
             // Update local state
             if (template) {
@@ -242,14 +245,34 @@ export default function SubAdminTemplateReview() {
                             type: 'language-toggle',
                             pageIndex,
                             blockIndex,
-                            items
+                            items,
+                            changeId: res.data?.changeId,
+                            dataVersion: res.data?.dataVersion
                         }
+                    }, (ack: any) => {
+                        if (!ack || ack.status !== 'ok') console.warn('Socket ack failed for language-toggle', ack)
                     })
                 }
             }
+
+            // update local assignment dataVersion if returned
+            if (res && res.data && typeof res.data.dataVersion === 'number') {
+                setAssignment(prev => prev ? ({ ...prev, data: prev.data, dataVersion: res.data.dataVersion } as any) : prev)
+            }
         } catch (e: any) {
-            showToast('Échec de l\'enregistrement', 'error')
-            console.error(e)
+            if (e?.response?.status === 409) {
+                showToast('Conflit détecté — vos modifications n\'ont pas été appliquées. Rechargez.', 'error')
+                try {
+                    const fresh = await api.get(`${apiPrefix}/templates/${assignmentId}/review`)
+                    setTemplate(fresh.data.template)
+                    setAssignment(fresh.data.assignment)
+                } catch (err) {
+                    console.error('Failed to reload after conflict', err)
+                }
+            } else {
+                showToast('Échec de l\'enregistrement', 'error')
+                console.error(e)
+            }
         }
     }
 

@@ -159,11 +159,12 @@ export default function AdminGradebookReview() {
             // I'll leave it as is, but it might error.
             // Actually, let's just disable editing for now to be safe, or try.
             // I'll try to use a hypothetical admin route.
-             await api.patch(`/admin-extras/templates/${assignmentId}/data`, {
+            const res = await api.patch(`/admin-extras/templates/${assignmentId}/data`, {
                 type: 'language_toggle',
                 pageIndex,
                 blockIndex,
                 items,
+                expectedDataVersion: (assignment as any)?.dataVersion
             })
 
             // Update local state
@@ -179,13 +180,32 @@ export default function AdminGradebookReview() {
                             type: 'language-toggle',
                             pageIndex,
                             blockIndex,
-                            items
+                            items,
+                            changeId: res.data?.changeId,
+                            dataVersion: res.data?.dataVersion
                         }
+                    }, (ack: any) => {
+                        if (!ack || ack.status !== 'ok') console.warn('Socket ack failed (admin language-toggle)', ack)
                     })
+                }
+
+                if (res && res.data && typeof res.data.dataVersion === 'number') {
+                    setAssignment(prev => prev ? ({ ...prev, data: prev.data, dataVersion: res.data.dataVersion } as any) : prev)
                 }
             }
         } catch (e: any) {
-            setError('Échec de l\'enregistrement (Non implémenté pour Admin)')
+            if (e?.response?.status === 409) {
+                setError('Conflit détecté — vos modifications n\'ont pas été appliquées. Rechargez la page.')
+                try {
+                    const r = await api.get(`/admin-extras/templates/${assignmentId}/review`)
+                    setTemplate(r.data.template)
+                    setAssignment(r.data.assignment)
+                } catch (err) {
+                    console.error('Failed to reload after conflict', err)
+                }
+            } else {
+                setError('Échec de l\'enregistrement (Non implémenté pour Admin)')
+            }
             console.error(e)
         }
     }

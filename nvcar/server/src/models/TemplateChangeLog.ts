@@ -8,6 +8,10 @@ const templateChangeLogSchema = new Schema({
     pageIndex: { type: Number, required: true },
     before: { type: Schema.Types.Mixed },
     after: { type: Schema.Types.Mixed },
+    // New metadata for concurrency and auditing
+    changeId: { type: String, required: true, index: true },
+    dataVersion: { type: Number, required: true, index: true },
+    userId: { type: String },
     timestamp: { type: Date, default: () => new Date() },
 })
 

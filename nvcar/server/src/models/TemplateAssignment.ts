@@ -29,7 +29,9 @@ const templateAssignmentSchema = new Schema({
     isCompletedSem2: { type: Boolean, default: false },
     completedAtSem2: { type: Date },
     data: { type: Schema.Types.Mixed, default: {} },
-})
+    // Optimistic concurrency for assignment data
+    dataVersion: { type: Number, default: 1, index: true }
+}, { timestamps: true })
 
 // Create compound index to prevent duplicate assignments
 templateAssignmentSchema.index({ templateId: 1, studentId: 1 }, { unique: true })

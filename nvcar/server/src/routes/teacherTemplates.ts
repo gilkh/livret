@@ -481,18 +481,33 @@ teacherTemplatesRouter.patch('/template-assignments/:assignmentId/language-toggl
         const before = currentData[keyStable] || currentData[keyLegacy]
 
         // Update assignment data (NOT the global template)
-        const updated = await TemplateAssignment.findByIdAndUpdate(
-            assignmentId,
+        // Use optimistic concurrency with expectedDataVersion if supplied
+        const { expectedDataVersion } = req.body as any
+        const { generateChangeId } = require('../utils/changeId')
+        const changeId = generateChangeId()
+
+        const filter: any = { _id: assignmentId }
+        if (typeof expectedDataVersion === 'number') filter.dataVersion = expectedDataVersion
+
+        const updated = await TemplateAssignment.findOneAndUpdate(
+            filter,
             {
                 $set: {
                     [`data.${keyStable}`]: sanitizedItems,
                     status: assignment.status === 'draft' ? 'in_progress' : assignment.status
-                }
+                },
+                $inc: { dataVersion: 1 }
             },
             { new: true }
         )
 
-        // Log the change
+        if (!updated) {
+            // Conflict: return current assignment + dataVersion so client can fetch/merge
+            const current = await TemplateAssignment.findById(assignmentId).lean()
+            return res.status(409).json({ error: 'conflict', message: 'data_version_mismatch', current })
+        }
+
+        // Log the change with metadata
         await TemplateChangeLog.create({
             templateAssignmentId: assignmentId,
             teacherId,
@@ -501,10 +516,13 @@ teacherTemplatesRouter.patch('/template-assignments/:assignmentId/language-toggl
             blockIndex: actualBlockIndex,
             before: before || targetBlock.props.items,
             after: sanitizedItems,
+            changeId,
+            dataVersion: (updated as any).dataVersion,
+            userId: teacherId,
             timestamp: new Date(),
         })
 
-        res.json({ success: true, assignment: updated })
+        res.json({ success: true, assignment: updated, changeId, dataVersion: (updated as any).dataVersion })
     } catch (e: any) {
         res.status(500).json({ error: 'update_failed', message: e.message })
     }
