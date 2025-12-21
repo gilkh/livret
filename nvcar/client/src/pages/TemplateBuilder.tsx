@@ -2208,7 +2208,7 @@ export default function TemplateBuilder() {
                             <div style={{
                               width: b.props.width || 200,
                               height: b.props.height || 80,
-                              border: '1px solid #000',
+                              border: 'none',
                               background: '#fff',
                               display: 'flex',
                               alignItems: 'center',
@@ -2218,7 +2218,7 @@ export default function TemplateBuilder() {
                             }}>
                               {b.props.label || 'Signature'}
                             </div>
-                          )}
+                          )} 
                           {b.type === 'promotion_info' && (
                             <div style={{
                               width: b.props.width || (b.props.field ? 150 : 300),
@@ -2886,7 +2886,7 @@ export default function TemplateBuilder() {
                         {b.type === 'text' && <div style={{ color: b.props.color, fontSize: (b.props.fontSize || 12) * 0.3 }}>{(b.props.text || '').slice(0, 20)}</div>}
                         {b.type === 'image' && <img src={b.props.url} style={{ width: (b.props.width || 120) * 0.3, height: (b.props.height || 120) * 0.3, borderRadius: 2 }} />}
                         {b.type === 'rect' && <div style={{ width: (b.props.width || 80) * 0.3, height: (b.props.height || 80) * 0.3, background: b.props.color, borderRadius: 2 }} />}
-                        {b.type === 'signature_box' && <div style={{ width: (b.props.width || 200) * 0.3, height: (b.props.height || 80) * 0.3, border: '0.5px solid #000', background: '#fff' }} />}
+                        {b.type === 'signature_box' && <div style={{ width: (b.props.width || 200) * 0.3, height: (b.props.height || 80) * 0.3, border: 'none', background: '#fff' }} />}
                       </div>
                     ))}
                   </div>

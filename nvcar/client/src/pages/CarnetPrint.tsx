@@ -547,7 +547,7 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                 </div>
                             )}
                             {b.type === 'signature_box' && (
-                                <div style={{ width: b.props.width || 200, height: b.props.height || 80, border: '1px solid #000', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#999' }}>
+                                <div style={{ width: b.props.width || 200, height: b.props.height || 80, border: 'none', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#999' }}>
                                     {b.props.label || 'Signature'}
                                 </div>
                             )}
@@ -681,7 +681,7 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                 <div style={{ 
                                     width: b.props.width || 200, 
                                     height: b.props.height || 80, 
-                                    border: '1px solid #000', 
+                                    border: 'none', 
                                     background: '#fff',
                                     display: 'flex',
                                     alignItems: 'center',
@@ -691,7 +691,7 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                 }}>
                                     {signature ? '✓ Signé' : (b.props.label || 'Signature')}
                                 </div>
-                            )}
+                            )} 
                         </div>
                         )
                     })}

@@ -13,6 +13,7 @@ import { Enrollment } from '../../models/Enrollment'
 import { TeacherClassAssignment } from '../../models/TeacherClassAssignment'
 import { SubAdminAssignment } from '../../models/SubAdminAssignment'
 import { TemplateAssignment } from '../../models/TemplateAssignment'
+import { TemplateSignature } from '../../models/TemplateSignature'
 
 let app: any
 
@@ -100,5 +101,33 @@ describe('signatures and promote integration', () => {
     expect(res.body.student).toBeDefined()
     expect(res.body.student.level).toBe('GS')
     expect(res.body.student.className).toBe('Class B')
+  })
+
+  it('stores sub-admin uploaded signature URL on sign', async () => {
+    const admin = await User.create({ email: 'admin4', role: 'ADMIN', displayName: 'Admin4', passwordHash: 'hash' })
+    const sub = await User.create({ email: 'sub6', role: 'SUBADMIN', displayName: 'Sub6', passwordHash: 'hash', signatureUrl: '/uploads/signatures/sig-test.png' })
+    const teacher = await User.create({ email: 't3', role: 'TEACHER', displayName: 'Teacher3', passwordHash: 'hash' })
+
+    const sy = await SchoolYear.create({ name: 'Y3', active: true, activeSemester: 2, startDate: new Date('2024-09-01'), endDate: new Date('2025-07-01'), sequence: 1 })
+    const cls = await ClassModel.create({ name: 'Class C', level: 'PS', schoolYearId: String(sy._id) })
+
+    await TeacherClassAssignment.create({ teacherId: String(teacher._id), classId: String(cls._id), schoolYearId: String(sy._id), assignedBy: String(admin._id) })
+    await SubAdminAssignment.create({ subAdminId: String(sub._id), teacherId: String(teacher._id), assignedBy: String(sub._id) })
+
+    const student = await Student.create({ firstName: 'U', lastName: 'V', dateOfBirth: new Date('2018-01-07'), logicalKey: 'UV1' })
+    await Enrollment.create({ studentId: String(student._id), classId: String(cls._id), schoolYearId: String(sy._id), status: 'active' })
+
+    const tpl = await GradebookTemplate.create({ name: 'tpl3', pages: [], currentVersion: 1 })
+    const assignment = await TemplateAssignment.create({ templateId: String(tpl._id), studentId: String(student._id), status: 'completed', isCompleted: true, isCompletedSem2: true, assignedBy: String(admin._id) })
+
+    const subToken = signToken({ userId: String(sub._id), role: 'SUBADMIN' })
+
+    const signRes = await request(app).post(`/subadmin/templates/${assignment._id}/sign`).set('Authorization', `Bearer ${subToken}`).send({ type: 'end_of_year' })
+    expect(signRes.status).toBe(200)
+
+    const found = await TemplateSignature.findOne({ templateAssignmentId: String(assignment._id) }).lean()
+    expect(found).toBeTruthy()
+    expect(found!.signatureUrl).toBeDefined()
+    expect(String(found!.signatureUrl).endsWith('/uploads/signatures/sig-test.png')).toBe(true)
   })
 })

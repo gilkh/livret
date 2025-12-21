@@ -1930,7 +1930,7 @@ export default function SubAdminTemplateReview() {
                                             <div style={{
                                                 width: b.props.width || 200,
                                                 height: b.props.height || 80,
-                                                border: '1px solid #000',
+                                                border: 'none',
                                                 background: '#fff',
                                                 display: 'flex',
                                                 alignItems: 'center',
@@ -1999,7 +1999,7 @@ export default function SubAdminTemplateReview() {
                                             <div style={{
                                                 width: b.props.width || 200,
                                                 height: b.props.height || 80,
-                                                border: '1px solid #000',
+                                                border: 'none',
                                                 background: '#fff',
                                                 display: 'flex',
                                                 alignItems: 'center',

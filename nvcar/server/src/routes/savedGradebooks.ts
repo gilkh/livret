@@ -400,5 +400,31 @@ savedGradebooksRouter.get('/:id', requireAuth(['ADMIN', 'SUBADMIN', 'AEFE', 'TEA
         console.log(`[SavedGradebook] Data present in snapshot. Keys: ${saved.data?.assignment?.data ? Object.keys(saved.data.assignment.data).length : 'None'}`);
     }
 
+    // Ensure signatures are present in snapshot for older saved gradebooks
+    try {
+        if (!saved.data) saved.data = saved.data || {}
+        if (!saved.data.signatures || (Array.isArray(saved.data.signatures) && saved.data.signatures.length === 0)) {
+            let sigs: any[] = []
+            const assignmentId = saved.data && saved.data.assignment && saved.data.assignment._id ? String(saved.data.assignment._id) : null
+            if (assignmentId) {
+                sigs = await (await import('../models/TemplateSignature')).TemplateSignature.find({ templateAssignmentId: assignmentId }).lean()
+            } else if (saved.templateId && saved.studentId) {
+                const ta = await TemplateAssignment.findOne({ studentId: String(saved.studentId), templateId: saved.templateId }).lean()
+                if (ta && ta._id) {
+                    sigs = await (await import('../models/TemplateSignature')).TemplateSignature.find({ templateAssignmentId: String(ta._id) }).lean()
+                }
+            }
+
+            if (sigs && sigs.length > 0) {
+                saved.data.signatures = sigs
+                saved.data.signature = sigs.find((s: any) => s.type === 'standard') || null
+                saved.data.finalSignature = sigs.find((s: any) => s.type === 'end_of_year') || null
+                console.log('[SavedGradebook] Patched signatures into snapshot')
+            }
+        }
+    } catch (e) {
+        console.error('Error patching signatures into saved snapshot:', e)
+    }
+
     res.json(saved)
 })

@@ -736,12 +736,19 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote', require
                 if (cls) snapshotClassName = cls.name
             }
 
+            // Include any stored signatures (so saved snapshots contain signature images/URLs)
+            const signatures = assignment && assignment._id ? await TemplateSignature.find({ templateAssignmentId: String(assignment._id) }).lean() : []
+
             const snapshotData = {
                 student: student.toObject ? student.toObject() : student,
                 enrollment: enrollment,
                 statuses: statuses,
                 assignment: assignment,
-                className: snapshotClassName // Explicitly save class name
+                className: snapshotClassName, // Explicitly save class name
+                signatures: signatures,
+                // Backwards-compatible top-level pointers used in some clients
+                signature: signatures.find((s: any) => s.type === 'standard') || null,
+                finalSignature: signatures.find((s: any) => s.type === 'end_of_year') || null,
             }
 
             await SavedGradebook.create({
@@ -1088,21 +1095,39 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', requireAut
         }
 
         try {
+            // Fetch sub-admin's uploaded signature URL if available
+            let user = await User.findById(subAdminId).lean() as any
+            if (!user) {
+                user = await OutlookUser.findById(subAdminId).lean() as any
+            }
+
+            let sigUrl: string | undefined = undefined
+            if (user?.signatureUrl) {
+                if (String(user.signatureUrl).startsWith('http')) {
+                    sigUrl = user.signatureUrl
+                } else {
+                    const base = `${req.protocol}://${req.get('host')}`
+                    sigUrl = `${base}${user.signatureUrl}`
+                }
+            }
+
             const signature = await signTemplateAssignment({
                 templateAssignmentId,
                 signerId: subAdminId,
                 type: type as any,
+                signatureUrl: sigUrl,
                 req,
                 level: signatureLevel || undefined
             })
+
+            // Return created signature so client can update without extra fetch
+            return res.json({ signature })
 
         } catch (e: any) {
             if (e.message === 'already_signed') return res.status(400).json({ error: 'already_signed' })
             if (e.message === 'not_found') return res.status(404).json({ error: 'not_found' })
             throw e
         }
-
-        res.json({ ok: true })
     } catch (e: any) {
         res.status(500).json({ error: 'sign_failed', message: e.message })
     }
