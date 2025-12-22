@@ -13,7 +13,9 @@ import {
   Users as UsersIcon,
   Copy,
   MoreVertical,
-  Check
+  Check,
+  Search,
+  UserPlus
 } from 'lucide-react'
 import './Users.css'
 
@@ -82,7 +84,7 @@ const UserCard = ({
 
   return (
     <div className="user-card">
-      <div className="user-card-top" style={{ background: `linear-gradient(to right, ${roleStyle.bg}, #ffffff)` }}>
+      <div className="user-card-top" style={{ background: `linear-gradient(135deg, ${roleStyle.bg}, #ffffff)` }}>
          <div className="user-avatar" style={{ backgroundColor: roleStyle.color }}>
             {getInitials(name || user.email)}
          </div>
@@ -103,17 +105,18 @@ const UserCard = ({
             title="Cliquez pour modifier"
           />
           <div className="user-email-row" onClick={copyEmail} title="Copier l'email">
+             <Mail size={14} />
              <span className="user-email-text">{user.email}</span>
-             {copied ? <Check size={12} color="#10B981" /> : <Copy size={12} className="copy-icon" />}
+             {copied ? <Check size={14} color="#10B981" /> : <Copy size={14} className="copy-icon" />}
           </div>
         </div>
 
         <div className="user-actions-area">
           <div className="password-reset-group">
-            <Key size={14} className="input-icon" />
+            <Key size={16} className="input-icon" />
             <input 
               className="reset-input"
-              placeholder="Reset pwd..." 
+              placeholder="Nouveau mot de passe" 
               type="password" 
               value={password} 
               onChange={e => setPassword(e.target.value)} 
@@ -138,7 +141,6 @@ const UserCard = ({
                 title="Se connecter en tant que..."
               >
                 <LogIn size={16} />
-                <span>Login</span>
               </button>
             )}
             
@@ -191,12 +193,12 @@ const OutlookUserCard = ({
 
   return (
     <div className="user-card outlook-card">
-      <div className="user-card-top" style={{ background: `linear-gradient(to right, #f0f7ff, #ffffff)` }}>
+      <div className="user-card-top" style={{ background: `linear-gradient(135deg, #f0f7ff, #ffffff)` }}>
          <div className="user-avatar" style={{ backgroundColor: '#0078d4' }}>
             {getInitials(name || user.email)}
          </div>
          <div className="microsoft-badge">
-            <img src="https://upload.wikimedia.org/wikipedia/commons/4/44/Microsoft_logo.svg" alt="Microsoft" style={{ width: 14, height: 14 }} />
+            <img src="https://upload.wikimedia.org/wikipedia/commons/4/44/Microsoft_logo.svg" alt="Microsoft" style={{ width: 16, height: 16 }} />
          </div>
       </div>
 
@@ -211,13 +213,14 @@ const OutlookUserCard = ({
             placeholder="Nom d'affichage"
           />
           <div className="user-email-row" onClick={copyEmail} title="Copier l'email">
+             <Mail size={14} />
              <span className="user-email-text">{user.email}</span>
-             {copied ? <Check size={12} color="#10B981" /> : <Copy size={12} className="copy-icon" />}
+             {copied ? <Check size={14} color="#10B981" /> : <Copy size={14} className="copy-icon" />}
           </div>
           {user.lastLogin && (
              <div className="last-login">
-                <Calendar size={12} />
-                {new Date(user.lastLogin).toLocaleDateString('fr-FR')}
+                <Calendar size={14} />
+                Dernière connexion: {new Date(user.lastLogin).toLocaleDateString('fr-FR')}
              </div>
           )}
         </div>
@@ -560,9 +563,11 @@ export default function Users() {
         </div>
         <div className="users-stats">
           <span className="users-stat-chip">
+            <UserPlus size={16} />
             Locaux: {localCount}
           </span>
           <span className="users-stat-chip">
+            <img src="https://upload.wikimedia.org/wikipedia/commons/4/44/Microsoft_logo.svg" alt="Microsoft" style={{ width: 16, height: 16 }} />
             Microsoft: {outlookCount}
           </span>
         </div>
@@ -591,8 +596,8 @@ export default function Users() {
         <div className="animate-fade-in">
           <div className="add-user-card">
             <div className="add-user-header">
-              <div style={{ background: '#e3f2fd', padding: 8, borderRadius: 8, color: '#1976d2' }}>
-                <Plus size={20} />
+              <div style={{ background: '#e3f2fd', padding: 10, borderRadius: 10, color: '#1976d2' }}>
+                <UserPlus size={22} />
               </div>
               <h3 className="add-user-title">Ajouter un utilisateur local</h3>
             </div>
@@ -637,8 +642,8 @@ export default function Users() {
         <div className="animate-fade-in">
            <div className="add-user-card" style={{ background: '#f0f7ff', borderColor: '#bae7ff' }}>
             <div className="add-user-header">
-              <div style={{ background: 'white', padding: 8, borderRadius: 8 }}>
-                <img src="https://upload.wikimedia.org/wikipedia/commons/4/44/Microsoft_logo.svg" alt="Microsoft" style={{ width: 20, height: 20 }} />
+              <div style={{ background: 'white', padding: 10, borderRadius: 10 }}>
+                <img src="https://upload.wikimedia.org/wikipedia/commons/4/44/Microsoft_logo.svg" alt="Microsoft" style={{ width: 22, height: 22 }} />
               </div>
               <div>
                 <h3 className="add-user-title">Ajouter un utilisateur Outlook</h3>

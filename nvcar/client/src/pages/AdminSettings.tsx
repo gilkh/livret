@@ -13,6 +13,8 @@ export default function AdminSettings() {
   const [subAdminRestriction, setSubAdminRestriction] = useState(true)
   const [subAdminExemptStandard, setSubAdminExemptStandard] = useState(false)
   const [subAdminExemptFinal, setSubAdminExemptFinal] = useState(false)
+  const [assignmentKeysStr, setAssignmentKeysStr] = useState('')
+  const [assignmentAutoInfer, setAssignmentAutoInfer] = useState(true)
   const [loading, setLoading] = useState(true)
   const [msg, setMsg] = useState('')
   const [backupLoading, setBackupLoading] = useState(false)
@@ -191,6 +193,15 @@ export default function AdminSettings() {
       setSubAdminRestriction(res.data.subadmin_restriction_enabled !== false)
       setSubAdminExemptStandard(res.data.subadmin_restriction_exempt_standard === true)
       setSubAdminExemptFinal(res.data.subadmin_restriction_exempt_final === true)
+
+      if (Array.isArray(res.data.assignment_long_term_keys)) {
+        setAssignmentKeysStr(res.data.assignment_long_term_keys.join(', '))
+      } else {
+        setAssignmentKeysStr('longTermNotes, permanentNotes, medicalInfo, iep, edPlan, chronicNotes, comments, variables, personalHistory')
+      }
+
+      // Auto-infer toggle (defaults to true)
+      setAssignmentAutoInfer(res.data.assignment_long_term_auto_infer !== false)
     } catch (err) {
       console.error(err)
     } finally {
@@ -596,6 +607,36 @@ export default function AdminSettings() {
                   </label>
                 </div>
               </div>
+
+              {/* Assignment long-term keys */}
+              <div className="setting-item" style={{ borderLeft: '4px solid #1b9af7', paddingLeft: '1rem', background: '#f0f8ff' }}>
+                <div className="setting-info">
+                  <h3>Clés persistantes (données de long terme)</h3>
+                  <p>Liste (séparée par des virgules) des champs de <code>TemplateAssignment.data</code> qui doivent être copiés lors de la promotion/transition d'année.</p>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%' }}>
+                  <textarea value={assignmentKeysStr} onChange={(e) => setAssignmentKeysStr(e.target.value)} rows={3} style={{ width: '100%', padding: '8px', borderRadius: 6, border: '1px solid #cbd5e1' }} />
+                  <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                    <button className="btn" onClick={async () => {
+                      const arr = assignmentKeysStr.split(',').map(s => s.trim()).filter(Boolean)
+                      if (!(await saveSetting('assignment_long_term_keys', arr))) setAssignmentKeysStr(arr.join(', '))
+                    }}>Sauvegarder</button>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 8 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <input type="checkbox" checked={assignmentAutoInfer} onChange={async () => {
+                        const newVal = !assignmentAutoInfer
+                        setAssignmentAutoInfer(newVal)
+                        if (!(await saveSetting('assignment_long_term_auto_infer', newVal))) setAssignmentAutoInfer(!newVal)
+                      }} />
+                      <span style={{ fontSize: 14 }}>Activer la détection automatique des champs persistants (inférence)</span>
+                    </label>
+                    <div style={{ color: '#64748b', fontSize: 13 }}>
+                      L'inférence inspecte les derniers carnets d'un élève pour suggérer des champs à copier lors de la promotion. (Unionne avec la liste ci-dessus si elle est renseignée.)
+                    </div>
+                  </div>                </div>
+              </div>
+
             </>
           )}
         </div>

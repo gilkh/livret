@@ -6,6 +6,7 @@
 
 .users-header {
   margin-bottom: 2rem;
+  text-align: center;
 }
 
 .users-toolbar {
@@ -15,6 +16,11 @@
   gap: 1.5rem;
   margin-bottom: 1.25rem;
   flex-wrap: wrap;
+  background: white;
+  padding: 1rem 1.5rem;
+  border-radius: 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  border: 1px solid #eee;
 }
 
 .search-group {
@@ -24,13 +30,17 @@
 
 .search-input {
   width: 100%;
-  padding: 0.6rem 0.85rem;
+  padding: 0.75rem 1.25rem;
   border-radius: 999px;
   border: 1px solid #dfe6e9;
-  font-size: 0.9rem;
+  font-size: 0.95rem;
   outline: none;
   transition: all 0.2s;
   background-color: #fdfdfd;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23636e72' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='8'%3E%3C/circle%3E%3Cline x1='21' y1='21' x2='16.65' y2='16.65'%3E%3C/line%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: 12px center;
+  padding-left: 2.5rem;
 }
 
 .search-input:focus {
@@ -40,17 +50,21 @@
 
 .users-stats {
   display: flex;
-  gap: 0.5rem;
+  gap: 0.75rem;
   flex-wrap: wrap;
 }
 
 .users-stat-chip {
-  font-size: 0.8rem;
-  padding: 0.3rem 0.7rem;
+  font-size: 0.85rem;
+  padding: 0.4rem 0.9rem;
   border-radius: 999px;
   background: #f5f6fa;
   color: #636e72;
   border: 1px solid #dfe6e9;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
 }
 
 .users-title {
@@ -63,17 +77,21 @@
 .users-description {
   color: #636e72;
   font-size: 1rem;
+  text-align: center;
+  max-width: 600px;
+  margin: 0 auto 1.5rem;
 }
 
 .tabs-container {
   display: flex;
-  gap: 1rem;
+  gap: 0.5rem;
   margin-bottom: 2rem;
   border-bottom: 1px solid #e0e0e0;
+  position: relative;
 }
 
 .tab-button {
-  padding: 1rem 1.5rem;
+  padding: 1rem 1.75rem;
   background: none;
   border: none;
   border-bottom: 3px solid transparent;
@@ -84,12 +102,13 @@
   transition: all 0.2s;
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.75rem;
+  border-radius: 8px 8px 0 0;
 }
 
 .tab-count {
-  font-size: 0.75rem;
-  padding: 0.1rem 0.45rem;
+  font-size: 0.8rem;
+  padding: 0.15rem 0.55rem;
   border-radius: 999px;
   background: #f5f6fa;
   color: #636e72;
@@ -115,52 +134,67 @@
 
 .add-user-card {
   background: white;
-  border-radius: 12px;
-  padding: 1.5rem;
+  border-radius: 16px;
+  padding: 1.75rem;
   margin-bottom: 2rem;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
   border: 1px solid #eee;
+  transition: all 0.3s ease;
+}
+
+.add-user-card:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
 }
 
 .add-user-header {
-  margin-bottom: 1.5rem;
+  margin-bottom: 2.5rem; /* increased spacing to avoid overlap */
+  min-height: 48px;
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: 1rem;
 }
 
 .add-user-title {
-  font-size: 1.25rem;
+  font-size: 1.35rem;
   font-weight: 600;
-  margin: 0;
+  margin: 0 0 0.25rem 0;
   color: #2d3436;
 }
 
 .form-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 1.25rem;
-  align-items: end;
-}
-
-.form-group {
-  display: flex;
+  gap: 1.5rem;
+  /* Ensure form fields align to the top of the grid row so labels and inputs don't overlap the header */
+  align-items: start;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.6rem;
 }
 
 .form-label {
-  font-size: 0.85rem;
+  font-size: 0.9rem;
   font-weight: 500;
   color: #636e72;
 }
 
+/* Override global floating-label behavior for this card so labels sit above inputs */
+.add-user-card .form-group .form-label {
+  position: static;
+  top: auto;
+  left: auto;
+  transform: none;
+  margin-bottom: 0.6rem;
+  padding: 0;
+  background: transparent;
+}
+
 .form-input {
-  padding: 0.75rem;
+  padding: 0.85rem 1rem;
   border: 1px solid #dfe6e9;
-  border-radius: 8px;
+  border-radius: 10px;
   font-size: 0.95rem;
   transition: all 0.2s;
+  background: #fdfdfd;
 }
 
 .form-input:focus {
@@ -170,11 +204,16 @@
 }
 
 .form-select {
-  padding: 0.75rem;
+  padding: 0.85rem 1rem;
   border: 1px solid #dfe6e9;
-  border-radius: 8px;
+  border-radius: 10px;
   background-color: white;
   font-size: 0.95rem;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23636e72' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  appearance: none;
+  padding-right: 2.5rem;
 }
 
 .btn-add {
@@ -182,26 +221,29 @@
   background: #6c5ce7;
   color: white;
   border: none;
-  border-radius: 8px;
+  border-radius: 10px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 0.5rem;
+  gap: 0.75rem;
+  font-size: 0.95rem;
+  box-shadow: 0 2px 6px rgba(108, 92, 231, 0.2);
 }
 
 .btn-add:hover {
   background: #5b4bc4;
-  transform: translateY(-1px);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(108, 92, 231, 0.3);
 }
 
 /* Modern Card Design */
 .users-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1.75rem;
 }
 
 .user-card {
@@ -223,31 +265,31 @@
 }
 
 .user-card-top {
-  padding: 1.25rem;
+  padding: 1.5rem;
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  height: 80px;
+  height: 90px;
 }
 
 .user-avatar {
-  width: 48px;
-  height: 48px;
+  width: 56px;
+  height: 56px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   font-weight: 700;
   color: white;
-  font-size: 1.1rem;
+  font-size: 1.25rem;
   box-shadow: 0 4px 10px rgba(0,0,0,0.1);
   border: 2px solid white;
 }
 
 .user-role-badge {
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   font-weight: 700;
-  padding: 4px 10px;
+  padding: 5px 12px;
   border-radius: 20px;
   background: white;
   border: 1px solid;
@@ -258,8 +300,8 @@
 
 .microsoft-badge {
   background: white;
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
   display: flex;
   align-items: center;
@@ -268,11 +310,11 @@
 }
 
 .user-card-content {
-  padding: 0 1.25rem 1.25rem 1.25rem;
+  padding: 0 1.5rem 1.5rem 1.5rem;
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
+  gap: 1.5rem;
 }
 
 .user-identity {
@@ -280,14 +322,14 @@
 }
 
 .user-name-input {
-  font-size: 1.1rem;
+  font-size: 1.2rem;
   font-weight: 700;
   color: #2d3436;
   border: none;
   width: 100%;
   background: transparent;
-  padding: 4px 0;
-  margin-bottom: 4px;
+  padding: 5px 0;
+  margin-bottom: 5px;
   border-bottom: 2px solid transparent;
   transition: all 0.2s;
 }
@@ -304,13 +346,13 @@
 .user-email-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   color: #636e72;
-  font-size: 0.85rem;
+  font-size: 0.9rem;
   cursor: pointer;
   width: fit-content;
-  padding: 2px 6px 2px 0;
-  border-radius: 4px;
+  padding: 3px 8px 3px 0;
+  border-radius: 6px;
   transition: background 0.2s;
 }
 
@@ -319,7 +361,7 @@
 }
 
 .user-email-text {
-  max-width: 180px;
+  max-width: 200px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -337,20 +379,20 @@
 .last-login {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 0.75rem;
+  gap: 8px;
+  font-size: 0.8rem;
   color: #b2bec3;
-  margin-top: 6px;
+  margin-top: 8px;
 }
 
 .user-actions-area {
   margin-top: auto;
-  padding-top: 1rem;
+  padding-top: 1.25rem;
   border-top: 1px solid #f1f2f6;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.75rem;
 }
 
 .password-reset-group {
@@ -362,18 +404,18 @@
 
 .input-icon {
   position: absolute;
-  left: 8px;
+  left: 10px;
   color: #b2bec3;
   pointer-events: none;
 }
 
 .reset-input {
   width: 100%;
-  padding: 8px 8px 8px 28px;
+  padding: 10px 10px 10px 32px;
   border: 1px solid #f1f2f6;
   background: #f8f9fa;
-  border-radius: 8px;
-  font-size: 0.8rem;
+  border-radius: 10px;
+  font-size: 0.85rem;
   transition: all 0.2s;
 }
 
@@ -386,13 +428,13 @@
 
 .card-buttons {
   display: flex;
-  gap: 6px;
+  gap: 8px;
 }
 
 .btn-action {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
   border: none;
   background: #f5f6fa;
   color: #636e72;
@@ -406,6 +448,7 @@
 .btn-action:hover {
   background: #dfe6e9;
   color: #2d3436;
+  transform: translateY(-1px);
 }
 
 .btn-action.active {
@@ -419,9 +462,9 @@
 }
 
 .btn-icon-action.primary {
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
   border: none;
   background: #6c5ce7;
   color: white;
@@ -438,18 +481,77 @@
 }
 
 .role-select {
-  padding: 6px 12px;
+  padding: 8px 14px;
   border-radius: 20px;
   border: 1px solid;
-  font-size: 0.8rem;
+  font-size: 0.85rem;
   font-weight: 600;
   background: white;
   outline: none;
   cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  appearance: none;
+  padding-right: 2rem;
 }
 
 /* Specific styles for Outlook Cards */
 .outlook-card .user-card-top {
   border-bottom: 1px solid #f0f7ff;
   margin-bottom: 1rem;
+}
+
+/* Role sections */
+.role-section {
+  margin-bottom: 2.5rem;
+}
+
+/* Responsive tweaks: increase spacing between header and form on small screens to avoid overlap */
+@media (max-width: 640px) {
+  .add-user-header {
+    margin-bottom: 3rem;
+  }
+
+  .form-grid {
+    grid-template-columns: 1fr;
+    gap: 1.25rem;
+    padding-top: 0.5rem; /* increased top padding to ensure labels don't run into header */
+    margin-top: 0.5rem;
+    align-items: start;
+  }
+
+  .btn-add {
+    width: 100%;
+  }
+}
+
+.role-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 2px solid;
+}
+
+.role-title {
+  font-size: 1.3rem;
+  font-weight: 600;
+}
+
+.role-count {
+  font-size: 0.9rem;
+  padding: 0.25rem 0.75rem;
+  border-radius: 999px;
+  font-weight: 600;
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
 }
