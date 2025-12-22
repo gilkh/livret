@@ -112,6 +112,143 @@ export function mergeAssignmentDataIntoTemplate(template: any, assignment: any) 
   return versionedTemplate
 }
 
+import { Setting } from '../models/Setting'
+
+const DEFAULT_ALLOWED_LONG_TERM_KEYS = [
+  'longTermNotes', 'permanentNotes', 'medicalInfo', 'iep', 'edPlan', 'chronicNotes', 'comments', 'variables', 'personalHistory'
+]
+
+export async function getAllowedLongTermKeys() {
+  try {
+    const s = await Setting.findOne({ key: 'assignment_long_term_keys' }).lean()
+    if (!s || !Array.isArray(s.value)) return DEFAULT_ALLOWED_LONG_TERM_KEYS
+    return Array.isArray(s.value) ? s.value : DEFAULT_ALLOWED_LONG_TERM_KEYS
+  } catch (e) {
+    console.error('Failed to load assignment_long_term_keys setting, using defaults', e)
+    return DEFAULT_ALLOWED_LONG_TERM_KEYS
+  }
+}
+
+// Blacklisted keys never to copy
+const BLACKLISTED_KEYS = [
+  'signatures', 'promotions', 'active', 'completed', 'completedSem1', 'completedSem2',
+  'completedAt', 'completedAtSem1', 'completedAtSem2', '_id', 'id', '__v'
+]
+
+// Maximum size for objects to be considered for copying (10KB)
+const MAX_OBJECT_SIZE = 10 * 1024
+
+function isBlacklistedKey(key: string): boolean {
+  return BLACKLISTED_KEYS.includes(key)
+}
+
+function getObjectSize(obj: any): number {
+  try { return JSON.stringify(obj).length } catch (e) { return Infinity }
+}
+
+function isValueAllowedForCopying(value: any): boolean {
+  if (value === null || value === undefined) return false
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return true
+  if (typeof value === 'object') {
+    const size = getObjectSize(value)
+    return size <= MAX_OBJECT_SIZE
+  }
+  return false
+}
+
+export async function getAutoInferFlag() {
+  try {
+    const s = await Setting.findOne({ key: 'assignment_long_term_auto_infer' }).lean()
+    return s ? Boolean(s.value) : true
+  } catch (e) {
+    console.error('Failed to load assignment_long_term_auto_infer setting, defaulting to true', e)
+    return true
+  }
+}
+
+export async function inferLongTermDataKeys(studentId: string, lastN: number = 3, lastAssignments?: any[]) {
+  try {
+    // Use provided lastAssignments if available to avoid re-querying
+    const recentAssignments = Array.isArray(lastAssignments) && lastAssignments.length > 0
+      ? lastAssignments.slice(0, lastN)
+      : await TemplateAssignment.find({ studentId }).sort({ assignedAt: -1 }).limit(lastN).select({ data: 1 }).lean()
+
+    if (!recentAssignments || recentAssignments.length === 0) return []
+
+    const dataObjects = recentAssignments.map(a => a.data).filter(d => d && typeof d === 'object')
+    if (dataObjects.length === 0) return []
+
+    const keyFrequency: Record<string, number> = {}
+    const totalObjects = dataObjects.length
+
+    for (const dataObj of dataObjects) {
+      const keys = Object.keys(dataObj)
+      for (const key of keys) {
+        if (isBlacklistedKey(key)) continue
+        if (!isValueAllowedForCopying(dataObj[key])) continue
+        keyFrequency[key] = (keyFrequency[key] || 0) + 1
+      }
+    }
+
+    // Keys that appear in majority (more than 50%) of assignments
+    const inferredKeys = Object.keys(keyFrequency).filter(key => keyFrequency[key] / totalObjects > 0.5)
+
+    return inferredKeys
+  } catch (e) {
+    console.error('Failed to infer long-term data keys:', e)
+    return []
+  }
+}
+
+export async function extractLongTermDataAuto(data: any, studentId: string, inferredKeysParam?: string[], lastAssignments?: any[]) {
+  if (!data || typeof data !== 'object') return {}
+
+  // Determine inferred keys either from caller or by inspecting history
+  const inferredKeys = Array.isArray(inferredKeysParam) && inferredKeysParam.length > 0
+    ? inferredKeysParam
+    : await inferLongTermDataKeys(studentId, 3, lastAssignments)
+
+  const out: any = {}
+  for (const key of inferredKeys) {
+    if (Object.prototype.hasOwnProperty.call(data, key)) {
+      const val = (data as any)[key]
+      if (val === null || val === undefined) continue
+      if (isValueAllowedForCopying(val)) out[key] = val
+    }
+  }
+
+  return out
+}
+
+export async function extractLongTermData(data: any, studentId?: string, lastAssignments?: any[]) {
+  if (!data || typeof data !== 'object') return {}
+
+  const adminKeys = await getAllowedLongTermKeys()
+  const autoInfer = await getAutoInferFlag()
+
+  let allowedKeys: string[] = []
+
+  if (autoInfer && studentId) {
+    const inferred = await inferLongTermDataKeys(studentId, 3, lastAssignments)
+    // Union admin keys + inferred keys (admin keys take precedence)
+    const set = new Set<string>([...(Array.isArray(adminKeys) ? adminKeys : []), ...inferred])
+    allowedKeys = Array.from(set)
+  } else {
+    allowedKeys = Array.isArray(adminKeys) ? adminKeys : []
+  }
+
+  const out: any = {}
+  for (const k of allowedKeys) {
+    if (Object.prototype.hasOwnProperty.call(data, k)) {
+      const v = (data as any)[k]
+      if (v === null || v === undefined) continue
+      if (isValueAllowedForCopying(v)) out[k] = v
+    }
+  }
+
+  return out
+}
+
 export async function checkAndAssignTemplates(studentId: string, level: string, schoolYearId: string, classId: string, userId: string) {
   try {
     const targetYear = schoolYearId ? await SchoolYear.findById(schoolYearId).select({ startDate: 1 }).lean() : null
@@ -155,8 +292,8 @@ export async function checkAndAssignTemplates(studentId: string, level: string, 
     const teacherIds = teacherAssignments.map(t => t.teacherId)
 
     for (const templateId of templateIds) {
-      // Check if already assigned
-      const exists = await TemplateAssignment.findOne({ studentId, templateId })
+      // Check if already assigned for this school year
+      const exists = await TemplateAssignment.findOne({ studentId, templateId, completionSchoolYearId: schoolYearId })
       const template = await GradebookTemplate.findById(templateId).lean()
 
       if (!template) continue
@@ -183,29 +320,9 @@ export async function checkAndAssignTemplates(studentId: string, level: string, 
           .lean();
 
         if (lastAssignment && lastAssignment.data) {
-          // Copy previous year's data but sanitize year-specific progress markers
-          const sanitize = (input: any): any => {
-            if (input == null) return input
-            if (Array.isArray(input)) return input.map(i => sanitize(i))
-            if (typeof input === 'object') {
-              const out: any = {}
-              for (const [k, v] of Object.entries(input)) {
-                // Remove known year-/user-specific fields
-                if (k === 'signatures' || k === 'promotions') continue
-                if (k === 'active' || k === 'completed' || k === 'completedSem1' || k === 'completedSem2' || k === 'completedAt' || k === 'completedAtSem1' || k === 'completedAtSem2') {
-                  // reset boolean flags and timestamps
-                  if (typeof v === 'boolean') out[k] = false
-                  else out[k] = null
-                  continue
-                }
-                out[k] = sanitize(v)
-              }
-              return out
-            }
-            return input
-          }
-
-          initialData = sanitize(lastAssignment.data)
+          // Copy only explicitly approved long-term keys from previous assignment
+          const recent = await TemplateAssignment.find({ studentId }).sort({ assignedAt: -1 }).limit(3).lean()
+          initialData = await extractLongTermData(lastAssignment.data, studentId, recent)
         }
 
         await TemplateAssignment.create({

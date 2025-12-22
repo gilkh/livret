@@ -15,7 +15,7 @@ import { SubAdminAssignment } from '../../models/SubAdminAssignment'
 import { RoleScope } from '../../models/RoleScope'
 import { TemplateAssignment } from '../../models/TemplateAssignment'
 
-let app: any
+let app: any;
 
 describe('subadmin promote edge cases', () => {
   beforeAll(async () => {
@@ -109,6 +109,52 @@ describe('subadmin promote edge cases', () => {
     expect(promoteRes.body.ok).toBe(true)
   })
 
+  it('creates next-year TemplateAssignment when promoting and copies allowed long-term data only', async () => {
+    const sub = await User.create({ email: 'sub-roll', role: 'SUBADMIN', displayName: 'SubRoll', passwordHash: 'hash' })
+    const teacher = await User.create({ email: 'tea-roll', role: 'TEACHER', displayName: 'TeacherRoll', passwordHash: 'hash' })
+    const sy = await SchoolYear.create({ name: 'YR-A', active: true, activeSemester: 2, startDate: new Date('2024-09-01'), endDate: new Date('2025-07-01'), sequence: 1 })
+    const nextSy = await SchoolYear.create({ name: 'YR-B', startDate: new Date('2025-09-01'), endDate: new Date('2026-07-01'), sequence: 2 })
+    const cls = await ClassModel.create({ name: 'CE-R', level: 'PS', schoolYearId: String(sy._id) })
+    await TeacherClassAssignment.create({ teacherId: String(teacher._id), classId: String(cls._id), schoolYearId: String(sy._id), assignedBy: String(sub._id) })
+    await SubAdminAssignment.create({ subAdminId: String(sub._id), teacherId: String(teacher._id), assignedBy: String(sub._id) })
+
+    const student = await Student.create({ firstName: 'SR', lastName: 'LR', dateOfBirth: new Date('2018-02-02'), logicalKey: 'SR1' })
+    await Enrollment.create({ studentId: String(student._id), classId: String(cls._id), schoolYearId: String(sy._id), status: 'active' })
+    const tpl = await GradebookTemplate.create({ name: 'tpl-roll', pages: [], currentVersion: 1 })
+
+    const assignment = await TemplateAssignment.create({
+      templateId: String(tpl._id),
+      studentId: String(student._id),
+      status: 'completed',
+      isCompleted: true,
+      isCompletedSem2: true,
+      assignedBy: String(teacher._id),
+      data: {
+        longTermNotes: 'keep me',
+        comments: 'keep this',
+        signatures: [{ type: 'end_of_year', subAdminId: String(sub._id) }],
+        promotions: [{ by: 'someone' }],
+        transient: 'drop me'
+      }
+    })
+
+    const subToken = signToken({ userId: String(sub._id), role: 'SUBADMIN' })
+
+    const signRes = await request(app).post(`/subadmin/templates/${assignment._id}/sign`).set('Authorization', `Bearer ${subToken}`).send({ type: 'end_of_year' })
+    expect(signRes.status).toBe(200)
+
+    const promoteRes = await request(app).post(`/subadmin/templates/${assignment._id}/promote`).set('Authorization', `Bearer ${subToken}`).send({ nextLevel: 'MS' })
+    expect(promoteRes.status).toBe(200)
+
+    const created = await TemplateAssignment.findOne({ studentId: String(student._id), completionSchoolYearId: String(nextSy._id) }).lean()
+    expect(created).toBeDefined()
+    expect(created?.data?.longTermNotes).toBe('keep me')
+    expect(created?.data?.comments).toBe('keep this')
+    expect(created?.data?.signatures).toBeUndefined()
+    expect(created?.data?.promotions).toBeUndefined()
+    expect(created?.data?.transient).toBeUndefined()
+  })
+
   it('finds next school year by dates when sequence/name unavailable', async () => {
     const sub = await User.create({ email: 'sub-edge4', role: 'SUBADMIN', displayName: 'Sub4', passwordHash: 'hash' })
     const teacher = await User.create({ email: 'tea-edge4', role: 'TEACHER', displayName: 'Teacher4', passwordHash: 'hash' })
@@ -141,5 +187,173 @@ describe('subadmin promote edge cases', () => {
 
     const createdNext = await Enrollment.findOne({ studentId: String(student._id), schoolYearId: String(nextSy._id), status: 'active' }).lean()
     expect(createdNext).toBeDefined()
+  })
+
+  it('logs inferred keys on promotion', async () => {
+    const sub = await User.create({ email: 'sub-infer', role: 'SUBADMIN', displayName: 'SubInfer', passwordHash: 'hash' })
+    const teacher = await User.create({ email: 'tea-infer', role: 'TEACHER', displayName: 'TeacherInfer', passwordHash: 'hash' })
+
+    const sy = await SchoolYear.create({ name: 'YI', active: true, startDate: new Date('2024-09-01'), endDate: new Date('2025-07-01'), sequence: 1 })
+    const nextSy = await SchoolYear.create({ name: 'YI+1', startDate: new Date('2025-09-01'), endDate: new Date('2026-07-01'), sequence: 2 })
+
+    const cls = await ClassModel.create({ name: 'CEI', level: 'PS', schoolYearId: String(sy._id) })
+    await TeacherClassAssignment.create({ teacherId: String(teacher._id), classId: String(cls._id), schoolYearId: String(sy._id), assignedBy: String(sub._id) })
+    await SubAdminAssignment.create({ subAdminId: String(sub._id), teacherId: String(teacher._id), assignedBy: String(sub._id) })
+
+    const student = await Student.create({ firstName: 'SI', lastName: 'LI', dateOfBirth: new Date('2018-03-03'), logicalKey: 'SI1' })
+    await Enrollment.create({ studentId: String(student._id), classId: String(cls._id), schoolYearId: String(sy._id), status: 'active' })
+    const tpl = await GradebookTemplate.create({ name: 'tpl-infer', pages: [], currentVersion: 1 })
+
+    // Create historical assignments that should cause keys 'keepA' and 'keepB' to be inferred
+    await TemplateAssignment.create({ studentId: String(student._id), assignedAt: new Date('2022-01-01'), data: { keepA: '1', keepB: 'x' } })
+    await TemplateAssignment.create({ studentId: String(student._id), assignedAt: new Date('2023-01-01'), data: { keepA: '2', keepB: 'y' } })
+
+    const assignment = await TemplateAssignment.create({ templateId: String(tpl._id), studentId: String(student._id), status: 'completed', isCompleted: true, assignedBy: String(teacher._id), data: { keepA: '3', keepB: 'z', transient: 'no' } })
+
+    const subToken = signToken({ userId: String(sub._id), role: 'SUBADMIN' })
+
+    const signRes = await request(app).post(`/subadmin/templates/${assignment._id}/sign`).set('Authorization', `Bearer ${subToken}`).send({ type: 'end_of_year' })
+    expect(signRes.status).toBe(200)
+
+    const promoteRes = await request(app).post(`/subadmin/templates/${assignment._id}/promote`).set('Authorization', `Bearer ${subToken}`).send({ nextLevel: 'MS' })
+    expect(promoteRes.status).toBe(200)
+
+    // Verify next-year assignment contains inferred keys
+    const created = await TemplateAssignment.findOne({ studentId: String(student._id), completionSchoolYearId: String(nextSy._id) }).lean()
+    expect(created).toBeDefined()
+    expect(created?.data?.keepA).toBeDefined()
+    expect(created?.data?.keepB).toBeDefined()
+    expect(created?.data?.transient).toBeUndefined()
+
+    // Verify audit log contains inferredKeys in details
+    const { AuditLog } = require('../../models/AuditLog')
+    const log = await AuditLog.findOne({ 'details.studentId': student._id }).sort({ timestamp: -1 }).lean()
+    expect(log).toBeDefined()
+    expect(Array.isArray(log.details?.inferredKeys)).toBe(true)
+    expect(log.details.inferredKeys).toEqual(expect.arrayContaining(['keepA','keepB']))
+  })
+
+  it('tolerates E11000 on upsert by re-querying existing next-year assignment', async () => {
+    const sub = await User.create({ email: 'sub-e11000', role: 'SUBADMIN', displayName: 'SubE', passwordHash: 'hash' })
+    const teacher = await User.create({ email: 'tea-e11000', role: 'TEACHER', displayName: 'TeacherE', passwordHash: 'hash' })
+    const sy = await SchoolYear.create({ name: 'YE', active: true, startDate: new Date('2024-09-01'), endDate: new Date('2025-07-01'), sequence: 1 })
+    const nextSy = await SchoolYear.create({ name: 'YE+1', startDate: new Date('2025-09-01'), endDate: new Date('2026-07-01'), sequence: 2 })
+    const cls = await ClassModel.create({ name: 'CE-E', level: 'PS', schoolYearId: String(sy._id) })
+    await TeacherClassAssignment.create({ teacherId: String(teacher._id), classId: String(cls._id), schoolYearId: String(sy._id), assignedBy: String(sub._id) })
+    await SubAdminAssignment.create({ subAdminId: String(sub._id), teacherId: String(teacher._id), assignedBy: String(sub._id) })
+
+    const student = await Student.create({ firstName: 'SE', lastName: 'LE', dateOfBirth: new Date('2018-02-05'), logicalKey: 'SE1' })
+    await Enrollment.create({ studentId: String(student._id), classId: String(cls._id), schoolYearId: String(sy._id), status: 'active' })
+    const tpl = await GradebookTemplate.create({ name: 'tpl-e11000', pages: [], currentVersion: 1 })
+    const assignment = await TemplateAssignment.create({ templateId: String(tpl._id), studentId: String(student._id), status: 'completed', isCompleted: true, isCompletedSem2: true, assignedBy: String(teacher._id) })
+
+    const subToken = signToken({ userId: String(sub._id), role: 'SUBADMIN' })
+
+    const signRes = await request(app).post(`/subadmin/templates/${assignment._id}/sign`).set('Authorization', `Bearer ${subToken}`).send({ type: 'end_of_year' })
+    expect(signRes.status).toBe(200)
+
+    // Pre-create the next-year assignment to simulate a concurrent insert from another process
+    await TemplateAssignment.create({ templateId: String(tpl._id), studentId: String(student._id), completionSchoolYearId: String(nextSy._id), assignedBy: 'other', status: 'draft', data: { pre: true } })
+
+    // Spy on findOneAndUpdate to throw E11000 once to simulate a race
+    const orig = TemplateAssignment.findOneAndUpdate
+    jest.spyOn(TemplateAssignment, 'findOneAndUpdate').mockImplementationOnce(() => {
+      const err: any = new Error('E11000 duplicate key error')
+      err.code = 11000
+      throw err
+    })
+
+    const promoteRes = await request(app).post(`/subadmin/templates/${assignment._id}/promote`).set('Authorization', `Bearer ${subToken}`).send({ nextLevel: 'MS' })
+    expect(promoteRes.status).toBe(200)
+
+    const created = await TemplateAssignment.find({ studentId: String(student._id), completionSchoolYearId: String(nextSy._id) }).lean()
+    expect(created.length).toBe(1)
+
+    // Restore original
+    ;(TemplateAssignment.findOneAndUpdate as any) = orig
+  })
+
+  it('handles legacy unique index on (templateId, studentId) by returning the existing assignment', async () => {
+    const sub = await User.create({ email: 'sub-legacy', role: 'SUBADMIN', displayName: 'SubLegacy', passwordHash: 'hash' })
+    const teacher = await User.create({ email: 'tea-legacy', role: 'TEACHER', displayName: 'TeacherLegacy', passwordHash: 'hash' })
+    const sy = await SchoolYear.create({ name: 'YL', active: true, startDate: new Date('2024-09-01'), endDate: new Date('2025-07-01'), sequence: 1 })
+    const nextSy = await SchoolYear.create({ name: 'YL+1', startDate: new Date('2025-09-01'), endDate: new Date('2026-07-01'), sequence: 2 })
+    const cls = await ClassModel.create({ name: 'CE-L', level: 'PS', schoolYearId: String(sy._id) })
+    await TeacherClassAssignment.create({ teacherId: String(teacher._id), classId: String(cls._id), schoolYearId: String(sy._id), assignedBy: String(sub._id) })
+    await SubAdminAssignment.create({ subAdminId: String(sub._id), teacherId: String(teacher._id), assignedBy: String(sub._id) })
+
+    const student = await Student.create({ firstName: 'SL', lastName: 'LL', dateOfBirth: new Date('2018-02-06'), logicalKey: 'SL1' })
+    await Enrollment.create({ studentId: String(student._id), classId: String(cls._id), schoolYearId: String(sy._id), status: 'active' })
+    const tpl = await GradebookTemplate.create({ name: 'tpl-legacy', pages: [], currentVersion: 1 })
+    const assignment = await TemplateAssignment.create({ templateId: String(tpl._id), studentId: String(student._id), status: 'completed', isCompleted: true, assignedBy: String(teacher._id) })
+
+    const subToken = signToken({ userId: String(sub._id), role: 'SUBADMIN' })
+
+    const signRes = await request(app).post(`/subadmin/templates/${assignment._id}/sign`).set('Authorization', `Bearer ${subToken}`).send({ type: 'end_of_year' })
+    expect(signRes.status).toBe(200)
+
+    // Pre-create a legacy assignment that lacks completionSchoolYearId (simulating legacy index)
+    await TemplateAssignment.create({ templateId: String(tpl._id), studentId: String(student._id), assignedBy: 'legacy', status: 'draft', data: { legacy: true } })
+
+    // Spy on findOneAndUpdate to throw E11000 with index name to simulate legacy unique index conflict
+    const orig = TemplateAssignment.findOneAndUpdate
+    jest.spyOn(TemplateAssignment, 'findOneAndUpdate').mockImplementationOnce(() => {
+      const err: any = new Error('E11000 duplicate key error collection: nvcarn.templateassignments index: templateId_1_studentId_1 dup key')
+      err.code = 11000
+      throw err
+    })
+
+    const promoteRes = await request(app).post(`/subadmin/templates/${assignment._id}/promote`).set('Authorization', `Bearer ${subToken}`).send({ nextLevel: 'MS' })
+    expect(promoteRes.status).toBe(200)
+
+    // Ensure only one assignment exists for this template+student (legacy doc found and used)
+    const created = await TemplateAssignment.find({ templateId: String(tpl._id), studentId: String(student._id) }).lean()
+    expect(created.length).toBe(1)
+
+    // The legacy document should have been patched to include completionSchoolYearId
+    const patched = created[0]
+    expect(patched.completionSchoolYearId).toBe(String(nextSy._id))
+    expect(patched.data?.legacy).toBe(true)
+
+    // Restore original
+    ;(TemplateAssignment.findOneAndUpdate as any) = orig
+  })
+
+  it('prevents duplicate next-year assignments when promotions are concurrent', async () => {
+    const sub = await User.create({ email: 'sub-conc', role: 'SUBADMIN', displayName: 'SubConc', passwordHash: 'hash' })
+    const teacher = await User.create({ email: 'tea-conc', role: 'TEACHER', displayName: 'TeacherConc', passwordHash: 'hash' })
+    const sy = await SchoolYear.create({ name: 'YC', active: true, activeSemester: 2, startDate: new Date('2024-09-01'), endDate: new Date('2025-07-01'), sequence: 1 })
+    const nextSy = await SchoolYear.create({ name: 'YC+1', startDate: new Date('2025-09-01'), endDate: new Date('2026-07-01'), sequence: 2 })
+    const cls = await ClassModel.create({ name: 'CE-C', level: 'PS', schoolYearId: String(sy._id) })
+    await TeacherClassAssignment.create({ teacherId: String(teacher._id), classId: String(cls._id), schoolYearId: String(sy._id), assignedBy: String(sub._id) })
+    await SubAdminAssignment.create({ subAdminId: String(sub._id), teacherId: String(teacher._id), assignedBy: String(sub._id) })
+
+    const student = await Student.create({ firstName: 'SC', lastName: 'LC', dateOfBirth: new Date('2018-02-05'), logicalKey: 'SC1' })
+    await Enrollment.create({ studentId: String(student._id), classId: String(cls._id), schoolYearId: String(sy._id), status: 'active' })
+    const tpl = await GradebookTemplate.create({ name: 'tpl-conc', pages: [], currentVersion: 1 })
+    const assignment = await TemplateAssignment.create({ templateId: String(tpl._id), studentId: String(student._id), status: 'completed', isCompleted: true, isCompletedSem2: true, assignedBy: String(teacher._id) })
+
+    const subToken = signToken({ userId: String(sub._id), role: 'SUBADMIN' })
+
+    const signRes = await request(app).post(`/subadmin/templates/${assignment._id}/sign`).set('Authorization', `Bearer ${subToken}`).send({ type: 'end_of_year' })
+    expect(signRes.status).toBe(200)
+
+    // Fire two promotions concurrently
+    const [r1, r2] = await Promise.all([
+      request(app).post(`/subadmin/templates/${assignment._id}/promote`).set('Authorization', `Bearer ${subToken}`).send({ nextLevel: 'MS' }),
+      request(app).post(`/subadmin/templates/${assignment._id}/promote`).set('Authorization', `Bearer ${subToken}`).send({ nextLevel: 'MS' })
+    ])
+
+    // At least one should succeed and the other should indicate already_promoted
+    const statuses = [r1.status, r2.status]
+    expect(statuses.includes(200)).toBe(true)
+    expect(statuses.includes(400)).toBe(true)
+
+    const created = await TemplateAssignment.find({ studentId: String(student._id), completionSchoolYearId: String(nextSy._id) }).lean()
+    expect(created.length).toBe(1)
+
+    const updatedStudent = await Student.findById(String(student._id)).lean()
+    const promos = (updatedStudent as any).promotions?.filter((p: any) => p.schoolYearId === String(sy._id)) || []
+    expect(promos.length).toBe(1)
   })
 })
