@@ -48,8 +48,9 @@ describe('signatureService edge cases', () => {
     const signer = await User.create({ email: 'sub-edge2', role: 'SUBADMIN', displayName: 'Sub Edge2', passwordHash: 'hash' })
     const assignment = await TemplateAssignment.create({ templateId: String(tpl._id), studentId: String(student._id), status: 'completed', isCompleted: true, assignedBy: String(signer._id) })
 
-    // Existing signature within window
-    await TemplateSignature.create({ templateAssignmentId: String(assignment._id), subAdminId: String(signer._id), type: 'standard', signedAt: new Date() })
+    // Existing signature within window - with signaturePeriodId matching what the signing logic will generate
+    const signaturePeriodId = `${String(sy._id)}_sem1`
+    await TemplateSignature.create({ templateAssignmentId: String(assignment._id), subAdminId: String(signer._id), type: 'standard', signedAt: new Date(), signaturePeriodId, schoolYearId: String(sy._id) })
 
     await expect(signTemplateAssignment({ templateAssignmentId: String(assignment._id), signerId: String(signer._id), type: 'standard' as any })).rejects.toThrow('already_signed')
   })

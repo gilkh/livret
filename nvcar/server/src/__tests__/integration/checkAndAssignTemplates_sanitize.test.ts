@@ -34,8 +34,8 @@ describe('checkAndAssignTemplates sanitization', () => {
     // Create a previous assignment for the same student that contains active flags and signatures
     // Use a different template ID so checkAndAssignTemplates will CREATE a new assignment from the default template
     const prevData = {
-      language_toggle_abc: [ { code: 'en', label: 'EN', active: true } ],
-      someTable: { rows: [ { active: true, val: 'x' } ] },
+      language_toggle_abc: [{ code: 'en', label: 'EN', active: true }],
+      table_someTable: { rows: [{ active: true, val: 'x' }] },
       signatures: [{ signer: 'T' }],
       promotions: { promoted: true }
     }
@@ -63,11 +63,14 @@ describe('checkAndAssignTemplates sanitization', () => {
     // signatures and promotions removed
     expect(created!.data.signatures).toBeUndefined()
     expect(created!.data.promotions).toBeUndefined()
-    // active flags should be reset (either false or null)
+
+    // New behavior: Allowed fields are copied exactly (preserving preferences like active=true)
     const langItems = created!.data.language_toggle_abc
     expect(Array.isArray(langItems)).toBe(true)
-    expect(langItems[0].active === false || langItems[0].active === null).toBe(true)
-    // nested table row active should be reset
-    expect(created!.data.someTable.rows[0].active === false || created!.data.someTable.rows[0].active === null).toBe(true)
+    expect(langItems[0].active).toBe(true) // Was reset in old logic, now preserved
+
+    // Check allowlisted table field
+    expect(created!.data.table_someTable).toBeDefined()
+    expect(created!.data.table_someTable.rows[0].active).toBe(true) // Preserved
   })
 })

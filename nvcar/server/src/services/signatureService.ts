@@ -7,6 +7,52 @@ import { logAudit } from '../utils/auditLogger'
 import { User } from '../models/User'
 import { TemplateChangeLog } from '../models/TemplateChangeLog'
 import { generateChangeId } from '../utils/changeId'
+import {
+    computeSignaturePeriodId,
+    resolveCurrentSignaturePeriod,
+    resolveEndOfYearSignaturePeriod,
+    validateSignatureReadiness,
+    SignaturePeriodType
+} from '../utils/readinessUtils'
+
+/**
+ * Check if an error is a MongoDB duplicate key error (code 11000).
+ * This happens when the unique compound index prevents duplicate signatures.
+ */
+function isDuplicateKeyError(err: any): boolean {
+    if (!err) return false
+    // MongoDB duplicate key error code
+    if (err.code === 11000) return true
+    // Check for WriteError with duplicate key
+    if (err.writeErrors && err.writeErrors.some((e: any) => e.code === 11000)) return true
+    // Check message for E11000 (MongoDB error format)
+    if (typeof err.message === 'string' && err.message.includes('E11000')) return true
+    return false
+}
+
+/**
+ * Handle duplicate key error by reading the existing signature (read-on-conflict).
+ * Returns the existing signature if found, throws otherwise.
+ */
+async function handleDuplicateKeyConflict(
+    templateAssignmentId: string,
+    type: string,
+    signaturePeriodId: string,
+    level?: string
+): Promise<any> {
+    // Read the existing signature that caused the conflict
+    const query: any = { templateAssignmentId, type, signaturePeriodId }
+    if (level) query.level = level
+
+    const existingSignature = await TemplateSignature.findOne(query).lean()
+    if (existingSignature) {
+        // Signature already exists - throw friendly error
+        throw new Error('already_signed')
+    }
+    // Edge case: signature was deleted between insert and read
+    throw new Error('signature_conflict')
+}
+
 interface SignTemplateOptions {
     templateAssignmentId: string
     signerId: string
@@ -29,21 +75,45 @@ const computeYearNameFromRange = (name: string, offset: number) => {
     return `${startYear + offset}${sep}${endYear + offset}`
 }
 
-const resolveSignatureSchoolYear = async (activeYear: any | null, type: 'standard' | 'end_of_year', now: Date) => {
+/**
+ * Resolve signature school year and signaturePeriodId
+ * Uses centralized readiness utils for consistency
+ */
+const resolveSignatureSchoolYearWithPeriod = async (
+    activeYear: any | null,
+    type: 'standard' | 'end_of_year',
+    now: Date
+): Promise<{ schoolYearId: string | undefined; schoolYearName: string; signaturePeriodId: string }> => {
+    // If no active year, we cannot reliably determine signaturePeriodId
     if (!activeYear) {
         const currentYear = now.getFullYear()
         const month = now.getMonth()
         const startYear = month >= 8 ? currentYear : currentYear - 1
-        if (type === 'end_of_year') {
-            return { schoolYearId: undefined, schoolYearName: `${startYear + 1}/${startYear + 2}` }
-        }
-        return { schoolYearId: undefined, schoolYearName: `${startYear}/${startYear + 1}` }
+        // Generate a fallback period ID using date-based approach
+        const fallbackYearName = type === 'end_of_year'
+            ? `${startYear + 1}/${startYear + 2}`
+            : `${startYear}/${startYear + 1}`
+        const periodType: SignaturePeriodType = type === 'end_of_year' ? 'end_of_year' : 'sem1'
+        // Use the fallback year name as part of the period ID since we don't have a real school year ID
+        const signaturePeriodId = `fallback_${startYear}_${periodType}`
+        return { schoolYearId: undefined, schoolYearName: fallbackYearName, signaturePeriodId }
     }
+
+    const activeYearId = String(activeYear._id)
 
     if (type !== 'end_of_year') {
-        return { schoolYearId: String(activeYear._id), schoolYearName: String(activeYear.name || '') }
+        // For standard signatures, use the current semester
+        const activeSemester = (activeYear as any).activeSemester || 1
+        const periodType: SignaturePeriodType = activeSemester === 1 ? 'sem1' : 'sem2'
+        const signaturePeriodId = computeSignaturePeriodId(activeYearId, periodType)
+        return {
+            schoolYearId: activeYearId,
+            schoolYearName: String(activeYear.name || ''),
+            signaturePeriodId
+        }
     }
 
+    // For end_of_year, determine the target year and compute period ID
     let nextYear: any | null = null
 
     if (activeYear.sequence && Number(activeYear.sequence) > 0) {
@@ -56,23 +126,40 @@ const resolveSignatureSchoolYear = async (activeYear: any | null, type: 'standar
         if (idx >= 0 && idx < allYears.length - 1) nextYear = allYears[idx + 1]
     }
 
+    // End-of-year signature period is tied to the current active year
+    const signaturePeriodId = computeSignaturePeriodId(activeYearId, 'end_of_year')
+
     if (nextYear) {
-        return { schoolYearId: String(nextYear._id), schoolYearName: String(nextYear.name || '') }
+        return {
+            schoolYearId: String(nextYear._id),
+            schoolYearName: String(nextYear.name || ''),
+            signaturePeriodId
+        }
     }
 
     const computedName = computeYearNameFromRange(String(activeYear.name || ''), 1)
     if (computedName) {
         const found = await SchoolYear.findOne({ name: computedName }).lean()
-        if (found) return { schoolYearId: String(found._id), schoolYearName: String(found.name || computedName) }
-        return { schoolYearId: undefined, schoolYearName: computedName }
+        if (found) {
+            return {
+                schoolYearId: String(found._id),
+                schoolYearName: String(found.name || computedName),
+                signaturePeriodId
+            }
+        }
+        return { schoolYearId: undefined, schoolYearName: computedName, signaturePeriodId }
     }
 
-    return { schoolYearId: String(activeYear._id), schoolYearName: String(activeYear.name || '') }
+    return {
+        schoolYearId: activeYearId,
+        schoolYearName: String(activeYear.name || ''),
+        signaturePeriodId
+    }
 }
 
 const getNextLevel = async (current: string) => {
     if (!current) return null
-    
+
     // Try to find by DB order
     try {
         const currentDoc = await Level.findOne({ name: current }).lean()
@@ -116,12 +203,12 @@ export const signTemplateAssignment = async ({
 
     if (activeYear) {
         let thresholdDate = activeYear.startDate
-        
+
         // Try to find previous school year to determine the "gap"
         const previousYear = await SchoolYear.findOne({ endDate: { $lt: activeYear.startDate } })
             .sort({ endDate: -1 })
             .lean()
-        
+
         if (previousYear) {
             thresholdDate = previousYear.endDate
         }
@@ -130,7 +217,7 @@ export const signTemplateAssignment = async ({
         const now = new Date()
         const endDate = new Date(activeYear.endDate)
         const upperBound = now > endDate ? now : endDate
-        
+
         // CRITICAL FIX: If current date is before the threshold (future school year),
         // use one year ago as the threshold
         const oneYearAgo = new Date(now)
@@ -163,13 +250,13 @@ export const signTemplateAssignment = async ({
     // end_of_year -> Sem 2
     if (type === 'standard') {
         if (!(assignment as any).isCompletedSem1) {
-             // For backward compatibility, check isCompleted if isCompletedSem1 is undefined?
-             // But we just added it.
-             // If data is old, isCompletedSem1 might be missing.
-             // We can fallback to assignment.isCompleted
-             if (!(assignment as any).isCompletedSem1 && !assignment.isCompleted) {
-                 throw new Error('not_completed_sem1')
-             }
+            // For backward compatibility, check isCompleted if isCompletedSem1 is undefined?
+            // But we just added it.
+            // If data is old, isCompletedSem1 might be missing.
+            // We can fallback to assignment.isCompleted
+            if (!(assignment as any).isCompletedSem1 && !assignment.isCompleted) {
+                throw new Error('not_completed_sem1')
+            }
         }
     } else if (type === 'end_of_year') {
         if (!(assignment as any).isCompletedSem2) {
@@ -179,7 +266,12 @@ export const signTemplateAssignment = async ({
 
     // Create signature and persist metadata atomically using a transaction when possible
     const now = new Date()
-    const { schoolYearId, schoolYearName } = await resolveSignatureSchoolYear(activeYear, type, now)
+    const { schoolYearId, schoolYearName, signaturePeriodId } = await resolveSignatureSchoolYearWithPeriod(activeYear, type, now)
+
+    // Validate that we have a proper signaturePeriodId (required for DB-level uniqueness)
+    if (!signaturePeriodId) {
+        throw new Error('cannot_resolve_signature_period')
+    }
 
     const pushObj = {
         type,
@@ -187,6 +279,7 @@ export const signTemplateAssignment = async ({
         subAdminId: signerId,
         schoolYearId,
         schoolYearName,
+        signaturePeriodId,
         level
     }
 
@@ -204,6 +297,7 @@ export const signTemplateAssignment = async ({
         }
 
         // Create the signature inside session if possible
+        // The unique compound index (templateAssignmentId + type + signaturePeriodId + level) will enforce uniqueness at DB level
         let createdSignature: any = null
         if (usedTransaction) {
             try {
@@ -214,7 +308,9 @@ export const signTemplateAssignment = async ({
                     status: 'signed',
                     type,
                     signatureUrl,
-                    level
+                    level,
+                    signaturePeriodId,
+                    schoolYearId
                 }).save({ session })
 
                 // Expose created signature to return value
@@ -257,8 +353,13 @@ export const signTemplateAssignment = async ({
                 }
             } catch (e: any) {
                 const msg = String(e?.message || '')
+                // Check for duplicate key error first (signature already exists)
+                if (isDuplicateKeyError(e)) {
+                    try { await session.abortTransaction() } catch (err) { }
+                    await handleDuplicateKeyConflict(templateAssignmentId, type, signaturePeriodId, level)
+                }
                 if (msg.includes('Transaction numbers are only allowed')) {
-                    try { await session.abortTransaction() } catch (err) {}
+                    try { await session.abortTransaction() } catch (err) { }
 
                     // Fallback: no transactions (replay non-transactional logic)
                     let created = null
@@ -270,7 +371,9 @@ export const signTemplateAssignment = async ({
                             status: 'signed',
                             type,
                             signatureUrl,
-                            level
+                            level,
+                            signaturePeriodId,
+                            schoolYearId
                         }).save()
 
                         // Expose created signature
@@ -311,14 +414,18 @@ export const signTemplateAssignment = async ({
                         } catch (e) {
                             console.error('Error applying updated assignment data to in-memory object', e)
                         }
-                    } catch (err) {
+                    } catch (err: any) {
+                        // Check for duplicate key error (signature already exists)
+                        if (isDuplicateKeyError(err)) {
+                            await handleDuplicateKeyConflict(templateAssignmentId, type, signaturePeriodId, level)
+                        }
                         if (created) {
                             try { await TemplateSignature.deleteOne({ _id: (created as any)._id }) } catch (err2) { console.error('Failed to cleanup signature after error:', err2) }
                         }
                         throw err
                     }
                 } else {
-                    try { if (usedTransaction) await session.abortTransaction() } catch (err) {}
+                    try { if (usedTransaction) await session.abortTransaction() } catch (err) { }
                     throw e
                 }
             }
@@ -333,7 +440,9 @@ export const signTemplateAssignment = async ({
                     status: 'signed',
                     type,
                     signatureUrl,
-                    level
+                    level,
+                    signaturePeriodId,
+                    schoolYearId
                 }).save()
 
                 // Expose created signature to return value
@@ -374,7 +483,11 @@ export const signTemplateAssignment = async ({
                 } catch (e) {
                     console.error('Error applying updated assignment data to in-memory object', e)
                 }
-            } catch (e) {
+            } catch (e: any) {
+                // Check for duplicate key error (signature already exists)
+                if (isDuplicateKeyError(e)) {
+                    await handleDuplicateKeyConflict(templateAssignmentId, type, signaturePeriodId, level)
+                }
                 // If create or update failed, attempt to cleanup created signature if any
                 if (created) {
                     try {
@@ -400,7 +513,7 @@ export const signTemplateAssignment = async ({
     // Log audit
     const template = await GradebookTemplate.findById(assignment.templateId).lean()
     const student = await Student.findById(assignment.studentId).lean()
-    
+
     await logAudit({
         userId: signerId,
         action: 'SIGN_TEMPLATE',
@@ -510,10 +623,10 @@ export const unsignTemplateAssignment = async ({
                 }
 
                 await session.commitTransaction()
-            } catch (e:any) {
+            } catch (e: any) {
                 const msg = String(e?.message || '')
                 if (msg.includes('Transaction numbers are only allowed')) {
-                    try { await session.abortTransaction() } catch (err) {}
+                    try { await session.abortTransaction() } catch (err) { }
                     // Fall back to non-transactional flow: reuse the existing fallback below by setting usedTransaction = false
                     usedTransaction = false
 
@@ -586,7 +699,7 @@ export const unsignTemplateAssignment = async ({
                         throw err
                     }
                 } else {
-                    try { if (usedTransaction) await session.abortTransaction() } catch (err) {}
+                    try { if (usedTransaction) await session.abortTransaction() } catch (err) { }
                     throw e
                 }
             }
@@ -661,7 +774,7 @@ export const unsignTemplateAssignment = async ({
             }
         }
     } catch (e) {
-        try { if (usedTransaction) await session.abortTransaction() } catch (err) {}
+        try { if (usedTransaction) await session.abortTransaction() } catch (err) { }
         throw e
     } finally {
         session.endSession()
@@ -670,7 +783,7 @@ export const unsignTemplateAssignment = async ({
     // Log audit
     const template = await GradebookTemplate.findById(assignment.templateId).lean()
     const student = await Student.findById(assignment.studentId).lean()
-    
+
     await logAudit({
         userId: signerId,
         action: 'UNSIGN_TEMPLATE',

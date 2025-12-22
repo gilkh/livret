@@ -171,7 +171,7 @@ export async function checkAndAssignTemplates(studentId: string, level: string, 
         // Actually, the user requirement is: "modified on the same one that was worked on in the previous years"
         // This implies the data should carry over.
 
-        let initialData = {};
+        let initialData: Record<string, any> = {};
 
         // Find the most recent assignment for this student (any template, or matching template?)
         // If the template changes between years (e.g. EB4 -> EB5), the structure might be different.
@@ -183,29 +183,10 @@ export async function checkAndAssignTemplates(studentId: string, level: string, 
           .lean();
 
         if (lastAssignment && lastAssignment.data) {
-          // Copy previous year's data but sanitize year-specific progress markers
-          const sanitize = (input: any): any => {
-            if (input == null) return input
-            if (Array.isArray(input)) return input.map(i => sanitize(i))
-            if (typeof input === 'object') {
-              const out: any = {}
-              for (const [k, v] of Object.entries(input)) {
-                // Remove known year-/user-specific fields
-                if (k === 'signatures' || k === 'promotions') continue
-                if (k === 'active' || k === 'completed' || k === 'completedSem1' || k === 'completedSem2' || k === 'completedAt' || k === 'completedAtSem1' || k === 'completedAtSem2') {
-                  // reset boolean flags and timestamps
-                  if (typeof v === 'boolean') out[k] = false
-                  else out[k] = null
-                  continue
-                }
-                out[k] = sanitize(v)
-              }
-              return out
-            }
-            return input
-          }
-
-          initialData = sanitize(lastAssignment.data)
+          // Use centralized allowlist-based sanitization (replaces blacklist approach)
+          // This explicitly documents which fields are safe to copy and adds copiedFrom metadata for traceability
+          const { sanitizeDataForNewAssignment } = await import('./readinessUtils')
+          initialData = sanitizeDataForNewAssignment(lastAssignment.data, String(lastAssignment._id))
         }
 
         await TemplateAssignment.create({
@@ -217,7 +198,7 @@ export async function checkAndAssignTemplates(studentId: string, level: string, 
           assignedBy: userId,
           assignedAt: new Date(),
           status: 'draft',
-          data: initialData // Initialize with previous data
+          data: initialData // Initialize with previous data (sanitized via allowlist with copiedFrom metadata)
         })
       } else {
         // Update existing assignment to ensure it's ready for the new year

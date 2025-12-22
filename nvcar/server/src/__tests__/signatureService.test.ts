@@ -56,7 +56,7 @@ describe('signatureService', () => {
     const student = await Student.create({ firstName: 'A', lastName: 'B', dateOfBirth: new Date('2018-01-03'), logicalKey: 'A3' })
     const signer = await User.create({ email: 'sub3', role: 'SUBADMIN', displayName: 'Sub3', passwordHash: 'hash' })
     const assignment = await TemplateAssignment.create({ templateId: String(tpl._id), studentId: String(student._id), status: 'signed', isCompleted: true, assignedBy: String(signer._id), data: { signatures: [{ type: 'standard', subAdminId: String(signer._id) }] } })
-    await TemplateSignature.create({ templateAssignmentId: String(assignment._id), subAdminId: String(signer._id), type: 'standard', status: 'signed' })
+    await TemplateSignature.create({ templateAssignmentId: String(assignment._id), subAdminId: String(signer._id), type: 'standard', status: 'signed', signaturePeriodId: 'test_sem1' })
 
     const res = await unsignTemplateAssignment({ templateAssignmentId: String(assignment._id), signerId: String(signer._id), type: 'standard' })
     expect(res).toBeDefined()

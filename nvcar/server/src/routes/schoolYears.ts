@@ -124,6 +124,9 @@ schoolYearsRouter.post('/:id/archive', requireAuth(['ADMIN']), async (req, res) 
       className: cls.name
     }
 
+    // Import buildSavedGradebookMeta and computeSignaturePeriodId for versioning
+    const { buildSavedGradebookMeta, computeSignaturePeriodId } = await import('../utils/readinessUtils')
+
     await SavedGradebook.create({
       studentId: assignment.studentId,
       schoolYearId: id,
@@ -131,6 +134,15 @@ schoolYearsRouter.post('/:id/archive', requireAuth(['ADMIN']), async (req, res) 
       classId: enrollment.classId,
       templateId: assignment.templateId,
       data: snapshotData,
+      // Version everything that is archived for complete traceability
+      meta: buildSavedGradebookMeta({
+        templateVersion: (assignment as any).templateVersion || 1,
+        dataVersion: (assignment as any).dataVersion || 1,
+        signaturePeriodId: computeSignaturePeriodId(id, 'end_of_year'),
+        schoolYearId: id,
+        level: cls.level || 'Sans niveau',
+        snapshotReason: 'year_end'
+      }),
       createdAt: new Date()
     })
     savedCount++

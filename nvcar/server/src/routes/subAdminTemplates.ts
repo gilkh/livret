@@ -19,6 +19,7 @@ import { Setting } from '../models/Setting'
 import { SavedGradebook } from '../models/SavedGradebook'
 import { StudentCompetencyStatus } from '../models/StudentCompetencyStatus'
 import { logAudit } from '../utils/auditLogger'
+import mongoose from 'mongoose'
 import { checkAndAssignTemplates, mergeAssignmentDataIntoTemplate } from '../utils/templateUtils'
 import { withCache, clearCache } from '../utils/cache'
 import multer from 'multer'
@@ -662,12 +663,15 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote', require
             }
         }
 
+        // If we could not determine the school's year context, fail explicitly
+        if (!currentSchoolYearId) {
+            return res.status(400).json({ error: 'current_school_year_unknown', message: 'Current school year could not be determined for promotion' })
+        }
+
         // Check if already promoted in current school year
-        if (currentSchoolYearId) {
-            const alreadyPromoted = student.promotions?.some(p => p.schoolYearId === currentSchoolYearId)
-            if (alreadyPromoted) {
-                return res.status(400).json({ error: 'already_promoted', message: 'Student already promoted this year' })
-            }
+        const alreadyPromoted = student.promotions?.some(p => p.schoolYearId === currentSchoolYearId)
+        if (alreadyPromoted) {
+            return res.status(400).json({ error: 'already_promoted', message: 'Student already promoted this year' })
         }
 
         // Calculate Next Level dynamically
@@ -726,111 +730,191 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote', require
         const nextSchoolYearId = String(nextSy._id)
 
         // Create Gradebook Snapshot
-        if (currentSchoolYearId && enrollment) {
-            const statuses = await StudentCompetencyStatus.find({ studentId: student._id }).lean()
+        // We'll perform the snapshot creation and all following updates in a transaction when possible
+        const session = await mongoose.startSession()
+        let usedTransaction = true
+        try {
+            try { session.startTransaction() } catch (e) { usedTransaction = false }
 
-            // Get Class Name for Snapshot
-            let snapshotClassName = ''
-            if (enrollment.classId) {
-                const cls = await ClassModel.findById(enrollment.classId).lean()
-                if (cls) snapshotClassName = cls.name
+            const snapshotMeta: any = { templateVersion: assignment.templateVersion || null, dataVersion: assignment.dataVersion || null }
+
+            // Keep track of side effects for non-transactional rollback
+            let createdSavedGradebookId: any = null
+            let originalEnrollmentStatus: string | null = null
+            let createdNextEnrollmentId: any = null
+            let studentPromotionsBefore: any[] = Array.isArray((student as any).promotions) ? JSON.parse(JSON.stringify((student as any).promotions)) : []
+            let assignmentDataBefore: any = assignment.data ? JSON.parse(JSON.stringify(assignment.data)) : undefined
+
+            const doCreateSnapshot = async () => {
+                const statuses = await StudentCompetencyStatus.find({ studentId: student._id }).lean()
+
+                // Get Class Name for Snapshot
+                let snapshotClassName = ''
+                if (enrollment && enrollment.classId) {
+                    const cls = await ClassModel.findById(enrollment.classId).lean()
+                    if (cls) snapshotClassName = cls.name
+                }
+
+                // Include any stored signatures (so saved snapshots contain signature images/URLs)
+                const signatures = assignment && assignment._id ? await TemplateSignature.find({ templateAssignmentId: String(assignment._id) }).lean() : []
+
+                const snapshotData = {
+                    student: student.toObject ? student.toObject() : student,
+                    enrollment: enrollment,
+                    statuses: statuses,
+                    assignment: assignment,
+                    className: snapshotClassName,
+                    signatures: signatures,
+                    signature: signatures.find((s: any) => s.type === 'standard') || null,
+                    finalSignature: signatures.find((s: any) => s.type === 'end_of_year') || null,
+                }
+
+                const saved = await SavedGradebook.create([{ 
+                    studentId: student._id,
+                    schoolYearId: currentSchoolYearId,
+                    level: currentLevel || 'Sans niveau',
+                    classId: enrollment?.classId,
+                    templateId: assignment.templateId,
+                    data: snapshotData,
+                    meta: snapshotMeta
+                }], { session })
+
+                if (Array.isArray(saved) && saved[0] && saved[0]._id) createdSavedGradebookId = String(saved[0]._id)
             }
 
-            // Include any stored signatures (so saved snapshots contain signature images/URLs)
-            const signatures = assignment && assignment._id ? await TemplateSignature.find({ templateAssignmentId: String(assignment._id) }).lean() : []
+            const runNonTransactionalFlow = async () => {
+                try {
+                    await doCreateSnapshot()
 
-            const snapshotData = {
-                student: student.toObject ? student.toObject() : student,
-                enrollment: enrollment,
-                statuses: statuses,
-                assignment: assignment,
-                className: snapshotClassName, // Explicitly save class name
-                signatures: signatures,
-                // Backwards-compatible top-level pointers used in some clients
-                signature: signatures.find((s: any) => s.type === 'standard') || null,
-                finalSignature: signatures.find((s: any) => s.type === 'end_of_year') || null,
+                    if (enrollment) {
+                        if (enrollment.status !== 'promoted') {
+                            originalEnrollmentStatus = enrollment.status || null
+                            await Enrollment.findByIdAndUpdate(enrollment._id, { status: 'promoted' })
+                        }
+                    }
+
+                    const existingNextEnrollment = await Enrollment.findOne({ studentId: String(student._id), schoolYearId: nextSchoolYearId }).lean()
+                    if (!existingNextEnrollment) {
+                        const nextEnr = await Enrollment.create({ studentId: student._id, schoolYearId: nextSchoolYearId, status: 'active' })
+                        createdNextEnrollmentId = String(nextEnr._id)
+                    }
+
+                    const promotion = {
+                        schoolYearId: currentSchoolYearId,
+                        date: new Date(),
+                        fromLevel: currentLevel,
+                        toLevel: calculatedNextLevel,
+                        promotedBy: subAdminId
+                    }
+
+                    await Student.findByIdAndUpdate(student._id, { $push: { promotions: promotion }, $set: { nextLevel: calculatedNextLevel } })
+
+                    const promotionData = {
+                        from: currentLevel,
+                        to: calculatedNextLevel,
+                        date: new Date(),
+                        year: yearName,
+                        class: '',
+                        by: subAdminId
+                    }
+
+                    await TemplateAssignment.findByIdAndUpdate(templateAssignmentId, { $push: { 'data.promotions': promotionData }, $inc: { dataVersion: 1 } }, { new: true })
+                } catch (err) {
+                    // Attempt rollback of side effects
+                    try {
+                        if (createdSavedGradebookId) {
+                            try { await SavedGradebook.deleteOne({ _id: createdSavedGradebookId }) } catch (e) { console.error('Rollback: failed to delete saved gradebook', e) }
+                        }
+
+                        if (createdNextEnrollmentId) {
+                            try { await Enrollment.deleteOne({ _id: createdNextEnrollmentId }) } catch (e) { console.error('Rollback: failed to delete created next enrollment', e) }
+                        }
+
+                        if (originalEnrollmentStatus !== null && enrollment && enrollment._id) {
+                            try { await Enrollment.findByIdAndUpdate(enrollment._id, { status: originalEnrollmentStatus }) } catch (e) { console.error('Rollback: failed to restore enrollment status', e) }
+                        }
+
+                        // Restore student promotions and nextLevel
+                        try {
+                            await Student.findByIdAndUpdate(student._id, { $set: { promotions: studentPromotionsBefore || [], nextLevel: student.nextLevel || '' } })
+                        } catch (e) { console.error('Rollback: failed to restore student promotions', e) }
+
+                        // Restore assignment data
+                        try {
+                            await TemplateAssignment.findByIdAndUpdate(templateAssignmentId, { $set: { data: assignmentDataBefore } })
+                        } catch (e) { console.error('Rollback: failed to restore assignment data', e) }
+                    } catch (e) {
+                        console.error('Rollback attempt failed:', e)
+                    }
+
+                    throw err
+                }
             }
 
-            await SavedGradebook.create({
-                studentId: student._id,
-                schoolYearId: currentSchoolYearId,
-                level: currentLevel || 'Sans niveau',
-                classId: enrollment.classId,
-                templateId: assignment.templateId,
-                data: snapshotData
-            })
-        }
+            if (usedTransaction) {
+                try {
+                    await doCreateSnapshot()
 
-        // Update Enrollment Status (Destructive Fix)
-        if (enrollment) {
-            if (enrollment.status !== 'promoted') {
-                await Enrollment.findByIdAndUpdate(enrollment._id, { status: 'promoted' })
+                    // Update Enrollment Status (Destructive Fix)
+                    if (enrollment) {
+                        if (enrollment.status !== 'promoted') {
+                            originalEnrollmentStatus = enrollment.status || null
+                            await Enrollment.findByIdAndUpdate(enrollment._id, { status: 'promoted' }, { session })
+                        }
+                    }
+
+                    // Create new Enrollment for next year
+                    const existingNextEnrollment = await Enrollment.findOne({ studentId: String(student._id), schoolYearId: nextSchoolYearId }).session(session).lean()
+                    if (!existingNextEnrollment) {
+                        const nextEnr = await Enrollment.create([{ studentId: student._id, schoolYearId: nextSchoolYearId, status: 'active' }], { session })
+                        if (Array.isArray(nextEnr) && nextEnr[0] && nextEnr[0]._id) createdNextEnrollmentId = String(nextEnr[0]._id)
+                    }
+
+                    // Add promotion record to student
+                    const promotion = {
+                        schoolYearId: currentSchoolYearId,
+                        date: new Date(),
+                        fromLevel: currentLevel,
+                        toLevel: calculatedNextLevel,
+                        promotedBy: subAdminId
+                    }
+
+                    await Student.findByIdAndUpdate(student._id, { $push: { promotions: promotion }, $set: { nextLevel: calculatedNextLevel } }, { session })
+
+                    // Record promotion in assignment data
+                    const promotionData = {
+                        from: currentLevel,
+                        to: calculatedNextLevel,
+                        date: new Date(),
+                        year: yearName,
+                        class: '',
+                        by: subAdminId
+                    }
+
+                    await TemplateAssignment.findByIdAndUpdate(templateAssignmentId, { $push: { 'data.promotions': promotionData }, $inc: { dataVersion: 1 } }, { new: true, session })
+
+                    await session.commitTransaction()
+                } catch (e:any) {
+                    const msg = String(e?.message || '')
+                    if (msg.includes('Transaction numbers are only allowed')) {
+                        try { await session.abortTransaction() } catch (err) {}
+                        // Fallback to non-transactional flow
+                        await runNonTransactionalFlow()
+                    } else {
+                        try { await session.abortTransaction() } catch (err) {}
+                        throw e
+                    }
+                }
+            } else {
+                await runNonTransactionalFlow()
             }
+        } catch (e:any) {
+            console.error('Promotion error:', e)
+            return res.status(500).json({ error: 'promotion_failed', message: e.message })
+        } finally {
+            try { if (typeof session !== 'undefined') session.endSession() } catch (e) {}
         }
 
-        // Create new Enrollment for next year
-        const existingNextEnrollment = await Enrollment.findOne({ studentId: String(student._id), schoolYearId: nextSchoolYearId }).lean()
-        if (!existingNextEnrollment) {
-            await Enrollment.create({
-                studentId: student._id,
-                schoolYearId: nextSchoolYearId,
-                status: 'active',
-            })
-        }
-
-        // NEW: Create a new template assignment for the next year, copying data from the previous one
-        // This ensures the gradebook "follows" the student
-        if (assignment) {
-            // Strategy:
-            // We rely on checkAndAssignTemplates which is usually called when assigning a class.
-            // But if we want to ensure data persistence, we can leave it to the teacher assignment logic
-            // which we updated in templateUtils.ts to copy data from the most recent assignment.
-        }
-
-        // Update student staging (Decoupling Fix)
-        student.nextLevel = calculatedNextLevel
-        // Do NOT update student.level or student.schoolYearId yet
-
-        // Add promotion record
-        if (!student.promotions) student.promotions = [] as any
-        student.promotions.push({
-            schoolYearId: currentSchoolYearId,
-            date: new Date(),
-            fromLevel: currentLevel,
-            toLevel: calculatedNextLevel,
-            promotedBy: subAdminId
-        })
-
-        await student.save()
-
-        // Record promotion in assignment data
-        let className = ''
-        const enrollmentForClass = await Enrollment.findOne({ studentId: student._id, schoolYearId: currentSchoolYearId })
-        if (enrollmentForClass && enrollmentForClass.classId) {
-            const cls = await ClassModel.findById(enrollmentForClass.classId)
-            if (cls) className = cls.name
-        }
-
-        const promotionData = {
-            from: currentLevel,
-            to: calculatedNextLevel,
-            date: new Date(),
-            year: yearName,
-            class: className,
-            by: subAdminId
-        }
-
-        // Use findById and save to handle Mixed type safely
-        const assignmentDoc = await TemplateAssignment.findById(templateAssignmentId)
-        if (assignmentDoc) {
-            const data = assignmentDoc.data || {}
-            const promotions = Array.isArray(data.promotions) ? data.promotions : []
-            promotions.push(promotionData)
-            data.promotions = promotions
-            assignmentDoc.data = data
-            assignmentDoc.markModified('data')
-            await assignmentDoc.save()
-        }
 
         await logAudit({
             userId: subAdminId,
@@ -1846,13 +1930,38 @@ subAdminTemplatesRouter.post('/templates/sign-class/:classId', requireAuth(['SUB
         const toSign = templateAssignments.filter(a => !signedIds.has(String(a._id)))
 
         // Create signatures for all unsigned assignments
+        const activeYearForBulk = await SchoolYear.findOne({ active: true }).lean()
+        const normalizePeriodName = (name: string) => String(name || '').replace(/\s+/g, '').replace(/[\/\\.]/g, '-')
         const signatures = await Promise.all(toSign.map(async (assignment) => {
-            const signature = await TemplateSignature.create({
-                templateAssignmentId: String(assignment._id),
-                subAdminId,
-                signedAt: new Date(),
-                status: 'signed',
-            })
+            const type: any = 'standard'
+            let syId: string | undefined = undefined
+            let syName: string | undefined = undefined
+            if (activeYearForBulk) syId = String(activeYearForBulk._id)
+            else {
+                const d = new Date()
+                const startYear = d.getMonth() >= 8 ? d.getFullYear() : d.getFullYear() - 1
+                syName = `${startYear}/${startYear + 1}`
+            }
+            const signaturePeriodId = `${syId || normalizePeriodName(syName || '')}-${type}`
+
+            let signature: any = null
+            try {
+                signature = await TemplateSignature.create({
+                    templateAssignmentId: String(assignment._id),
+                    subAdminId,
+                    signedAt: new Date(),
+                    status: 'signed',
+                    type,
+                    signaturePeriodId
+                })
+            } catch (err: any) {
+                const msg = String(err?.message || '')
+                if (msg.includes('E11000') || msg.includes('duplicate key')) {
+                    // Already signed by someone else concurrently; ignore for bulk
+                    return null
+                }
+                throw err
+            }
 
             // Update assignment status
             await TemplateAssignment.findByIdAndUpdate(assignment._id, { status: 'signed' })

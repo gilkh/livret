@@ -14,6 +14,7 @@ import { TeacherClassAssignment } from '../../models/TeacherClassAssignment'
 import { SubAdminAssignment } from '../../models/SubAdminAssignment'
 import { RoleScope } from '../../models/RoleScope'
 import { TemplateAssignment } from '../../models/TemplateAssignment'
+import { SavedGradebook } from '../../models/SavedGradebook'
 
 let app: any
 
@@ -141,5 +142,51 @@ describe('subadmin promote edge cases', () => {
 
     const createdNext = await Enrollment.findOne({ studentId: String(student._id), schoolYearId: String(nextSy._id), status: 'active' }).lean()
     expect(createdNext).toBeDefined()
+  })
+
+  it('promotion is atomic when a downstream update fails (rollback attempts)', async () => {
+    const sub = await User.create({ email: 'sub-atomic', role: 'SUBADMIN', displayName: 'SubAtomic', passwordHash: 'hash' })
+    const teacher = await User.create({ email: 'tea-atomic', role: 'TEACHER', displayName: 'TeacherAtomic', passwordHash: 'hash' })
+
+    const sy = await SchoolYear.create({ name: 'AtomicY', active: true, activeSemester: 2, startDate: new Date('2024-09-01'), endDate: new Date('2025-07-01'), sequence: 10 })
+    const nextSy = await SchoolYear.create({ name: 'AtomicNext', startDate: new Date('2025-09-01'), endDate: new Date('2026-07-01'), sequence: 11 })
+
+    const cls = await ClassModel.create({ name: 'ClassAtomic', level: 'MS', schoolYearId: String(sy._id) })
+    await TeacherClassAssignment.create({ teacherId: String(teacher._id), classId: String(cls._id), schoolYearId: String(sy._id), assignedBy: String(sub._id) })
+    await SubAdminAssignment.create({ subAdminId: String(sub._id), teacherId: String(teacher._id), assignedBy: String(sub._id) })
+
+    const student = await Student.create({ firstName: 'Atomic', lastName: 'User', dateOfBirth: new Date('2018-05-01'), logicalKey: 'AT1' })
+    const currentEnrollment = await Enrollment.create({ studentId: String(student._id), classId: String(cls._id), schoolYearId: String(sy._id), status: 'active' })
+    const tpl = await GradebookTemplate.create({ name: 'tpl-atomic', pages: [], currentVersion: 1 })
+    const assignment = await TemplateAssignment.create({ templateId: String(tpl._id), studentId: String(student._id), status: 'completed', isCompleted: true, isCompletedSem2: true, assignedBy: String(sub._id) })
+
+    const subToken = signToken({ userId: String(sub._id), role: 'SUBADMIN' })
+    const signRes = await request(app).post(`/subadmin/templates/${assignment._id}/sign`).set('Authorization', `Bearer ${subToken}`).send({ type: 'end_of_year' })
+    expect(signRes.status).toBe(200)
+
+    // Simulate failure during student update
+    const orig = (Student as any).findByIdAndUpdate
+    ;(Student as any).findByIdAndUpdate = async () => { throw new Error('boom') }
+
+    const promoteRes = await request(app).post(`/subadmin/templates/${assignment._id}/promote`).set('Authorization', `Bearer ${subToken}`).send({ nextLevel: 'GS' })
+    expect(promoteRes.status).toBeGreaterThanOrEqual(500)
+
+    // No SavedGradebook should exist for this student and year
+    const saved = await SavedGradebook.find({ studentId: String(student._id), schoolYearId: String(sy._id) }).lean()
+    expect(saved.length).toBe(0)
+
+    // Enrollment should remain active
+    const freshEnroll = await Enrollment.findById(String(currentEnrollment._id)).lean()
+    expect(freshEnroll?.status).toBe('active')
+
+    // Student promotions unchanged
+    const freshStudent = await Student.findById(String(student._id)).lean()
+    expect(Array.isArray((freshStudent as any).promotions) ? (freshStudent as any).promotions.length : 0).toBe(0)
+
+    // Assignment data should not have promotions appended
+    const freshAssignment = await TemplateAssignment.findById(String(assignment._id)).lean()
+    expect((freshAssignment as any).data && (freshAssignment as any).data.promotions ? (freshAssignment as any).data.promotions.length : 0).toBe(0)
+
+    ;(Student as any).findByIdAndUpdate = orig
   })
 })
