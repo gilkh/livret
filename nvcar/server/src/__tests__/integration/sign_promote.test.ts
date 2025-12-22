@@ -14,6 +14,7 @@ import { TeacherClassAssignment } from '../../models/TeacherClassAssignment'
 import { SubAdminAssignment } from '../../models/SubAdminAssignment'
 import { TemplateAssignment } from '../../models/TemplateAssignment'
 import { TemplateSignature } from '../../models/TemplateSignature'
+import { SavedGradebook } from '../../models/SavedGradebook'
 
 let app: any
 
@@ -129,5 +130,49 @@ describe('signatures and promote integration', () => {
     expect(found).toBeTruthy()
     expect(found!.signatureUrl).toBeDefined()
     expect(String(found!.signatureUrl).endsWith('/uploads/signatures/sig-test.png')).toBe(true)
+  })
+
+  it('promotion is atomic: rollback on failure', async () => {
+    const admin = await User.create({ email: 'admin-roll', role: 'ADMIN', displayName: 'AdminRoll', passwordHash: 'hash' })
+    const token = signToken({ userId: String(admin._id), role: 'ADMIN' })
+
+    const sy = await SchoolYear.create({ name: 'PR1', active: true, startDate: new Date('2024-09-01'), endDate: new Date('2025-07-01'), sequence: 1 })
+    const nextSy = await SchoolYear.create({ name: 'PR2', startDate: new Date('2025-09-01'), endDate: new Date('2026-07-01'), sequence: 2 })
+    const cls = await ClassModel.create({ name: 'Class Roll', level: 'PS', schoolYearId: String(sy._id) })
+
+    const student = await Student.create({ firstName: 'Fail', lastName: 'Case', dateOfBirth: new Date('2018-01-08'), logicalKey: 'FC1' })
+    const enr = await Enrollment.create({ studentId: String(student._id), classId: String(cls._id), schoolYearId: String(sy._id), status: 'active' })
+
+    const tpl = await GradebookTemplate.create({ name: 'tpl-roll', pages: [], currentVersion: 1 })
+    const assignment = await TemplateAssignment.create({ templateId: String(tpl._id), studentId: String(student._id), schoolYearId: String(sy._id), status: 'completed', isCompleted: true, assignedBy: String(admin._id) })
+
+    // Make Student.findByIdAndUpdate throw to simulate mid-flow failure
+    const original = (Student as any).findByIdAndUpdate
+    ;(Student as any).findByIdAndUpdate = jest.fn(() => { return Promise.reject(new Error('boom')) })
+
+    const res = await request(app).post(`/students/${student._id}/promote`).set('Authorization', `Bearer ${token}`).send({ nextLevel: 'MS' })
+    expect(res.status).toBe(500)
+
+    // Ensure no saved gradebook created and no new enrollment was created for next year
+    const savedCount = await SavedGradebook.countDocuments({ studentId: String(student._id) })
+    expect(savedCount).toBe(0)
+
+    const nextEnroll = await Enrollment.findOne({ studentId: String(student._id), schoolYearId: String(nextSy._id) })
+    expect(nextEnroll).toBeNull()
+
+    // Restore original implementation
+    (Student as any).findByIdAndUpdate = original
+  })
+
+  it('saved gradebook GET does not patch missing data from live assignment', async () => {
+    const admin = await User.create({ email: 'admin-sg', role: 'ADMIN', displayName: 'AdminSG', passwordHash: 'hash' })
+    const token = signToken({ userId: String(admin._id), role: 'ADMIN' })
+
+    const st = await Student.create({ firstName: 'Snap', lastName: 'Shot', dateOfBirth: new Date('2018-01-09'), logicalKey: 'SS1' })
+    const sg = await SavedGradebook.create({ studentId: String(st._id), schoolYearId: 'SYX', level: 'PS', classId: 'C1', templateId: 'T1', data: { assignment: { _id: 'nonexistent' } } })
+
+    const getRes = await request(app).get(`/saved-gradebooks/${sg._id}`).set('Authorization', `Bearer ${token}`)
+    expect(getRes.status).toBe(200)
+    expect(getRes.body.data.assignment.data).toBeUndefined()
   })
 })

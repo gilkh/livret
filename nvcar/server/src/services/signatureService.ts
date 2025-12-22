@@ -14,6 +14,15 @@ import {
     validateSignatureReadiness,
     SignaturePeriodType
 } from '../utils/readinessUtils'
+import { Level } from '../models/Level'
+import mongoose, { ClientSession } from 'mongoose'
+
+// Auth imports
+import { SubAdminAssignment } from '../models/SubAdminAssignment'
+import { Enrollment } from '../models/Enrollment'
+import { TeacherClassAssignment } from '../models/TeacherClassAssignment'
+import { ClassModel } from '../models/Class'
+import { RoleScope } from '../models/RoleScope'
 
 /**
  * Check if an error is a MongoDB duplicate key error (code 11000).
@@ -60,10 +69,11 @@ interface SignTemplateOptions {
     signatureUrl?: string
     req?: any
     level?: string
+    // Allow the caller to supply an explicit signature period to avoid ambiguous date heuristics
+    signaturePeriodId?: string
+    // Optional explicit school year id that corresponds to the signaturePeriodId
+    signatureSchoolYearId?: string
 }
-
-import { Level } from '../models/Level'
-import mongoose from 'mongoose'
 
 const computeYearNameFromRange = (name: string, offset: number) => {
     const match = String(name || '').match(/(\d{4})([-/.])(\d{4})/)
@@ -183,13 +193,101 @@ const getNextLevel = async (current: string) => {
     return null
 }
 
+/**
+ * Populate signatures into assignment.data.signatures from TemplateSignature collection.
+ * This is the read-side fix for the Data Consistency Crisis.
+ */
+export async function populateSignatures(assignments: any[] | any) {
+    if (!assignments) return assignments
+    const isArray = Array.isArray(assignments)
+    const list = isArray ? assignments : [assignments]
+    if (list.length === 0) return assignments
+
+    const ids = list.map((a: any) => String(a._id))
+    const signatures = await TemplateSignature.find({ templateAssignmentId: { $in: ids } }).lean()
+    
+    const sigMap = new Map<string, any[]>()
+    signatures.forEach(s => {
+        const key = String(s.templateAssignmentId)
+        if (!sigMap.has(key)) sigMap.set(key, [])
+        sigMap.get(key)?.push(s)
+    })
+
+    list.forEach((a: any) => {
+        if (!a.data) a.data = {}
+        // Overwrite or set data.signatures from the single source of truth
+        a.data.signatures = sigMap.get(String(a._id)) || []
+    })
+
+    return assignments
+}
+
+/**
+ * Centralized authorization logic for SubAdmins.
+ * Fixes Authorization Logic Vulnerabilities.
+ */
+export async function validateSignatureAuthorization(
+    subAdminId: string,
+    assignment: any
+): Promise<boolean> {
+    // 1. Direct assignment check
+    if (assignment.assignedTeachers && assignment.assignedTeachers.length > 0) {
+        const direct = await SubAdminAssignment.exists({
+            subAdminId,
+            teacherId: { $in: assignment.assignedTeachers }
+        })
+        if (direct) return true
+    }
+
+    // 2. Enrollment/Class based check
+    const enrollments = await Enrollment.find({ studentId: assignment.studentId }).lean()
+    const classIds = enrollments.map(e => e.classId).filter(Boolean)
+    
+    if (classIds.length > 0) {
+        // Check if subadmin manages any teacher of these classes
+        const teacherClassAssignments = await TeacherClassAssignment.find({ classId: { $in: classIds } }).select('teacherId').lean()
+        const teacherIds = teacherClassAssignments.map(t => t.teacherId)
+        
+        if (teacherIds.length > 0) {
+             const classMatch = await SubAdminAssignment.exists({
+                subAdminId,
+                teacherId: { $in: teacherIds }
+            })
+            if (classMatch) return true
+        }
+
+        // Check RoleScope (Level based)
+        const roleScope = await RoleScope.findOne({ userId: subAdminId }).lean()
+        if (roleScope?.levels?.length) {
+            const classes = await ClassModel.find({ _id: { $in: classIds } }).select('level').lean()
+            if (classes.some(c => c.level && roleScope.levels.includes(c.level))) {
+                return true
+            }
+        }
+    }
+
+    // 3. Promotion check (Fallback)
+    // If user promoted the student recently, they might have access
+    const student = await Student.findById(assignment.studentId).select('promotions').lean()
+    if (student && Array.isArray((student as any).promotions) && (student as any).promotions.length > 0) {
+         const lastPromotion = (student as any).promotions.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]
+         if (lastPromotion && String(lastPromotion.promotedBy) === String(subAdminId)) {
+             return true
+         }
+    }
+
+    return false
+}
+
 export const signTemplateAssignment = async ({
     templateAssignmentId,
     signerId,
     type = 'standard',
     signatureUrl,
     req,
-    level
+    level,
+    signaturePeriodId: explicitSignaturePeriodId,
+    signatureSchoolYearId: explicitSchoolYearId
 }: SignTemplateOptions) => {
     // Get the template assignment
     const assignment = await TemplateAssignment.findById(templateAssignmentId)
@@ -197,40 +295,23 @@ export const signTemplateAssignment = async ({
         throw new Error('not_found')
     }
 
-    // Check if already signed in the active school year
+    // Prefer an explicit signaturePeriodId if provided; otherwise resolve from current school year and type
     const activeYear = await SchoolYear.findOne({ active: true }).lean()
-    const baseQuery: any = { templateAssignmentId, type }
 
-    if (activeYear) {
-        let thresholdDate = activeYear.startDate
-
-        // Try to find previous school year to determine the "gap"
-        const previousYear = await SchoolYear.findOne({ endDate: { $lt: activeYear.startDate } })
-            .sort({ endDate: -1 })
-            .lean()
-
-        if (previousYear) {
-            thresholdDate = previousYear.endDate
-        }
-
-        // Use the later of endDate or current date as the upper bound
-        const now = new Date()
-        const endDate = new Date(activeYear.endDate)
-        const upperBound = now > endDate ? now : endDate
-
-        // CRITICAL FIX: If current date is before the threshold (future school year),
-        // use one year ago as the threshold
-        const oneYearAgo = new Date(now)
-        oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1)
-        const effectiveThreshold = new Date(thresholdDate) > now ? oneYearAgo : new Date(thresholdDate)
-
-        baseQuery.signedAt = { $gt: effectiveThreshold, $lte: upperBound }
+    if (!explicitSignaturePeriodId) {
+        const resolved = await resolveSignatureSchoolYearWithPeriod(activeYear, type, new Date())
+        explicitSignaturePeriodId = resolved.signaturePeriodId
+        if (!explicitSchoolYearId) explicitSchoolYearId = resolved.schoolYearId
     }
 
+    // Final guard
+    if (!explicitSignaturePeriodId) throw new Error('cannot_resolve_signature_period')
+
     const existingQuery: any = (() => {
-        if (!level) return baseQuery
+        const base = { templateAssignmentId, type, signaturePeriodId: explicitSignaturePeriodId }
+        if (!level) return base
         return {
-            ...baseQuery,
+            ...base,
             $or: [
                 { level },
                 { level: { $exists: false } },
@@ -241,67 +322,53 @@ export const signTemplateAssignment = async ({
     })()
 
     const existing = await TemplateSignature.findOne(existingQuery).lean()
-    if (existing) {
-        throw new Error('already_signed')
-    }
+    if (existing) throw new Error('already_signed')
 
     // Check completion status for the requested semester
-    // standard -> Sem 1
-    // end_of_year -> Sem 2
+    // Unifies completion status logic (Task 4)
+    const isCompletedSem1 = (assignment as any).isCompletedSem1 || assignment.isCompleted || false
+    const isCompletedSem2 = (assignment as any).isCompletedSem2 || false
+
     if (type === 'standard') {
-        if (!(assignment as any).isCompletedSem1) {
-            // For backward compatibility, check isCompleted if isCompletedSem1 is undefined?
-            // But we just added it.
-            // If data is old, isCompletedSem1 might be missing.
-            // We can fallback to assignment.isCompleted
-            if (!(assignment as any).isCompletedSem1 && !assignment.isCompleted) {
-                throw new Error('not_completed_sem1')
-            }
+        if (!isCompletedSem1) {
+            throw new Error('not_completed_sem1')
         }
     } else if (type === 'end_of_year') {
-        if (!(assignment as any).isCompletedSem2) {
+        if (!isCompletedSem2) {
             throw new Error('not_completed_sem2')
         }
     }
 
     // Create signature and persist metadata atomically using a transaction when possible
     const now = new Date()
-    const { schoolYearId, schoolYearName, signaturePeriodId } = await resolveSignatureSchoolYearWithPeriod(activeYear, type, now)
-
-    // Validate that we have a proper signaturePeriodId (required for DB-level uniqueness)
+    let signaturePeriodId = explicitSignaturePeriodId
+    let schoolYearId = explicitSchoolYearId
+    
+    // Ensure we have a valid period id
     if (!signaturePeriodId) {
         throw new Error('cannot_resolve_signature_period')
     }
 
-    const pushObj = {
-        type,
-        signedAt: now,
-        subAdminId: signerId,
-        schoolYearId,
-        schoolYearName,
-        signaturePeriodId,
-        level
-    }
-
-    // Start a session and try to use a transaction; if the server does not support transactions (e.g., standalone mongodb memory server),
-    // fall back to best-effort and try to clean up on failure.
     let signature: any = null
     const session = await mongoose.startSession()
     let usedTransaction = true
     try {
-        try {
-            session.startTransaction()
-        } catch (e) {
-            // Transactions not supported in this environment
-            usedTransaction = false
-        }
+        session.startTransaction()
+    } catch (e) {
+        // Transactions not supported in this environment
+        usedTransaction = false
+    }
 
-        // Create the signature inside session if possible
-        // The unique compound index (templateAssignmentId + type + signaturePeriodId + level) will enforce uniqueness at DB level
-        let createdSignature: any = null
+    try {
+        // Standardized transaction handling (Task 3)
+        // Fixes Data Consistency (Task 1) by NOT pushing to assignment.data.signatures
         if (usedTransaction) {
             try {
-                createdSignature = await new TemplateSignature({
+                // Double check existence inside transaction
+                const doubleCheck = await TemplateSignature.findOne(existingQuery).session(session)
+                if (doubleCheck) throw new Error('already_signed')
+
+                const createdSignature = await new TemplateSignature({
                     templateAssignmentId,
                     subAdminId: signerId,
                     signedAt: now,
@@ -313,13 +380,11 @@ export const signTemplateAssignment = async ({
                     schoolYearId
                 }).save({ session })
 
-                // Expose created signature to return value
                 signature = createdSignature
 
                 const updatedAssignment = await TemplateAssignment.findByIdAndUpdate(
                     templateAssignmentId,
                     {
-                        $push: { 'data.signatures': pushObj },
                         $inc: { dataVersion: 1 },
                         $set: { status: 'signed' }
                     },
@@ -334,7 +399,7 @@ export const signTemplateAssignment = async ({
                         pageIndex: -1,
                         blockIndex: -1,
                         before: assignment.data && (assignment.data.signatures || []),
-                        after: updatedAssignment ? updatedAssignment.data.signatures : undefined,
+                        after: undefined, // We don't store signatures in data anymore
                         changeId: generateChangeId(),
                         dataVersion: updatedAssignment ? (updatedAssignment as any).dataVersion : -1,
                         userId: signerId,
@@ -343,97 +408,29 @@ export const signTemplateAssignment = async ({
                 ], { session })
 
                 await session.commitTransaction()
-
-                // Ensure in-memory assignment data reflects DB
-                try {
-                    const fresh = updatedAssignment
-                    if (fresh) (assignment as any).data = (fresh as any).data
-                } catch (e) {
-                    console.error('Error applying updated assignment data to in-memory object', e)
-                }
             } catch (e: any) {
                 const msg = String(e?.message || '')
-                // Check for duplicate key error first (signature already exists)
-                if (isDuplicateKeyError(e)) {
-                    try { await session.abortTransaction() } catch (err) { }
-                    await handleDuplicateKeyConflict(templateAssignmentId, type, signaturePeriodId, level)
-                }
                 if (msg.includes('Transaction numbers are only allowed')) {
-                    try { await session.abortTransaction() } catch (err) { }
-
-                    // Fallback: no transactions (replay non-transactional logic)
-                    let created = null
-                    try {
-                        created = await new TemplateSignature({
-                            templateAssignmentId,
-                            subAdminId: signerId,
-                            signedAt: now,
-                            status: 'signed',
-                            type,
-                            signatureUrl,
-                            level,
-                            signaturePeriodId,
-                            schoolYearId
-                        }).save()
-
-                        // Expose created signature
-                        signature = created
-
-                        const updatedAssignment = await TemplateAssignment.findByIdAndUpdate(
-                            templateAssignmentId,
-                            {
-                                $push: { 'data.signatures': pushObj },
-                                $inc: { dataVersion: 1 },
-                                $set: { status: 'signed' }
-                            },
-                            { new: true }
-                        )
-
-                        try {
-                            await TemplateChangeLog.create({
-                                templateAssignmentId,
-                                teacherId: signerId,
-                                changeType: 'signature',
-                                pageIndex: -1,
-                                blockIndex: -1,
-                                before: assignment.data && (assignment.data.signatures || []),
-                                after: updatedAssignment ? updatedAssignment.data.signatures : undefined,
-                                changeId: generateChangeId(),
-                                dataVersion: updatedAssignment ? (updatedAssignment as any).dataVersion : -1,
-                                userId: signerId,
-                                timestamp: now,
-                            })
-                        } catch (e) {
-                            console.error('Failed to log signature change:', e)
-                        }
-
-                        // Ensure in-memory assignment data reflects DB
-                        try {
-                            const fresh = await TemplateAssignment.findById(templateAssignmentId).lean()
-                            if (fresh) (assignment as any).data = fresh.data
-                        } catch (e) {
-                            console.error('Error applying updated assignment data to in-memory object', e)
-                        }
-                    } catch (err: any) {
-                        // Check for duplicate key error (signature already exists)
-                        if (isDuplicateKeyError(err)) {
-                            await handleDuplicateKeyConflict(templateAssignmentId, type, signaturePeriodId, level)
-                        }
-                        if (created) {
-                            try { await TemplateSignature.deleteOne({ _id: (created as any)._id }) } catch (err2) { console.error('Failed to cleanup signature after error:', err2) }
-                        }
-                        throw err
-                    }
+                     try { await session.abortTransaction() } catch (err) { }
+                     usedTransaction = false
                 } else {
-                    try { if (usedTransaction) await session.abortTransaction() } catch (err) { }
+                    if (isDuplicateKeyError(e) || msg.includes('already_signed')) {
+                        try { await session.abortTransaction() } catch (err) { }
+                        await handleDuplicateKeyConflict(templateAssignmentId, type, signaturePeriodId, level)
+                    }
+                    
+                    // If transaction failed but it wasn't a duplicate key, abort and rethrow
+                    try { await session.abortTransaction() } catch (err) { }
                     throw e
                 }
             }
-        } else {
-            // Fallback: no transactions
-            let created = null
+        }
+        
+        if (!usedTransaction) {
+            // Fallback: no transactions (for tests/local)
+            // Still respecting single source of truth
             try {
-                created = await new TemplateSignature({
+                const createdSignature = await new TemplateSignature({
                     templateAssignmentId,
                     subAdminId: signerId,
                     signedAt: now,
@@ -445,13 +442,11 @@ export const signTemplateAssignment = async ({
                     schoolYearId
                 }).save()
 
-                // Expose created signature to return value
-                signature = created
+                signature = createdSignature
 
                 const updatedAssignment = await TemplateAssignment.findByIdAndUpdate(
                     templateAssignmentId,
                     {
-                        $push: { 'data.signatures': pushObj },
                         $inc: { dataVersion: 1 },
                         $set: { status: 'signed' }
                     },
@@ -466,7 +461,7 @@ export const signTemplateAssignment = async ({
                         pageIndex: -1,
                         blockIndex: -1,
                         before: assignment.data && (assignment.data.signatures || []),
-                        after: updatedAssignment ? updatedAssignment.data.signatures : undefined,
+                        after: undefined,
                         changeId: generateChangeId(),
                         dataVersion: updatedAssignment ? (updatedAssignment as any).dataVersion : -1,
                         userId: signerId,
@@ -475,37 +470,17 @@ export const signTemplateAssignment = async ({
                 } catch (e) {
                     console.error('Failed to log signature change:', e)
                 }
-
-                // Ensure in-memory assignment data reflects DB
-                try {
-                    const fresh = await TemplateAssignment.findById(templateAssignmentId).lean()
-                    if (fresh) (assignment as any).data = fresh.data
-                } catch (e) {
-                    console.error('Error applying updated assignment data to in-memory object', e)
-                }
             } catch (e: any) {
-                // Check for duplicate key error (signature already exists)
                 if (isDuplicateKeyError(e)) {
                     await handleDuplicateKeyConflict(templateAssignmentId, type, signaturePeriodId, level)
                 }
-                // If create or update failed, attempt to cleanup created signature if any
-                if (created) {
-                    try {
-                        await TemplateSignature.deleteOne({ _id: (created as any)._id })
-                    } catch (err) {
-                        console.error('Failed to cleanup signature after error:', err)
-                    }
+                // Cleanup if created but subsequent steps failed (unlikely here since we only create one doc now)
+                if (signature) {
+                     try { await TemplateSignature.deleteOne({ _id: signature._id }) } catch (err) {}
                 }
                 throw e
             }
         }
-    } catch (e) {
-        try {
-            if (usedTransaction) await session.abortTransaction()
-        } catch (err) {
-            // ignore
-        }
-        throw e
     } finally {
         session.endSession()
     }
@@ -593,7 +568,7 @@ export const unsignTemplateAssignment = async ({
                 const updatedAssignment = await TemplateAssignment.findByIdAndUpdate(
                     templateAssignmentId,
                     {
-                        $pull: { 'data.signatures': deleteQuery },
+                        // No need to pull from data.signatures as we don't store it there anymore
                         $inc: { dataVersion: 1 }
                     },
                     { new: true, session }
@@ -612,7 +587,7 @@ export const unsignTemplateAssignment = async ({
                         pageIndex: -1,
                         blockIndex: -1,
                         before: assignment.data && (assignment.data.signatures || []),
-                        after: updatedAssignment ? updatedAssignment.data.signatures : undefined,
+                        after: undefined,
                         changeId: generateChangeId(),
                         dataVersion: updatedAssignment ? (updatedAssignment as any).dataVersion : -1,
                         userId: signerId,
@@ -624,90 +599,18 @@ export const unsignTemplateAssignment = async ({
 
                 await session.commitTransaction()
             } catch (e: any) {
-                const msg = String(e?.message || '')
-                if (msg.includes('Transaction numbers are only allowed')) {
+                if (e.message && e.message.includes('Transaction numbers are only allowed')) {
                     try { await session.abortTransaction() } catch (err) { }
-                    // Fall back to non-transactional flow: reuse the existing fallback below by setting usedTransaction = false
                     usedTransaction = false
-
-                    // Execute fallback logic here
-                    // Save current persisted signatures in case we need to restore on failure
-                    const savedSignatures = assignment.data && assignment.data.signatures ? [...assignment.data.signatures] : []
-
-                    try {
-                        await TemplateSignature.deleteMany(deleteQuery)
-
-                        if (type === 'end_of_year') {
-                            if (assignment.data && assignment.data.promotions) {
-                                const updatedPromotions = assignment.data.promotions.filter((p: any) => p.by !== signerId)
-                                if (updatedPromotions.length !== assignment.data.promotions.length) {
-                                    assignment.data.promotions = updatedPromotions
-                                    assignment.markModified('data')
-                                    await assignment.save()
-                                }
-                            }
-                        }
-
-                        const updatedAssignment = await TemplateAssignment.findByIdAndUpdate(
-                            templateAssignmentId,
-                            {
-                                $pull: { 'data.signatures': deleteQuery },
-                                $inc: { dataVersion: 1 }
-                            },
-                            { new: true }
-                        )
-
-                        const remaining = await TemplateSignature.countDocuments({ templateAssignmentId })
-                        if (remaining === 0) {
-                            await TemplateAssignment.findByIdAndUpdate(templateAssignmentId, { status: 'completed', $inc: { dataVersion: 1 } })
-                        }
-
-                        try {
-                            await TemplateChangeLog.create({
-                                templateAssignmentId,
-                                teacherId: signerId,
-                                changeType: 'unsign',
-                                pageIndex: -1,
-                                blockIndex: -1,
-                                before: assignment.data && (assignment.data.signatures || []),
-                                after: updatedAssignment ? updatedAssignment.data.signatures : undefined,
-                                changeId: generateChangeId(),
-                                dataVersion: updatedAssignment ? (updatedAssignment as any).dataVersion : -1,
-                                userId: signerId,
-                                timestamp: new Date(),
-                            })
-                        } catch (e) {
-                            console.error('Failed to log unsign change:', e)
-                        }
-                    } catch (err) {
-                        // Attempt to restore any removed signatures if update failed
-                        if (savedSignatures.length > 0) {
-                            try {
-                                // Recreate signature documents from the saved metadata
-                                const toInsert = savedSignatures.map((s: any) => ({ templateAssignmentId, ...s }))
-                                await TemplateSignature.insertMany(toInsert)
-                                // Restore assignment data.signatures
-                                try {
-                                    await TemplateAssignment.findByIdAndUpdate(templateAssignmentId, { $set: { 'data.signatures': savedSignatures } })
-                                } catch (err) {
-                                    console.error('Failed to restore signatures into assignment data after failure:', err)
-                                }
-                            } catch (err) {
-                                console.error('Failed to restore signatures after failed unsign:', err)
-                            }
-                        }
-                        throw err
-                    }
                 } else {
-                    try { if (usedTransaction) await session.abortTransaction() } catch (err) { }
+                    try { await session.abortTransaction() } catch (err) { }
                     throw e
                 }
             }
-        } else {
+        }
+        
+        if (!usedTransaction) {
             // Fallback: no transactions
-            // Save current persisted signatures in case we need to restore on failure
-            const savedSignatures = assignment.data && assignment.data.signatures ? [...assignment.data.signatures] : []
-
             try {
                 await TemplateSignature.deleteMany(deleteQuery)
 
@@ -725,7 +628,6 @@ export const unsignTemplateAssignment = async ({
                 const updatedAssignment = await TemplateAssignment.findByIdAndUpdate(
                     templateAssignmentId,
                     {
-                        $pull: { 'data.signatures': deleteQuery },
                         $inc: { dataVersion: 1 }
                     },
                     { new: true }
@@ -744,7 +646,7 @@ export const unsignTemplateAssignment = async ({
                         pageIndex: -1,
                         blockIndex: -1,
                         before: assignment.data && (assignment.data.signatures || []),
-                        after: updatedAssignment ? updatedAssignment.data.signatures : undefined,
+                        after: undefined,
                         changeId: generateChangeId(),
                         dataVersion: updatedAssignment ? (updatedAssignment as any).dataVersion : -1,
                         userId: signerId,
@@ -754,28 +656,9 @@ export const unsignTemplateAssignment = async ({
                     console.error('Failed to log unsign change:', e)
                 }
             } catch (e) {
-                // Attempt to restore any removed signatures if update failed
-                if (savedSignatures.length > 0) {
-                    try {
-                        // Recreate signature documents from the saved metadata
-                        const toInsert = savedSignatures.map((s: any) => ({ templateAssignmentId, ...s }))
-                        await TemplateSignature.insertMany(toInsert)
-                        // Restore assignment data.signatures
-                        try {
-                            await TemplateAssignment.findByIdAndUpdate(templateAssignmentId, { $set: { 'data.signatures': savedSignatures } })
-                        } catch (err) {
-                            console.error('Failed to restore signatures into assignment data after failure:', err)
-                        }
-                    } catch (err) {
-                        console.error('Failed to restore signatures after failed unsign:', err)
-                    }
-                }
                 throw e
             }
         }
-    } catch (e) {
-        try { if (usedTransaction) await session.abortTransaction() } catch (err) { }
-        throw e
     } finally {
         session.endSession()
     }

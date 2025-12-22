@@ -494,7 +494,7 @@ adminExtrasRouter.post('/templates/:templateAssignmentId/sign', requireAuth(['AD
     try {
         const adminId = (req as any).user.userId
         const { templateAssignmentId } = req.params
-        const { type = 'standard' } = req.body
+        const { type = 'standard', signaturePeriodId, signatureSchoolYearId } = req.body
 
         const assignment = await TemplateAssignment.findById(templateAssignmentId).lean()
         if (!assignment) return res.status(404).json({ error: 'not_found' })
@@ -527,7 +527,9 @@ adminExtrasRouter.post('/templates/:templateAssignmentId/sign', requireAuth(['AD
                 type: type as any,
                 signatureUrl: activeSig ? activeSig.dataUrl : undefined,
                 req,
-                level: signatureLevel || undefined
+                level: signatureLevel || undefined,
+                signaturePeriodId,
+                signatureSchoolYearId
             })
             res.json(signature)
         } catch (e: any) {

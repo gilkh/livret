@@ -363,68 +363,11 @@ savedGradebooksRouter.get('/:id', requireAuth(['ADMIN', 'SUBADMIN', 'AEFE', 'TEA
     const saved = await SavedGradebook.findById(id).lean()
     if (!saved) return res.status(404).json({ error: 'not_found' })
 
-    // Fix for missing assignment data in snapshot (Promote case)
+    // NOTE: We intentionally do NOT patch missing snapshot data from live assignments anymore.
+    // SavedGradebook snapshots must be self-contained; if historical snapshots are missing data,
+    // a migration/repair script should be used instead of patching at read time.
     if (saved.data && saved.data.assignment && (!saved.data.assignment.data || Object.keys(saved.data.assignment.data).length === 0)) {
-        console.log(`[SavedGradebook] Patching missing data for ${id}. Student: ${saved.studentId}, Template: ${saved.templateId}`);
-        try {
-            let liveAssignment = null;
-            
-            // Try to find by ID first if available in snapshot
-            if (saved.data.assignment._id) {
-                console.log(`[SavedGradebook] Looking up live assignment by ID: ${saved.data.assignment._id}`);
-                liveAssignment = await TemplateAssignment.findById(saved.data.assignment._id).lean();
-            }
-
-            // Fallback to student/template lookup if not found by ID
-            if (!liveAssignment) {
-                console.log(`[SavedGradebook] Looking up live assignment by Student/Template`);
-                liveAssignment = await TemplateAssignment.findOne({
-                    studentId: saved.studentId,
-                    templateId: saved.templateId
-                }).lean()
-            }
-            
-            if (liveAssignment) {
-                console.log(`[SavedGradebook] Live assignment found. Has data: ${!!liveAssignment.data}`);
-                if (liveAssignment.data) {
-                    saved.data.assignment.data = liveAssignment.data
-                    console.log(`[SavedGradebook] Data patched successfully. Keys: ${Object.keys(liveAssignment.data).length}`);
-                }
-            } else {
-                console.log(`[SavedGradebook] Live assignment NOT found.`);
-            }
-        } catch (e) {
-            console.error('Error patching saved gradebook data:', e)
-        }
-    } else {
-        console.log(`[SavedGradebook] Data present in snapshot. Keys: ${saved.data?.assignment?.data ? Object.keys(saved.data.assignment.data).length : 'None'}`);
+        console.warn(`[SavedGradebook] Incomplete snapshot for ${id}. Returning as-is without patching.`)
     }
-
-    // Ensure signatures are present in snapshot for older saved gradebooks
-    try {
-        if (!saved.data) saved.data = saved.data || {}
-        if (!saved.data.signatures || (Array.isArray(saved.data.signatures) && saved.data.signatures.length === 0)) {
-            let sigs: any[] = []
-            const assignmentId = saved.data && saved.data.assignment && saved.data.assignment._id ? String(saved.data.assignment._id) : null
-            if (assignmentId) {
-                sigs = await (await import('../models/TemplateSignature')).TemplateSignature.find({ templateAssignmentId: assignmentId }).lean()
-            } else if (saved.templateId && saved.studentId) {
-                const ta = await TemplateAssignment.findOne({ studentId: String(saved.studentId), templateId: saved.templateId }).lean()
-                if (ta && ta._id) {
-                    sigs = await (await import('../models/TemplateSignature')).TemplateSignature.find({ templateAssignmentId: String(ta._id) }).lean()
-                }
-            }
-
-            if (sigs && sigs.length > 0) {
-                saved.data.signatures = sigs
-                saved.data.signature = sigs.find((s: any) => s.type === 'standard') || null
-                saved.data.finalSignature = sigs.find((s: any) => s.type === 'end_of_year') || null
-                console.log('[SavedGradebook] Patched signatures into snapshot')
-            }
-        }
-    } catch (e) {
-        console.error('Error patching signatures into saved snapshot:', e)
-    }
-
     res.json(saved)
 })

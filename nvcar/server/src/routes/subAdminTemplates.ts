@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { signTemplateAssignment, unsignTemplateAssignment } from '../services/signatureService'
+import { signTemplateAssignment, unsignTemplateAssignment, validateSignatureAuthorization } from '../services/signatureService'
 import { requireAuth } from '../auth'
 import { SubAdminAssignment } from '../models/SubAdminAssignment'
 import { TemplateAssignment } from '../models/TemplateAssignment'
@@ -957,7 +957,7 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', requireAut
         const assignment = await TemplateAssignment.findById(templateAssignmentId).lean()
         if (!assignment) return res.status(404).json({ error: 'not_found' })
 
-        const { type = 'standard' } = req.body
+        const { type = 'standard', signaturePeriodId, signatureSchoolYearId } = req.body
         const bypassScopes = (req as any).user.bypassScopes || []
 
         // Check granular bypass permissions
@@ -1095,56 +1095,7 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', requireAut
         }
 
         // Verify authorization via class enrollment
-        const enrollments = await Enrollment.find({ studentId: assignment.studentId }).lean()
-
-        let authorized = false
-
-        // Check if sub-admin is linked to assigned teachers (direct assignment check)
-        if (assignment.assignedTeachers && assignment.assignedTeachers.length > 0) {
-            const subAdminAssignments = await SubAdminAssignment.find({
-                subAdminId,
-                teacherId: { $in: assignment.assignedTeachers },
-            }).lean()
-
-            if (subAdminAssignments.length > 0) {
-                authorized = true
-            }
-        }
-
-        if (!authorized && enrollments.length > 0) {
-            const classIds = enrollments.map(e => e.classId).filter(Boolean)
-            const teacherClassAssignments = await TeacherClassAssignment.find({ classId: { $in: classIds } }).lean()
-            const classTeacherIds = teacherClassAssignments.map(ta => ta.teacherId)
-
-            const subAdminAssignments = await SubAdminAssignment.find({
-                subAdminId,
-                teacherId: { $in: classTeacherIds },
-            }).lean()
-
-            if (subAdminAssignments.length > 0) {
-                authorized = true
-            }
-
-            if (!authorized) {
-                const roleScope = await RoleScope.findOne({ userId: subAdminId }).lean()
-                if (roleScope?.levels?.length) {
-                    const classes = await ClassModel.find({ _id: { $in: classIds } }).lean()
-                    if (classes.some(c => c.level && roleScope.levels.includes(c.level))) {
-                        authorized = true
-                    }
-                }
-            }
-        }
-
-        if (!authorized) {
-            const student = await Student.findById(assignment.studentId).lean()
-            if (student && Array.isArray((student as any).promotions) && (student as any).promotions.length > 0) {
-                const lastPromotion = (student as any).promotions.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]
-                if (lastPromotion && String(lastPromotion.promotedBy) === String(subAdminId)) {
-                    authorized = true
-                }
-            }
-        }
+        const authorized = await validateSignatureAuthorization(subAdminId, assignment)
 
         if (!authorized) {
             return res.status(403).json({ error: 'not_authorized' })
@@ -1201,7 +1152,9 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', requireAut
                 type: type as any,
                 signatureUrl: sigUrl,
                 req,
-                level: signatureLevel || undefined
+                level: signatureLevel || undefined,
+                signaturePeriodId,
+                signatureSchoolYearId
             })
 
             // Return created signature so client can update without extra fetch

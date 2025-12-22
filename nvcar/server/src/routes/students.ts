@@ -11,10 +11,12 @@ import { SavedGradebook } from '../models/SavedGradebook'
 import { GradebookTemplate } from '../models/GradebookTemplate'
 import { TemplateSignature } from '../models/TemplateSignature'
 import { Level } from '../models/Level'
+import { Setting } from '../models/Setting'
 import { logAudit } from '../utils/auditLogger'
 import { requireAuth } from '../auth'
 import { checkAndAssignTemplates } from '../utils/templateUtils'
 import { withCache, clearCache } from '../utils/cache'
+import mongoose from 'mongoose'
 
 export const studentsRouter = Router()
 
@@ -486,109 +488,169 @@ studentsRouter.post('/:studentId/promote', requireAuth(['ADMIN']), async (req, r
       schoolYearId: currentSchoolYearId
     })
 
-    if (currentSchoolYearId && enrollment) {
-      const statuses = await StudentCompetencyStatus.find({ studentId: student._id }).lean()
+    // Wrap promotion-related DB updates in a transaction to ensure atomicity
+    const session = await mongoose.startSession()
+    let usedTransaction = true
+    let promotion: any = null
 
-      let signatures: any[] = []
-      let templateId = assignment?.templateId
-      let templateData = null
+    try {
+      try { session.startTransaction() } catch (e) { usedTransaction = false }
 
-      if (assignment) {
-        signatures = await TemplateSignature.find({
-          templateAssignmentId: assignment._id
-        }).lean()
+      if (currentSchoolYearId && enrollment) {
+        const statuses = await StudentCompetencyStatus.find({ studentId: student._id }).lean()
 
-        if (assignment.templateId) {
-          const template = await GradebookTemplate.findById(assignment.templateId).lean()
-          if (template) {
-            templateData = template
-            if (assignment.templateVersion && template.versionHistory) {
-              const version = template.versionHistory.find((v: any) => v.version === assignment.templateVersion)
-              if (version) {
-                templateData = {
-                  ...template,
-                  pages: version.pages,
-                  variables: version.variables || {},
-                  watermark: version.watermark
+        let signatures: any[] = []
+        let templateId = assignment?.templateId
+        let templateData: any = null
+
+        if (assignment && assignment._id) {
+          signatures = await TemplateSignature.find({ templateAssignmentId: assignment._id }).lean()
+
+          if (assignment.templateId) {
+            const template = await GradebookTemplate.findById(assignment.templateId).lean()
+            if (template) {
+              templateData = template
+              if (assignment.templateVersion && template.versionHistory) {
+                const version = template.versionHistory.find((v: any) => v.version === assignment.templateVersion)
+                if (version) {
+                  templateData = {
+                    ...template,
+                    pages: version.pages,
+                    variables: version.variables || {},
+                    watermark: version.watermark
+                  }
                 }
               }
             }
           }
         }
+
+        // Only create a SavedGradebook if we actually have an assignment and templateId (self-contained snapshot)
+        if (assignment && assignment._id && templateId) {
+          const snapshotData = {
+            student: student.toObject ? student.toObject() : student,
+            enrollment: enrollment,
+            statuses: statuses,
+            assignment: assignment.toObject ? assignment.toObject() : assignment,
+            signatures: signatures,
+            template: templateData
+          }
+
+        if (usedTransaction) {
+            await new SavedGradebook({
+              studentId: student._id,
+              schoolYearId: currentSchoolYearId,
+              level: currentLevel || 'Sans niveau',
+              classId: enrollment.classId,
+              templateId: templateId,
+              data: snapshotData
+            }).save({ session })
+          } else {
+            await SavedGradebook.create({
+              studentId: student._id,
+              schoolYearId: currentSchoolYearId,
+              level: currentLevel || 'Sans niveau',
+              classId: enrollment.classId,
+              templateId: templateId,
+              data: snapshotData
+            })
+          }
+        }
       }
 
-      const snapshotData = {
-        student: student.toObject ? student.toObject() : student,
-        enrollment: enrollment,
-        statuses: statuses,
-        assignment: assignment?.toObject ? assignment.toObject() : assignment,
-        signatures: signatures,
-        template: templateData
-      }
-
-      await SavedGradebook.create({
-        studentId: student._id,
+      promotion = {
         schoolYearId: currentSchoolYearId,
-        level: currentLevel || 'Sans niveau',
-        classId: enrollment.classId,
-        templateId: templateId,
-        data: snapshotData
-      })
-    }
-
-    const promotion = {
-      schoolYearId: currentSchoolYearId,
-      fromLevel: currentLevel,
-      toLevel: calculatedNextLevel,
-      date: new Date(),
-      promotedBy: adminId,
-      decision: 'promoted'
-    }
-
-    await Student.findByIdAndUpdate(studentId, {
-      $push: { promotions: promotion },
-      nextLevel: calculatedNextLevel
-    })
-
-    if (enrollment) {
-      await Enrollment.findByIdAndUpdate(enrollment._id, { promotionStatus: 'promoted', status: 'promoted' })
-    }
-
-    const nextLevelDoc = await Level.findOne({ name: calculatedNextLevel }).lean()
-    const isExit = nextLevelDoc?.isExitLevel || (calculatedNextLevel.toLowerCase() === 'eb1')
-
-    if (!isExit) {
-      await Enrollment.create({
-        studentId: studentId,
-        schoolYearId: nextSchoolYearId,
-        status: 'active',
-      })
-    }
-
-    if (assignment) {
-      let className = ''
-      if (enrollment && enrollment.classId) {
-        const cls = await ClassModel.findById(enrollment.classId)
-        if (cls) className = cls.name
-      }
-
-      const promotionData = {
-        from: currentLevel,
-        to: calculatedNextLevel,
+        fromLevel: currentLevel,
+        toLevel: calculatedNextLevel,
         date: new Date(),
-        year: yearName,
-        class: className
+        promotedBy: adminId,
+        decision: 'promoted'
       }
 
-      const data = assignment.data || {}
-      const promotions = Array.isArray(data.promotions) ? data.promotions : []
-      promotions.push(promotionData)
-      data.promotions = promotions
+      if (usedTransaction) {
+        await Student.findByIdAndUpdate(studentId, { $push: { promotions: promotion }, nextLevel: calculatedNextLevel }, { session })
+      } else {
+        await Student.findByIdAndUpdate(studentId, { $push: { promotions: promotion }, nextLevel: calculatedNextLevel })
+      }
 
-      assignment.data = data
-      assignment.markModified('data')
-      await assignment.save()
+      if (enrollment) {
+        if (usedTransaction) await Enrollment.findByIdAndUpdate(enrollment._id, { promotionStatus: 'promoted', status: 'promoted' }, { session })
+        else await Enrollment.findByIdAndUpdate(enrollment._id, { promotionStatus: 'promoted', status: 'promoted' })
+      }
+
+      const nextLevelDoc = await Level.findOne({ name: calculatedNextLevel }).lean()
+      const exitSetting = await Setting.findOne({ key: 'exit_level_name' }).lean().catch(() => null)
+      const exitName = exitSetting && exitSetting.value ? String(exitSetting.value).toLowerCase() : null
+      const isExit = nextLevelDoc?.isExitLevel || (exitName && exitName === String(calculatedNextLevel).toLowerCase()) || (String(calculatedNextLevel).toLowerCase() === 'eb1')
+
+      if (!isExit) {
+        if (usedTransaction) {
+          await Enrollment.create([{ studentId: studentId, schoolYearId: nextSchoolYearId, status: 'active' }], { session })
+        } else {
+          await Enrollment.create({ studentId: studentId, schoolYearId: nextSchoolYearId, status: 'active' })
+        }
+      }
+
+      if (assignment && assignment._id) {
+        // Re-fetch assignment document under session to safely update
+        if (usedTransaction) {
+          const assignmentDoc: any = await TemplateAssignment.findById(assignment._id).session(session)
+          const cls = enrollment && enrollment.classId ? await ClassModel.findById(enrollment.classId).session(session).lean() : null
+          let className = cls ? cls.name : ''
+
+          const promotionData = {
+            from: currentLevel,
+            to: calculatedNextLevel,
+            date: new Date(),
+            year: yearName,
+            class: className
+          }
+
+          const data = assignmentDoc.data || {}
+          const promotions = Array.isArray(data.promotions) ? data.promotions : []
+          promotions.push(promotionData)
+          data.promotions = promotions
+
+          assignmentDoc.data = data
+          assignmentDoc.markModified('data')
+          await assignmentDoc.save({ session })
+        } else {
+          let className = ''
+          if (enrollment && enrollment.classId) {
+            const cls = await ClassModel.findById(enrollment.classId)
+            if (cls) className = cls.name
+          }
+
+          const promotionData = {
+            from: currentLevel,
+            to: calculatedNextLevel,
+            date: new Date(),
+            year: yearName,
+            class: className
+          }
+
+          const data = assignment.data || {}
+          const promotions = Array.isArray(data.promotions) ? data.promotions : []
+          promotions.push(promotionData)
+          data.promotions = promotions
+
+          assignment.data = data
+          assignment.markModified('data')
+          await assignment.save()
+        }
+      }
+
+      if (usedTransaction) await session.commitTransaction()
+    } catch (err) {
+      if (usedTransaction) {
+        try { await session.abortTransaction() } catch (e) { }
+      }
+      throw err
+    } finally {
+      session.endSession()
     }
+
+
 
     await logAudit({
       userId: adminId,
