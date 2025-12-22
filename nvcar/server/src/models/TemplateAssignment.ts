@@ -1,5 +1,12 @@
 import { Schema, model } from 'mongoose'
 
+// Migration note: We added year-scoped assignments to allow one assignment per (template, student, schoolYear).
+// This required changing the unique index from { templateId, studentId } to
+// { templateId, studentId, completionSchoolYearId } so that assignments can be kept per year.
+// If you have existing deployments, consider migrating existing TemplateAssignment documents by
+// setting `completionSchoolYearId` to the appropriate historical school year id (or the active year)
+// for each assignment before deploying to avoid unique index conflicts.
+
 const templateAssignmentSchema = new Schema({
     templateId: { type: String, required: true },
     templateVersion: { type: Number, required: true, default: 1 },
@@ -33,8 +40,12 @@ const templateAssignmentSchema = new Schema({
     dataVersion: { type: Number, default: 1, index: true }
 }, { timestamps: true })
 
-// Create compound index to prevent duplicate assignments
-templateAssignmentSchema.index({ templateId: 1, studentId: 1 }, { unique: true })
+// Create compound index to prevent duplicate assignments per school year
+// Previously uniqueness was enforced on (templateId, studentId) which prevented
+// creating a separate assignment for the same template across different years.
+// Make uniqueness scoped to completionSchoolYearId to allow one assignment per
+// (template, student, schoolYear).
+templateAssignmentSchema.index({ templateId: 1, studentId: 1, completionSchoolYearId: 1 }, { unique: true })
 templateAssignmentSchema.index({ studentId: 1, status: 1 })
 
 export const TemplateAssignment = model('TemplateAssignment', templateAssignmentSchema)

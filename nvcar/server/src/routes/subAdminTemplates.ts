@@ -863,13 +863,6 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote', require
                     const inferredKeys = await inferLongTermDataKeys(String(student._id), 3, recentAssignments)
                     const initialData = await extractLongTermData((assignment as any).data || {}, String(student._id), recentAssignments)
 
-                    // Determine teacher inheritance policy (always|if_missing|never), default if_missing
-                    const inheritSetting = await Setting.findOne({ key: 'assignment_inherit_assigned_teachers_on_promotion' }).lean()
-                    const inheritPolicy = (inheritSetting && inheritSetting.value) ? String(inheritSetting.value) : 'if_missing'
-                    if (inheritPolicy === 'always' || (inheritPolicy === 'if_missing' && (!nextAssignedTeachers || nextAssignedTeachers.length === 0))) {
-                        nextAssignedTeachers = (assignment as any).assignedTeachers || []
-                    }
-
                     let nextYearAssignment: any = null
                     nextYearAssignment = await safeUpsertTemplateAssignment(
                         { templateId: assignment.templateId, studentId: student._id, completionSchoolYearId: nextSchoolYearId },
@@ -1005,13 +998,6 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote', require
                         const recentAssignments = await TemplateAssignment.find({ studentId: student._id }).sort({ assignedAt: -1 }).limit(3).lean()
                         const inferredKeys = await inferLongTermDataKeys(String(student._id), 3, recentAssignments)
                         const initialData = await extractLongTermData((assignment as any).data || {}, String(student._id), recentAssignments)
-
-                        // Determine teacher inheritance policy (always|if_missing|never), default if_missing
-                        const inheritSetting = await Setting.findOne({ key: 'assignment_inherit_assigned_teachers_on_promotion' }).lean()
-                        const inheritPolicy = (inheritSetting && inheritSetting.value) ? String(inheritSetting.value) : 'if_missing'
-                        if (inheritPolicy === 'always' || (inheritPolicy === 'if_missing' && (!nextAssignedTeachers || nextAssignedTeachers.length === 0))) {
-                            nextAssignedTeachers = (assignment as any).assignedTeachers || []
-                        }
 
                         let nextYearAssignment: any = null
                         try {

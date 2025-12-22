@@ -9,6 +9,9 @@ const templateSignatureSchema = new Schema({
     type: { type: String, enum: ['standard', 'end_of_year'], default: 'standard' },
     signatureUrl: { type: String },
     level: { type: String },
+    // Persist the school year this signature belongs to for deterministic binding
+    schoolYearId: { type: String },
+    schoolYearName: { type: String }
 })
 
 // Index for quick lookup

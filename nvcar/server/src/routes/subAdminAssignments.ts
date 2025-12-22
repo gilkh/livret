@@ -105,7 +105,7 @@ subAdminAssignmentsRouter.get('/progress', requireAuth(['SUBADMIN', 'AEFE']), as
             }> = {}
 
             studentAssignments.forEach(assignment => {
-                const template = templateMap.get(assignment.templateId)
+                const template = templateMap.get(String(assignment.templateId))
                 if (!template) return
 
                 const assignmentData = assignment.data || {}
@@ -533,7 +533,7 @@ subAdminAssignmentsRouter.get('/teacher-progress-detailed', requireAuth(['SUBADM
                 let polyvalentTotal = 0, polyvalentFilled = 0
 
                 studentAssignments.forEach(assignment => {
-                    const template = templateMap.get(assignment.templateId)
+                    const template = templateMap.get(String(assignment.templateId))
                     if (!template) return
 
                     const assignmentData = assignment.data || {}

@@ -214,7 +214,9 @@ export const signTemplateAssignment = async ({
                     status: 'signed',
                     type,
                     signatureUrl,
-                    level
+                    level,
+                    schoolYearId,
+                    schoolYearName
                 }).save({ session })
 
                 // Expose created signature to return value
@@ -270,7 +272,9 @@ export const signTemplateAssignment = async ({
                             status: 'signed',
                             type,
                             signatureUrl,
-                            level
+                            level,
+                            schoolYearId,
+                            schoolYearName
                         }).save()
 
                         // Expose created signature
@@ -333,7 +337,9 @@ export const signTemplateAssignment = async ({
                     status: 'signed',
                     type,
                     signatureUrl,
-                    level
+                    level,
+                    schoolYearId,
+                    schoolYearName
                 }).save()
 
                 // Expose created signature to return value

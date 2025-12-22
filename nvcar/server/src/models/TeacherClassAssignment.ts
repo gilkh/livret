@@ -33,14 +33,17 @@ teacherClassAssignmentSchema.post('save', async function(doc: any) {
 
         // Find students in this class for that school year
         const enrollments = await Enrollment.find({ classId: doc.classId, schoolYearId: doc.schoolYearId }).lean()
-        const studentIds = enrollments.map(e => String(e.studentId))
+        const studentIds = enrollments.map((e: any) => String(e.studentId))
         if (!studentIds || studentIds.length === 0) return
 
+        console.log('TeacherClassAssignment post-save', { classId: doc.classId, schoolYearId: doc.schoolYearId, teacherIds, studentIds })
+
         // Update assignments that are missing assignedTeachers (respect 'if_missing')
-        await TemplateAssignment.updateMany(
+        const res = await TemplateAssignment.updateMany(
             { studentId: { $in: studentIds }, completionSchoolYearId: doc.schoolYearId, $or: [{ assignedTeachers: { $exists: false } }, { assignedTeachers: { $size: 0 } }] },
             { $set: { assignedTeachers: teacherIds } }
         )
+        console.log('TeacherClassAssignment post-save updated assignments', res && (res as any).modifiedCount ? (res as any).modifiedCount : res)
     } catch (e: any) {
         // Do not crash on listener errors; log for debugging
         console.error('TeacherClassAssignment post-save listener error:', e?.message || e)

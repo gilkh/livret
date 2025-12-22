@@ -81,7 +81,7 @@ templateAssignmentsRouter.post('/bulk-level', requireAuth(['ADMIN']), async (req
             const teachers = (enrollment.classId && teacherMap.get(enrollment.classId)) || []
             return {
                 updateOne: {
-                    filter: { templateId, studentId: enrollment.studentId },
+                    filter: { templateId, studentId: enrollment.studentId, completionSchoolYearId: String(targetYearId) },
                     update: {
                         $set: {
                             templateId,
@@ -146,7 +146,8 @@ templateAssignmentsRouter.delete('/bulk-level/:templateId/:level', requireAuth([
 
         const result = await TemplateAssignment.deleteMany({
             templateId,
-            studentId: { $in: studentIds }
+            studentId: { $in: studentIds },
+            completionSchoolYearId: String(targetYearId)
         })
 
         res.json({ ok: true, count: result.deletedCount })
@@ -202,7 +203,7 @@ templateAssignmentsRouter.post('/', requireAuth(['ADMIN']), async (req, res) => 
 
         // Create or update assignment
         const assignment = await TemplateAssignment.findOneAndUpdate(
-            { templateId, studentId },
+            { templateId, studentId, completionSchoolYearId: String(targetYearId) },
             {
                 templateId,
                 templateVersion: template.currentVersion || 1,

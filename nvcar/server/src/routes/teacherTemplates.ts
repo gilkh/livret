@@ -784,7 +784,7 @@ teacherTemplatesRouter.get('/classes/:classId/assignments', requireAuth(['TEACHE
         const activeAssignments = assignments.filter((a: any) => isAssignmentInActiveYear(a, active))
 
         const enriched = activeAssignments.map(assignment => {
-            const template = templateMap.get(assignment.templateId)
+            const template = templateMap.get(String(assignment.templateId))
             const student = studentMap.get(assignment.studentId)
 
             const myCompletion = (assignment as any).teacherCompletions?.find(
@@ -876,11 +876,11 @@ teacherTemplatesRouter.get('/classes/:classId/completion-stats', requireAuth(['T
         }
 
         for (const assignment of assignments) {
-            const key = assignment.templateId
+            const key = String(assignment.templateId)
             if (!templateStats.has(key)) {
-                const template = templateMap.get(assignment.templateId)
+                const template = templateMap.get(String(assignment.templateId))
                 templateStats.set(key, {
-                    templateId: assignment.templateId,
+                    templateId: String(assignment.templateId),
                     templateName: template?.name || 'Unknown',
                     total: 0,
                     completed: 0,

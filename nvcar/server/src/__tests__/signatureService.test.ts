@@ -43,6 +43,8 @@ describe('signatureService', () => {
     expect(sig).toBeDefined()
     const found = await TemplateSignature.findOne({ templateAssignmentId: String(assignment._id) })
     expect(found).toBeDefined()
+    // Signature should record the school year it belongs to
+    expect(String(found?.schoolYearId)).toBe(String(sy._id))
 
     const updated = await TemplateAssignment.findById(String(assignment._id))
     expect(updated?.status).toBe('signed')
