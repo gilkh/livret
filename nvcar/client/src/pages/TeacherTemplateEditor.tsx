@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom'
 import api from '../api'
 import { useSocket } from '../context/SocketContext'
 import { useLevels } from '../context/LevelContext'
+import { useSchoolYear } from '../context/SchoolYearContext'
 import ScrollToTopButton from '../components/ScrollToTopButton'
 
 type Block = { type: string; props: any }
@@ -37,6 +38,7 @@ export default function TeacherTemplateEditor() {
     const containerRef = useRef<HTMLDivElement | null>(null)
 
     const { levels } = useLevels()
+    const { activeYear } = useSchoolYear()
     const socket = useSocket()
 
     const fixUrl = (url: string) => {
@@ -1244,9 +1246,19 @@ export default function TeacherTemplateEditor() {
 
                                                             // Fallback: If no promo record, show predictive info
                                                             if (!promo) {
-                                                                const currentYear = new Date().getFullYear()
-                                                                const month = new Date().getMonth()
-                                                                const startYear = month >= 8 ? currentYear : currentYear - 1
+                                                                let startYear;
+                                                                if (activeYear && activeYear.name) {
+                                                                    const m = activeYear.name.match(/(\d{4})/)
+                                                                    if (m) {
+                                                                        startYear = parseInt(m[1], 10)
+                                                                    }
+                                                                }
+
+                                                                if (!startYear) {
+                                                                    const currentYear = new Date().getFullYear()
+                                                                    const month = new Date().getMonth()
+                                                                    startYear = month >= 8 ? currentYear : currentYear - 1
+                                                                }
 
                                                                 // Assume end-year context if not specified, or show both
                                                                 const displayYear = `${startYear + 1}/${startYear + 2}`
@@ -1318,7 +1330,17 @@ export default function TeacherTemplateEditor() {
                                                     }}>
                                                         {assignment?.status === 'signed' ? (
                                                             <>
-                                                                {b.props.field === 'year' && <span>{new Date().getFullYear()}</span>}
+                                                                {b.props.field === 'year' && (
+                                                                    <span>
+                                                                        {(() => {
+                                                                            const sigs = assignment?.data?.signatures || []
+                                                                            const finalSig = sigs.find((s: any) => s.type === 'end_of_year')
+                                                                            if (finalSig && finalSig.schoolYearName) return finalSig.schoolYearName
+                                                                            if (activeYear && activeYear.name) return activeYear.name
+                                                                            return new Date().getFullYear()
+                                                                        })()}
+                                                                    </span>
+                                                                )}
                                                                 {b.props.field === 'student' && <span>{student?.firstName} {student?.lastName}</span>}
                                                                 {b.props.field === 'nextLevel' && <span>{getNextLevel(student?.level || '')}</span>}
                                                             </>

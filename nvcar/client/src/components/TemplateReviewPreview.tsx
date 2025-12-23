@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useLevels } from '../context/LevelContext'
+import { useSchoolYear } from '../context/SchoolYearContext'
 
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
@@ -19,6 +20,7 @@ interface TemplateReviewPreviewProps {
 
 export default function TemplateReviewPreview({ template, student, assignment, signature, finalSignature, activeSemester: propActiveSemester }: TemplateReviewPreviewProps) {
     const { levels } = useLevels()
+    const { activeYear } = useSchoolYear()
     const [selectedPage, setSelectedPage] = useState(0)
     const [continuousScroll, setContinuousScroll] = useState(true)
     const [openDropdown, setOpenDropdown] = useState<string | null>(null)
@@ -88,6 +90,9 @@ export default function TemplateReviewPreview({ template, student, assignment, s
     }
 
     const getPromotionYearLabel = (promo: any, blockLevel: string | null) => {
+        const nextFromActive = computeNextSchoolYearName(activeYear?.name)
+        if (nextFromActive) return nextFromActive
+
         const year = String(promo?.year || '')
         if (!year) return ''
 
@@ -556,7 +561,12 @@ export default function TemplateReviewPreview({ template, student, assignment, s
 
                                                     const currentYear = new Date().getFullYear()
                                                     const month = new Date().getMonth()
-                                                    const startYear = month >= 8 ? currentYear : currentYear - 1
+                                                    let startYear = month >= 8 ? currentYear : currentYear - 1
+                                                    if (activeYear && activeYear.name) {
+                                                        const m = activeYear.name.match(/(\d{4})/)
+                                                        if (m) startYear = parseInt(m[1], 10)
+                                                    }
+
                                                     const baseLevel = blockLevel || student?.level || ''
                                                     const target = explicitTarget || getNextLevel(baseLevel || '') || ''
                                                     const displayYear = `${startYear}/${startYear + 1}`
@@ -581,7 +591,7 @@ export default function TemplateReviewPreview({ template, student, assignment, s
                                                             <>
                                                                 <div style={{ fontWeight: 'bold', marginBottom: 8 }}>Passage en {promo.to}</div>
                                                                 <div>{student?.firstName} {student?.lastName}</div>
-                                                                <div style={{ fontSize: (b.props.fontSize || 12) * 0.8, color: '#666', marginTop: 8 }}>Année {getPromotionYearLabel(promo, blockLevel)}</div>
+                                                                <div style={{ fontSize: (b.props.fontSize || 12) * 0.8, color: '#666', marginTop: 8 }}>Next Year {getPromotionYearLabel(promo, blockLevel)}</div>
                                                             </>
                                                         )
                                                     } else if (b.props.field === 'level') {

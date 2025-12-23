@@ -4,11 +4,12 @@ import { useNavigate } from 'react-router-dom'
 import api from '../api'
 import { useLevels } from '../context/LevelContext'
 import { useSocket } from '../context/SocketContext'
+import { useSchoolYear } from '../context/SchoolYearContext'
 
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
 type Template = { _id?: string; name: string; pages: Page[]; updatedAt?: string }
-type Year = { _id: string; name: string }
+type Year = { _id: string; name: string; active?: boolean }
 type ClassDoc = { _id: string; name: string; schoolYearId: string; level?: string }
 type StudentDoc = { _id: string; firstName: string; lastName: string; level?: string; nextLevel?: string; className?: string }
 
@@ -18,6 +19,7 @@ const pageHeight = 1120
 export default function TemplateBuilder() {
   const navigate = useNavigate()
   const { levels } = useLevels()
+  const { activeYearId } = useSchoolYear()
   const [viewMode, setViewMode] = useState<'list' | 'edit'>('list')
   const [tpl, setTpl] = useState<Template>({ name: 'Nouveau Template', pages: [{ title: 'Page 1', blocks: [] }] })
   const [studentId, setStudentId] = useState('')
@@ -838,7 +840,18 @@ export default function TemplateBuilder() {
       }
     }
   }
-  const loadYears = async () => { try { const r = await api.get('/school-years'); setYears(r.data) } catch { } }
+  const loadYears = async () => {
+    try {
+      const r = await api.get('/school-years')
+      setYears(r.data)
+      if (!yearId) {
+        const activeFromContext = activeYearId ? (r.data || []).find((y: Year) => y._id === activeYearId) : null
+        const activeFromDb = (r.data || []).find((y: Year) => y.active)
+        const active = activeFromContext || activeFromDb || (r.data || [])[0]
+        if (active?._id) setYearId(active._id)
+      }
+    } catch { }
+  }
   const loadClasses = async (yr: string) => { try { const r = await api.get('/classes', { params: { schoolYearId: yr } }); setClasses(r.data) } catch { } }
   const loadStudents = async (cls: string) => {
     try {
@@ -2257,8 +2270,16 @@ export default function TemplateBuilder() {
                                 }
                                 const className = c?.name || s?.className
                                 const studentName = s ? `${s.firstName} ${s.lastName}` : '(Nom de l\'élève)'
+                                const selectedYear = (yearId ? years.find(y => y._id === yearId) : null)
+                                  || (activeYearId ? years.find(y => y._id === activeYearId) : null)
+                                  || years.find(y => y.active)
+                                const m = selectedYear?.name?.match(/(\d{4})/)
                                 const currentYear = new Date().getFullYear()
-                                const yearStr = `Année ${currentYear}-${currentYear + 1}`
+                                const month = new Date().getMonth()
+                                const baseStartYear = month >= 8 ? currentYear : currentYear - 1
+                                const startYear = m ? parseInt(m[1], 10) : baseStartYear
+                                const nextStart = startYear + 1
+                                const yearStr = `Next Year ${nextStart}/${nextStart + 1}`
 
                                 if (!b.props.field) {
                                   return (

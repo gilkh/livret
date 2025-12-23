@@ -3,6 +3,7 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import api from '../api'
 import { useSocket } from '../context/SocketContext'
 import { useLevels } from '../context/LevelContext'
+import { useSchoolYear } from '../context/SchoolYearContext'
 import Modal from '../components/Modal'
 import Toast, { ToastType } from '../components/Toast'
 import ScrollToTopButton from '../components/ScrollToTopButton'
@@ -95,8 +96,9 @@ export default function SubAdminTemplateReview() {
     // UI State
     const [toast, setToast] = useState<{ message: string, type: ToastType } | null>(null)
     const [confirmModal, setConfirmModal] = useState<{ isOpen: boolean, title: string, content: React.ReactNode, onConfirm: () => void } | null>(null)
-
+    
     const { levels } = useLevels()
+    const { activeYear } = useSchoolYear()
     const socket = useSocket()
 
     const showToast = (message: string, type: ToastType = 'info') => {
@@ -314,6 +316,9 @@ export default function SubAdminTemplateReview() {
     }
 
     const getPromotionYearLabel = (promo: any, blockLevel: string | null) => {
+        const nextFromActive = computeNextSchoolYearName(activeYear?.name)
+        if (nextFromActive) return nextFromActive
+
         const year = String(promo?.year || '')
         if (!year) return ''
 
@@ -1404,7 +1409,12 @@ export default function SubAdminTemplateReview() {
 
                                                         const currentYear = new Date().getFullYear()
                                                         const month = new Date().getMonth()
-                                                        const startYear = month >= 8 ? currentYear : currentYear - 1
+                                                        let startYear = month >= 8 ? currentYear : currentYear - 1
+                                                        if (activeYear && activeYear.name) {
+                                                            const m = activeYear.name.match(/(\d{4})/)
+                                                            if (m) startYear = parseInt(m[1], 10)
+                                                        }
+
                                                         const baseLevel = blockLevel || student?.level || ''
                                                         const target = explicitTarget || getNextLevel(baseLevel || '') || ''
                                                         const displayYear = `${startYear}/${startYear + 1}`
@@ -1429,7 +1439,7 @@ export default function SubAdminTemplateReview() {
                                                                 <>
                                                                     <div style={{ fontWeight: 'bold', marginBottom: 8 }}>Passage en {promo.to}</div>
                                                                     <div>{student?.firstName} {student?.lastName}</div>
-                                                                    <div style={{ fontSize: (b.props.fontSize || 12) * 0.8, color: '#666', marginTop: 8 }}>Année {getPromotionYearLabel(promo, blockLevel)}</div>
+                                                                    <div style={{ fontSize: (b.props.fontSize || 12) * 0.8, color: '#666', marginTop: 8 }}>Next Year {getPromotionYearLabel(promo, blockLevel)}</div>
                                                                 </>
                                                             )
                                                         } else if (b.props.field === 'level') {

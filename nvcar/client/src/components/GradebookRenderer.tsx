@@ -1,5 +1,6 @@
 import React from 'react'
 import { useLevels } from '../context/LevelContext'
+import { useSchoolYear } from '../context/SchoolYearContext'
 
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
@@ -17,10 +18,12 @@ interface GradebookRendererProps {
     signature?: any
     finalSignature?: any
     visiblePages?: number[]
+    activeSchoolYearName?: string
 }
 
-export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, student, assignment, signature, finalSignature, visiblePages }) => {
+export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, student, assignment, signature, finalSignature, visiblePages, activeSchoolYearName }) => {
     const { levels } = useLevels()
+    const { activeYear } = useSchoolYear()
 
     const getNextLevel = (current: string) => {
         if (!current) return ''
@@ -70,6 +73,12 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
     }
 
     const getPromotionYearLabel = (promo: any, blockLevel: string | null) => {
+        // If an explicit active school year name is provided (e.g. from parent/admin view), prefer it to predict next year.
+        if (activeSchoolYearName) {
+            const nextFromActive = computeNextSchoolYearName(activeSchoolYearName)
+            if (nextFromActive) return nextFromActive
+        }
+
         const year = String(promo?.year || '')
         if (!year) return ''
 
@@ -549,7 +558,13 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
 
                                                 const currentYear = new Date().getFullYear()
                                                 const month = new Date().getMonth()
-                                                const startYear = month >= 8 ? currentYear : currentYear - 1
+                                                let startYear = month >= 8 ? currentYear : currentYear - 1
+                                                const yearName = activeSchoolYearName || (activeYear ? activeYear.name : null)
+                                                if (yearName) {
+                                                    const m = yearName.match(/(\d{4})/)
+                                                    if (m) startYear = parseInt(m[1], 10)
+                                                }
+
                                                 const baseLevel = blockLevel || student?.level || ''
                                                 const target = explicitTarget || getNextLevel(baseLevel || '') || ''
                                                 const displayYear = `${startYear}/${startYear + 1}`
@@ -574,7 +589,7 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                                         <>
                                                             <div style={{ fontWeight: 'bold', marginBottom: 8 }}>Passage en {promo.to}</div>
                                                             <div>{student?.firstName} {student?.lastName}</div>
-                                                            <div style={{ fontSize: (b.props.fontSize || 12) * 0.8, color: '#666', marginTop: 8 }}>Année {getPromotionYearLabel(promo, blockLevel)}</div>
+                                                            <div style={{ fontSize: (b.props.fontSize || 12) * 0.8, color: '#666', marginTop: 8 }}>Next Year {getPromotionYearLabel(promo, blockLevel)}</div>
                                                         </>
                                                     )
                                                 } else if (b.props.field === 'level') {
