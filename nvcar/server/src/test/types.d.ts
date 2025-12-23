@@ -15,6 +15,7 @@ declare global {
   var afterAll: (fn: () => void | Promise<void>) => void
   var beforeEach: (fn: () => void | Promise<void>) => void
   var expect: any
+  var jest: any
 }
 
 export {}

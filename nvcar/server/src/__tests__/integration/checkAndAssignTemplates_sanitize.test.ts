@@ -40,13 +40,10 @@ describe('checkAndAssignTemplates sanitization', () => {
       promotions: { promoted: true }
     }
 
-    const otherTpl = await GradebookTemplate.create({ name: 'other', pages: [], currentVersion: 1 })
-    await TemplateAssignment.create({ templateId: String(otherTpl._id), studentId: String(student._id), completionSchoolYearId: String(active._id), assignedBy: 'u1', assignedAt: new Date('2025-10-01'), data: prevData })
+    await TemplateAssignment.create({ templateId: String(tpl._id), studentId: String(student._id), completionSchoolYearId: String(active._id), assignedBy: 'u1', assignedAt: new Date('2025-10-01'), data: prevData })
 
-    // Create another student (peer) and give them the template used for assignment creation
+    // Create another student (peer) to ensure templateIds list can also come from peers
     const peer = await Student.create({ firstName: 'Peer', lastName: 'P', dateOfBirth: new Date('2018-01-02'), logicalKey: 'P1' })
-    await GradebookTemplate.create({ name: 'tpl-peer', pages: [], currentVersion: 1 })
-    // Give the peer the target template so it appears in templateIds
     await TemplateAssignment.create({ templateId: String(tpl._id), studentId: String(peer._id), completionSchoolYearId: String(active._id), assignedBy: 'u1', assignedAt: new Date('2025-10-01'), data: {} })
     await Enrollment.create({ studentId: String(peer._id), classId: cls._id, schoolYearId: String(active._id), status: 'active' })
 

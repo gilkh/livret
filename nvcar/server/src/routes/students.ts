@@ -66,6 +66,69 @@ studentsRouter.get('/', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), async (re
   res.json(out)
 })
 
+// Create a snapshot for a student (e.g. Sem1, Exit, Transfer)
+studentsRouter.post('/:id/snapshot', requireAuth(['ADMIN', 'SUBADMIN']), async (req, res) => {
+  const { id } = req.params
+  const { reason } = req.body
+
+  if (!['sem1', 'exit', 'transfer', 'manual'].includes(reason)) {
+    return res.status(400).json({ error: 'invalid_reason' })
+  }
+
+  try {
+    const student = await Student.findById(id).lean()
+    if (!student) return res.status(404).json({ error: 'student_not_found' })
+
+    const activeYear = await SchoolYear.findOne({ active: true }).lean()
+    if (!activeYear) return res.status(400).json({ error: 'no_active_year' })
+
+    const enrollment = await Enrollment.findOne({ studentId: id, schoolYearId: activeYear._id, status: 'active' }).lean()
+    if (!enrollment) return res.status(400).json({ error: 'not_enrolled' })
+
+    const assignment = await TemplateAssignment.findOne({ studentId: id }).lean()
+    if (!assignment) return res.status(404).json({ error: 'assignment_not_found' })
+
+    const cls = enrollment.classId ? await ClassModel.findById(enrollment.classId).lean() : null
+    
+    // Gather snapshot data
+    const statuses = await StudentCompetencyStatus.find({ studentId: id }).lean()
+    const signatures = await TemplateSignature.find({ templateAssignmentId: String(assignment._id) }).lean()
+
+    const snapshotData = {
+        student: student,
+        enrollment: enrollment,
+        statuses: statuses,
+        assignment: assignment,
+        className: cls ? cls.name : '',
+        signatures: signatures,
+        signature: signatures.find((s: any) => (s as any).type === 'standard') || null,
+        finalSignature: signatures.find((s: any) => (s as any).type === 'end_of_year') || null,
+    }
+
+    const { createAssignmentSnapshot } = await import('../services/rolloverService')
+    
+    await createAssignmentSnapshot(
+        assignment,
+        reason,
+        {
+            schoolYearId: String(activeYear._id),
+            level: cls?.level || 'Sans niveau',
+            classId: enrollment.classId || undefined,
+            data: snapshotData
+        }
+    )
+
+    // If reason is exit or transfer, update enrollment status
+    if (reason === 'exit') {
+        await Enrollment.findByIdAndUpdate(enrollment._id, { status: 'left' })
+    }
+
+    res.json({ ok: true })
+  } catch (e: any) {
+    res.status(500).json({ error: 'snapshot_failed', message: e.message })
+  }
+})
+
 studentsRouter.get('/unassigned/export/:schoolYearId', requireAuth(['ADMIN', 'SUBADMIN']), async (req, res) => {
   const { schoolYearId } = req.params
   const result = await fetchUnassignedStudents(schoolYearId)
@@ -439,9 +502,10 @@ studentsRouter.post('/:studentId/promote', requireAuth(['ADMIN']), async (req, r
         Level.findOne({ name: currentLevel }).lean()
       )
       if (currentLevelDoc) {
-        const nextLevelDoc = await withCache(`level-order-${currentLevelDoc.order + 1}`, () =>
-          Level.findOne({ order: currentLevelDoc.order + 1 }).lean()
-        )
+        // Fix: Support gaps in levels by searching for the first level with order > current
+        const nextLevelDoc = await Level.findOne({ order: { $gt: currentLevelDoc.order } })
+          .sort({ order: 1 })
+          .lean()
         if (nextLevelDoc) {
           calculatedNextLevel = nextLevelDoc.name
         }
@@ -483,10 +547,17 @@ studentsRouter.post('/:studentId/promote', requireAuth(['ADMIN']), async (req, r
       return res.status(400).json({ error: 'no_next_year', message: 'Next school year not found' })
     }
 
-    const assignment = await TemplateAssignment.findOne({
-      studentId: student._id,
-      schoolYearId: currentSchoolYearId
-    })
+    // Continuous carnet model: TemplateAssignment does not have schoolYearId.
+    // Prefer an assignment stamped with this school year; otherwise fall back to the most recent.
+    let assignment = await TemplateAssignment.findOne({
+      studentId: String(student._id),
+      completionSchoolYearId: currentSchoolYearId
+    }).sort({ assignedAt: -1 })
+
+    if (!assignment) {
+      assignment = await TemplateAssignment.findOne({ studentId: String(student._id) })
+        .sort({ assignedAt: -1 })
+    }
 
     // Wrap promotion-related DB updates in a transaction to ensure atomicity
     const session = await mongoose.startSession()
@@ -536,7 +607,7 @@ studentsRouter.post('/:studentId/promote', requireAuth(['ADMIN']), async (req, r
             template: templateData
           }
 
-        if (usedTransaction) {
+          if (usedTransaction) {
             await new SavedGradebook({
               studentId: student._id,
               schoolYearId: currentSchoolYearId,
@@ -567,10 +638,22 @@ studentsRouter.post('/:studentId/promote', requireAuth(['ADMIN']), async (req, r
         decision: 'promoted'
       }
 
+      let updatedStudent
       if (usedTransaction) {
-        await Student.findByIdAndUpdate(studentId, { $push: { promotions: promotion }, nextLevel: calculatedNextLevel }, { session })
+        updatedStudent = await Student.findOneAndUpdate(
+          { _id: studentId, 'promotions.schoolYearId': { $ne: currentSchoolYearId } },
+          { $push: { promotions: promotion }, nextLevel: calculatedNextLevel },
+          { session }
+        )
       } else {
-        await Student.findByIdAndUpdate(studentId, { $push: { promotions: promotion }, nextLevel: calculatedNextLevel })
+        updatedStudent = await Student.findOneAndUpdate(
+          { _id: studentId, 'promotions.schoolYearId': { $ne: currentSchoolYearId } },
+          { $push: { promotions: promotion }, nextLevel: calculatedNextLevel }
+        )
+      }
+
+      if (!updatedStudent) {
+        throw new Error('ALREADY_PROMOTED_RACE_CONDITION')
       }
 
       if (enrollment) {
@@ -660,8 +743,11 @@ studentsRouter.post('/:studentId/promote', requireAuth(['ADMIN']), async (req, r
     })
 
     res.json({ success: true, promotion })
-  } catch (error) {
+  } catch (error: any) {
     console.error(error)
+    if (error.message === 'ALREADY_PROMOTED_RACE_CONDITION') {
+      return res.status(400).json({ error: 'already_promoted', message: 'Student already promoted this year' })
+    }
     res.status(500).json({ error: 'internal_error' })
   }
 })

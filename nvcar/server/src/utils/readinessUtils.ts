@@ -204,7 +204,11 @@ export async function computeCompletionStatus(options: CompletionCheckOptions): 
     // Check signatures if requested
     if (checkSignatures) {
         const signaturePeriodInfo = await resolveCurrentSignaturePeriod().catch(() => null)
-        const schoolYearId = signaturePeriodInfo?.schoolYearId
+        const activeSchoolYearId = signaturePeriodInfo?.schoolYearId
+
+        const sem1PeriodId = activeSchoolYearId ? computeSignaturePeriodId(activeSchoolYearId, 'sem1') : null
+        const sem2PeriodId = activeSchoolYearId ? computeSignaturePeriodId(activeSchoolYearId, 'sem2') : null
+        const endOfYearPeriodId = activeSchoolYearId ? computeSignaturePeriodId(activeSchoolYearId, 'end_of_year') : null
 
         // Get all signatures for this assignment
         const signatures = await TemplateSignature.find({ templateAssignmentId }).lean()
@@ -225,10 +229,18 @@ export async function computeCompletionStatus(options: CompletionCheckOptions): 
             if (level && (sig as any).level && (sig as any).level !== level) continue
 
             const sigType = (sig as any).type || 'standard'
+            const sigPeriodId = (sig as any).signaturePeriodId
+
+            const isLegacy = !sigPeriodId
+
             if (sigType === 'standard') {
-                result.isSignedSem1 = true
+                if (isLegacy || (sem1PeriodId && sigPeriodId === sem1PeriodId) || (sem2PeriodId && sigPeriodId === sem2PeriodId)) {
+                    result.isSignedSem1 = true
+                }
             } else if (sigType === 'end_of_year') {
-                result.isSignedEndOfYear = true
+                if (isLegacy || (endOfYearPeriodId && sigPeriodId === endOfYearPeriodId)) {
+                    result.isSignedEndOfYear = true
+                }
             }
         }
 
@@ -303,18 +315,19 @@ export async function validatePromotionReadiness(
     schoolYearId: string
     nextSchoolYearId: string
 }> {
-    // Check for end-of-year signature by this sub-admin
+    const periodInfo = await resolveEndOfYearSignaturePeriod()
+
+    // Check for end-of-year signature by this sub-admin for the CURRENT end-of-year period
     const signature = await TemplateSignature.findOne({
         templateAssignmentId,
         subAdminId,
-        type: 'end_of_year'
+        type: 'end_of_year',
+        signaturePeriodId: periodInfo.signaturePeriodId,
     }).lean()
 
     if (!signature) {
         throw new Error('not_signed_by_you')
     }
-
-    const periodInfo = await resolveEndOfYearSignaturePeriod()
 
     if (!periodInfo.nextSchoolYearId) {
         throw new Error('no_next_school_year')
@@ -421,7 +434,7 @@ export function buildSavedGradebookMeta(params: {
     signaturePeriodId: string
     schoolYearId: string
     level: string
-    snapshotReason: 'promotion' | 'year_end' | 'manual'
+    snapshotReason: 'promotion' | 'year_end' | 'manual' | 'sem1' | 'transfer' | 'exit'
 }): {
     templateVersion: number
     dataVersion: number

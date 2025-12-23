@@ -112,9 +112,7 @@ const resolveSignatureSchoolYearWithPeriod = async (
     const activeYearId = String(activeYear._id)
 
     if (type !== 'end_of_year') {
-        // For standard signatures, use the current semester
-        const activeSemester = (activeYear as any).activeSemester || 1
-        const periodType: SignaturePeriodType = activeSemester === 1 ? 'sem1' : 'sem2'
+        const periodType: SignaturePeriodType = 'sem1'
         const signaturePeriodId = computeSignaturePeriodId(activeYearId, periodType)
         return {
             schoolYearId: activeYearId,
@@ -228,7 +226,8 @@ export async function populateSignatures(assignments: any[] | any) {
  */
 export async function validateSignatureAuthorization(
     subAdminId: string,
-    assignment: any
+    assignment: any,
+    schoolYearId?: string
 ): Promise<boolean> {
     // 1. Direct assignment check
     if (assignment.assignedTeachers && assignment.assignedTeachers.length > 0) {
@@ -240,12 +239,18 @@ export async function validateSignatureAuthorization(
     }
 
     // 2. Enrollment/Class based check
-    const enrollments = await Enrollment.find({ studentId: assignment.studentId }).lean()
+    const enrollments = await Enrollment.find({
+        studentId: assignment.studentId,
+        ...(schoolYearId ? { schoolYearId } : {})
+    }).lean()
     const classIds = enrollments.map(e => e.classId).filter(Boolean)
     
     if (classIds.length > 0) {
         // Check if subadmin manages any teacher of these classes
-        const teacherClassAssignments = await TeacherClassAssignment.find({ classId: { $in: classIds } }).select('teacherId').lean()
+        const teacherClassAssignments = await TeacherClassAssignment.find({
+            classId: { $in: classIds },
+            ...(schoolYearId ? { schoolYearId } : {})
+        }).select('teacherId').lean()
         const teacherIds = teacherClassAssignments.map(t => t.teacherId)
         
         if (teacherIds.length > 0) {
@@ -271,7 +276,11 @@ export async function validateSignatureAuthorization(
     const student = await Student.findById(assignment.studentId).select('promotions').lean()
     if (student && Array.isArray((student as any).promotions) && (student as any).promotions.length > 0) {
          const lastPromotion = (student as any).promotions.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]
-         if (lastPromotion && String(lastPromotion.promotedBy) === String(subAdminId)) {
+         if (
+            lastPromotion &&
+            String(lastPromotion.promotedBy) === String(subAdminId) &&
+            (!schoolYearId || String(lastPromotion.schoolYearId || '') === String(schoolYearId))
+         ) {
              return true
          }
     }
@@ -510,13 +519,15 @@ export const unsignTemplateAssignment = async ({
     signerId,
     type,
     req,
-    level
+    level,
+    signaturePeriodId: explicitSignaturePeriodId
 }: {
     templateAssignmentId: string
     signerId: string
     type?: string
     req?: any
     level?: string
+    signaturePeriodId?: string
 }) => {
     // Get assignment
     const assignment = await TemplateAssignment.findById(templateAssignmentId)
@@ -524,8 +535,20 @@ export const unsignTemplateAssignment = async ({
         throw new Error('not_found')
     }
 
+    let signaturePeriodId = explicitSignaturePeriodId
+    if (!signaturePeriodId && type) {
+        if (type === 'end_of_year') {
+            const periodInfo = await resolveEndOfYearSignaturePeriod()
+            signaturePeriodId = periodInfo.signaturePeriodId
+        } else {
+            const periodInfo = await resolveCurrentSignaturePeriod()
+            signaturePeriodId = computeSignaturePeriodId(periodInfo.schoolYearId, 'sem1')
+        }
+    }
+
     const baseQuery: any = { templateAssignmentId }
     if (type) baseQuery.type = type
+    if (signaturePeriodId) baseQuery.signaturePeriodId = signaturePeriodId
 
     const deleteQuery: any = (() => {
         if (!level) return baseQuery

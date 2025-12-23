@@ -19,9 +19,11 @@ import { Setting } from '../models/Setting'
 import { SavedGradebook } from '../models/SavedGradebook'
 import { StudentCompetencyStatus } from '../models/StudentCompetencyStatus'
 import { logAudit } from '../utils/auditLogger'
+import { computeSignaturePeriodId, resolveEndOfYearSignaturePeriod } from '../utils/readinessUtils'
 import mongoose from 'mongoose'
 import { checkAndAssignTemplates, mergeAssignmentDataIntoTemplate } from '../utils/templateUtils'
 import { withCache, clearCache } from '../utils/cache'
+import { getRolloverUpdate, createAssignmentSnapshot } from '../services/rolloverService'
 import multer from 'multer'
 import path from 'path'
 import fs from 'fs'
@@ -217,6 +219,7 @@ subAdminTemplatesRouter.get('/promoted-students', requireAuth(['SUBADMIN', 'AEFE
 
         const assignedEnrollments = await Enrollment.find({
             studentId: { $in: studentIds },
+            schoolYearId: activeSchoolYearId,
             status: 'active',
             classId: { $exists: true, $ne: null },
         }).select({ studentId: 1 }).lean()
@@ -424,6 +427,9 @@ subAdminTemplatesRouter.get('/pending-signatures', requireAuth(['SUBADMIN', 'AEF
             return res.json([])
         }
 
+        const standardPeriodId = computeSignaturePeriodId(String(activeSchoolYear._id), 'sem1')
+        const endOfYearPeriodId = computeSignaturePeriodId(String(activeSchoolYear._id), 'end_of_year')
+
         // Get teachers assigned to this sub-admin
         const assignments = await SubAdminAssignment.find({ subAdminId }).lean()
         const teacherIds = assignments.map(a => a.teacherId)
@@ -523,6 +529,13 @@ subAdminTemplatesRouter.get('/pending-signatures', requireAuth(['SUBADMIN', 'AEF
                     // Level check
                     if (s.level && level && s.level !== level) return false
 
+                    if (type === 'standard') {
+                        if (s.signaturePeriodId && s.signaturePeriodId !== standardPeriodId) return false
+                    }
+                    if (type === 'end_of_year') {
+                        if (s.signaturePeriodId && s.signaturePeriodId !== endOfYearPeriodId) return false
+                    }
+
                     return true
                 })
             }
@@ -566,11 +579,15 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote', require
         const { nextLevel } = req.body
 
         // Check if signed by this sub-admin (End of Year signature required for promotion)
-        const signature = await TemplateSignature.findOne({
+        const periodInfo = await resolveEndOfYearSignaturePeriod().catch(() => null)
+        const signatureQuery: any = {
             templateAssignmentId,
             subAdminId,
             type: 'end_of_year'
-        }).lean()
+        }
+        if (periodInfo?.signaturePeriodId) signatureQuery.signaturePeriodId = periodInfo.signaturePeriodId
+
+        const signature = await TemplateSignature.findOne(signatureQuery).lean()
 
         if (!signature) {
             return res.status(403).json({ error: 'not_signed_by_you', message: 'You must sign the carnet (End of Year) before promoting the student' })
@@ -769,17 +786,19 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote', require
                     finalSignature: signatures.find((s: any) => s.type === 'end_of_year') || null,
                 }
 
-                const saved = await SavedGradebook.create([{ 
-                    studentId: student._id,
-                    schoolYearId: currentSchoolYearId,
-                    level: currentLevel || 'Sans niveau',
-                    classId: enrollment?.classId,
-                    templateId: assignment.templateId,
-                    data: snapshotData,
-                    meta: snapshotMeta
-                }], { session })
+                const saved = await createAssignmentSnapshot(
+                    assignment,
+                    'promotion',
+                    {
+                        schoolYearId: currentSchoolYearId,
+                        level: currentLevel || 'Sans niveau',
+                        classId: enrollment?.classId || undefined,
+                        data: snapshotData,
+                        session: session
+                    }
+                )
 
-                if (Array.isArray(saved) && saved[0] && saved[0]._id) createdSavedGradebookId = String(saved[0]._id)
+                if (saved && saved._id) createdSavedGradebookId = String(saved._id)
             }
 
             const runNonTransactionalFlow = async () => {
@@ -818,7 +837,16 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote', require
                         by: subAdminId
                     }
 
-                    await TemplateAssignment.findByIdAndUpdate(templateAssignmentId, { $push: { 'data.promotions': promotionData }, $inc: { dataVersion: 1 } }, { new: true })
+                    const rolloverUpdate = getRolloverUpdate(nextSchoolYearId, subAdminId)
+
+                    await TemplateAssignment.findByIdAndUpdate(templateAssignmentId, 
+                        { 
+                            $push: { 'data.promotions': promotionData }, 
+                            $inc: { dataVersion: 1 },
+                            $set: rolloverUpdate
+                        }, 
+                        { new: true }
+                    )
                 } catch (err) {
                     // Attempt rollback of side effects
                     try {
@@ -891,7 +919,16 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote', require
                         by: subAdminId
                     }
 
-                    await TemplateAssignment.findByIdAndUpdate(templateAssignmentId, { $push: { 'data.promotions': promotionData }, $inc: { dataVersion: 1 } }, { new: true, session })
+                    const rolloverUpdate = getRolloverUpdate(nextSchoolYearId, subAdminId)
+
+                    await TemplateAssignment.findByIdAndUpdate(templateAssignmentId, 
+                        { 
+                            $push: { 'data.promotions': promotionData }, 
+                            $inc: { dataVersion: 1 },
+                            $set: rolloverUpdate
+                        }, 
+                        { new: true, session }
+                    )
 
                     await session.commitTransaction()
                 } catch (e:any) {
@@ -1080,7 +1117,16 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', requireAut
                         })
                         .map((ta: any) => String(ta.teacherId))
                     if (responsible.length === 0) responsible = ((assignment as any).assignedTeachers || []).map((id: any) => String(id))
-                    return responsible.some((tid: string) => (teacherCompletions || []).some((tc: any) => String(tc.teacherId) === String(tid) && tc.completed))
+                    // Semester-aware completion: end_of_year requires sem2; standard requires sem1.
+                    // Fallback to legacy tc.completed when semester-specific flag is missing.
+                    const needsSem2 = type === 'end_of_year'
+                    return responsible.some((tid: string) =>
+                        (teacherCompletions || []).some((tc: any) => {
+                            if (String(tc.teacherId) !== String(tid)) return false
+                            if (needsSem2) return !!tc.completedSem2 || !!tc.completed
+                            return !!tc.completedSem1 || !!tc.completed
+                        })
+                    )
                 }
 
                 let eligible = true
@@ -1094,14 +1140,14 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', requireAut
             }
         }
 
-        // Verify authorization via class enrollment
-        const authorized = await validateSignatureAuthorization(subAdminId, assignment)
+        // Verify authorization via class enrollment (scoped to the relevant school year)
+        const activeSchoolYear = await SchoolYear.findOne({ active: true }).lean()
+        const authYearId = String(signatureSchoolYearId || (activeSchoolYear as any)?._id || '')
+        const authorized = await validateSignatureAuthorization(subAdminId, assignment, authYearId || undefined)
 
         if (!authorized) {
             return res.status(403).json({ error: 'not_authorized' })
         }
-
-        const activeSchoolYear = await SchoolYear.findOne({ active: true }).lean()
 
         // Check for Semester 2 requirement for end_of_year signature
         if (type === 'end_of_year' && !canBypass) {
@@ -1180,48 +1226,9 @@ subAdminTemplatesRouter.delete('/templates/:templateAssignmentId/sign', requireA
         const assignment = await TemplateAssignment.findById(templateAssignmentId).lean()
         if (!assignment) return res.status(404).json({ error: 'not_found' })
 
-        // Verify authorization via class enrollment
-        const enrollments = await Enrollment.find({ studentId: assignment.studentId }).lean()
-
-        let authorized = false
-
-        // Check if sub-admin is linked to assigned teachers (direct assignment check)
-        if (assignment.assignedTeachers && assignment.assignedTeachers.length > 0) {
-            const subAdminAssignments = await SubAdminAssignment.find({
-                subAdminId,
-                teacherId: { $in: assignment.assignedTeachers },
-            }).lean()
-
-            if (subAdminAssignments.length > 0) {
-                authorized = true
-            }
-        }
-
-        if (!authorized && enrollments.length > 0) {
-            const classIds = enrollments.map(e => e.classId).filter(Boolean)
-            const teacherClassAssignments = await TeacherClassAssignment.find({ classId: { $in: classIds } }).lean()
-            const classTeacherIds = teacherClassAssignments.map(ta => ta.teacherId)
-
-            const subAdminAssignments = await SubAdminAssignment.find({
-                subAdminId,
-                teacherId: { $in: classTeacherIds },
-            }).lean()
-
-            if (subAdminAssignments.length > 0) {
-                authorized = true
-            }
-
-            if (!authorized) {
-                // Check RoleScope
-                const roleScope = await RoleScope.findOne({ userId: subAdminId }).lean()
-                if (roleScope?.levels?.length) {
-                    const classes = await ClassModel.find({ _id: { $in: classIds } }).lean()
-                    if (classes.some(c => c.level && roleScope.levels.includes(c.level))) {
-                        authorized = true
-                    }
-                }
-            }
-        }
+        const activeSchoolYear = await SchoolYear.findOne({ active: true }).lean()
+        const authYearId = activeSchoolYear ? String(activeSchoolYear._id) : undefined
+        const authorized = await validateSignatureAuthorization(subAdminId, assignment, authYearId)
 
         if (!authorized) {
             return res.status(403).json({ error: 'not_authorized' })
@@ -1235,7 +1242,6 @@ subAdminTemplatesRouter.delete('/templates/:templateAssignmentId/sign', requireA
         if (studentForSig) {
             signatureLevel = studentForSig.level || ''
             // Try to refine with class level
-            const activeSchoolYear = await SchoolYear.findOne({ active: true }).lean()
             if (activeSchoolYear) {
                 const enrollment = await Enrollment.findOne({
                     studentId: assignment.studentId,
@@ -1280,56 +1286,9 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
 
         const student = await Student.findById(assignment.studentId).lean()
 
-        // Verify authorization via class enrollment
-        const enrollments = await Enrollment.find({ studentId: assignment.studentId }).lean()
-
-        let authorized = false
-
-        // Check if sub-admin is linked to assigned teachers (direct assignment check)
-        if (assignment.assignedTeachers && assignment.assignedTeachers.length > 0) {
-            const subAdminAssignments = await SubAdminAssignment.find({
-                subAdminId,
-                teacherId: { $in: assignment.assignedTeachers },
-            }).lean()
-
-            if (subAdminAssignments.length > 0) {
-                authorized = true
-            }
-        }
-
-        if (!authorized && enrollments.length > 0) {
-            const classIds = enrollments.map(e => e.classId).filter(Boolean)
-            const teacherClassAssignments = await TeacherClassAssignment.find({ classId: { $in: classIds } }).lean()
-            const classTeacherIds = teacherClassAssignments.map(ta => ta.teacherId)
-
-            const subAdminAssignments = await SubAdminAssignment.find({
-                subAdminId,
-                teacherId: { $in: classTeacherIds },
-            }).lean()
-
-            if (subAdminAssignments.length > 0) {
-                authorized = true
-            }
-
-            if (!authorized) {
-                // Check RoleScope
-                const roleScope = await RoleScope.findOne({ userId: subAdminId }).lean()
-                if (roleScope?.levels?.length) {
-                    const classes = await ClassModel.find({ _id: { $in: classIds } }).lean()
-                    if (classes.some(c => c.level && roleScope.levels.includes(c.level))) {
-                        authorized = true
-                    }
-                }
-            }
-        }
-
-        // Also check if the student was promoted by this sub-admin
-        if (!authorized && student && student.promotions) {
-            const lastPromotion = student.promotions.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]
-            if (lastPromotion && lastPromotion.promotedBy === subAdminId) {
-                authorized = true
-            }
-        }
+        const activeSchoolYear = await SchoolYear.findOne({ active: true }).lean()
+        const authYearId = activeSchoolYear ? String(activeSchoolYear._id) : undefined
+        const authorized = await validateSignatureAuthorization(subAdminId, assignment, authYearId)
 
         if (!authorized) {
             return res.status(403).json({ error: 'not_authorized' })
@@ -1348,7 +1307,6 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
         let classId: string | null = null
         if (student) {
             // Get active school year to ensure we get the CURRENT enrollment
-            const activeSchoolYear = await SchoolYear.findOne({ active: true }).lean()
             if (activeSchoolYear) {
                 const enrollment = await Enrollment.findOne({
                     studentId: assignment.studentId,
@@ -1484,81 +1442,32 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
             ; (assignment as any).data = (assignment as any).data || {}
             ; (assignment as any).data.signatures = mergedDataSignatures
 
-        // Filter signatures by active school year
         const activeSchoolYearForSig = await SchoolYear.findOne({ active: true }).lean()
-        console.log('[/review] Active school year:', activeSchoolYearForSig ? {
-            id: activeSchoolYearForSig._id,
-            name: activeSchoolYearForSig.name,
-            startDate: activeSchoolYearForSig.startDate,
-            endDate: activeSchoolYearForSig.endDate
-        } : 'none')
+        const standardPeriodId = activeSchoolYearForSig ? computeSignaturePeriodId(String(activeSchoolYearForSig._id), 'sem1') : null
+        const endOfYearPeriodId = activeSchoolYearForSig ? computeSignaturePeriodId(String(activeSchoolYearForSig._id), 'end_of_year') : null
 
-        if (activeSchoolYearForSig) {
-            let thresholdDate = activeSchoolYearForSig.startDate
-
-            // Try to find previous school year to determine the "gap"
-            const previousYear = await SchoolYear.findOne({ endDate: { $lt: activeSchoolYearForSig.startDate } })
-                .sort({ endDate: -1 })
-                .lean()
-
-            if (previousYear) {
-                // If there is a previous year, we consider signatures created AFTER the previous year ended
-                // as belonging to the current/upcoming cycle.
-                thresholdDate = previousYear.endDate
-                console.log('[/review] Previous year found, threshold date:', thresholdDate)
-            } else {
-                console.log('[/review] No previous year, using start date as threshold:', thresholdDate)
+        signatures = signatures.filter(s => {
+            if (s.level && level && s.level !== level) return false
+            if (levelStartDate && s.signedAt) {
+                const sigDate = new Date(s.signedAt).getTime()
+                if (sigDate < levelStartDate.getTime()) return false
             }
+            return true
+        })
 
-            // Use the later of endDate or current date as the upper bound
-            // This handles cases where the school year has technically ended but we're still in that academic period
-            const now = new Date()
-            const endDate = new Date(activeSchoolYearForSig.endDate)
-            const upperBound = now > endDate ? now : endDate
+        const signature = signatures.find(s => {
+            if (!(s.type === 'standard' || !s.type)) return false
+            if (!standardPeriodId) return true
+            if (!s.signaturePeriodId) return true
+            return s.signaturePeriodId === standardPeriodId
+        })
 
-            // CRITICAL FIX: If current date is before the threshold (i.e., we're working before the "active" 
-            // school year officially starts), we need to adjust. Use the earlier of threshold or one year ago.
-            const oneYearAgo = new Date(now)
-            oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1)
-            const effectiveThreshold = new Date(thresholdDate) > now ? oneYearAgo : new Date(thresholdDate)
-            console.log('[/review] Effective threshold:', effectiveThreshold, 'Original threshold:', thresholdDate, 'Now:', now)
-
-            signatures = signatures.filter(s => {
-                if (!s.signedAt) return false
-                const d = new Date(s.signedAt).getTime()
-                const threshold = effectiveThreshold.getTime()
-                const end = upperBound.getTime()
-                // Filter: signedAt must be after threshold and before/at upperBound
-                const isValid = d > threshold && d <= end
-                console.log(`[/review] Signature ${s._id} signedAt=${s.signedAt} (${d}) threshold=${effectiveThreshold} (${threshold}) upperBound=${upperBound} (${end}) isValid=${isValid}`)
-
-                if (!isValid) return false
-
-                // Filter by level if present in signature
-                if (s.level && level) {
-                    if (s.level !== level) {
-                        console.log(`[/review] Signature ${s._id} rejected: level mismatch (sig=${s.level}, student=${level})`)
-                        return false
-                    }
-                }
-
-                // Filter by promotion date (reject signatures older than current level start)
-                if (levelStartDate && s.signedAt) {
-                    const sigDate = new Date(s.signedAt).getTime()
-                    if (sigDate < levelStartDate.getTime()) {
-                        console.log(`[/review] Signature ${s._id} rejected: predates promotion to ${level} (sig=${s.signedAt}, promo=${levelStartDate})`)
-                        return false
-                    }
-                }
-
-                return true
-            })
-        }
-
-        console.log('[/review] Filtered signatures:', signatures.map(s => ({ id: s._id, type: s.type })))
-
-        const signature = signatures.find(s => s.type === 'standard' || !s.type)
-        const finalSignature = signatures.find(s => s.type === 'end_of_year')
+        const finalSignature = signatures.find(s => {
+            if (s.type !== 'end_of_year') return false
+            if (!endOfYearPeriodId) return true
+            if (!s.signaturePeriodId) return true
+            return s.signaturePeriodId === endOfYearPeriodId
+        })
 
         console.log('[/review] signature:', signature ? { id: signature._id, type: signature.type } : 'none')
         console.log('[/review] finalSignature:', finalSignature ? { id: finalSignature._id, type: finalSignature.type } : 'none')
@@ -1572,8 +1481,8 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
 
         const canEdit = authorized && (req as any).user.role !== 'AEFE'
 
-        // Get active school year
-        const activeSchoolYear = await SchoolYear.findOne({ active: true }).lean()
+        // Reuse previously fetched activeSchoolYear (declared above)
+        // const activeSchoolYear = await SchoolYear.findOne({ active: true }).lean()
         const isPromoted = student?.promotions?.some((p: any) => p.schoolYearId === String(activeSchoolYear?._id))
         const activeSemester = (activeSchoolYear as any)?.activeSemester || 1
 
@@ -1774,6 +1683,9 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
         const roleScope = await RoleScope.findOne({ userId: subAdminId }).lean()
         const subadminAssignedLevels = roleScope?.levels || []
 
+        // Get student's enrollments to allow fallback to last known class info
+        const enrollments = await Enrollment.find({ studentId: assignment.studentId }).sort({ updatedAt: 1 }).lean()
+
         // Ensure level and className are populated from resolvedClassId or fallback to last known enrollment/student
         try {
             if ((!level || !className) && resolvedClassId) {
@@ -1865,7 +1777,14 @@ subAdminTemplatesRouter.post('/templates/sign-class/:classId', requireAuth(['SUB
             }
         }
 
-        const query: any = { studentId: { $in: studentIds } }
+        const activeYearForBulk = await SchoolYear.findOne({ active: true }).lean()
+        const activeYearIdForBulk = activeYearForBulk ? String((activeYearForBulk as any)._id) : ''
+        const signaturePeriodIdForBulk = activeYearIdForBulk ? computeSignaturePeriodId(activeYearIdForBulk, 'sem1') : ''
+
+        const query: any = {
+            studentId: { $in: studentIds },
+            ...(activeYearIdForBulk ? { completionSchoolYearId: activeYearIdForBulk } : {})
+        }
         if (!canBypass) {
             query.status = 'completed'
         }
@@ -1873,29 +1792,25 @@ subAdminTemplatesRouter.post('/templates/sign-class/:classId', requireAuth(['SUB
         // Get all template assignments for these students
         const templateAssignments = await TemplateAssignment.find(query).lean()
 
-        // Filter out those already signed
+        // Filter out those already signed for the CURRENT period
         const assignmentIds = templateAssignments.map(a => String(a._id))
-        const existingSignatures = await TemplateSignature.find({
-            templateAssignmentId: { $in: assignmentIds }
-        }).lean()
-        const signedIds = new Set(existingSignatures.map(s => s.templateAssignmentId))
+        const existingSignatures = await TemplateSignature.find({ templateAssignmentId: { $in: assignmentIds } }).lean()
+        const signedIds = new Set(
+            existingSignatures
+                .filter((s: any) => {
+                    if ((s as any).type && (s as any).type !== 'standard') return false
+                    if (!signaturePeriodIdForBulk) return true
+                    return String((s as any).signaturePeriodId || '') === signaturePeriodIdForBulk
+                })
+                .map((s: any) => String((s as any).templateAssignmentId))
+        )
 
         const toSign = templateAssignments.filter(a => !signedIds.has(String(a._id)))
 
         // Create signatures for all unsigned assignments
-        const activeYearForBulk = await SchoolYear.findOne({ active: true }).lean()
-        const normalizePeriodName = (name: string) => String(name || '').replace(/\s+/g, '').replace(/[\/\\.]/g, '-')
         const signatures = await Promise.all(toSign.map(async (assignment) => {
             const type: any = 'standard'
-            let syId: string | undefined = undefined
-            let syName: string | undefined = undefined
-            if (activeYearForBulk) syId = String(activeYearForBulk._id)
-            else {
-                const d = new Date()
-                const startYear = d.getMonth() >= 8 ? d.getFullYear() : d.getFullYear() - 1
-                syName = `${startYear}/${startYear + 1}`
-            }
-            const signaturePeriodId = `${syId || normalizePeriodName(syName || '')}-${type}`
+            const signaturePeriodId = signaturePeriodIdForBulk
 
             let signature: any = null
             try {
@@ -1905,7 +1820,8 @@ subAdminTemplatesRouter.post('/templates/sign-class/:classId', requireAuth(['SUB
                     signedAt: new Date(),
                     status: 'signed',
                     type,
-                    signaturePeriodId
+                    signaturePeriodId,
+                    schoolYearId: activeYearIdForBulk || undefined
                 })
             } catch (err: any) {
                 const msg = String(err?.message || '')

@@ -4,6 +4,7 @@ import { SchoolYear } from '../models/SchoolYear'
 import { RoleScope } from '../models/RoleScope'
 import { TemplateAssignment } from '../models/TemplateAssignment'
 import { Student } from '../models/Student'
+import { TeacherClassAssignment } from '../models/TeacherClassAssignment'
 import { requireAuth } from '../auth'
 
 export const savedGradebooksRouter = Router()
@@ -360,8 +361,17 @@ savedGradebooksRouter.get('/years/:yearId/levels/:level/students', requireAuth([
 // Get a specific saved gradebook
 savedGradebooksRouter.get('/:id', requireAuth(['ADMIN', 'SUBADMIN', 'AEFE', 'TEACHER']), async (req, res) => {
     const { id } = req.params
+    const user = (req as any).user
     const saved = await SavedGradebook.findById(id).lean()
     if (!saved) return res.status(404).json({ error: 'not_found' })
+
+    if (user?.role === 'TEACHER') {
+        const classId = String((saved as any).classId || '')
+        if (!classId) return res.status(403).json({ error: 'not_authorized' })
+
+        const ok = await TeacherClassAssignment.exists({ teacherId: user.userId, classId })
+        if (!ok) return res.status(403).json({ error: 'not_authorized' })
+    }
 
     // NOTE: We intentionally do NOT patch missing snapshot data from live assignments anymore.
     // SavedGradebook snapshots must be self-contained; if historical snapshots are missing data,

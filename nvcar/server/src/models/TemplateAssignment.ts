@@ -6,7 +6,7 @@ const templateAssignmentSchema = new Schema({
     studentId: { type: String, required: true },
     completionSchoolYearId: { type: String },
     assignedTeachers: { type: [String], default: [] },
-    teacherCompletions: { 
+    teacherCompletions: {
         type: [{
             teacherId: String,
             completed: Boolean,
@@ -15,9 +15,10 @@ const templateAssignmentSchema = new Schema({
             completedAtSem1: Date,
             completedSem2: Boolean,
             completedAtSem2: Date
-        }], 
-        default: [] 
+        }],
+        default: []
     },
+    // status is UI-only hint. Business logic must use isCompleted/isCompletedSem1/isSigned etc.
     status: { type: String, enum: ['draft', 'in_progress', 'completed', 'signed'], default: 'draft' },
     assignedAt: { type: Date, default: () => new Date() },
     assignedBy: { type: String, required: true },

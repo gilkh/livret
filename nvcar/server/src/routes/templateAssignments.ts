@@ -9,6 +9,7 @@ import { TeacherClassAssignment } from '../models/TeacherClassAssignment'
 import { ClassModel } from '../models/Class'
 import { SchoolYear } from '../models/SchoolYear'
 import { populateSignatures } from '../services/signatureService'
+import { getRolloverUpdate } from '../services/rolloverService'
 
 export const templateAssignmentsRouter = Router()
 
@@ -76,6 +77,8 @@ templateAssignmentsRouter.post('/bulk-level', requireAuth(['ADMIN']), async (req
             if (isBetterEnrollment(e, cur)) enrollmentByStudent.set(sid, e)
         }
 
+        const selectedStudentIds = Array.from(enrollmentByStudent.keys())
+
         const now = new Date()
         const assignedBy = (req as any).user.userId
         const force = !!req.body.force
@@ -107,34 +110,13 @@ templateAssignmentsRouter.post('/bulk-level', requireAuth(['ADMIN']), async (req
 
             if (force) {
                 // When force:true we intentionally reset progress/status fields
-                Object.assign(setFields, {
-                    assignedBy,
-                    assignedAt: now,
-                    status: 'draft',
-                    completionSchoolYearId: String(targetYearId),
-                    isCompleted: false,
-                    completedAt: null,
-                    completedBy: null,
-                    isCompletedSem1: false,
-                    completedAtSem1: null,
-                    isCompletedSem2: false,
-                    completedAtSem2: null,
-                    teacherCompletions: [],
-                })
+                const rolloverUpdate = getRolloverUpdate(String(targetYearId), assignedBy)
+                Object.assign(setFields, rolloverUpdate)
                 
                 // Remove colliding fields from setOnInsert
-                delete setOnInsert.assignedBy
-                delete setOnInsert.assignedAt
-                delete setOnInsert.status
-                delete setOnInsert.completionSchoolYearId
-                delete setOnInsert.isCompleted
-                delete setOnInsert.completedAt
-                delete setOnInsert.completedBy
-                delete setOnInsert.isCompletedSem1
-                delete setOnInsert.completedAtSem1
-                delete setOnInsert.isCompletedSem2
-                delete setOnInsert.completedAtSem2
-                delete setOnInsert.teacherCompletions
+                Object.keys(rolloverUpdate).forEach(key => {
+                     delete setOnInsert[key]
+                })
             } else {
                 // Keep progress fields intact for existing assignments; assignedBy/assignedAt remain on insert only
             }
@@ -153,8 +135,35 @@ templateAssignmentsRouter.post('/bulk-level', requireAuth(['ADMIN']), async (req
         const chunkSize = 1000
         for (let i = 0; i < ops.length; i += chunkSize) {
             const chunk = ops.slice(i, i + chunkSize)
-            if (chunk.length) await TemplateAssignment.bulkWrite(chunk, { ordered: false })
+            if (!chunk.length) continue
+            try {
+                await TemplateAssignment.bulkWrite(chunk, { ordered: false })
+            } catch (e: any) {
+                const writeErrors = e?.writeErrors || []
+                const hasNonDup = writeErrors.some((we: any) => (we?.code !== 11000))
+                // With a unique (templateId, studentId) index, concurrent upserts can produce
+                // duplicate-key errors; treat those as benign.
+                if (writeErrors.length > 0 && !hasNonDup) {
+                    // ignore
+                } else {
+                    throw e
+                }
+            }
         }
+
+        // If the carnet already exists from a previous year, roll it over to this year
+        // by stamping completionSchoolYearId and resetting year-bound workflow fields.
+        await TemplateAssignment.updateMany(
+            {
+                templateId,
+                studentId: { $in: selectedStudentIds },
+                completionSchoolYearId: { $ne: String(targetYearId) }
+            },
+            {
+                $set: getRolloverUpdate(String(targetYearId), assignedBy),
+                $inc: { dataVersion: 1 }
+            }
+        )
         const count = ops.length
 
         res.json({ count, message: `Assigned template to ${count} students` })
@@ -243,6 +252,12 @@ templateAssignmentsRouter.post('/', requireAuth(['ADMIN']), async (req, res) => 
             targetYearId = String(activeYear._id)
         }
 
+        const existing = await TemplateAssignment.findOne({ templateId, studentId })
+            .select('completionSchoolYearId')
+            .lean()
+
+        const yearChanged = !!existing && String((existing as any).completionSchoolYearId || '') !== String(targetYearId)
+
         // Create or update assignment (respect existing progress unless force:true)
         const forceSingle = !!req.body.force
         const assignedAt = new Date()
@@ -269,35 +284,20 @@ templateAssignmentsRouter.post('/', requireAuth(['ADMIN']), async (req, res) => 
             assignedTeachers: teachersToAssign,
         }
 
+        const assignedBy = (req as any).user.userId
+
+        if (yearChanged && !forceSingle) {
+            Object.assign(setFieldsSingle, getRolloverUpdate(String(targetYearId), assignedBy))
+        }
+
         if (forceSingle) {
-            Object.assign(setFieldsSingle, {
-                assignedBy: (req as any).user.userId,
-                assignedAt: assignedAt,
-                status: 'draft',
-                completionSchoolYearId: String(targetYearId),
-                isCompleted: false,
-                completedAt: null,
-                completedBy: null,
-                isCompletedSem1: false,
-                completedAtSem1: null,
-                isCompletedSem2: false,
-                completedAtSem2: null,
-                teacherCompletions: [],
-            })
+            const rolloverUpdate = getRolloverUpdate(String(targetYearId), assignedBy)
+            Object.assign(setFieldsSingle, rolloverUpdate)
 
             // Remove colliding fields from setOnInsert
-            delete setOnInsertSingle.assignedBy
-            delete setOnInsertSingle.assignedAt
-            delete setOnInsertSingle.status
-            delete setOnInsertSingle.completionSchoolYearId
-            delete setOnInsertSingle.isCompleted
-            delete setOnInsertSingle.completedAt
-            delete setOnInsertSingle.completedBy
-            delete setOnInsertSingle.isCompletedSem1
-            delete setOnInsertSingle.completedAtSem1
-            delete setOnInsertSingle.isCompletedSem2
-            delete setOnInsertSingle.completedAtSem2
-            delete setOnInsertSingle.teacherCompletions
+            Object.keys(rolloverUpdate).forEach(key => {
+                delete setOnInsertSingle[key]
+            })
         }
 
         const assignment = await TemplateAssignment.findOneAndUpdate(
@@ -548,6 +548,14 @@ templateAssignmentsRouter.get('/', requireAuth(['ADMIN']), async (req, res) => {
         }
 
         const query: any = { ...dateFilter }
+        
+        // Enforce "Current State Only" rule:
+        // If a specific year is requested, we ONLY return assignments that are actively working on that year.
+        // Historical data must be fetched from SavedGradebooks.
+        if (schoolYearId) {
+            query.completionSchoolYearId = schoolYearId
+        }
+
         if (studentIds.length > 0) {
             query.studentId = { $in: studentIds }
         } else if (schoolYearId) {

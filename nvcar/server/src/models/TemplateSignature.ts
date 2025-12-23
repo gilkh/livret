@@ -9,12 +9,15 @@ const templateSignatureSchema = new Schema({
     type: { type: String, enum: ['standard', 'end_of_year'], default: 'standard' },
     signatureUrl: { type: String },
     level: { type: String },
+    schoolYearId: { type: String },
     // Deterministic period id like '2024/2025-eoy' or schoolYearId + type
     signaturePeriodId: { type: String },
 })
 
 // Index for quick lookup
 templateSignatureSchema.index({ templateAssignmentId: 1 })
+templateSignatureSchema.index({ signaturePeriodId: 1 })
+templateSignatureSchema.index({ schoolYearId: 1 })
 
 // Ensure at-most-one signature per assignment/type/period/level when signaturePeriodId is present
 templateSignatureSchema.index(

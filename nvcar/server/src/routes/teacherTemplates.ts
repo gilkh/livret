@@ -111,47 +111,16 @@ teacherTemplatesRouter.get('/classes/:classId/students', requireAuth(['TEACHER',
     }
 })
 
-// Helper: check if assignment belongs to active school year
-const isAssignmentInActiveYear = (assignment: any, activeYear: any) => {
-    if (!activeYear) return true
-    if (assignment.completionSchoolYearId) return String(assignment.completionSchoolYearId) === String(activeYear._id)
-    if (assignment.assignedAt) return new Date(assignment.assignedAt) >= new Date(activeYear.startDate)
-    return false
-}
-
-// Async helper: get active school year and an optional year-aware query filter
-async function getActiveSchoolYear() {
-    return await withCache('school-years-active', () => SchoolYear.findOne({ active: true }).lean())
-}
-
-async function getActiveYearFilter() {
-    const active = await getActiveSchoolYear()
-    if (!active) return null
-    return {
-        $or: [
-            { completionSchoolYearId: String(active._id) },
-            { completionSchoolYearId: { $exists: false }, assignedAt: { $gte: new Date(active.startDate) } }
-        ]
-    }
-}
-
 // Teacher: Get templates for a student
 teacherTemplatesRouter.get('/students/:studentId/templates', requireAuth(['TEACHER', 'ADMIN', 'SUBADMIN']), async (req, res) => {
     try {
         const teacherId = (req as any).user.userId
         const { studentId } = req.params
 
-        const activeSchoolYear = await withCache('school-years-active', () =>
-            SchoolYear.findOne({ active: true }).lean()
-        )
-
-        const yearFilter = await getActiveYearFilter()
-
-        // Get template assignments where this teacher is assigned and belong to the active year
+        // Get template assignments where this teacher is assigned
         const assignments = await TemplateAssignment.find({
             studentId,
             assignedTeachers: teacherId,
-            ...(yearFilter ? yearFilter : {}),
         }).lean()
 
         // Fetch template details
@@ -160,12 +129,8 @@ teacherTemplatesRouter.get('/students/:studentId/templates', requireAuth(['TEACH
             withCache(`template-${id}`, () => GradebookTemplate.findById(id).lean())
         ))
 
-        // Filter assignments to active year only (prevents showing previous-year completions)
-        const active = await getActiveSchoolYear()
-        const activeAssignments = assignments.filter((a: any) => isAssignmentInActiveYear(a, active))
-
         // Combine assignment data with template data
-        const result = activeAssignments.map(assignment => {
+        const result = assignments.map(assignment => {
             const template = templates.find(t => t && String((t as any)._id) === assignment.templateId)
             const myCompletion = (assignment as any).teacherCompletions?.find((tc: any) => tc.teacherId === teacherId)
             return {
@@ -195,14 +160,6 @@ teacherTemplatesRouter.get('/template-assignments/:assignmentId', requireAuth(['
 
         if (!assignment.assignedTeachers.includes(teacherId)) {
             return res.status(403).json({ error: 'not_assigned_to_template' })
-        }
-
-        // Prevent accessing previous-year assignment in the context of a new active year
-        const activeSchoolYear = await withCache('school-years-active', () =>
-            SchoolYear.findOne({ active: true }).lean()
-        )
-        if (activeSchoolYear && !isAssignmentInActiveYear(assignment, activeSchoolYear)) {
-            return res.status(400).json({ error: 'not_current_year', message: 'This assignment belongs to a previous school year' })
         }
 
         // Get the template
@@ -389,14 +346,6 @@ teacherTemplatesRouter.patch('/template-assignments/:assignmentId/language-toggl
             return res.status(403).json({ error: 'not_assigned_to_template' })
         }
 
-        // Prevent editing previous-year assignment in the context of an active year
-        const activeSchoolYear = await withCache('school-years-active', () =>
-            SchoolYear.findOne({ active: true }).lean()
-        )
-        if (activeSchoolYear && !isAssignmentInActiveYear(assignment, activeSchoolYear)) {
-            return res.status(400).json({ error: 'not_current_year', message: 'Cannot modify assignment from previous school year' })
-        }
-
         // Get the template to verify the block
         const template = await withCache(`template-${assignment.templateId}`, () =>
             GradebookTemplate.findById(assignment.templateId).lean()
@@ -545,14 +494,6 @@ teacherTemplatesRouter.post('/templates/:assignmentId/mark-done', requireAuth(['
             return res.status(403).json({ error: 'not_assigned_to_template' })
         }
 
-        // Prevent marking done on assignments that belong to a previous school year
-        const activeSchoolYear = await withCache('school-years-active', () =>
-            SchoolYear.findOne({ active: true }).lean()
-        )
-        if (activeSchoolYear && !isAssignmentInActiveYear(assignment, activeSchoolYear)) {
-            return res.status(400).json({ error: 'not_current_year', message: 'Cannot mark done for assignments from previous school year' })
-        }
-
         // Update teacher completion
         let teacherCompletions = (assignment as any).teacherCompletions || []
 
@@ -648,14 +589,6 @@ teacherTemplatesRouter.post('/templates/:assignmentId/unmark-done', requireAuth(
             return res.status(403).json({ error: 'not_assigned_to_template' })
         }
 
-        // Prevent unmarking done on assignments that belong to a previous school year
-        const activeSchoolYear = await withCache('school-years-active', () =>
-            SchoolYear.findOne({ active: true }).lean()
-        )
-        if (activeSchoolYear && !isAssignmentInActiveYear(assignment, activeSchoolYear)) {
-            return res.status(400).json({ error: 'not_current_year', message: 'Cannot unmark done for assignments from previous school year' })
-        }
-
         // Update teacher completion
         let teacherCompletions = (assignment as any).teacherCompletions || []
 
@@ -736,24 +669,10 @@ teacherTemplatesRouter.get('/classes/:classId/assignments', requireAuth(['TEACHE
         const enrollments = await Enrollment.find({ classId }).lean()
         const studentIds = enrollments.map(e => e.studentId)
 
-        // Get active year and add year-aware filter
-        const activeYear = await withCache('school-years-active', () =>
-            SchoolYear.findOne({ active: true }).lean()
-        )
-
-        const yearFilter: any = {}
-        if (activeYear) {
-            yearFilter.$or = [
-                { completionSchoolYearId: String(activeYear._id) },
-                { completionSchoolYearId: { $exists: false }, assignedAt: { $gte: new Date(activeYear.startDate) } }
-            ]
-        }
-
-        // Get all template assignments for these students where teacher is assigned and belong to the active year
+        // Get all template assignments for these students where teacher is assigned
         const assignments = await TemplateAssignment.find({
             studentId: { $in: studentIds },
             assignedTeachers: teacherId,
-            ...(yearFilter ? yearFilter : {}),
         }).select('-data').lean()
 
         const templateIds = Array.from(
@@ -779,11 +698,7 @@ teacherTemplatesRouter.get('/classes/:classId/assignments', requireAuth(['TEACHE
             studentMap.set(String((s as any)._id), s)
         })
 
-        // Filter assignments to active year only
-        const active = await getActiveSchoolYear()
-        const activeAssignments = assignments.filter((a: any) => isAssignmentInActiveYear(a, active))
-
-        const enriched = activeAssignments.map(assignment => {
+        const enriched = assignments.map(assignment => {
             const template = templateMap.get(assignment.templateId)
             const student = studentMap.get(assignment.studentId)
 
@@ -825,24 +740,10 @@ teacherTemplatesRouter.get('/classes/:classId/completion-stats', requireAuth(['T
         const enrollments = await Enrollment.find({ classId }).lean()
         const studentIds = enrollments.map(e => e.studentId)
 
-        // Get active year and add year-aware filter
-        const activeYear = await withCache('school-years-active', () =>
-            SchoolYear.findOne({ active: true }).lean()
-        )
-
-        const yearFilter: any = {}
-        if (activeYear) {
-            yearFilter.$or = [
-                { completionSchoolYearId: String(activeYear._id) },
-                { completionSchoolYearId: { $exists: false }, assignedAt: { $gte: new Date(activeYear.startDate) } }
-            ]
-        }
-
-        // Get all template assignments for these students where teacher is assigned and belong to the active year
+        // Get all template assignments for these students where teacher is assigned
         const assignments = await TemplateAssignment.find({
             studentId: { $in: studentIds },
             assignedTeachers: teacherId,
-            ...(yearFilter ? yearFilter : {}),
         }).select('-data').lean()
 
         const semester = Number((req.query as any).semester) === 2 ? 2 : 1

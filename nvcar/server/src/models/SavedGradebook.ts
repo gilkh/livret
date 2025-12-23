@@ -6,7 +6,7 @@ export interface ISavedGradebookMeta {
     signaturePeriodId?: string
     schoolYearId?: string
     level?: string
-    snapshotReason?: 'promotion' | 'year_end' | 'manual'
+    snapshotReason?: 'promotion' | 'year_end' | 'manual' | 'sem1' | 'transfer' | 'exit'
     archivedAt?: Date
 }
 
@@ -27,7 +27,7 @@ const SavedGradebookMetaSchema: Schema = new Schema({
     signaturePeriodId: { type: String },
     schoolYearId: { type: String },
     level: { type: String },
-    snapshotReason: { type: String, enum: ['promotion', 'year_end', 'manual'] },
+    snapshotReason: { type: String, enum: ['promotion', 'year_end', 'manual', 'sem1', 'transfer', 'exit'] },
     archivedAt: { type: Date }
 }, { _id: false })
 

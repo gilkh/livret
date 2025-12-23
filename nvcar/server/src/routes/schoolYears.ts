@@ -5,6 +5,7 @@ import { TemplateAssignment } from '../models/TemplateAssignment'
 import { SavedGradebook } from '../models/SavedGradebook'
 import { Enrollment } from '../models/Enrollment'
 import { ClassModel } from '../models/Class'
+import { TemplateSignature } from '../models/TemplateSignature'
 
 import { Student } from '../models/Student'
 import { StudentCompetencyStatus } from '../models/StudentCompetencyStatus'
@@ -89,13 +90,17 @@ schoolYearsRouter.post('/:id/archive', requireAuth(['ADMIN']), async (req, res) 
   const enrollments = await Enrollment.find({ schoolYearId: id }).lean()
   const studentIds = enrollments.map(e => e.studentId)
 
-  // 3. Find all assignments for these students (filtered by date or just take all for now?)
-  // Ideally we should link assignments to school years, but currently they are linked to students.
-  // We can filter by assignedAt date range of the school year.
-  const assignments = await TemplateAssignment.find({
+  const assignmentsForYear = await TemplateAssignment.find({
     studentId: { $in: studentIds },
-    assignedAt: { $gte: year.startDate, $lte: year.endDate }
+    completionSchoolYearId: id,
   }).lean()
+
+  let assignments = assignmentsForYear
+  if (assignments.length === 0) {
+    assignments = await TemplateAssignment.find({
+      studentId: { $in: studentIds },
+    }).lean()
+  }
 
   // 4. Create SavedGradebooks
   let savedCount = 0
@@ -116,35 +121,32 @@ schoolYearsRouter.post('/:id/archive', requireAuth(['ADMIN']), async (req, res) 
 
     const statuses = await StudentCompetencyStatus.find({ studentId: assignment.studentId }).lean()
 
+    const signatures = await TemplateSignature.find({ templateAssignmentId: String((assignment as any)._id) }).lean()
+
+    // Import createAssignmentSnapshot for versioning
+    const { createAssignmentSnapshot } = await import('../services/rolloverService')
+
     const snapshotData = {
       student: student,
       enrollment: enrollment,
       statuses: statuses,
       assignment: assignment,
-      className: cls.name
+      className: cls.name,
+      signatures: signatures,
+      signature: signatures.find((s: any) => (s as any).type === 'standard') || null,
+      finalSignature: signatures.find((s: any) => (s as any).type === 'end_of_year') || null,
     }
 
-    // Import buildSavedGradebookMeta and computeSignaturePeriodId for versioning
-    const { buildSavedGradebookMeta, computeSignaturePeriodId } = await import('../utils/readinessUtils')
-
-    await SavedGradebook.create({
-      studentId: assignment.studentId,
-      schoolYearId: id,
-      level: cls.level || 'Sans niveau',
-      classId: enrollment.classId,
-      templateId: assignment.templateId,
-      data: snapshotData,
-      // Version everything that is archived for complete traceability
-      meta: buildSavedGradebookMeta({
-        templateVersion: (assignment as any).templateVersion || 1,
-        dataVersion: (assignment as any).dataVersion || 1,
-        signaturePeriodId: computeSignaturePeriodId(id, 'end_of_year'),
+    await createAssignmentSnapshot(
+      assignment,
+      'year_end',
+      {
         schoolYearId: id,
         level: cls.level || 'Sans niveau',
-        snapshotReason: 'year_end'
-      }),
-      createdAt: new Date()
-    })
+        classId: enrollment.classId,
+        data: snapshotData
+      }
+    )
     savedCount++
   }
 

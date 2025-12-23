@@ -73,7 +73,7 @@ describe('bulk-level assign/delete', () => {
     expect(assignment).toBeTruthy()
     assignment!.status = 'signed'
     assignment!.isCompleted = true
-    assignment!.teacherCompletions = [{ teacherId: 't1', completed: true }]
+    assignment!.teacherCompletions = [{ teacherId: 't1', completed: true }] as any
     await assignment!.save()
 
     // Re-run bulk-level without force - should NOT reset progress

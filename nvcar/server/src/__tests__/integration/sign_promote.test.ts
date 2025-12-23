@@ -144,7 +144,7 @@ describe('signatures and promote integration', () => {
     const enr = await Enrollment.create({ studentId: String(student._id), classId: String(cls._id), schoolYearId: String(sy._id), status: 'active' })
 
     const tpl = await GradebookTemplate.create({ name: 'tpl-roll', pages: [], currentVersion: 1 })
-    const assignment = await TemplateAssignment.create({ templateId: String(tpl._id), studentId: String(student._id), schoolYearId: String(sy._id), status: 'completed', isCompleted: true, assignedBy: String(admin._id) })
+    const assignment = await TemplateAssignment.create({ templateId: String(tpl._id), studentId: String(student._id), completionSchoolYearId: String(sy._id), status: 'completed', isCompleted: true, assignedBy: String(admin._id) })
 
     // Make Student.findByIdAndUpdate throw to simulate mid-flow failure
     const original = (Student as any).findByIdAndUpdate

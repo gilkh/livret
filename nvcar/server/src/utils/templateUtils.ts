@@ -114,9 +114,6 @@ export function mergeAssignmentDataIntoTemplate(template: any, assignment: any) 
 
 export async function checkAndAssignTemplates(studentId: string, level: string, schoolYearId: string, classId: string, userId: string) {
   try {
-    const targetYear = schoolYearId ? await SchoolYear.findById(schoolYearId).select({ startDate: 1 }).lean() : null
-    const targetStartDate = targetYear?.startDate ? new Date(targetYear.startDate).getTime() : null
-
     // 1. Find other students in the same level for this school year
     const classesInLevel = await ClassModel.find({ level, schoolYearId }).lean()
     const classIdsInLevel = classesInLevel.map(c => String(c._id))
@@ -178,7 +175,7 @@ export async function checkAndAssignTemplates(studentId: string, level: string, 
         // But usually, teachers want to keep comments or specific tracking data.
 
         // Let's try to find the MOST RECENT assignment for this student
-        const lastAssignment = await TemplateAssignment.findOne({ studentId })
+        const lastAssignment = await TemplateAssignment.findOne({ studentId, templateId })
           .sort({ assignedAt: -1 })
           .lean();
 
@@ -210,16 +207,7 @@ export async function checkAndAssignTemplates(studentId: string, level: string, 
         }
 
         const completionYearId = String((exists as any).completionSchoolYearId || '')
-        const existsAssignedAt = (exists as any)?.assignedAt ? new Date((exists as any).assignedAt).getTime() : null
-        const inferredIsCurrentYear =
-          !completionYearId &&
-          targetStartDate !== null &&
-          existsAssignedAt !== null &&
-          existsAssignedAt >= targetStartDate
-
-        const shouldResetForNewYear =
-          (completionYearId && completionYearId !== String(schoolYearId)) ||
-          (!completionYearId && !inferredIsCurrentYear)
+        const shouldResetForNewYear = completionYearId && completionYearId !== String(schoolYearId)
 
         if (shouldResetForNewYear) {
           updates.status = 'draft'
