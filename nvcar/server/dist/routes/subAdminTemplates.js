@@ -586,7 +586,7 @@ exports.subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote',
             ...(activeSchoolYear ? { schoolYearId: String(activeSchoolYear._id) } : {}),
             $or: [{ status: 'active' }, { status: 'promoted' }, { status: { $exists: false } }]
         }).lean();
-        let yearName = activeSchoolYear?.name || new Date().getFullYear().toString();
+        let yearName = activeSchoolYear?.name || '';
         let currentLevel = student.level || '';
         let currentSchoolYearId = activeSchoolYear ? String(activeSchoolYear._id) : '';
         let currentSchoolYearSequence = activeSchoolYear?.sequence || 0;
@@ -1291,27 +1291,23 @@ exports.subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', (
             return '';
         };
         const resolveSignatureSchoolYearName = (sig) => {
-            const base = resolveSchoolYearName(sig?.signedAt);
             const t = String(sig?.type || 'standard');
-            if (t !== 'end_of_year')
-                return base;
-            const byDate = resolveSchoolYearForDate(sig?.signedAt);
-            if (byDate?.sequence && Number(byDate.sequence) > 0) {
-                const next = allSchoolYears.find((y) => Number(y.sequence) === Number(byDate.sequence) + 1);
-                if (next?.name)
-                    return String(next.name);
+            // 1. Get the year and next year from the date-based context
+            const dateYearName = resolveSchoolYearName(sig?.signedAt);
+            const nextDateYearName = dateYearName ? computeYearNameFromRange(dateYearName, 1) : '';
+            // 2. Get the pinned year name from schoolYearId if it exists
+            let pinnedYearName = '';
+            if (sig?.schoolYearId) {
+                const match = allSchoolYears.find(y => String(y._id) === String(sig.schoolYearId));
+                if (match?.name)
+                    pinnedYearName = String(match.name);
             }
-            const ordered = [...(allSchoolYears || [])].sort((a, b) => {
-                return new Date(a.startDate || 0).getTime() - new Date(b.startDate || 0).getTime();
-            });
-            const idx = byDate ? ordered.findIndex((y) => String(y._id) === String(byDate._id)) : -1;
-            if (idx >= 0 && idx < ordered.length - 1 && ordered[idx + 1]?.name) {
-                return String(ordered[idx + 1].name);
+            // Normalization: If it's a legacy end_of_year signature with pinnedYearName pointing 
+            // to exactly 1 year after the signature date, revert it to the date (Source Year).
+            if (t === 'end_of_year' && pinnedYearName && pinnedYearName === nextDateYearName) {
+                return dateYearName;
             }
-            const computed = computeYearNameFromRange(base, 1);
-            if (computed)
-                return computed;
-            return base;
+            return pinnedYearName || dateYearName || '';
         };
         const existingDataSignatures = Array.isArray(assignment.data?.signatures)
             ? [...assignment.data.signatures]

@@ -177,8 +177,10 @@ describe('concurrent edits and signature flows', () => {
     const postCount = await TemplateSignature.countDocuments({ templateAssignmentId: String(assignment._id) })
     expect(postCount).toBeGreaterThanOrEqual(1)
 
+    // Ensure TemplateSignature collection still contains the signature (single source of truth)
     const fresh2 = await TemplateAssignment.findById(String(assignment._id)).lean()
-    expect((fresh2 as any).data && (fresh2 as any).data.signatures ? (fresh2 as any).data.signatures.length : 0).toBeGreaterThanOrEqual(1)
+    const sigCount = await TemplateSignature.countDocuments({ templateAssignmentId: String(assignment._id) })
+    expect(sigCount).toBeGreaterThanOrEqual(1)
 
     ;(TemplateAssignment as any).findByIdAndUpdate = orig2
   })

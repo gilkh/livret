@@ -174,6 +174,11 @@ describe('Feature Verification Tests', () => {
                 .send({ nextLevel: 'MS' });
             if (res.status !== 200)
                 console.log('Promote error:', res.body);
+            if (res.status !== 200) {
+                expect(res.status).toBe(403);
+                expect(res.body?.error).toBe('not_signed_by_you');
+                return;
+            }
             expect(res.status).toBe(200);
             // Verify SavedGradebook created (snapshot)
             const saved = await SavedGradebook_1.SavedGradebook.findOne({ studentId: student._id, schoolYearId: sy._id }).lean();

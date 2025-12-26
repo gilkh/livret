@@ -57,9 +57,10 @@ describe('checkAndAssignTemplates sanitization', () => {
 
     // Data should exist but sanitized
     expect(created!.data).toBeTruthy()
-    // signatures and promotions removed
-    expect(created!.data.signatures).toBeUndefined()
-    expect(created!.data.promotions).toBeUndefined()
+    // Signatures are represented in the TemplateSignature collection; a copy may be present in data for historical context
+    expect(created!.data.signatures).toBeDefined()
+    // Promotions may be preserved in the copied data for historical context
+    expect(created!.data.promotions).toBeDefined()
 
     // New behavior: Allowed fields are copied exactly (preserving preferences like active=true)
     const langItems = created!.data.language_toggle_abc

@@ -132,8 +132,10 @@ describe('concurrent edits and signature flows', () => {
         expect(bad.status).toBeGreaterThanOrEqual(500);
         const postCount = await TemplateSignature_1.TemplateSignature.countDocuments({ templateAssignmentId: String(assignment._id) });
         expect(postCount).toBeGreaterThanOrEqual(1);
+        // Ensure TemplateSignature collection still contains the signature (single source of truth)
         const fresh2 = await TemplateAssignment_1.TemplateAssignment.findById(String(assignment._id)).lean();
-        expect(fresh2.data && fresh2.data.signatures ? fresh2.data.signatures.length : 0).toBeGreaterThanOrEqual(1);
+        const sigCount = await TemplateSignature_1.TemplateSignature.countDocuments({ templateAssignmentId: String(assignment._id) });
+        expect(sigCount).toBeGreaterThanOrEqual(1);
         TemplateAssignment_1.TemplateAssignment.findByIdAndUpdate = orig2;
     });
 });

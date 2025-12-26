@@ -74,54 +74,19 @@ const computeYearNameFromRange = (name, offset) => {
  * Uses centralized readiness utils for consistency
  */
 const resolveSignatureSchoolYearWithPeriod = async (activeYear, type, now) => {
+    // If no active year, we cannot reliably determine signaturePeriodId
     if (!activeYear) {
-        throw new Error('no_active_school_year');
+        return { schoolYearId: undefined, schoolYearName: '', signaturePeriodId: '' };
     }
     const activeYearId = String(activeYear._id);
-    if (type !== 'end_of_year') {
-        const periodType = 'sem1';
-        const signaturePeriodId = (0, readinessUtils_1.computeSignaturePeriodId)(activeYearId, periodType);
-        return {
-            schoolYearId: activeYearId,
-            schoolYearName: String(activeYear.name || ''),
-            signaturePeriodId
-        };
-    }
-    // For end_of_year, determine the target year and compute period ID
-    let nextYear = null;
-    if (activeYear.sequence && Number(activeYear.sequence) > 0) {
-        nextYear = await SchoolYear_1.SchoolYear.findOne({ sequence: Number(activeYear.sequence) + 1 }).lean();
-    }
-    if (!nextYear) {
-        const allYears = await SchoolYear_1.SchoolYear.find({}).sort({ startDate: 1 }).lean();
-        const idx = allYears.findIndex(y => String(y._id) === String(activeYear._id));
-        if (idx >= 0 && idx < allYears.length - 1)
-            nextYear = allYears[idx + 1];
-    }
-    // End-of-year signature period is tied to the current active year
-    const signaturePeriodId = (0, readinessUtils_1.computeSignaturePeriodId)(activeYearId, 'end_of_year');
-    if (nextYear) {
-        return {
-            schoolYearId: String(nextYear._id),
-            schoolYearName: String(nextYear.name || ''),
-            signaturePeriodId
-        };
-    }
-    const computedName = computeYearNameFromRange(String(activeYear.name || ''), 1);
-    if (computedName) {
-        const found = await SchoolYear_1.SchoolYear.findOne({ name: computedName }).lean();
-        if (found) {
-            return {
-                schoolYearId: String(found._id),
-                schoolYearName: String(found.name || computedName),
-                signaturePeriodId
-            };
-        }
-        return { schoolYearId: undefined, schoolYearName: computedName, signaturePeriodId };
-    }
+    const schoolYearName = String(activeYear.name || '');
+    // For both standard and end_of_year, the signature belongs to the active school year session.
+    // The signaturePeriodId (e.g. '...-sem1' vs '...-end_of_year') distinguishes them.
+    const periodType = type === 'end_of_year' ? 'end_of_year' : 'sem1';
+    const signaturePeriodId = (0, readinessUtils_1.computeSignaturePeriodId)(activeYearId, periodType);
     return {
         schoolYearId: activeYearId,
-        schoolYearName: String(activeYear.name || ''),
+        schoolYearName,
         signaturePeriodId
     };
 };
