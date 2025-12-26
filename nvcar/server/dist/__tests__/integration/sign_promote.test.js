@@ -15,6 +15,8 @@ const Enrollment_1 = require("../../models/Enrollment");
 const TeacherClassAssignment_1 = require("../../models/TeacherClassAssignment");
 const SubAdminAssignment_1 = require("../../models/SubAdminAssignment");
 const TemplateAssignment_1 = require("../../models/TemplateAssignment");
+const TemplateSignature_1 = require("../../models/TemplateSignature");
+const SavedGradebook_1 = require("../../models/SavedGradebook");
 let app;
 describe('signatures and promote integration', () => {
     beforeAll(async () => {
@@ -79,5 +81,55 @@ describe('signatures and promote integration', () => {
         expect(res.body.student).toBeDefined();
         expect(res.body.student.level).toBe('GS');
         expect(res.body.student.className).toBe('Class B');
+    });
+    it('stores sub-admin uploaded signature URL on sign', async () => {
+        const admin = await User_1.User.create({ email: 'admin4', role: 'ADMIN', displayName: 'Admin4', passwordHash: 'hash' });
+        const sub = await User_1.User.create({ email: 'sub6', role: 'SUBADMIN', displayName: 'Sub6', passwordHash: 'hash', signatureUrl: '/uploads/signatures/sig-test.png' });
+        const teacher = await User_1.User.create({ email: 't3', role: 'TEACHER', displayName: 'Teacher3', passwordHash: 'hash' });
+        const sy = await SchoolYear_1.SchoolYear.create({ name: 'Y3', active: true, activeSemester: 2, startDate: new Date('2024-09-01'), endDate: new Date('2025-07-01'), sequence: 1 });
+        const cls = await Class_1.ClassModel.create({ name: 'Class C', level: 'PS', schoolYearId: String(sy._id) });
+        await TeacherClassAssignment_1.TeacherClassAssignment.create({ teacherId: String(teacher._id), classId: String(cls._id), schoolYearId: String(sy._id), assignedBy: String(admin._id) });
+        await SubAdminAssignment_1.SubAdminAssignment.create({ subAdminId: String(sub._id), teacherId: String(teacher._id), assignedBy: String(sub._id) });
+        const student = await Student_1.Student.create({ firstName: 'U', lastName: 'V', dateOfBirth: new Date('2018-01-07'), logicalKey: 'UV1' });
+        await Enrollment_1.Enrollment.create({ studentId: String(student._id), classId: String(cls._id), schoolYearId: String(sy._id), status: 'active' });
+        const tpl = await GradebookTemplate_1.GradebookTemplate.create({ name: 'tpl3', pages: [], currentVersion: 1 });
+        const assignment = await TemplateAssignment_1.TemplateAssignment.create({ templateId: String(tpl._id), studentId: String(student._id), status: 'completed', isCompleted: true, isCompletedSem2: true, assignedBy: String(admin._id) });
+        const subToken = (0, auth_1.signToken)({ userId: String(sub._id), role: 'SUBADMIN' });
+        const signRes = await request(app).post(`/subadmin/templates/${assignment._id}/sign`).set('Authorization', `Bearer ${subToken}`).send({ type: 'end_of_year' });
+        expect(signRes.status).toBe(200);
+        const found = await TemplateSignature_1.TemplateSignature.findOne({ templateAssignmentId: String(assignment._id) }).lean();
+        expect(found).toBeTruthy();
+        expect(found.signatureUrl).toBeDefined();
+        expect(String(found.signatureUrl).endsWith('/uploads/signatures/sig-test.png')).toBe(true);
+    });
+    it('promotion is atomic: rollback on failure', async () => {
+        const admin = await User_1.User.create({ email: 'admin-roll', role: 'ADMIN', displayName: 'AdminRoll', passwordHash: 'hash' });
+        const token = (0, auth_1.signToken)({ userId: String(admin._id), role: 'ADMIN' });
+        const sy = await SchoolYear_1.SchoolYear.create({ name: 'PR1', active: true, startDate: new Date('2024-09-01'), endDate: new Date('2025-07-01'), sequence: 1 });
+        const nextSy = await SchoolYear_1.SchoolYear.create({ name: 'PR2', startDate: new Date('2025-09-01'), endDate: new Date('2026-07-01'), sequence: 2 });
+        const cls = await Class_1.ClassModel.create({ name: 'Class Roll', level: 'PS', schoolYearId: String(sy._id) });
+        const student = await Student_1.Student.create({ firstName: 'Fail', lastName: 'Case', dateOfBirth: new Date('2018-01-08'), logicalKey: 'FC1' });
+        const enr = await Enrollment_1.Enrollment.create({ studentId: String(student._id), classId: String(cls._id), schoolYearId: String(sy._id), status: 'active' });
+        const tpl = await GradebookTemplate_1.GradebookTemplate.create({ name: 'tpl-roll', pages: [], currentVersion: 1 });
+        const assignment = await TemplateAssignment_1.TemplateAssignment.create({ templateId: String(tpl._id), studentId: String(student._id), completionSchoolYearId: String(sy._id), status: 'completed', isCompleted: true, assignedBy: String(admin._id) });
+        // Make Student.findByIdAndUpdate throw to simulate mid-flow failure
+        const original = Student_1.Student.findByIdAndUpdate;
+        Student_1.Student.findByIdAndUpdate = jest.fn(() => { return Promise.reject(new Error('boom')); });
+        const res = await request(app).post(`/students/${student._id}/promote`).set('Authorization', `Bearer ${token}`).send({ nextLevel: 'MS' });
+        expect(res.status).toBe(500);
+        // Ensure no saved gradebook created and no new enrollment was created for next year
+        const savedCount = await SavedGradebook_1.SavedGradebook.countDocuments({ studentId: String(student._id) });
+        expect(savedCount).toBe(0);
+        const nextEnroll = await Enrollment_1.Enrollment.findOne({ studentId: String(student._id), schoolYearId: String(nextSy._id) });
+        expect(nextEnroll).toBeNull()(Student_1.Student).findByIdAndUpdate = original;
+    });
+    it('saved gradebook GET does not patch missing data from live assignment', async () => {
+        const admin = await User_1.User.create({ email: 'admin-sg', role: 'ADMIN', displayName: 'AdminSG', passwordHash: 'hash' });
+        const token = (0, auth_1.signToken)({ userId: String(admin._id), role: 'ADMIN' });
+        const st = await Student_1.Student.create({ firstName: 'Snap', lastName: 'Shot', dateOfBirth: new Date('2018-01-09'), logicalKey: 'SS1' });
+        const sg = await SavedGradebook_1.SavedGradebook.create({ studentId: String(st._id), schoolYearId: 'SYX', level: 'PS', classId: 'C1', templateId: 'T1', data: { assignment: { _id: 'nonexistent' } } });
+        const getRes = await request(app).get(`/saved-gradebooks/${sg._id}`).set('Authorization', `Bearer ${token}`);
+        expect(getRes.status).toBe(200);
+        expect(getRes.body.data.assignment.data).toBeUndefined();
     });
 });

@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.buildBlocksById = void 0;
 exports.getVersionedTemplate = getVersionedTemplate;
@@ -11,7 +44,6 @@ const Enrollment_1 = require("../models/Enrollment");
 const TemplateAssignment_1 = require("../models/TemplateAssignment");
 const TeacherClassAssignment_1 = require("../models/TeacherClassAssignment");
 const GradebookTemplate_1 = require("../models/GradebookTemplate");
-const SchoolYear_1 = require("../models/SchoolYear");
 const crypto_1 = require("crypto");
 function getVersionedTemplate(template, templateVersion) {
     if (!templateVersion || templateVersion === template.currentVersion)
@@ -114,8 +146,6 @@ function mergeAssignmentDataIntoTemplate(template, assignment) {
 }
 async function checkAndAssignTemplates(studentId, level, schoolYearId, classId, userId) {
     try {
-        const targetYear = schoolYearId ? await SchoolYear_1.SchoolYear.findById(schoolYearId).select({ startDate: 1 }).lean() : null;
-        const targetStartDate = targetYear?.startDate ? new Date(targetYear.startDate).getTime() : null;
         // 1. Find other students in the same level for this school year
         const classesInLevel = await Class_1.ClassModel.find({ level, schoolYearId }).lean();
         const classIdsInLevel = classesInLevel.map(c => String(c._id));
@@ -165,37 +195,14 @@ async function checkAndAssignTemplates(studentId, level, schoolYearId, classId, 
                 // If the template changes between years (e.g. EB4 -> EB5), the structure might be different.
                 // But usually, teachers want to keep comments or specific tracking data.
                 // Let's try to find the MOST RECENT assignment for this student
-                const lastAssignment = await TemplateAssignment_1.TemplateAssignment.findOne({ studentId })
+                const lastAssignment = await TemplateAssignment_1.TemplateAssignment.findOne({ studentId, templateId })
                     .sort({ assignedAt: -1 })
                     .lean();
                 if (lastAssignment && lastAssignment.data) {
-                    // Copy previous year's data but sanitize year-specific progress markers
-                    const sanitize = (input) => {
-                        if (input == null)
-                            return input;
-                        if (Array.isArray(input))
-                            return input.map(i => sanitize(i));
-                        if (typeof input === 'object') {
-                            const out = {};
-                            for (const [k, v] of Object.entries(input)) {
-                                // Remove known year-/user-specific fields
-                                if (k === 'signatures' || k === 'promotions')
-                                    continue;
-                                if (k === 'active' || k === 'completed' || k === 'completedSem1' || k === 'completedSem2' || k === 'completedAt' || k === 'completedAtSem1' || k === 'completedAtSem2') {
-                                    // reset boolean flags and timestamps
-                                    if (typeof v === 'boolean')
-                                        out[k] = false;
-                                    else
-                                        out[k] = null;
-                                    continue;
-                                }
-                                out[k] = sanitize(v);
-                            }
-                            return out;
-                        }
-                        return input;
-                    };
-                    initialData = sanitize(lastAssignment.data);
+                    // Use centralized allowlist-based sanitization (replaces blacklist approach)
+                    // This explicitly documents which fields are safe to copy and adds copiedFrom metadata for traceability
+                    const { sanitizeDataForNewAssignment } = await Promise.resolve().then(() => __importStar(require('./readinessUtils')));
+                    initialData = sanitizeDataForNewAssignment(lastAssignment.data, String(lastAssignment._id));
                 }
                 await TemplateAssignment_1.TemplateAssignment.create({
                     templateId,
@@ -206,7 +213,7 @@ async function checkAndAssignTemplates(studentId, level, schoolYearId, classId, 
                     assignedBy: userId,
                     assignedAt: new Date(),
                     status: 'draft',
-                    data: initialData // Initialize with previous data
+                    data: initialData // Initialize with previous data (sanitized via allowlist with copiedFrom metadata)
                 });
             }
             else {
@@ -217,13 +224,7 @@ async function checkAndAssignTemplates(studentId, level, schoolYearId, classId, 
                     updates.templateVersion = template.currentVersion;
                 }
                 const completionYearId = String(exists.completionSchoolYearId || '');
-                const existsAssignedAt = exists?.assignedAt ? new Date(exists.assignedAt).getTime() : null;
-                const inferredIsCurrentYear = !completionYearId &&
-                    targetStartDate !== null &&
-                    existsAssignedAt !== null &&
-                    existsAssignedAt >= targetStartDate;
-                const shouldResetForNewYear = (completionYearId && completionYearId !== String(schoolYearId)) ||
-                    (!completionYearId && !inferredIsCurrentYear);
+                const shouldResetForNewYear = completionYearId && completionYearId !== String(schoolYearId);
                 if (shouldResetForNewYear) {
                     updates.status = 'draft';
                     updates.isCompleted = false;

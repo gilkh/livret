@@ -26,9 +26,17 @@ export default function AdminSettings() {
   const [backups, setBackups] = useState<{ name: string, size: number, date: string }[]>([])
   const [emptyClickCount, setEmptyClickCount] = useState(0)
 
+  const openSimulationLab = () => {
+    const token = sessionStorage.getItem('token') || localStorage.getItem('token')
+    const url = token ? `/simulation-lab?token=${encodeURIComponent(token)}` : '/simulation-lab'
+    window.open(url, '_blank', 'noopener,noreferrer')
+  }
+
   useEffect(() => {
     loadBackups()
   }, [])
+
+  
 
   const loadBackups = async () => {
     try {
@@ -176,6 +184,8 @@ export default function AdminSettings() {
     checkStatus()
   }, [])
 
+  
+
   useEffect(() => {
     if (msg) {
       const timer = setTimeout(() => setMsg(''), 3000)
@@ -217,6 +227,8 @@ export default function AdminSettings() {
       setSystemStatus({ backend: 'offline', database: 'unknown', uptime: 0 })
     }
   }
+
+  
 
   const saveSetting = async (key: string, value: any) => {
     try {
@@ -312,14 +324,42 @@ export default function AdminSettings() {
       </div>
 
       {msg && (
-        <div className="toast-message">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-green-500">
-            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
-            <polyline points="22 4 12 14.01 9 11.01"></polyline>
-          </svg>
-          <span>{msg}</span>
-        </div>
+        <>
+          <div className="toast-message">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-green-500">
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+              <polyline points="22 4 12 14.01 9 11.01"></polyline>
+            </svg>
+            <span>{msg}</span>
+          </div>
+        </>
       )}
+
+      <div className="settings-section">
+        <div className="section-header">
+          <div className="section-icon-wrapper" style={{ background: 'rgba(0, 184, 148, 0.1)', color: '#00b894' }}>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="3" width="7" height="7"></rect>
+              <rect x="14" y="3" width="7" height="7"></rect>
+              <rect x="14" y="14" width="7" height="7"></rect>
+              <rect x="3" y="14" width="7" height="7"></rect>
+            </svg>
+          </div>
+          <h2 className="section-title">Simulation Lab (Sandbox)</h2>
+        </div>
+
+        <div className="setting-item">
+          <div className="setting-info">
+            <h3>Ouvrir Simulation Lab</h3>
+            <p>Ouvre un nouvel onglet isolé pour démarrer le serveur sandbox et lancer les simulations.</p>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn primary" onClick={openSimulationLab}>
+              Ouvrir dans un nouvel onglet
+            </button>
+          </div>
+        </div>
+      </div>
 
       <div className="settings-grid">
 

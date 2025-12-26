@@ -11,6 +11,8 @@ const Enrollment_1 = require("../models/Enrollment");
 const TeacherClassAssignment_1 = require("../models/TeacherClassAssignment");
 const Class_1 = require("../models/Class");
 const SchoolYear_1 = require("../models/SchoolYear");
+const signatureService_1 = require("../services/signatureService");
+const rolloverService_1 = require("../services/rolloverService");
 exports.templateAssignmentsRouter = (0, express_1.Router)();
 // Admin: Assign template to all students in a level
 exports.templateAssignmentsRouter.post('/bulk-level', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
@@ -72,33 +74,50 @@ exports.templateAssignmentsRouter.post('/bulk-level', (0, auth_1.requireAuth)(['
             if (isBetterEnrollment(e, cur))
                 enrollmentByStudent.set(sid, e);
         }
+        const selectedStudentIds = Array.from(enrollmentByStudent.keys());
         const now = new Date();
         const assignedBy = req.user.userId;
+        const force = !!req.body.force;
         const ops = Array.from(enrollmentByStudent.values()).map((enrollment) => {
             const teachers = (enrollment.classId && teacherMap.get(enrollment.classId)) || [];
+            const setOnInsert = {
+                templateId,
+                studentId: enrollment.studentId,
+                status: 'draft',
+                completionSchoolYearId: String(targetYearId),
+                isCompleted: false,
+                completedAt: null,
+                completedBy: null,
+                isCompletedSem1: false,
+                completedAtSem1: null,
+                isCompletedSem2: false,
+                completedAtSem2: null,
+                teacherCompletions: [],
+                createdAt: now,
+                assignedBy,
+                assignedAt: now,
+            };
+            const setFields = {
+                templateVersion: template.currentVersion || 1,
+                assignedTeachers: teachers,
+            };
+            if (force) {
+                // When force:true we intentionally reset progress/status fields
+                const rolloverUpdate = (0, rolloverService_1.getRolloverUpdate)(String(targetYearId), assignedBy);
+                Object.assign(setFields, rolloverUpdate);
+                // Remove colliding fields from setOnInsert
+                Object.keys(rolloverUpdate).forEach(key => {
+                    delete setOnInsert[key];
+                });
+            }
+            else {
+                // Keep progress fields intact for existing assignments; assignedBy/assignedAt remain on insert only
+            }
+            const updateObj = { $setOnInsert: setOnInsert, $set: setFields };
             return {
                 updateOne: {
                     filter: { templateId, studentId: enrollment.studentId },
-                    update: {
-                        $set: {
-                            templateId,
-                            templateVersion: template.currentVersion || 1,
-                            studentId: enrollment.studentId,
-                            assignedTeachers: teachers,
-                            assignedBy,
-                            assignedAt: now,
-                            status: 'draft',
-                            completionSchoolYearId: String(targetYearId),
-                            isCompleted: false,
-                            completedAt: null,
-                            completedBy: null,
-                            isCompletedSem1: false,
-                            completedAtSem1: null,
-                            isCompletedSem2: false,
-                            completedAtSem2: null,
-                            teacherCompletions: [],
-                        },
-                    },
+                    update: updateObj,
                     upsert: true,
                 },
             };
@@ -106,9 +125,34 @@ exports.templateAssignmentsRouter.post('/bulk-level', (0, auth_1.requireAuth)(['
         const chunkSize = 1000;
         for (let i = 0; i < ops.length; i += chunkSize) {
             const chunk = ops.slice(i, i + chunkSize);
-            if (chunk.length)
+            if (!chunk.length)
+                continue;
+            try {
                 await TemplateAssignment_1.TemplateAssignment.bulkWrite(chunk, { ordered: false });
+            }
+            catch (e) {
+                const writeErrors = e?.writeErrors || [];
+                const hasNonDup = writeErrors.some((we) => (we?.code !== 11000));
+                // With a unique (templateId, studentId) index, concurrent upserts can produce
+                // duplicate-key errors; treat those as benign.
+                if (writeErrors.length > 0 && !hasNonDup) {
+                    // ignore
+                }
+                else {
+                    throw e;
+                }
+            }
         }
+        // If the carnet already exists from a previous year, roll it over to this year
+        // by stamping completionSchoolYearId and resetting year-bound workflow fields.
+        await TemplateAssignment_1.TemplateAssignment.updateMany({
+            templateId,
+            studentId: { $in: selectedStudentIds },
+            completionSchoolYearId: { $ne: String(targetYearId) }
+        }, {
+            $set: (0, rolloverService_1.getRolloverUpdate)(String(targetYearId), assignedBy),
+            $inc: { dataVersion: 1 }
+        });
         const count = ops.length;
         res.json({ count, message: `Assigned template to ${count} students` });
     }
@@ -189,14 +233,16 @@ exports.templateAssignmentsRouter.post('/', (0, auth_1.requireAuth)(['ADMIN']), 
                 return res.status(400).json({ error: 'no_active_year' });
             targetYearId = String(activeYear._id);
         }
-        // Create or update assignment
-        const assignment = await TemplateAssignment_1.TemplateAssignment.findOneAndUpdate({ templateId, studentId }, {
+        const existing = await TemplateAssignment_1.TemplateAssignment.findOne({ templateId, studentId })
+            .select('completionSchoolYearId')
+            .lean();
+        const yearChanged = !!existing && String(existing.completionSchoolYearId || '') !== String(targetYearId);
+        // Create or update assignment (respect existing progress unless force:true)
+        const forceSingle = !!req.body.force;
+        const assignedAt = new Date();
+        const setOnInsertSingle = {
             templateId,
-            templateVersion: template.currentVersion || 1,
             studentId,
-            assignedTeachers: teachersToAssign,
-            assignedBy: req.user.userId,
-            assignedAt: new Date(),
             status: 'draft',
             completionSchoolYearId: String(targetYearId),
             isCompleted: false,
@@ -207,8 +253,28 @@ exports.templateAssignmentsRouter.post('/', (0, auth_1.requireAuth)(['ADMIN']), 
             isCompletedSem2: false,
             completedAtSem2: null,
             teacherCompletions: [],
-        }, { upsert: true, new: true });
-        res.json(assignment);
+            createdAt: assignedAt,
+            assignedBy: req.user.userId,
+            assignedAt: assignedAt,
+        };
+        const setFieldsSingle = {
+            templateVersion: template.currentVersion || 1,
+            assignedTeachers: teachersToAssign,
+        };
+        const assignedBy = req.user.userId;
+        if (yearChanged && !forceSingle) {
+            Object.assign(setFieldsSingle, (0, rolloverService_1.getRolloverUpdate)(String(targetYearId), assignedBy));
+        }
+        if (forceSingle) {
+            const rolloverUpdate = (0, rolloverService_1.getRolloverUpdate)(String(targetYearId), assignedBy);
+            Object.assign(setFieldsSingle, rolloverUpdate);
+            // Remove colliding fields from setOnInsert
+            Object.keys(rolloverUpdate).forEach(key => {
+                delete setOnInsertSingle[key];
+            });
+        }
+        const assignment = await TemplateAssignment_1.TemplateAssignment.findOneAndUpdate({ templateId, studentId }, { $setOnInsert: setOnInsertSingle, $set: setFieldsSingle }, { upsert: true, new: true });
+        res.json(await (0, signatureService_1.populateSignatures)(assignment));
     }
     catch (e) {
         res.status(500).json({ error: 'create_failed', message: e.message });
@@ -230,7 +296,7 @@ exports.templateAssignmentsRouter.get('/student/:studentId', (0, auth_1.requireA
                 template,
             };
         });
-        res.json(result);
+        res.json(await (0, signatureService_1.populateSignatures)(result));
     }
     catch (e) {
         res.status(500).json({ error: 'fetch_failed', message: e.message });
@@ -256,7 +322,7 @@ exports.templateAssignmentsRouter.get('/teacher/:teacherId', (0, auth_1.requireA
                 student,
             };
         });
-        res.json(result);
+        res.json(await (0, signatureService_1.populateSignatures)(result));
     }
     catch (e) {
         res.status(500).json({ error: 'fetch_failed', message: e.message });
@@ -275,11 +341,18 @@ exports.templateAssignmentsRouter.patch('/:id/status', (0, auth_1.requireAuth)([
         const assignment = await TemplateAssignment_1.TemplateAssignment.findById(id).lean();
         if (!assignment)
             return res.status(404).json({ error: 'not_found' });
+        const activeYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
+        const activeSemester = activeYear?.activeSemester || 1;
         let newStatus = status;
         let teacherCompletions = assignment.teacherCompletions || [];
         let isCompleted = assignment.isCompleted;
         let completedAt = assignment.completedAt;
         let completedBy = assignment.completedBy;
+        let isCompletedSem1 = assignment.isCompletedSem1;
+        let completedAtSem1 = assignment.completedAtSem1;
+        let isCompletedSem2 = assignment.isCompletedSem2;
+        let completedAtSem2 = assignment.completedAtSem2;
+        const now = new Date();
         // Special handling for TEACHER role: only update their part
         if (user.role === 'TEACHER') {
             // Verify teacher is assigned
@@ -287,22 +360,48 @@ exports.templateAssignmentsRouter.patch('/:id/status', (0, auth_1.requireAuth)([
                 const isMarkingDone = status === 'completed';
                 // Update this teacher's completion status
                 teacherCompletions = teacherCompletions.filter((tc) => tc.teacherId !== user.userId);
-                teacherCompletions.push({
+                // Find previous completion entry to preserve other semester data if needed
+                const prevTc = (assignment.teacherCompletions || []).find((tc) => tc.teacherId === user.userId);
+                const newTc = {
                     teacherId: user.userId,
                     completed: isMarkingDone,
-                    completedAt: new Date()
-                });
+                    completedAt: isMarkingDone ? now : undefined,
+                    completedSem1: prevTc?.completedSem1,
+                    completedAtSem1: prevTc?.completedAtSem1,
+                    completedSem2: prevTc?.completedSem2,
+                    completedAtSem2: prevTc?.completedAtSem2
+                };
+                if (activeSemester === 1) {
+                    newTc.completedSem1 = isMarkingDone;
+                    newTc.completedAtSem1 = isMarkingDone ? now : undefined;
+                }
+                else {
+                    newTc.completedSem2 = isMarkingDone;
+                    newTc.completedAtSem2 = isMarkingDone ? now : undefined;
+                }
+                teacherCompletions.push(newTc);
                 // Check if ALL assigned teachers are done
-                // If assignedTeachers is empty, this returns true, which is acceptable
-                const allDone = assignment.assignedTeachers.every((tid) => teacherCompletions.some((tc) => tc.teacherId === tid && tc.completed));
+                const assignedTeachers = assignment.assignedTeachers || [];
+                const allDone = assignedTeachers.every((tid) => teacherCompletions.some((tc) => tc.teacherId === tid && tc.completed));
+                const allDoneSem1 = assignedTeachers.every((tid) => teacherCompletions.some((tc) => tc.teacherId === tid && tc.completedSem1));
+                const allDoneSem2 = assignedTeachers.every((tid) => teacherCompletions.some((tc) => tc.teacherId === tid && tc.completedSem2));
+                isCompletedSem1 = allDoneSem1;
+                if (allDoneSem1 && !completedAtSem1)
+                    completedAtSem1 = now;
+                if (!allDoneSem1)
+                    completedAtSem1 = undefined;
+                isCompletedSem2 = allDoneSem2;
+                if (allDoneSem2 && !completedAtSem2)
+                    completedAtSem2 = now;
+                if (!allDoneSem2)
+                    completedAtSem2 = undefined;
                 if (allDone) {
                     newStatus = 'completed';
                     isCompleted = true;
-                    completedAt = new Date();
+                    completedAt = now;
                     completedBy = user.userId; // Last one to complete
                 }
                 else {
-                    // If not all done, status should be in_progress
                     newStatus = 'in_progress';
                     isCompleted = false;
                     completedAt = undefined;
@@ -310,14 +409,39 @@ exports.templateAssignmentsRouter.patch('/:id/status', (0, auth_1.requireAuth)([
                 }
             }
         }
+        else {
+            // Admin override
+            if (status === 'completed') {
+                isCompleted = true;
+                completedAt = now;
+                completedBy = user.userId;
+                if (activeSemester === 1) {
+                    isCompletedSem1 = true;
+                    completedAtSem1 = now;
+                }
+                else {
+                    isCompletedSem2 = true;
+                    completedAtSem2 = now;
+                }
+            }
+            else if (status === 'in_progress' || status === 'draft') {
+                isCompleted = false;
+                completedAt = null;
+                completedBy = null;
+            }
+        }
         const updated = await TemplateAssignment_1.TemplateAssignment.findByIdAndUpdate(id, {
             status: newStatus,
             teacherCompletions,
             isCompleted,
             completedAt,
-            completedBy
+            completedBy,
+            isCompletedSem1,
+            completedAtSem1,
+            isCompletedSem2,
+            completedAtSem2
         }, { new: true });
-        res.json(updated);
+        res.json(await (0, signatureService_1.populateSignatures)(updated));
     }
     catch (e) {
         res.status(500).json({ error: 'update_failed', message: e.message });
@@ -363,6 +487,12 @@ exports.templateAssignmentsRouter.get('/', (0, auth_1.requireAuth)(['ADMIN']), a
             // We don't filter assignments by date if no year specified
         }
         const query = { ...dateFilter };
+        // Enforce "Current State Only" rule:
+        // If a specific year is requested, we ONLY return assignments that are actively working on that year.
+        // Historical data must be fetched from SavedGradebooks.
+        if (schoolYearId) {
+            query.completionSchoolYearId = schoolYearId;
+        }
         if (studentIds.length > 0) {
             query.studentId = { $in: studentIds };
         }
@@ -399,7 +529,7 @@ exports.templateAssignmentsRouter.get('/', (0, auth_1.requireAuth)(['ADMIN']), a
                 level: cls ? cls.level : ''
             };
         });
-        res.json(result);
+        res.json(await (0, signatureService_1.populateSignatures)(result));
     }
     catch (e) {
         res.status(500).json({ error: 'fetch_failed', message: e.message });

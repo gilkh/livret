@@ -21,6 +21,27 @@ schoolYearsRouter.get('/', requireAuth(['ADMIN', 'SUBADMIN', 'AEFE', 'TEACHER'])
   res.json(list)
 })
 
+schoolYearsRouter.post('/cleanup-test-year', requireAuth(['ADMIN']), async (req, res) => {
+  clearCache('school-years')
+
+  const active = await SchoolYear.findOne({ active: true }).lean()
+  const activeName = String((active as any)?.name || '')
+
+  if (active && /test/i.test(activeName)) {
+    await SchoolYear.updateMany({ _id: (active as any)._id }, { $set: { active: false } })
+  }
+
+  // Pick the most recent non-test year and activate it
+  const candidate = await SchoolYear.findOne({ name: { $not: /test/i } }).sort({ startDate: -1 }).lean()
+  if (candidate) {
+    await SchoolYear.updateMany({ _id: { $ne: (candidate as any)._id } }, { $set: { active: false } })
+    await SchoolYear.updateMany({ _id: (candidate as any)._id }, { $set: { active: true } })
+  }
+
+  const years = await SchoolYear.find({}).sort({ startDate: -1 }).lean()
+  res.json({ ok: true, before: activeName || null, activated: candidate ? String((candidate as any).name || '') : null, years })
+})
+
 schoolYearsRouter.post('/', requireAuth(['ADMIN', 'SUBADMIN']), async (req, res) => {
   const { name, startDate, endDate, active } = req.body
   if (!name || !startDate || !endDate) return res.status(400).json({ error: 'missing_payload' })

@@ -1,13 +1,46 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.schoolYearsRouter = void 0;
 const express_1 = require("express");
 const auth_1 = require("../auth");
 const SchoolYear_1 = require("../models/SchoolYear");
 const TemplateAssignment_1 = require("../models/TemplateAssignment");
-const SavedGradebook_1 = require("../models/SavedGradebook");
 const Enrollment_1 = require("../models/Enrollment");
 const Class_1 = require("../models/Class");
+const TemplateSignature_1 = require("../models/TemplateSignature");
 const Student_1 = require("../models/Student");
 const StudentCompetencyStatus_1 = require("../models/StudentCompetencyStatus");
 const cache_1 = require("../utils/cache");
@@ -15,6 +48,22 @@ exports.schoolYearsRouter = (0, express_1.Router)();
 exports.schoolYearsRouter.get('/', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', 'AEFE', 'TEACHER']), async (req, res) => {
     const list = await (0, cache_1.withCache)('school-years-all', () => SchoolYear_1.SchoolYear.find({}).sort({ startDate: -1 }).lean());
     res.json(list);
+});
+exports.schoolYearsRouter.post('/cleanup-test-year', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
+    (0, cache_1.clearCache)('school-years');
+    const active = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
+    const activeName = String(active?.name || '');
+    if (active && /test/i.test(activeName)) {
+        await SchoolYear_1.SchoolYear.updateMany({ _id: active._id }, { $set: { active: false } });
+    }
+    // Pick the most recent non-test year and activate it
+    const candidate = await SchoolYear_1.SchoolYear.findOne({ name: { $not: /test/i } }).sort({ startDate: -1 }).lean();
+    if (candidate) {
+        await SchoolYear_1.SchoolYear.updateMany({ _id: { $ne: candidate._id } }, { $set: { active: false } });
+        await SchoolYear_1.SchoolYear.updateMany({ _id: candidate._id }, { $set: { active: true } });
+    }
+    const years = await SchoolYear_1.SchoolYear.find({}).sort({ startDate: -1 }).lean();
+    res.json({ ok: true, before: activeName || null, activated: candidate ? String(candidate.name || '') : null, years });
 });
 exports.schoolYearsRouter.post('/', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN']), async (req, res) => {
     const { name, startDate, endDate, active } = req.body;
@@ -73,13 +122,16 @@ exports.schoolYearsRouter.post('/:id/archive', (0, auth_1.requireAuth)(['ADMIN']
     // 2. Find all enrollments for this year
     const enrollments = await Enrollment_1.Enrollment.find({ schoolYearId: id }).lean();
     const studentIds = enrollments.map(e => e.studentId);
-    // 3. Find all assignments for these students (filtered by date or just take all for now?)
-    // Ideally we should link assignments to school years, but currently they are linked to students.
-    // We can filter by assignedAt date range of the school year.
-    const assignments = await TemplateAssignment_1.TemplateAssignment.find({
+    const assignmentsForYear = await TemplateAssignment_1.TemplateAssignment.find({
         studentId: { $in: studentIds },
-        assignedAt: { $gte: year.startDate, $lte: year.endDate }
+        completionSchoolYearId: id,
     }).lean();
+    let assignments = assignmentsForYear;
+    if (assignments.length === 0) {
+        assignments = await TemplateAssignment_1.TemplateAssignment.find({
+            studentId: { $in: studentIds },
+        }).lean();
+    }
     // 4. Create SavedGradebooks
     let savedCount = 0;
     // Pre-fetch students
@@ -96,21 +148,24 @@ exports.schoolYearsRouter.post('/:id/archive', (0, auth_1.requireAuth)(['ADMIN']
         if (!student)
             continue;
         const statuses = await StudentCompetencyStatus_1.StudentCompetencyStatus.find({ studentId: assignment.studentId }).lean();
+        const signatures = await TemplateSignature_1.TemplateSignature.find({ templateAssignmentId: String(assignment._id) }).lean();
+        // Import createAssignmentSnapshot for versioning
+        const { createAssignmentSnapshot } = await Promise.resolve().then(() => __importStar(require('../services/rolloverService')));
         const snapshotData = {
             student: student,
             enrollment: enrollment,
             statuses: statuses,
             assignment: assignment,
-            className: cls.name
+            className: cls.name,
+            signatures: signatures,
+            signature: signatures.find((s) => s.type === 'standard') || null,
+            finalSignature: signatures.find((s) => s.type === 'end_of_year') || null,
         };
-        await SavedGradebook_1.SavedGradebook.create({
-            studentId: assignment.studentId,
+        await createAssignmentSnapshot(assignment, 'year_end', {
             schoolYearId: id,
             level: cls.level || 'Sans niveau',
             classId: enrollment.classId,
-            templateId: assignment.templateId,
-            data: snapshotData,
-            createdAt: new Date()
+            data: snapshotData
         });
         savedCount++;
     }

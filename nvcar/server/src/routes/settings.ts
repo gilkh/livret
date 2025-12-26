@@ -2,6 +2,7 @@ import { Router } from 'express'
 import mongoose from 'mongoose'
 import { requireAuth } from '../auth'
 import { Setting } from '../models/Setting'
+import { getSimulationSandboxDiagnostics, isSimulationSandbox } from '../utils/simulationSandbox'
 
 export const settingsRouter = Router()
 
@@ -12,6 +13,9 @@ settingsRouter.get('/status', requireAuth(['ADMIN']), async (req, res) => {
   res.json({
     backend: 'online',
     database: dbStatus,
+    databaseName: mongoose.connection?.db?.databaseName || null,
+    simulationSandbox: isSimulationSandbox(),
+    simulationSandboxDiagnostics: getSimulationSandboxDiagnostics(),
     uptime: process.uptime()
   })
 })

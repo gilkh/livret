@@ -450,7 +450,7 @@ exports.adminExtrasRouter.post('/templates/:templateAssignmentId/sign', (0, auth
     try {
         const adminId = req.user.userId;
         const { templateAssignmentId } = req.params;
-        const { type = 'standard' } = req.body;
+        const { type = 'standard', signaturePeriodId, signatureSchoolYearId } = req.body;
         const assignment = await TemplateAssignment_1.TemplateAssignment.findById(templateAssignmentId).lean();
         if (!assignment)
             return res.status(404).json({ error: 'not_found' });
@@ -481,7 +481,9 @@ exports.adminExtrasRouter.post('/templates/:templateAssignmentId/sign', (0, auth
                 type: type,
                 signatureUrl: activeSig ? activeSig.dataUrl : undefined,
                 req,
-                level: signatureLevel || undefined
+                level: signatureLevel || undefined,
+                signaturePeriodId,
+                signatureSchoolYearId
             });
             res.json(signature);
         }
@@ -614,30 +616,28 @@ exports.adminExtrasRouter.get('/templates/:templateAssignmentId/review', (0, aut
         res.status(500).json({ error: 'fetch_failed', message: e.message });
     }
 });
-// --- Server tests: list available test files ---
+// --- Server tests: list available test files (recursive) ---
 exports.adminExtrasRouter.get('/run-tests/list', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
     try {
-        const cwd = path_1.default.join(__dirname, '..', '..'); // server root
-        const testsDir = path_1.default.join(__dirname, '..', '__tests__');
-        const isTestFile = (f) => f.endsWith('.test.ts') || f.endsWith('.test.js') || f.endsWith('.spec.ts') || f.endsWith('.spec.js');
-        const walk = async (dir) => {
+        // Search recursively under server `src` for test files so we include nested suites
+        const startDir = path_1.default.join(__dirname, '..'); // server/src
+        const matches = [];
+        async function walk(dir) {
             const entries = await promises_1.default.readdir(dir, { withFileTypes: true });
-            const out = [];
-            for (const entry of entries) {
-                const full = path_1.default.join(dir, entry.name);
-                if (entry.isDirectory()) {
-                    out.push(...await walk(full));
+            for (const ent of entries) {
+                const p = path_1.default.join(dir, ent.name);
+                if (ent.isDirectory()) {
+                    await walk(p);
                 }
-                else if (entry.isFile() && isTestFile(entry.name)) {
-                    const rel = path_1.default.relative(cwd, full).split(path_1.default.sep).join('/');
-                    out.push(rel);
+                else if (ent.isFile() && (/\.(?:test|spec)\.[tj]s$/).test(ent.name)) {
+                    // return paths relative to server/src for client-friendly display
+                    matches.push(path_1.default.relative(startDir, p));
                 }
             }
-            return out;
-        };
-        const testFiles = await walk(testsDir);
-        testFiles.sort();
-        res.json({ tests: testFiles });
+        }
+        await walk(startDir);
+        matches.sort();
+        res.json({ tests: matches });
     }
     catch (e) {
         console.error('run-tests/list error', e);
@@ -646,25 +646,34 @@ exports.adminExtrasRouter.get('/run-tests/list', (0, auth_1.requireAuth)(['ADMIN
 });
 // --- Server tests: run tests (admin only) ---
 exports.adminExtrasRouter.post('/run-tests', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
-    const { pattern } = req.body || {};
+    const { pattern, patterns } = req.body || {};
     try {
+        const argsBase = ['--json', '--runInBand'];
+        const patternArgs = [];
+        const addPatterns = (p) => {
+            if (Array.isArray(p)) {
+                for (const it of p)
+                    if (typeof it === 'string' && it.trim())
+                        patternArgs.push(it);
+            }
+            else if (typeof p === 'string' && p.trim())
+                patternArgs.push(p);
+        };
+        addPatterns(patterns);
+        addPatterns(pattern);
         const cwd = path_1.default.join(__dirname, '..', '..'); // server root
-        const trimmedPattern = typeof pattern === 'string' ? pattern.trim() : '';
-        const shouldPassPattern = !!trimmedPattern;
+        // Try to prefer local node_modules binary if available, otherwise fallback to npx
         let cmd = 'npx';
-        let cmdArgs = ['jest', '--json', '--runInBand'];
+        let cmdArgs = ['jest', ...argsBase, ...patternArgs];
         try {
-            const jestJsPath = path_1.default.join(cwd, 'node_modules', 'jest', 'bin', 'jest.js');
-            await promises_1.default.access(jestJsPath);
-            cmd = process.execPath;
-            cmdArgs = [jestJsPath, '--json', '--runInBand'];
+            const jestPath = path_1.default.join(cwd, 'node_modules', '.bin', process.platform === 'win32' ? 'jest.cmd' : 'jest');
+            await promises_1.default.access(jestPath);
+            cmd = jestPath;
+            cmdArgs = [...argsBase, ...patternArgs];
         }
         catch (e) {
-            cmd = 'npx';
-            cmdArgs = ['jest', '--json', '--runInBand'];
+            // fallback stays as npx with args
         }
-        if (shouldPassPattern)
-            cmdArgs.push(trimmedPattern);
         // If we are still set to use 'npx' and it's not available on the system, return 501 with clear message
         if (cmd === 'npx') {
             try {
@@ -678,34 +687,29 @@ exports.adminExtrasRouter.post('/run-tests', (0, auth_1.requireAuth)(['ADMIN']),
             }
         }
         let responded = false;
-        const sendJson = (status, body) => {
-            if (responded)
-                return;
-            responded = true;
-            return res.status(status).json(body);
-        };
-        let proc;
-        try {
-            proc = (0, child_process_1.spawn)(cmd, cmdArgs, { cwd, env: { ...process.env, CI: 'true' } });
-        }
-        catch (err) {
-            return sendJson(500, { error: 'spawn_failed', message: String(err), cmd, cmdArgs });
-        }
+        const proc = (0, child_process_1.spawn)(cmd, cmdArgs, { cwd, env: { ...process.env, CI: 'true' }, shell: process.platform === 'win32' });
         let stdout = '';
         let stderr = '';
-        proc.stdout?.on('data', (d) => { stdout += String(d); });
-        proc.stderr?.on('data', (d) => { stderr += String(d); });
+        proc.stdout.on('data', (d) => { stdout += String(d); });
+        proc.stderr.on('data', (d) => { stderr += String(d); });
         proc.on('error', (err) => {
             console.error('run-tests spawn error', err);
-            return sendJson(500, { error: 'spawn_failed', message: String(err), cmd, cmdArgs });
+            // return a helpful error to client
+            if (responded || res.headersSent)
+                return;
+            responded = true;
+            return res.status(500).json({ error: 'spawn_failed', message: String(err) });
         });
         proc.on('close', (code) => {
+            if (responded || res.headersSent)
+                return;
+            responded = true;
             try {
                 const parsed = JSON.parse(stdout);
-                return sendJson(200, { ok: true, code, results: parsed, stdout, stderr });
+                return res.json({ ok: true, code, results: parsed, stdout, stderr });
             }
             catch (e) {
-                return sendJson(200, { ok: code === 0, code, stdout, stderr, parseError: String(e) });
+                return res.json({ ok: code === 0, code, stdout, stderr, parseError: String(e) });
             }
         });
     }

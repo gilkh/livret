@@ -47,10 +47,20 @@ import SubAdminSemesterRequest from './pages/SubAdminSemesterRequest'
 import SuggestionGradebookTemplates from './pages/SuggestionGradebookTemplates'
 import AdminMonitoring from './pages/AdminMonitoring'
 import SystemAlertBanner from './components/SystemAlertBanner'
+import SimulationLab from './pages/SimulationLab'
 
 const RequireAuth = ({ children }: { children: JSX.Element }) => {
-  const token = sessionStorage.getItem('token') || localStorage.getItem('token')
   const location = useLocation()
+
+  let token = sessionStorage.getItem('token') || localStorage.getItem('token')
+  if (!token) {
+    const params = new URLSearchParams(location.search || '')
+    const tokenParam = params.get('token')
+    if (tokenParam) {
+      sessionStorage.setItem('token', tokenParam)
+      token = tokenParam
+    }
+  }
 
   if (token) {
     return children
@@ -105,6 +115,14 @@ export default function App() {
           element={
             <RequireAuth>
               <AdminSettings />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/simulation-lab"
+          element={
+            <RequireAuth>
+              <SimulationLab />
             </RequireAuth>
           }
         />

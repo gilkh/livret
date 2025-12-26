@@ -8,6 +8,7 @@ const express_1 = require("express");
 const mongoose_1 = __importDefault(require("mongoose"));
 const auth_1 = require("../auth");
 const Setting_1 = require("../models/Setting");
+const simulationSandbox_1 = require("../utils/simulationSandbox");
 exports.settingsRouter = (0, express_1.Router)();
 exports.settingsRouter.get('/status', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
     const dbState = mongoose_1.default.connection.readyState;
@@ -15,6 +16,9 @@ exports.settingsRouter.get('/status', (0, auth_1.requireAuth)(['ADMIN']), async 
     res.json({
         backend: 'online',
         database: dbStatus,
+        databaseName: mongoose_1.default.connection?.db?.databaseName || null,
+        simulationSandbox: (0, simulationSandbox_1.isSimulationSandbox)(),
+        simulationSandboxDiagnostics: (0, simulationSandbox_1.getSimulationSandboxDiagnostics)(),
         uptime: process.uptime()
     });
 });

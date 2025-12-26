@@ -2231,7 +2231,7 @@ export default function TemplateBuilder() {
                             }}>
                               {b.props.label || 'Signature'}
                             </div>
-                          )} 
+                          )}
                           {b.type === 'promotion_info' && (
                             <div style={{
                               width: b.props.width || (b.props.field ? 150 : 300),
@@ -2274,10 +2274,8 @@ export default function TemplateBuilder() {
                                   || (activeYearId ? years.find(y => y._id === activeYearId) : null)
                                   || years.find(y => y.active)
                                 const m = selectedYear?.name?.match(/(\d{4})/)
-                                const currentYear = new Date().getFullYear()
-                                const month = new Date().getMonth()
-                                const baseStartYear = month >= 8 ? currentYear : currentYear - 1
-                                const startYear = m ? parseInt(m[1], 10) : baseStartYear
+                                if (!m) return null
+                                const startYear = parseInt(m[1], 10)
                                 const nextStart = startYear + 1
                                 const yearStr = `Next Year ${nextStart}/${nextStart + 1}`
 

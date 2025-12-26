@@ -30,16 +30,13 @@ describe('checkAndAssignTemplates sanitization', () => {
         // Use a different template ID so checkAndAssignTemplates will CREATE a new assignment from the default template
         const prevData = {
             language_toggle_abc: [{ code: 'en', label: 'EN', active: true }],
-            someTable: { rows: [{ active: true, val: 'x' }] },
+            table_someTable: { rows: [{ active: true, val: 'x' }] },
             signatures: [{ signer: 'T' }],
             promotions: { promoted: true }
         };
-        const otherTpl = await GradebookTemplate_1.GradebookTemplate.create({ name: 'other', pages: [], currentVersion: 1 });
-        await TemplateAssignment_1.TemplateAssignment.create({ templateId: String(otherTpl._id), studentId: String(student._id), completionSchoolYearId: String(active._id), assignedBy: 'u1', assignedAt: new Date('2025-10-01'), data: prevData });
-        // Create another student (peer) and give them the template used for assignment creation
+        await TemplateAssignment_1.TemplateAssignment.create({ templateId: String(tpl._id), studentId: String(student._id), completionSchoolYearId: String(active._id), assignedBy: 'u1', assignedAt: new Date('2025-10-01'), data: prevData });
+        // Create another student (peer) to ensure templateIds list can also come from peers
         const peer = await Student_1.Student.create({ firstName: 'Peer', lastName: 'P', dateOfBirth: new Date('2018-01-02'), logicalKey: 'P1' });
-        await GradebookTemplate_1.GradebookTemplate.create({ name: 'tpl-peer', pages: [], currentVersion: 1 });
-        // Give the peer the target template so it appears in templateIds
         await TemplateAssignment_1.TemplateAssignment.create({ templateId: String(tpl._id), studentId: String(peer._id), completionSchoolYearId: String(active._id), assignedBy: 'u1', assignedAt: new Date('2025-10-01'), data: {} });
         await Enrollment_1.Enrollment.create({ studentId: String(peer._id), classId: cls._id, schoolYearId: String(active._id), status: 'active' });
         // Now call checkAndAssignTemplates which should create a new assignment for the active year for the original student
@@ -53,11 +50,12 @@ describe('checkAndAssignTemplates sanitization', () => {
         // signatures and promotions removed
         expect(created.data.signatures).toBeUndefined();
         expect(created.data.promotions).toBeUndefined();
-        // active flags should be reset (either false or null)
+        // New behavior: Allowed fields are copied exactly (preserving preferences like active=true)
         const langItems = created.data.language_toggle_abc;
         expect(Array.isArray(langItems)).toBe(true);
-        expect(langItems[0].active === false || langItems[0].active === null).toBe(true);
-        // nested table row active should be reset
-        expect(created.data.someTable.rows[0].active === false || created.data.someTable.rows[0].active === null).toBe(true);
+        expect(langItems[0].active).toBe(true); // Was reset in old logic, now preserved
+        // Check allowlisted table field
+        expect(created.data.table_someTable).toBeDefined();
+        expect(created.data.table_someTable.rows[0].active).toBe(true); // Preserved
     });
 });

@@ -20,9 +20,13 @@ const initSocket = (httpServer) => {
             socket.leave(`template:${templateId}`);
             console.log(`Socket ${socket.id} left template:${templateId}`);
         });
-        socket.on('update-template', (data) => {
-            // Broadcast to everyone else in the room
-            socket.to(`template:${data.templateId}`).emit('template-updated', data.template);
+        socket.on('update-template', (data, ack) => {
+            // Broadcast to everyone else in the room and ack with a change id
+            const { generateChangeId } = require('../utils/changeId');
+            const changeId = generateChangeId();
+            socket.to(`template:${data.templateId}`).emit('template-updated', { template: data.template, changeId });
+            if (ack)
+                ack({ status: 'ok', changeId });
         });
         // Generic room support for assignments/gradebooks
         socket.on('join-room', (roomId) => {
@@ -33,8 +37,11 @@ const initSocket = (httpServer) => {
             socket.leave(roomId);
             console.log(`Socket ${socket.id} left room:${roomId}`);
         });
-        socket.on('broadcast-update', (data) => {
-            socket.to(data.roomId).emit('update-received', data.payload);
+        socket.on('broadcast-update', (data, ack) => {
+            const changeId = require('uuid').v4();
+            socket.to(data.roomId).emit('update-received', { ...data.payload, changeId });
+            if (ack)
+                ack({ status: 'ok', changeId });
         });
         socket.on('disconnect', () => {
             console.log('Client disconnected:', socket.id);

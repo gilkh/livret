@@ -16,6 +16,7 @@ const TeacherClassAssignment_1 = require("../../models/TeacherClassAssignment");
 const SubAdminAssignment_1 = require("../../models/SubAdminAssignment");
 const RoleScope_1 = require("../../models/RoleScope");
 const TemplateAssignment_1 = require("../../models/TemplateAssignment");
+const SavedGradebook_1 = require("../../models/SavedGradebook");
 let app;
 describe('subadmin promote edge cases', () => {
     beforeAll(async () => {
@@ -115,5 +116,39 @@ describe('subadmin promote edge cases', () => {
         expect(updatedCurrent?.status).toBe('promoted');
         const createdNext = await Enrollment_1.Enrollment.findOne({ studentId: String(student._id), schoolYearId: String(nextSy._id), status: 'active' }).lean();
         expect(createdNext).toBeDefined();
+    });
+    it('promotion is atomic when a downstream update fails (rollback attempts)', async () => {
+        const sub = await User_1.User.create({ email: 'sub-atomic', role: 'SUBADMIN', displayName: 'SubAtomic', passwordHash: 'hash' });
+        const teacher = await User_1.User.create({ email: 'tea-atomic', role: 'TEACHER', displayName: 'TeacherAtomic', passwordHash: 'hash' });
+        const sy = await SchoolYear_1.SchoolYear.create({ name: 'AtomicY', active: true, activeSemester: 2, startDate: new Date('2024-09-01'), endDate: new Date('2025-07-01'), sequence: 10 });
+        const nextSy = await SchoolYear_1.SchoolYear.create({ name: 'AtomicNext', startDate: new Date('2025-09-01'), endDate: new Date('2026-07-01'), sequence: 11 });
+        const cls = await Class_1.ClassModel.create({ name: 'ClassAtomic', level: 'MS', schoolYearId: String(sy._id) });
+        await TeacherClassAssignment_1.TeacherClassAssignment.create({ teacherId: String(teacher._id), classId: String(cls._id), schoolYearId: String(sy._id), assignedBy: String(sub._id) });
+        await SubAdminAssignment_1.SubAdminAssignment.create({ subAdminId: String(sub._id), teacherId: String(teacher._id), assignedBy: String(sub._id) });
+        const student = await Student_1.Student.create({ firstName: 'Atomic', lastName: 'User', dateOfBirth: new Date('2018-05-01'), logicalKey: 'AT1' });
+        const currentEnrollment = await Enrollment_1.Enrollment.create({ studentId: String(student._id), classId: String(cls._id), schoolYearId: String(sy._id), status: 'active' });
+        const tpl = await GradebookTemplate_1.GradebookTemplate.create({ name: 'tpl-atomic', pages: [], currentVersion: 1 });
+        const assignment = await TemplateAssignment_1.TemplateAssignment.create({ templateId: String(tpl._id), studentId: String(student._id), status: 'completed', isCompleted: true, isCompletedSem2: true, assignedBy: String(sub._id) });
+        const subToken = (0, auth_1.signToken)({ userId: String(sub._id), role: 'SUBADMIN' });
+        const signRes = await request(app).post(`/subadmin/templates/${assignment._id}/sign`).set('Authorization', `Bearer ${subToken}`).send({ type: 'end_of_year' });
+        expect(signRes.status).toBe(200);
+        // Simulate failure during student update
+        const orig = Student_1.Student.findByIdAndUpdate;
+        Student_1.Student.findByIdAndUpdate = async () => { throw new Error('boom'); };
+        const promoteRes = await request(app).post(`/subadmin/templates/${assignment._id}/promote`).set('Authorization', `Bearer ${subToken}`).send({ nextLevel: 'GS' });
+        expect(promoteRes.status).toBeGreaterThanOrEqual(500);
+        // No SavedGradebook should exist for this student and year
+        const saved = await SavedGradebook_1.SavedGradebook.find({ studentId: String(student._id), schoolYearId: String(sy._id) }).lean();
+        expect(saved.length).toBe(0);
+        // Enrollment should remain active
+        const freshEnroll = await Enrollment_1.Enrollment.findById(String(currentEnrollment._id)).lean();
+        expect(freshEnroll?.status).toBe('active');
+        // Student promotions unchanged
+        const freshStudent = await Student_1.Student.findById(String(student._id)).lean();
+        expect(Array.isArray(freshStudent.promotions) ? freshStudent.promotions.length : 0).toBe(0);
+        // Assignment data should not have promotions appended
+        const freshAssignment = await TemplateAssignment_1.TemplateAssignment.findById(String(assignment._id)).lean();
+        expect(freshAssignment.data && freshAssignment.data.promotions ? freshAssignment.data.promotions.length : 0).toBe(0);
+        Student_1.Student.findByIdAndUpdate = orig;
     });
 });

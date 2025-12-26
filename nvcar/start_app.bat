@@ -1,4 +1,29 @@
 @echo off
+setlocal
+
+:: Ensure we run from the directory of this script (nvcar\)
+cd /d "%~dp0"
+
+:: Basic sanity checks
+where npm >nul 2>&1
+if %ERRORLEVEL% neq 0 (
+    echo ERROR: npm not found in PATH. Please install Node.js and reopen your terminal.
+    pause
+    exit /b 1
+)
+
+if not exist "server\package.json" (
+    echo ERROR: Could not find server\package.json. Make sure you are running this from the nvcar folder.
+    pause
+    exit /b 1
+)
+
+if not exist "client\package.json" (
+    echo ERROR: Could not find client\package.json. Make sure you are running this from the nvcar folder.
+    pause
+    exit /b 1
+)
+
 echo ========================================
 echo   Starting NVCAR Application...
 echo ========================================
@@ -31,6 +56,31 @@ echo.
 
 :: Start Server
 echo [4/6] Starting backend server...
+:: Ensure normal app is not started in sandbox mode (override any global env vars)
+set SIMULATION_SANDBOX=
+set SIMULATION_SANDBOX_MARKER=
+
+:: Ensure normal app does not connect to a sandbox/test database by accident
+if defined MONGODB_URI (
+    echo %MONGODB_URI% | findstr /I "sandbox test" >nul
+    if %ERRORLEVEL% equ 0 (
+        echo WARNING: MONGODB_URI points to a sandbox/test DB. Clearing it for normal startup.
+        set MONGODB_URI=
+    )
+)
+if defined MONGO_URI (
+    echo %MONGO_URI% | findstr /I "sandbox test" >nul
+    if %ERRORLEVEL% equ 0 (
+        echo WARNING: MONGO_URI points to a sandbox/test DB. Clearing it for normal startup.
+        set MONGO_URI=
+    )
+)
+if not exist "server\dist\index.js" (
+    echo       Build not found: server\dist\index.js. Building backend once...
+    pushd server
+    call npm run build
+    popd
+)
 start "NVCAR Server" cmd /k "cd server && npm run dev"
 
 :: Wait for server to be ready (health check loop)
@@ -69,6 +119,8 @@ goto health_check_loop
 :start_client
 echo.
 echo [6/6] Starting frontend client...
+:: Ensure normal UI uses the normal backend via Vite proxy (override any global env vars)
+set VITE_API_URL=
 start "NVCAR Client" cmd /k "cd client && npm run dev -- --host"
 
 :: Wait for client to initialize before opening browser

@@ -10,6 +10,10 @@ const templateChangeLogSchema = new mongoose_1.Schema({
     pageIndex: { type: Number, required: true },
     before: { type: mongoose_1.Schema.Types.Mixed },
     after: { type: mongoose_1.Schema.Types.Mixed },
+    // New metadata for concurrency and auditing
+    changeId: { type: String, required: true, index: true },
+    dataVersion: { type: Number, required: true, index: true },
+    userId: { type: String },
     timestamp: { type: Date, default: () => new Date() },
 });
 // Index for quick lookup of changes by assignment

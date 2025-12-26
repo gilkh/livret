@@ -12,7 +12,13 @@ const connectDb = async () => {
     if (isConnecting)
         return;
     isConnecting = true;
-    const uri = process.env.MONGO_URI || 'mongodb://localhost:27017/nvcarn';
+    const uri = process.env.MONGO_URI || process.env.MONGODB_URI || 'mongodb://localhost:27017/nvcar';
+    const uriLower = String(uri || '').toLowerCase();
+    const sandboxFlag = String(process.env.SIMULATION_SANDBOX || '').toLowerCase() === 'true';
+    if (!sandboxFlag && (uriLower.includes('sandbox') || uriLower.includes('test'))) {
+        isConnecting = false;
+        throw new Error('Refusing to connect to sandbox/test database without SIMULATION_SANDBOX=true');
+    }
     try {
         await mongoose_1.default.connect(uri, {
             serverSelectionTimeoutMS: 5000,

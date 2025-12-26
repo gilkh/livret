@@ -96,71 +96,20 @@ const resolveSignatureSchoolYearWithPeriod = async (
 ): Promise<{ schoolYearId: string | undefined; schoolYearName: string; signaturePeriodId: string }> => {
     // If no active year, we cannot reliably determine signaturePeriodId
     if (!activeYear) {
-        const currentYear = now.getFullYear()
-        const month = now.getMonth()
-        const startYear = month >= 8 ? currentYear : currentYear - 1
-        // Generate a fallback period ID using date-based approach
-        const fallbackYearName = type === 'end_of_year'
-            ? `${startYear + 1}/${startYear + 2}`
-            : `${startYear}/${startYear + 1}`
-        const periodType: SignaturePeriodType = type === 'end_of_year' ? 'end_of_year' : 'sem1'
-        // Use the fallback year name as part of the period ID since we don't have a real school year ID
-        const signaturePeriodId = `fallback_${startYear}_${periodType}`
-        return { schoolYearId: undefined, schoolYearName: fallbackYearName, signaturePeriodId }
+        return { schoolYearId: undefined, schoolYearName: '', signaturePeriodId: '' }
     }
 
     const activeYearId = String(activeYear._id)
+    const schoolYearName = String(activeYear.name || '')
 
-    if (type !== 'end_of_year') {
-        const periodType: SignaturePeriodType = 'sem1'
-        const signaturePeriodId = computeSignaturePeriodId(activeYearId, periodType)
-        return {
-            schoolYearId: activeYearId,
-            schoolYearName: String(activeYear.name || ''),
-            signaturePeriodId
-        }
-    }
-
-    // For end_of_year, determine the target year and compute period ID
-    let nextYear: any | null = null
-
-    if (activeYear.sequence && Number(activeYear.sequence) > 0) {
-        nextYear = await SchoolYear.findOne({ sequence: Number(activeYear.sequence) + 1 }).lean()
-    }
-
-    if (!nextYear) {
-        const allYears = await SchoolYear.find({}).sort({ startDate: 1 }).lean()
-        const idx = allYears.findIndex(y => String(y._id) === String(activeYear._id))
-        if (idx >= 0 && idx < allYears.length - 1) nextYear = allYears[idx + 1]
-    }
-
-    // End-of-year signature period is tied to the current active year
-    const signaturePeriodId = computeSignaturePeriodId(activeYearId, 'end_of_year')
-
-    if (nextYear) {
-        return {
-            schoolYearId: String(nextYear._id),
-            schoolYearName: String(nextYear.name || ''),
-            signaturePeriodId
-        }
-    }
-
-    const computedName = computeYearNameFromRange(String(activeYear.name || ''), 1)
-    if (computedName) {
-        const found = await SchoolYear.findOne({ name: computedName }).lean()
-        if (found) {
-            return {
-                schoolYearId: String(found._id),
-                schoolYearName: String(found.name || computedName),
-                signaturePeriodId
-            }
-        }
-        return { schoolYearId: undefined, schoolYearName: computedName, signaturePeriodId }
-    }
+    // For both standard and end_of_year, the signature belongs to the active school year session.
+    // The signaturePeriodId (e.g. '...-sem1' vs '...-end_of_year') distinguishes them.
+    const periodType: SignaturePeriodType = type === 'end_of_year' ? 'end_of_year' : 'sem1'
+    const signaturePeriodId = computeSignaturePeriodId(activeYearId, periodType)
 
     return {
         schoolYearId: activeYearId,
-        schoolYearName: String(activeYear.name || ''),
+        schoolYearName,
         signaturePeriodId
     }
 }
@@ -203,7 +152,7 @@ export async function populateSignatures(assignments: any[] | any) {
 
     const ids = list.map((a: any) => String(a._id))
     const signatures = await TemplateSignature.find({ templateAssignmentId: { $in: ids } }).lean()
-    
+
     const sigMap = new Map<string, any[]>()
     signatures.forEach(s => {
         const key = String(s.templateAssignmentId)
@@ -244,7 +193,7 @@ export async function validateSignatureAuthorization(
         ...(schoolYearId ? { schoolYearId } : {})
     }).lean()
     const classIds = enrollments.map(e => e.classId).filter(Boolean)
-    
+
     if (classIds.length > 0) {
         // Check if subadmin manages any teacher of these classes
         const teacherClassAssignments = await TeacherClassAssignment.find({
@@ -252,9 +201,9 @@ export async function validateSignatureAuthorization(
             ...(schoolYearId ? { schoolYearId } : {})
         }).select('teacherId').lean()
         const teacherIds = teacherClassAssignments.map(t => t.teacherId)
-        
+
         if (teacherIds.length > 0) {
-             const classMatch = await SubAdminAssignment.exists({
+            const classMatch = await SubAdminAssignment.exists({
                 subAdminId,
                 teacherId: { $in: teacherIds }
             })
@@ -275,14 +224,14 @@ export async function validateSignatureAuthorization(
     // If user promoted the student recently, they might have access
     const student = await Student.findById(assignment.studentId).select('promotions').lean()
     if (student && Array.isArray((student as any).promotions) && (student as any).promotions.length > 0) {
-         const lastPromotion = (student as any).promotions.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]
-         if (
+        const lastPromotion = (student as any).promotions.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]
+        if (
             lastPromotion &&
             String(lastPromotion.promotedBy) === String(subAdminId) &&
             (!schoolYearId || String(lastPromotion.schoolYearId || '') === String(schoolYearId))
-         ) {
-             return true
-         }
+        ) {
+            return true
+        }
     }
 
     return false
@@ -352,7 +301,7 @@ export const signTemplateAssignment = async ({
     const now = new Date()
     let signaturePeriodId = explicitSignaturePeriodId
     let schoolYearId = explicitSchoolYearId
-    
+
     // Ensure we have a valid period id
     if (!signaturePeriodId) {
         throw new Error('cannot_resolve_signature_period')
@@ -420,21 +369,21 @@ export const signTemplateAssignment = async ({
             } catch (e: any) {
                 const msg = String(e?.message || '')
                 if (msg.includes('Transaction numbers are only allowed')) {
-                     try { await session.abortTransaction() } catch (err) { }
-                     usedTransaction = false
+                    try { await session.abortTransaction() } catch (err) { }
+                    usedTransaction = false
                 } else {
                     if (isDuplicateKeyError(e) || msg.includes('already_signed')) {
                         try { await session.abortTransaction() } catch (err) { }
                         await handleDuplicateKeyConflict(templateAssignmentId, type, signaturePeriodId, level)
                     }
-                    
+
                     // If transaction failed but it wasn't a duplicate key, abort and rethrow
                     try { await session.abortTransaction() } catch (err) { }
                     throw e
                 }
             }
         }
-        
+
         if (!usedTransaction) {
             // Fallback: no transactions (for tests/local)
             // Still respecting single source of truth
@@ -485,7 +434,7 @@ export const signTemplateAssignment = async ({
                 }
                 // Cleanup if created but subsequent steps failed (unlikely here since we only create one doc now)
                 if (signature) {
-                     try { await TemplateSignature.deleteOne({ _id: signature._id }) } catch (err) {}
+                    try { await TemplateSignature.deleteOne({ _id: signature._id }) } catch (err) { }
                 }
                 throw e
             }
@@ -631,7 +580,7 @@ export const unsignTemplateAssignment = async ({
                 }
             }
         }
-        
+
         if (!usedTransaction) {
             // Fallback: no transactions
             try {

@@ -652,7 +652,7 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote', require
             ...(activeSchoolYear ? { schoolYearId: String(activeSchoolYear._id) } : {}),
             $or: [{ status: 'active' }, { status: 'promoted' }, { status: { $exists: false } }]
         }).lean()
-        let yearName = activeSchoolYear?.name || new Date().getFullYear().toString()
+        let yearName = activeSchoolYear?.name || ''
         let currentLevel = student.level || ''
         let currentSchoolYearId = activeSchoolYear ? String(activeSchoolYear._id) : ''
         let currentSchoolYearSequence = activeSchoolYear?.sequence || 0
@@ -839,12 +839,12 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote', require
 
                     const rolloverUpdate = getRolloverUpdate(nextSchoolYearId, subAdminId)
 
-                    await TemplateAssignment.findByIdAndUpdate(templateAssignmentId, 
-                        { 
-                            $push: { 'data.promotions': promotionData }, 
+                    await TemplateAssignment.findByIdAndUpdate(templateAssignmentId,
+                        {
+                            $push: { 'data.promotions': promotionData },
                             $inc: { dataVersion: 1 },
                             $set: rolloverUpdate
-                        }, 
+                        },
                         { new: true }
                     )
                 } catch (err) {
@@ -921,35 +921,35 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote', require
 
                     const rolloverUpdate = getRolloverUpdate(nextSchoolYearId, subAdminId)
 
-                    await TemplateAssignment.findByIdAndUpdate(templateAssignmentId, 
-                        { 
-                            $push: { 'data.promotions': promotionData }, 
+                    await TemplateAssignment.findByIdAndUpdate(templateAssignmentId,
+                        {
+                            $push: { 'data.promotions': promotionData },
                             $inc: { dataVersion: 1 },
                             $set: rolloverUpdate
-                        }, 
+                        },
                         { new: true, session }
                     )
 
                     await session.commitTransaction()
-                } catch (e:any) {
+                } catch (e: any) {
                     const msg = String(e?.message || '')
                     if (msg.includes('Transaction numbers are only allowed')) {
-                        try { await session.abortTransaction() } catch (err) {}
+                        try { await session.abortTransaction() } catch (err) { }
                         // Fallback to non-transactional flow
                         await runNonTransactionalFlow()
                     } else {
-                        try { await session.abortTransaction() } catch (err) {}
+                        try { await session.abortTransaction() } catch (err) { }
                         throw e
                     }
                 }
             } else {
                 await runNonTransactionalFlow()
             }
-        } catch (e:any) {
+        } catch (e: any) {
             console.error('Promotion error:', e)
             return res.status(500).json({ error: 'promotion_failed', message: e.message })
         } finally {
-            try { if (typeof session !== 'undefined') session.endSession() } catch (e) {}
+            try { if (typeof session !== 'undefined') session.endSession() } catch (e) { }
         }
 
 
@@ -1379,38 +1379,30 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
             const match = resolveSchoolYearForDate(date)
             if (match?.name) return String(match.name)
 
-            if (!date) return ''
-            const d = new Date(date)
-            if (!Number.isFinite(d.getTime())) return ''
-            const year = d.getFullYear()
-            const month = d.getMonth()
-            const startYear = month >= 8 ? year : year - 1
-            return `${startYear}/${startYear + 1}`
+            return ''
         }
 
         const resolveSignatureSchoolYearName = (sig: any) => {
-            const base = resolveSchoolYearName(sig?.signedAt)
             const t = String(sig?.type || 'standard')
-            if (t !== 'end_of_year') return base
 
-            const byDate = resolveSchoolYearForDate(sig?.signedAt)
-            if (byDate?.sequence && Number(byDate.sequence) > 0) {
-                const next = allSchoolYears.find((y: any) => Number(y.sequence) === Number(byDate.sequence) + 1)
-                if (next?.name) return String(next.name)
+            // 1. Get the year and next year from the date-based context
+            const dateYearName = resolveSchoolYearName(sig?.signedAt)
+            const nextDateYearName = dateYearName ? computeYearNameFromRange(dateYearName, 1) : ''
+
+            // 2. Get the pinned year name from schoolYearId if it exists
+            let pinnedYearName = ''
+            if (sig?.schoolYearId) {
+                const match = allSchoolYears.find(y => String(y._id) === String(sig.schoolYearId))
+                if (match?.name) pinnedYearName = String(match.name)
             }
 
-            const ordered = [...(allSchoolYears || [])].sort((a: any, b: any) => {
-                return new Date(a.startDate || 0).getTime() - new Date(b.startDate || 0).getTime()
-            })
-            const idx = byDate ? ordered.findIndex((y: any) => String(y._id) === String(byDate._id)) : -1
-            if (idx >= 0 && idx < ordered.length - 1 && ordered[idx + 1]?.name) {
-                return String(ordered[idx + 1].name)
+            // Normalization: If it's a legacy end_of_year signature with pinnedYearName pointing 
+            // to exactly 1 year after the signature date, revert it to the date (Source Year).
+            if (t === 'end_of_year' && pinnedYearName && pinnedYearName === nextDateYearName) {
+                return dateYearName
             }
 
-            const computed = computeYearNameFromRange(base, 1)
-            if (computed) return computed
-
-            return base
+            return pinnedYearName || dateYearName || ''
         }
 
         const existingDataSignatures = Array.isArray((assignment as any).data?.signatures)

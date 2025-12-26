@@ -1,4 +1,40 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.studentsRouter = void 0;
 const express_1 = require("express");
@@ -13,10 +49,12 @@ const SavedGradebook_1 = require("../models/SavedGradebook");
 const GradebookTemplate_1 = require("../models/GradebookTemplate");
 const TemplateSignature_1 = require("../models/TemplateSignature");
 const Level_1 = require("../models/Level");
+const Setting_1 = require("../models/Setting");
 const auditLogger_1 = require("../utils/auditLogger");
 const auth_1 = require("../auth");
 const templateUtils_1 = require("../utils/templateUtils");
 const cache_1 = require("../utils/cache");
+const mongoose_1 = __importDefault(require("mongoose"));
 exports.studentsRouter = (0, express_1.Router)();
 exports.studentsRouter.get('/', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', 'TEACHER']), async (req, res) => {
     const { schoolYearId } = req.query;
@@ -64,6 +102,57 @@ exports.studentsRouter.get('/', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', 'T
         };
     });
     res.json(out);
+});
+// Create a snapshot for a student (e.g. Sem1, Exit, Transfer)
+exports.studentsRouter.post('/:id/snapshot', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN']), async (req, res) => {
+    const { id } = req.params;
+    const { reason } = req.body;
+    if (!['sem1', 'exit', 'transfer', 'manual'].includes(reason)) {
+        return res.status(400).json({ error: 'invalid_reason' });
+    }
+    try {
+        const student = await Student_1.Student.findById(id).lean();
+        if (!student)
+            return res.status(404).json({ error: 'student_not_found' });
+        const activeYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
+        if (!activeYear)
+            return res.status(400).json({ error: 'no_active_year' });
+        const enrollment = await Enrollment_1.Enrollment.findOne({ studentId: id, schoolYearId: activeYear._id, status: 'active' }).lean();
+        if (!enrollment)
+            return res.status(400).json({ error: 'not_enrolled' });
+        const assignment = await TemplateAssignment_1.TemplateAssignment.findOne({ studentId: id }).lean();
+        if (!assignment)
+            return res.status(404).json({ error: 'assignment_not_found' });
+        const cls = enrollment.classId ? await Class_1.ClassModel.findById(enrollment.classId).lean() : null;
+        // Gather snapshot data
+        const statuses = await StudentCompetencyStatus_1.StudentCompetencyStatus.find({ studentId: id }).lean();
+        const signatures = await TemplateSignature_1.TemplateSignature.find({ templateAssignmentId: String(assignment._id) }).lean();
+        const snapshotData = {
+            student: student,
+            enrollment: enrollment,
+            statuses: statuses,
+            assignment: assignment,
+            className: cls ? cls.name : '',
+            signatures: signatures,
+            signature: signatures.find((s) => s.type === 'standard') || null,
+            finalSignature: signatures.find((s) => s.type === 'end_of_year') || null,
+        };
+        const { createAssignmentSnapshot } = await Promise.resolve().then(() => __importStar(require('../services/rolloverService')));
+        await createAssignmentSnapshot(assignment, reason, {
+            schoolYearId: String(activeYear._id),
+            level: cls?.level || 'Sans niveau',
+            classId: enrollment.classId || undefined,
+            data: snapshotData
+        });
+        // If reason is exit or transfer, update enrollment status
+        if (reason === 'exit') {
+            await Enrollment_1.Enrollment.findByIdAndUpdate(enrollment._id, { status: 'left' });
+        }
+        res.json({ ok: true });
+    }
+    catch (e) {
+        res.status(500).json({ error: 'snapshot_failed', message: e.message });
+    }
 });
 exports.studentsRouter.get('/unassigned/export/:schoolYearId', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN']), async (req, res) => {
     const { schoolYearId } = req.params;
@@ -402,7 +491,10 @@ exports.studentsRouter.post('/:studentId/promote', (0, auth_1.requireAuth)(['ADM
         if (!calculatedNextLevel) {
             const currentLevelDoc = await (0, cache_1.withCache)(`level-name-${currentLevel}`, () => Level_1.Level.findOne({ name: currentLevel }).lean());
             if (currentLevelDoc) {
-                const nextLevelDoc = await (0, cache_1.withCache)(`level-order-${currentLevelDoc.order + 1}`, () => Level_1.Level.findOne({ order: currentLevelDoc.order + 1 }).lean());
+                // Fix: Support gaps in levels by searching for the first level with order > current
+                const nextLevelDoc = await Level_1.Level.findOne({ order: { $gt: currentLevelDoc.order } })
+                    .sort({ order: 1 })
+                    .lean();
                 if (nextLevelDoc) {
                     calculatedNextLevel = nextLevelDoc.name;
                 }
@@ -442,99 +534,178 @@ exports.studentsRouter.post('/:studentId/promote', (0, auth_1.requireAuth)(['ADM
         if (!nextSchoolYearId) {
             return res.status(400).json({ error: 'no_next_year', message: 'Next school year not found' });
         }
-        const assignment = await TemplateAssignment_1.TemplateAssignment.findOne({
-            studentId: student._id,
-            schoolYearId: currentSchoolYearId
-        });
-        if (currentSchoolYearId && enrollment) {
-            const statuses = await StudentCompetencyStatus_1.StudentCompetencyStatus.find({ studentId: student._id }).lean();
-            let signatures = [];
-            let templateId = assignment?.templateId;
-            let templateData = null;
-            if (assignment) {
-                signatures = await TemplateSignature_1.TemplateSignature.find({
-                    templateAssignmentId: assignment._id
-                }).lean();
-                if (assignment.templateId) {
-                    const template = await GradebookTemplate_1.GradebookTemplate.findById(assignment.templateId).lean();
-                    if (template) {
-                        templateData = template;
-                        if (assignment.templateVersion && template.versionHistory) {
-                            const version = template.versionHistory.find((v) => v.version === assignment.templateVersion);
-                            if (version) {
-                                templateData = {
-                                    ...template,
-                                    pages: version.pages,
-                                    variables: version.variables || {},
-                                    watermark: version.watermark
-                                };
+        // Continuous carnet model: TemplateAssignment does not have schoolYearId.
+        // Prefer an assignment stamped with this school year; otherwise fall back to the most recent.
+        let assignment = await TemplateAssignment_1.TemplateAssignment.findOne({
+            studentId: String(student._id),
+            completionSchoolYearId: currentSchoolYearId
+        }).sort({ assignedAt: -1 });
+        if (!assignment) {
+            assignment = await TemplateAssignment_1.TemplateAssignment.findOne({ studentId: String(student._id) })
+                .sort({ assignedAt: -1 });
+        }
+        // Wrap promotion-related DB updates in a transaction to ensure atomicity
+        const session = await mongoose_1.default.startSession();
+        let usedTransaction = true;
+        let promotion = null;
+        try {
+            try {
+                session.startTransaction();
+            }
+            catch (e) {
+                usedTransaction = false;
+            }
+            if (currentSchoolYearId && enrollment) {
+                const statuses = await StudentCompetencyStatus_1.StudentCompetencyStatus.find({ studentId: student._id }).lean();
+                let signatures = [];
+                let templateId = assignment?.templateId;
+                let templateData = null;
+                if (assignment && assignment._id) {
+                    signatures = await TemplateSignature_1.TemplateSignature.find({ templateAssignmentId: assignment._id }).lean();
+                    if (assignment.templateId) {
+                        const template = await GradebookTemplate_1.GradebookTemplate.findById(assignment.templateId).lean();
+                        if (template) {
+                            templateData = template;
+                            if (assignment.templateVersion && template.versionHistory) {
+                                const version = template.versionHistory.find((v) => v.version === assignment.templateVersion);
+                                if (version) {
+                                    templateData = {
+                                        ...template,
+                                        pages: version.pages,
+                                        variables: version.variables || {},
+                                        watermark: version.watermark
+                                    };
+                                }
                             }
                         }
                     }
                 }
+                // Only create a SavedGradebook if we actually have an assignment and templateId (self-contained snapshot)
+                if (assignment && assignment._id && templateId) {
+                    const snapshotData = {
+                        student: student.toObject ? student.toObject() : student,
+                        enrollment: enrollment,
+                        statuses: statuses,
+                        assignment: assignment.toObject ? assignment.toObject() : assignment,
+                        signatures: signatures,
+                        template: templateData
+                    };
+                    if (usedTransaction) {
+                        await new SavedGradebook_1.SavedGradebook({
+                            studentId: student._id,
+                            schoolYearId: currentSchoolYearId,
+                            level: currentLevel || 'Sans niveau',
+                            classId: enrollment.classId,
+                            templateId: templateId,
+                            data: snapshotData
+                        }).save({ session });
+                    }
+                    else {
+                        await SavedGradebook_1.SavedGradebook.create({
+                            studentId: student._id,
+                            schoolYearId: currentSchoolYearId,
+                            level: currentLevel || 'Sans niveau',
+                            classId: enrollment.classId,
+                            templateId: templateId,
+                            data: snapshotData
+                        });
+                    }
+                }
             }
-            const snapshotData = {
-                student: student.toObject ? student.toObject() : student,
-                enrollment: enrollment,
-                statuses: statuses,
-                assignment: assignment?.toObject ? assignment.toObject() : assignment,
-                signatures: signatures,
-                template: templateData
-            };
-            await SavedGradebook_1.SavedGradebook.create({
-                studentId: student._id,
+            promotion = {
                 schoolYearId: currentSchoolYearId,
-                level: currentLevel || 'Sans niveau',
-                classId: enrollment.classId,
-                templateId: templateId,
-                data: snapshotData
-            });
-        }
-        const promotion = {
-            schoolYearId: currentSchoolYearId,
-            fromLevel: currentLevel,
-            toLevel: calculatedNextLevel,
-            date: new Date(),
-            promotedBy: adminId,
-            decision: 'promoted'
-        };
-        await Student_1.Student.findByIdAndUpdate(studentId, {
-            $push: { promotions: promotion },
-            nextLevel: calculatedNextLevel
-        });
-        if (enrollment) {
-            await Enrollment_1.Enrollment.findByIdAndUpdate(enrollment._id, { promotionStatus: 'promoted', status: 'promoted' });
-        }
-        const nextLevelDoc = await Level_1.Level.findOne({ name: calculatedNextLevel }).lean();
-        const isExit = nextLevelDoc?.isExitLevel || (calculatedNextLevel.toLowerCase() === 'eb1');
-        if (!isExit) {
-            await Enrollment_1.Enrollment.create({
-                studentId: studentId,
-                schoolYearId: nextSchoolYearId,
-                status: 'active',
-            });
-        }
-        if (assignment) {
-            let className = '';
-            if (enrollment && enrollment.classId) {
-                const cls = await Class_1.ClassModel.findById(enrollment.classId);
-                if (cls)
-                    className = cls.name;
-            }
-            const promotionData = {
-                from: currentLevel,
-                to: calculatedNextLevel,
+                fromLevel: currentLevel,
+                toLevel: calculatedNextLevel,
                 date: new Date(),
-                year: yearName,
-                class: className
+                promotedBy: adminId,
+                decision: 'promoted'
             };
-            const data = assignment.data || {};
-            const promotions = Array.isArray(data.promotions) ? data.promotions : [];
-            promotions.push(promotionData);
-            data.promotions = promotions;
-            assignment.data = data;
-            assignment.markModified('data');
-            await assignment.save();
+            let updatedStudent;
+            if (usedTransaction) {
+                updatedStudent = await Student_1.Student.findOneAndUpdate({ _id: studentId, 'promotions.schoolYearId': { $ne: currentSchoolYearId } }, { $push: { promotions: promotion }, nextLevel: calculatedNextLevel }, { session });
+            }
+            else {
+                updatedStudent = await Student_1.Student.findOneAndUpdate({ _id: studentId, 'promotions.schoolYearId': { $ne: currentSchoolYearId } }, { $push: { promotions: promotion }, nextLevel: calculatedNextLevel });
+            }
+            if (!updatedStudent) {
+                throw new Error('ALREADY_PROMOTED_RACE_CONDITION');
+            }
+            if (enrollment) {
+                if (usedTransaction)
+                    await Enrollment_1.Enrollment.findByIdAndUpdate(enrollment._id, { promotionStatus: 'promoted', status: 'promoted' }, { session });
+                else
+                    await Enrollment_1.Enrollment.findByIdAndUpdate(enrollment._id, { promotionStatus: 'promoted', status: 'promoted' });
+            }
+            const nextLevelDoc = await Level_1.Level.findOne({ name: calculatedNextLevel }).lean();
+            const exitSetting = await Setting_1.Setting.findOne({ key: 'exit_level_name' }).lean().catch(() => null);
+            const exitName = exitSetting && exitSetting.value ? String(exitSetting.value).toLowerCase() : null;
+            const isExit = nextLevelDoc?.isExitLevel || (exitName && exitName === String(calculatedNextLevel).toLowerCase()) || (String(calculatedNextLevel).toLowerCase() === 'eb1');
+            if (!isExit) {
+                if (usedTransaction) {
+                    await Enrollment_1.Enrollment.create([{ studentId: studentId, schoolYearId: nextSchoolYearId, status: 'active' }], { session });
+                }
+                else {
+                    await Enrollment_1.Enrollment.create({ studentId: studentId, schoolYearId: nextSchoolYearId, status: 'active' });
+                }
+            }
+            if (assignment && assignment._id) {
+                // Re-fetch assignment document under session to safely update
+                if (usedTransaction) {
+                    const assignmentDoc = await TemplateAssignment_1.TemplateAssignment.findById(assignment._id).session(session);
+                    const cls = enrollment && enrollment.classId ? await Class_1.ClassModel.findById(enrollment.classId).session(session).lean() : null;
+                    let className = cls ? cls.name : '';
+                    const promotionData = {
+                        from: currentLevel,
+                        to: calculatedNextLevel,
+                        date: new Date(),
+                        year: yearName,
+                        class: className
+                    };
+                    const data = assignmentDoc.data || {};
+                    const promotions = Array.isArray(data.promotions) ? data.promotions : [];
+                    promotions.push(promotionData);
+                    data.promotions = promotions;
+                    assignmentDoc.data = data;
+                    assignmentDoc.markModified('data');
+                    await assignmentDoc.save({ session });
+                }
+                else {
+                    let className = '';
+                    if (enrollment && enrollment.classId) {
+                        const cls = await Class_1.ClassModel.findById(enrollment.classId);
+                        if (cls)
+                            className = cls.name;
+                    }
+                    const promotionData = {
+                        from: currentLevel,
+                        to: calculatedNextLevel,
+                        date: new Date(),
+                        year: yearName,
+                        class: className
+                    };
+                    const data = assignment.data || {};
+                    const promotions = Array.isArray(data.promotions) ? data.promotions : [];
+                    promotions.push(promotionData);
+                    data.promotions = promotions;
+                    assignment.data = data;
+                    assignment.markModified('data');
+                    await assignment.save();
+                }
+            }
+            if (usedTransaction)
+                await session.commitTransaction();
+        }
+        catch (err) {
+            if (usedTransaction) {
+                try {
+                    await session.abortTransaction();
+                }
+                catch (e) { }
+            }
+            throw err;
+        }
+        finally {
+            session.endSession();
         }
         await (0, auditLogger_1.logAudit)({
             userId: adminId,
@@ -546,6 +717,9 @@ exports.studentsRouter.post('/:studentId/promote', (0, auth_1.requireAuth)(['ADM
     }
     catch (error) {
         console.error(error);
+        if (error.message === 'ALREADY_PROMOTED_RACE_CONDITION') {
+            return res.status(400).json({ error: 'already_promoted', message: 'Student already promoted this year' });
+        }
         res.status(500).json({ error: 'internal_error' });
     }
 });

@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express'
 import jwt from 'jsonwebtoken'
 
 import { User } from './models/User'
+import { isSimulationSandbox } from './utils/simulationSandbox'
 
 const jwtSecret = process.env.JWT_SECRET || 'dev-secret-change'
 
@@ -39,7 +40,26 @@ export const requireAuth = (roles?: Role[]) => {
       // Check token version and update lastActive
       // We check the ACTUAL user (the one who logged in)
       const user = await User.findById(decoded.userId)
-      if (!user) return res.status(401).json({ error: 'user_not_found' })
+      if (!user) {
+        // In the sandbox server, we intentionally run against an isolated DB.
+        // We still want to reuse the normal admin login to control simulations,
+        // so allow a valid ADMIN token even if the user doc isn't present in the sandbox DB.
+        if (isSimulationSandbox() && decoded.role === 'ADMIN') {
+          ;(req as any).user = {
+            userId: effectiveUserId,
+            role: effectiveRole,
+            actualUserId: decoded.userId,
+            actualRole: decoded.role,
+            isImpersonating: !!decoded.impersonateUserId,
+            bypassScopes: [],
+          }
+
+          if (roles && !roles.includes(effectiveRole)) return res.status(403).json({ error: 'forbidden' })
+          return next()
+        }
+
+        return res.status(401).json({ error: 'user_not_found' })
+      }
 
       const tokenVersion = decoded.tokenVersion || 0
       if ((user.tokenVersion || 0) > tokenVersion) {

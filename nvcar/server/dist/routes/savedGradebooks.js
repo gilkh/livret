@@ -5,8 +5,8 @@ const express_1 = require("express");
 const SavedGradebook_1 = require("../models/SavedGradebook");
 const SchoolYear_1 = require("../models/SchoolYear");
 const RoleScope_1 = require("../models/RoleScope");
-const TemplateAssignment_1 = require("../models/TemplateAssignment");
 const Student_1 = require("../models/Student");
+const TeacherClassAssignment_1 = require("../models/TeacherClassAssignment");
 const auth_1 = require("../auth");
 exports.savedGradebooksRouter = (0, express_1.Router)();
 exports.savedGradebooksRouter.get('/exited/years', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', 'AEFE']), async (req, res) => {
@@ -313,44 +313,23 @@ exports.savedGradebooksRouter.get('/years/:yearId/levels/:level/students', (0, a
 // Get a specific saved gradebook
 exports.savedGradebooksRouter.get('/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', 'AEFE', 'TEACHER']), async (req, res) => {
     const { id } = req.params;
+    const user = req.user;
     const saved = await SavedGradebook_1.SavedGradebook.findById(id).lean();
     if (!saved)
         return res.status(404).json({ error: 'not_found' });
-    // Fix for missing assignment data in snapshot (Promote case)
-    if (saved.data && saved.data.assignment && (!saved.data.assignment.data || Object.keys(saved.data.assignment.data).length === 0)) {
-        console.log(`[SavedGradebook] Patching missing data for ${id}. Student: ${saved.studentId}, Template: ${saved.templateId}`);
-        try {
-            let liveAssignment = null;
-            // Try to find by ID first if available in snapshot
-            if (saved.data.assignment._id) {
-                console.log(`[SavedGradebook] Looking up live assignment by ID: ${saved.data.assignment._id}`);
-                liveAssignment = await TemplateAssignment_1.TemplateAssignment.findById(saved.data.assignment._id).lean();
-            }
-            // Fallback to student/template lookup if not found by ID
-            if (!liveAssignment) {
-                console.log(`[SavedGradebook] Looking up live assignment by Student/Template`);
-                liveAssignment = await TemplateAssignment_1.TemplateAssignment.findOne({
-                    studentId: saved.studentId,
-                    templateId: saved.templateId
-                }).lean();
-            }
-            if (liveAssignment) {
-                console.log(`[SavedGradebook] Live assignment found. Has data: ${!!liveAssignment.data}`);
-                if (liveAssignment.data) {
-                    saved.data.assignment.data = liveAssignment.data;
-                    console.log(`[SavedGradebook] Data patched successfully. Keys: ${Object.keys(liveAssignment.data).length}`);
-                }
-            }
-            else {
-                console.log(`[SavedGradebook] Live assignment NOT found.`);
-            }
-        }
-        catch (e) {
-            console.error('Error patching saved gradebook data:', e);
-        }
+    if (user?.role === 'TEACHER') {
+        const classId = String(saved.classId || '');
+        if (!classId)
+            return res.status(403).json({ error: 'not_authorized' });
+        const ok = await TeacherClassAssignment_1.TeacherClassAssignment.exists({ teacherId: user.userId, classId });
+        if (!ok)
+            return res.status(403).json({ error: 'not_authorized' });
     }
-    else {
-        console.log(`[SavedGradebook] Data present in snapshot. Keys: ${saved.data?.assignment?.data ? Object.keys(saved.data.assignment.data).length : 'None'}`);
+    // NOTE: We intentionally do NOT patch missing snapshot data from live assignments anymore.
+    // SavedGradebook snapshots must be self-contained; if historical snapshots are missing data,
+    // a migration/repair script should be used instead of patching at read time.
+    if (saved.data && saved.data.assignment && (!saved.data.assignment.data || Object.keys(saved.data.assignment.data).length === 0)) {
+        console.warn(`[SavedGradebook] Incomplete snapshot for ${id}. Returning as-is without patching.`);
     }
     res.json(saved);
 });

@@ -20,6 +20,7 @@ const templateAssignmentSchema = new mongoose_1.Schema({
             }],
         default: []
     },
+    // status is UI-only hint. Business logic must use isCompleted/isCompletedSem1/isSigned etc.
     status: { type: String, enum: ['draft', 'in_progress', 'completed', 'signed'], default: 'draft' },
     assignedAt: { type: Date, default: () => new Date() },
     assignedBy: { type: String, required: true },
@@ -31,7 +32,9 @@ const templateAssignmentSchema = new mongoose_1.Schema({
     isCompletedSem2: { type: Boolean, default: false },
     completedAtSem2: { type: Date },
     data: { type: mongoose_1.Schema.Types.Mixed, default: {} },
-});
+    // Optimistic concurrency for assignment data
+    dataVersion: { type: Number, default: 1, index: true }
+}, { timestamps: true });
 // Create compound index to prevent duplicate assignments
 templateAssignmentSchema.index({ templateId: 1, studentId: 1 }, { unique: true });
 templateAssignmentSchema.index({ studentId: 1, status: 1 });

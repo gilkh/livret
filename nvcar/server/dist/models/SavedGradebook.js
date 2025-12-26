@@ -35,6 +35,15 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.SavedGradebook = void 0;
 const mongoose_1 = __importStar(require("mongoose"));
+const SavedGradebookMetaSchema = new mongoose_1.Schema({
+    templateVersion: { type: Number },
+    dataVersion: { type: Number },
+    signaturePeriodId: { type: String },
+    schoolYearId: { type: String },
+    level: { type: String },
+    snapshotReason: { type: String, enum: ['promotion', 'year_end', 'manual', 'sem1', 'transfer', 'exit'] },
+    archivedAt: { type: Date }
+}, { _id: false });
 const SavedGradebookSchema = new mongoose_1.Schema({
     studentId: { type: String, required: true, index: true },
     schoolYearId: { type: String, required: true, index: true },
@@ -42,6 +51,9 @@ const SavedGradebookSchema = new mongoose_1.Schema({
     classId: { type: String, required: true },
     templateId: { type: String, required: true },
     data: { type: mongoose_1.Schema.Types.Mixed, required: true },
+    meta: { type: SavedGradebookMetaSchema },
     createdAt: { type: Date, default: Date.now }
 });
+// Compound index for efficient snapshot lookup
+SavedGradebookSchema.index({ studentId: 1, schoolYearId: 1, templateId: 1 });
 exports.SavedGradebook = mongoose_1.default.model('SavedGradebook', SavedGradebookSchema);

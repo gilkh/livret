@@ -37,21 +37,33 @@ describe('signatureService', () => {
         expect(found).toBeDefined();
         const updated = await TemplateAssignment_1.TemplateAssignment.findById(String(assignment._id));
         expect(updated?.status).toBe('signed');
-        // DEBUG
-        // console.log('UPDATED DATA', JSON.stringify(updated?.data))
-        expect(updated.data?.signatures?.length).toBeGreaterThan(0);
+        // Verify signatures are NOT stored in data (removed duplicate storage)
+        expect(updated.data?.signatures).toBeUndefined();
+        // Verify populateSignatures works
+        const populated = await (0, signatureService_1.populateSignatures)(updated?.toObject());
+        expect(populated.data.signatures.length).toBeGreaterThan(0);
     });
     it('unsign removes signature and reverts status when no remaining signatures', async () => {
         const tpl = await GradebookTemplate_1.GradebookTemplate.create({ name: 't', pages: [], currentVersion: 1 });
         const student = await Student_1.Student.create({ firstName: 'A', lastName: 'B', dateOfBirth: new Date('2018-01-03'), logicalKey: 'A3' });
         const signer = await User_1.User.create({ email: 'sub3', role: 'SUBADMIN', displayName: 'Sub3', passwordHash: 'hash' });
         const assignment = await TemplateAssignment_1.TemplateAssignment.create({ templateId: String(tpl._id), studentId: String(student._id), status: 'signed', isCompleted: true, assignedBy: String(signer._id), data: { signatures: [{ type: 'standard', subAdminId: String(signer._id) }] } });
-        await TemplateSignature_1.TemplateSignature.create({ templateAssignmentId: String(assignment._id), subAdminId: String(signer._id), type: 'standard', status: 'signed' });
+        await TemplateSignature_1.TemplateSignature.create({ templateAssignmentId: String(assignment._id), subAdminId: String(signer._id), type: 'standard', status: 'signed', signaturePeriodId: 'test_sem1' });
         const res = await (0, signatureService_1.unsignTemplateAssignment)({ templateAssignmentId: String(assignment._id), signerId: String(signer._id), type: 'standard' });
         expect(res).toBeDefined();
         const remaining = await TemplateSignature_1.TemplateSignature.countDocuments({ templateAssignmentId: String(assignment._id) });
         expect(remaining).toBe(0);
         const updated = await TemplateAssignment_1.TemplateAssignment.findById(String(assignment._id));
         expect(updated?.status).toBe('completed');
+    });
+    it('rejects duplicate signatures when explicit signaturePeriodId is supplied', async () => {
+        const tpl = await GradebookTemplate_1.GradebookTemplate.create({ name: 't', pages: [], currentVersion: 1 });
+        const student = await Student_1.Student.create({ firstName: 'E', lastName: 'F', dateOfBirth: new Date('2018-01-04'), logicalKey: 'E4' });
+        const signer = await User_1.User.create({ email: 'sub4', role: 'SUBADMIN', displayName: 'Sub4', passwordHash: 'hash' });
+        const assignment = await TemplateAssignment_1.TemplateAssignment.create({ templateId: String(tpl._id), studentId: String(student._id), status: 'completed', isCompleted: true, assignedBy: String(signer._id) });
+        const explicitId = 'explicit_2024_sem1';
+        const sig = await (0, signatureService_1.signTemplateAssignment)({ templateAssignmentId: String(assignment._id), signerId: String(signer._id), type: 'standard', signaturePeriodId: explicitId });
+        expect(sig).toBeDefined();
+        await expect((0, signatureService_1.signTemplateAssignment)({ templateAssignmentId: String(assignment._id), signerId: String(signer._id), type: 'standard', signaturePeriodId: explicitId })).rejects.toThrow('already_signed');
     });
 });

@@ -42,8 +42,9 @@ describe('signatureService edge cases', () => {
         const sy = await SchoolYear_1.SchoolYear.create({ name: '2024/2025', active: true, startDate: new Date('2024-09-01'), endDate: new Date('2025-07-01') });
         const signer = await User_1.User.create({ email: 'sub-edge2', role: 'SUBADMIN', displayName: 'Sub Edge2', passwordHash: 'hash' });
         const assignment = await TemplateAssignment_1.TemplateAssignment.create({ templateId: String(tpl._id), studentId: String(student._id), status: 'completed', isCompleted: true, assignedBy: String(signer._id) });
-        // Existing signature within window
-        await TemplateSignature_1.TemplateSignature.create({ templateAssignmentId: String(assignment._id), subAdminId: String(signer._id), type: 'standard', signedAt: new Date() });
+        // Existing signature within window - with signaturePeriodId matching what the signing logic will generate
+        const signaturePeriodId = `${String(sy._id)}_sem1`;
+        await TemplateSignature_1.TemplateSignature.create({ templateAssignmentId: String(assignment._id), subAdminId: String(signer._id), type: 'standard', signedAt: new Date(), signaturePeriodId, schoolYearId: String(sy._id) });
         await expect((0, signatureService_1.signTemplateAssignment)({ templateAssignmentId: String(assignment._id), signerId: String(signer._id), type: 'standard' })).rejects.toThrow('already_signed');
     });
 });
