@@ -1,0 +1,693 @@
+SSL certificates loaded. Starting HTTPS server.
+server listening on https://localhost:4001
+server shared on https://26.26.87.44:4001
+server shared on https://192.168.1.74:4001
+mongo connected
+SSL certificates loaded. Starting HTTPS server.
+mongo connected
+simulations.start request teachers=30 subAdmins=5 durationSec=120 scenario=mixed
+runSimulation start runId=694f11c3f3e7512dd11559f0 durationSec=120 teachers=30 subAdmins=5
+SSL certificates loaded. Starting HTTPS server.
+mongo connected
+simulations.start request teachers=30 subAdmins=5 durationSec=120 scenario=mixed
+runSimulation start runId=694f123bf3e7512dd1155b71 durationSec=120 teachers=30 subAdmins=5
+simulations.start request teachers=30 subAdmins=5 durationSec=120 scenario=mixed
+runSimulation start runId=694f124df3e7512dd1155cea durationSec=120 teachers=30 subAdmins=5
+simulations.start request teachers=30 subAdmins=5 durationSec=120 scenario=mixed
+runSimulation start runId=694f1251f3e7512dd1155e63 durationSec=120 teachers=30 subAdmins=5
+SSL certificates loaded. Starting HTTPS server.
+mongo connected
+simulations.start request teachers=30 subAdmins=5 durationSec=120 scenario=mixed
+runSimulation start runId=694f12acf3e7512dd1155fda durationSec=120 teachers=30 subAdmins=5
+simulations.start request teachers=30 subAdmins=5 durationSec=120 scenario=mixed
+runSimulation start runId=694f12b2f3e7512dd1156153 durationSec=120 teachers=30 subAdmins=5
+simulations.start request teachers=30 subAdmins=5 durationSec=120 scenario=mixed
+runSimulation start runId=694f12b6f3e7512dd11562f0 durationSec=120 teachers=30 subAdmins=5
+SSL certificates loaded. Starting HTTPS server.
+mongo connected
+simulations.start request teachers=30 subAdmins=5 durationSec=120 scenario=mixed
+runSimulation start runId=694f12ebf3e7512dd115647b durationSec=120 teachers=30 subAdmins=5
+SSL certificates loaded. Starting HTTPS server.
+mongo connected
+SSL certificates loaded. Starting HTTPS server.
+mongo connected
+SSL certificates loaded. Starting HTTPS server.
+mongo connected
+simulations.start request teachers=30 subAdmins=5 durationSec=120 scenario=mixed
+runSimulation start runId=694f13b9f3e7512dd1156600 durationSec=120 teachers=30 subAdmins=5
+simulations.start request teachers=30 subAdmins=5 durationSec=120 scenario=mixed
+runSimulation start runId=694f13bcf3e7512dd1156790 durationSec=120 teachers=30 subAdmins=5
+simulations.start request teachers=30 subAdmins=5 durationSec=120 scenario=mixed
+runSimulation start runId=694f13c1f3e7512dd1156915 durationSec=120 teachers=30 subAdmins=5
+SSL certificates loaded. Starting HTTPS server.
+server listening on https://localhost:4001
+server shared on https://26.26.87.44:4001
+server shared on https://192.168.1.74:4001
+mongo connected
+SSL certificates loaded. Starting HTTPS server.
+mongo connected
+simulations.start request teachers=30 subAdmins=5 durationSec=120 scenario=mixed
+runSimulation start runId=694f1b29d2757c22818d38b7 durationSec=120 teachers=30 subAdmins=5
+ensureSeededData runId=694f1b29d2757c22818d38b7 teachers=30 subAdmins=5 template=694f1b29d2757c22818d37e8
+creating TemplateAssignment for student=694f1b2cd2757c22818d3956 status=in_progress
+creating TemplateAssignment for student=694f1b2cd2757c22818d395c status=in_progress
+creating TemplateAssignment for student=694f1b2cd2757c22818d3962 status=completed
+creating TemplateAssignment for student=694f1b2cd2757c22818d3968 status=in_progress
+creating TemplateAssignment for student=694f1b2cd2757c22818d396e status=completed
+creating TemplateAssignment for student=694f1b2cd2757c22818d3974 status=completed
+creating TemplateAssignment for student=694f1b2cd2757c22818d397a status=completed
+creating TemplateAssignment for student=694f1b2cd2757c22818d3980 status=completed
+creating TemplateAssignment for student=694f1b2cd2757c22818d3986 status=in_progress
+creating TemplateAssignment for student=694f1b2cd2757c22818d398c status=completed
+creating TemplateAssignment for student=694f1b2cd2757c22818d3992 status=completed
+creating TemplateAssignment for student=694f1b2cd2757c22818d3998 status=completed
+creating TemplateAssignment for student=694f1b2cd2757c22818d399e status=in_progress
+creating TemplateAssignment for student=694f1b2cd2757c22818d39a4 status=completed
+creating TemplateAssignment for student=694f1b2cd2757c22818d39aa status=in_progress
+creating TemplateAssignment for student=694f1b2cd2757c22818d39b0 status=completed
+creating TemplateAssignment for student=694f1b2cd2757c22818d39b6 status=in_progress
+creating TemplateAssignment for student=694f1b2cd2757c22818d39bc status=completed
+creating TemplateAssignment for student=694f1b2cd2757c22818d39c2 status=in_progress
+creating TemplateAssignment for student=694f1b2cd2757c22818d39c8 status=completed
+creating TemplateAssignment for student=694f1b2cd2757c22818d39ce status=in_progress
+creating TemplateAssignment for student=694f1b2cd2757c22818d39d4 status=completed
+creating TemplateAssignment for student=694f1b2cd2757c22818d39da status=completed
+creating TemplateAssignment for student=694f1b2cd2757c22818d39e0 status=completed
+creating TemplateAssignment for student=694f1b2cd2757c22818d39e6 status=in_progress
+creating TemplateAssignment for student=694f1b2cd2757c22818d39ec status=in_progress
+creating TemplateAssignment for student=694f1b2cd2757c22818d39f2 status=in_progress
+creating TemplateAssignment for student=694f1b2cd2757c22818d39f8 status=completed
+creating TemplateAssignment for student=694f1b2cd2757c22818d39fe status=completed
+creating TemplateAssignment for student=694f1b2cd2757c22818d3a04 status=completed
+creating TemplateAssignment for student=694f1b2cd2757c22818d3a0a status=completed
+creating TemplateAssignment for student=694f1b2cd2757c22818d3a10 status=completed
+creating TemplateAssignment for student=694f1b2cd2757c22818d3a16 status=in_progress
+creating TemplateAssignment for student=694f1b2cd2757c22818d3a1c status=completed
+creating TemplateAssignment for student=694f1b2cd2757c22818d3a22 status=in_progress
+creating TemplateAssignment for student=694f1b2cd2757c22818d3a28 status=in_progress
+creating TemplateAssignment for student=694f1b2cd2757c22818d3a2e status=completed
+creating TemplateAssignment for student=694f1b2cd2757c22818d3a34 status=completed
+creating TemplateAssignment for student=694f1b2cd2757c22818d3a3a status=completed
+creating TemplateAssignment for student=694f1b2cd2757c22818d3a40 status=completed
+creating TemplateAssignment for student=694f1b2cd2757c22818d3a46 status=completed
+creating TemplateAssignment for student=694f1b2cd2757c22818d3a4c status=in_progress
+creating TemplateAssignment for student=694f1b2cd2757c22818d3a52 status=completed
+creating TemplateAssignment for student=694f1b2cd2757c22818d3a58 status=completed
+creating TemplateAssignment for student=694f1b2cd2757c22818d3a5e status=in_progress
+creating TemplateAssignment for student=694f1b2cd2757c22818d3a64 status=in_progress
+creating TemplateAssignment for student=694f1b2cd2757c22818d3a6a status=in_progress
+creating TemplateAssignment for student=694f1b2cd2757c22818d3a70 status=completed
+creating TemplateAssignment for student=694f1b2cd2757c22818d3a76 status=completed
+creating TemplateAssignment for student=694f1b2cd2757c22818d3a7c status=in_progress
+creating TemplateAssignment for student=694f1b2cd2757c22818d3a82 status=in_progress
+creating TemplateAssignment for student=694f1b2cd2757c22818d3a88 status=completed
+creating TemplateAssignment for student=694f1b2cd2757c22818d3a8e status=completed
+creating TemplateAssignment for student=694f1b2cd2757c22818d3a94 status=completed
+creating TemplateAssignment for student=694f1b2cd2757c22818d3a9a status=in_progress
+creating TemplateAssignment for student=694f1b2cd2757c22818d3aa0 status=in_progress
+creating TemplateAssignment for student=694f1b2cd2757c22818d3aa6 status=in_progress
+creating TemplateAssignment for student=694f1b2cd2757c22818d3aac status=in_progress
+creating TemplateAssignment for student=694f1b2cd2757c22818d3ab2 status=in_progress
+creating TemplateAssignment for student=694f1b2cd2757c22818d3ab8 status=in_progress
+runSimulation completed runId=694f1b29d2757c22818d38b7 totalActions=200 errorRate=1
+simulations.start request teachers=30 subAdmins=5 durationSec=120 scenario=mixed
+runSimulation start runId=694f1bb6d2757c2281aea3ad durationSec=120 teachers=30 subAdmins=5
+ensureSeededData runId=694f1bb6d2757c2281aea3ad teachers=30 subAdmins=5 template=694f1bb6d2757c2281aea2de
+creating TemplateAssignment for student=694f1bb8d2757c2281aea44c status=completed
+creating TemplateAssignment for student=694f1bb8d2757c2281aea452 status=completed
+creating TemplateAssignment for student=694f1bb8d2757c2281aea458 status=in_progress
+creating TemplateAssignment for student=694f1bb8d2757c2281aea45e status=in_progress
+creating TemplateAssignment for student=694f1bb8d2757c2281aea464 status=completed
+creating TemplateAssignment for student=694f1bb8d2757c2281aea46a status=completed
+creating TemplateAssignment for student=694f1bb8d2757c2281aea470 status=completed
+creating TemplateAssignment for student=694f1bb8d2757c2281aea476 status=in_progress
+creating TemplateAssignment for student=694f1bb8d2757c2281aea47c status=in_progress
+creating TemplateAssignment for student=694f1bb8d2757c2281aea482 status=completed
+creating TemplateAssignment for student=694f1bb8d2757c2281aea488 status=in_progress
+creating TemplateAssignment for student=694f1bb8d2757c2281aea48e status=in_progress
+creating TemplateAssignment for student=694f1bb8d2757c2281aea494 status=completed
+creating TemplateAssignment for student=694f1bb8d2757c2281aea49a status=in_progress
+creating TemplateAssignment for student=694f1bb8d2757c2281aea4a0 status=completed
+creating TemplateAssignment for student=694f1bb8d2757c2281aea4a6 status=completed
+creating TemplateAssignment for student=694f1bb8d2757c2281aea4ac status=completed
+creating TemplateAssignment for student=694f1bb8d2757c2281aea4b2 status=completed
+creating TemplateAssignment for student=694f1bb8d2757c2281aea4b8 status=completed
+creating TemplateAssignment for student=694f1bb8d2757c2281aea4be status=completed
+creating TemplateAssignment for student=694f1bb8d2757c2281aea4c4 status=in_progress
+creating TemplateAssignment for student=694f1bb8d2757c2281aea4ca status=in_progress
+creating TemplateAssignment for student=694f1bb8d2757c2281aea4d0 status=in_progress
+creating TemplateAssignment for student=694f1bb8d2757c2281aea4d6 status=in_progress
+creating TemplateAssignment for student=694f1bb8d2757c2281aea4dc status=completed
+creating TemplateAssignment for student=694f1bb8d2757c2281aea4e2 status=in_progress
+creating TemplateAssignment for student=694f1bb8d2757c2281aea4e8 status=in_progress
+creating TemplateAssignment for student=694f1bb8d2757c2281aea4ee status=completed
+creating TemplateAssignment for student=694f1bb8d2757c2281aea4f4 status=in_progress
+creating TemplateAssignment for student=694f1bb8d2757c2281aea4fa status=in_progress
+creating TemplateAssignment for student=694f1bb8d2757c2281aea500 status=completed
+creating TemplateAssignment for student=694f1bb8d2757c2281aea506 status=in_progress
+creating TemplateAssignment for student=694f1bb8d2757c2281aea50c status=in_progress
+creating TemplateAssignment for student=694f1bb8d2757c2281aea512 status=in_progress
+creating TemplateAssignment for student=694f1bb8d2757c2281aea518 status=in_progress
+creating TemplateAssignment for student=694f1bb8d2757c2281aea51e status=completed
+creating TemplateAssignment for student=694f1bb8d2757c2281aea524 status=completed
+creating TemplateAssignment for student=694f1bb8d2757c2281aea52a status=completed
+creating TemplateAssignment for student=694f1bb8d2757c2281aea530 status=in_progress
+creating TemplateAssignment for student=694f1bb8d2757c2281aea536 status=completed
+creating TemplateAssignment for student=694f1bb8d2757c2281aea53c status=completed
+creating TemplateAssignment for student=694f1bb8d2757c2281aea542 status=completed
+creating TemplateAssignment for student=694f1bb8d2757c2281aea548 status=in_progress
+creating TemplateAssignment for student=694f1bb8d2757c2281aea54e status=in_progress
+creating TemplateAssignment for student=694f1bb8d2757c2281aea554 status=completed
+creating TemplateAssignment for student=694f1bb8d2757c2281aea55a status=completed
+creating TemplateAssignment for student=694f1bb8d2757c2281aea560 status=in_progress
+creating TemplateAssignment for student=694f1bb8d2757c2281aea566 status=in_progress
+creating TemplateAssignment for student=694f1bb8d2757c2281aea56c status=in_progress
+creating TemplateAssignment for student=694f1bb8d2757c2281aea572 status=in_progress
+creating TemplateAssignment for student=694f1bb8d2757c2281aea578 status=completed
+creating TemplateAssignment for student=694f1bb8d2757c2281aea57e status=in_progress
+creating TemplateAssignment for student=694f1bb8d2757c2281aea584 status=in_progress
+creating TemplateAssignment for student=694f1bb8d2757c2281aea58a status=in_progress
+creating TemplateAssignment for student=694f1bb9d2757c2281aea590 status=completed
+creating TemplateAssignment for student=694f1bb9d2757c2281aea596 status=completed
+creating TemplateAssignment for student=694f1bb9d2757c2281aea59c status=in_progress
+creating TemplateAssignment for student=694f1bb9d2757c2281aea5a2 status=in_progress
+creating TemplateAssignment for student=694f1bb9d2757c2281aea5a8 status=completed
+creating TemplateAssignment for student=694f1bb9d2757c2281aea5ae status=completed
+runSimulation completed runId=694f1bb6d2757c2281aea3ad totalActions=200 errorRate=1
+simulations.start request teachers=1000 subAdmins=100 durationSec=120 scenario=mixed
+runSimulation start runId=694f1bcfd2757c2281b2aa73 durationSec=120 teachers=200 subAdmins=50
+ensureSeededData runId=694f1bcfd2757c2281b2aa73 teachers=200 subAdmins=50 template=694f1bcfd2757c2281b2a9a4
+creating TemplateAssignment for student=694f1bded2757c2281b2ae20 status=completed
+creating TemplateAssignment for student=694f1bded2757c2281b2ae26 status=completed
+creating TemplateAssignment for student=694f1bded2757c2281b2ae2c status=completed
+creating TemplateAssignment for student=694f1bded2757c2281b2ae32 status=in_progress
+creating TemplateAssignment for student=694f1bded2757c2281b2ae38 status=completed
+creating TemplateAssignment for student=694f1bded2757c2281b2ae3e status=in_progress
+creating TemplateAssignment for student=694f1bded2757c2281b2ae44 status=completed
+creating TemplateAssignment for student=694f1bded2757c2281b2ae4a status=completed
+creating TemplateAssignment for student=694f1bded2757c2281b2ae50 status=in_progress
+creating TemplateAssignment for student=694f1bded2757c2281b2ae56 status=completed
+creating TemplateAssignment for student=694f1bded2757c2281b2ae5c status=completed
+creating TemplateAssignment for student=694f1bded2757c2281b2ae62 status=completed
+creating TemplateAssignment for student=694f1bded2757c2281b2ae68 status=completed
+creating TemplateAssignment for student=694f1bded2757c2281b2ae6e status=completed
+creating TemplateAssignment for student=694f1bded2757c2281b2ae74 status=completed
+creating TemplateAssignment for student=694f1bded2757c2281b2ae7a status=completed
+creating TemplateAssignment for student=694f1bded2757c2281b2ae80 status=completed
+creating TemplateAssignment for student=694f1bded2757c2281b2ae86 status=completed
+creating TemplateAssignment for student=694f1bded2757c2281b2ae8c status=in_progress
+creating TemplateAssignment for student=694f1bded2757c2281b2ae92 status=completed
+creating TemplateAssignment for student=694f1bded2757c2281b2ae98 status=completed
+creating TemplateAssignment for student=694f1bded2757c2281b2ae9e status=in_progress
+creating TemplateAssignment for student=694f1bded2757c2281b2aea4 status=completed
+creating TemplateAssignment for student=694f1bded2757c2281b2aeaa status=in_progress
+creating TemplateAssignment for student=694f1bded2757c2281b2aeb0 status=in_progress
+creating TemplateAssignment for student=694f1bded2757c2281b2aeb6 status=in_progress
+creating TemplateAssignment for student=694f1bded2757c2281b2aebc status=completed
+creating TemplateAssignment for student=694f1bded2757c2281b2aec2 status=completed
+creating TemplateAssignment for student=694f1bded2757c2281b2aec8 status=completed
+creating TemplateAssignment for student=694f1bded2757c2281b2aece status=in_progress
+creating TemplateAssignment for student=694f1bded2757c2281b2aed4 status=completed
+creating TemplateAssignment for student=694f1bded2757c2281b2aeda status=completed
+creating TemplateAssignment for student=694f1bded2757c2281b2aee0 status=completed
+creating TemplateAssignment for student=694f1bded2757c2281b2aee6 status=completed
+creating TemplateAssignment for student=694f1bded2757c2281b2aeec status=completed
+creating TemplateAssignment for student=694f1bded2757c2281b2aef2 status=in_progress
+creating TemplateAssignment for student=694f1bded2757c2281b2aef8 status=in_progress
+creating TemplateAssignment for student=694f1bded2757c2281b2aefe status=in_progress
+creating TemplateAssignment for student=694f1bded2757c2281b2af04 status=in_progress
+creating TemplateAssignment for student=694f1bded2757c2281b2af0a status=in_progress
+creating TemplateAssignment for student=694f1bded2757c2281b2af10 status=in_progress
+creating TemplateAssignment for student=694f1bded2757c2281b2af16 status=in_progress
+creating TemplateAssignment for student=694f1bded2757c2281b2af1c status=completed
+creating TemplateAssignment for student=694f1bded2757c2281b2af22 status=in_progress
+creating TemplateAssignment for student=694f1bded2757c2281b2af28 status=completed
+creating TemplateAssignment for student=694f1bded2757c2281b2af2e status=in_progress
+creating TemplateAssignment for student=694f1bded2757c2281b2af34 status=completed
+creating TemplateAssignment for student=694f1bded2757c2281b2af3a status=in_progress
+creating TemplateAssignment for student=694f1bded2757c2281b2af40 status=in_progress
+creating TemplateAssignment for student=694f1bded2757c2281b2af46 status=completed
+creating TemplateAssignment for student=694f1bded2757c2281b2af4c status=in_progress
+creating TemplateAssignment for student=694f1bded2757c2281b2af52 status=in_progress
+creating TemplateAssignment for student=694f1bded2757c2281b2af58 status=completed
+creating TemplateAssignment for student=694f1bded2757c2281b2af5e status=in_progress
+creating TemplateAssignment for student=694f1bded2757c2281b2af64 status=in_progress
+creating TemplateAssignment for student=694f1bded2757c2281b2af6a status=in_progress
+creating TemplateAssignment for student=694f1bded2757c2281b2af70 status=in_progress
+creating TemplateAssignment for student=694f1bded2757c2281b2af76 status=in_progress
+creating TemplateAssignment for student=694f1bded2757c2281b2af7c status=completed
+creating TemplateAssignment for student=694f1bded2757c2281b2af82 status=completed
+runSimulation completed runId=694f1bcfd2757c2281b2aa73 totalActions=200 errorRate=1
+simulations.start request teachers=100 subAdmins=100 durationSec=120 scenario=mixed
+runSimulation start runId=694f1f10d2757c2281e7b989 durationSec=120 teachers=100 subAdmins=50
+ensureSeededData runId=694f1f10d2757c2281e7b989 teachers=100 subAdmins=50 template=694f1f10d2757c2281e7b8ba
+creating TemplateAssignment for student=694f1f18d2757c2281e7bba0 status=in_progress
+creating TemplateAssignment for student=694f1f18d2757c2281e7bba6 status=in_progress
+creating TemplateAssignment for student=694f1f18d2757c2281e7bbac status=completed
+creating TemplateAssignment for student=694f1f18d2757c2281e7bbb2 status=in_progress
+creating TemplateAssignment for student=694f1f18d2757c2281e7bbb8 status=completed
+creating TemplateAssignment for student=694f1f18d2757c2281e7bbbe status=completed
+creating TemplateAssignment for student=694f1f18d2757c2281e7bbc4 status=completed
+creating TemplateAssignment for student=694f1f18d2757c2281e7bbca status=completed
+creating TemplateAssignment for student=694f1f18d2757c2281e7bbd0 status=completed
+creating TemplateAssignment for student=694f1f18d2757c2281e7bbd6 status=in_progress
+creating TemplateAssignment for student=694f1f18d2757c2281e7bbdc status=in_progress
+creating TemplateAssignment for student=694f1f18d2757c2281e7bbe2 status=completed
+creating TemplateAssignment for student=694f1f18d2757c2281e7bbe8 status=in_progress
+creating TemplateAssignment for student=694f1f18d2757c2281e7bbee status=in_progress
+creating TemplateAssignment for student=694f1f18d2757c2281e7bbf4 status=in_progress
+creating TemplateAssignment for student=694f1f18d2757c2281e7bbfa status=completed
+creating TemplateAssignment for student=694f1f18d2757c2281e7bc00 status=completed
+creating TemplateAssignment for student=694f1f18d2757c2281e7bc06 status=completed
+creating TemplateAssignment for student=694f1f18d2757c2281e7bc0c status=in_progress
+creating TemplateAssignment for student=694f1f18d2757c2281e7bc12 status=completed
+creating TemplateAssignment for student=694f1f18d2757c2281e7bc18 status=in_progress
+creating TemplateAssignment for student=694f1f18d2757c2281e7bc1e status=completed
+creating TemplateAssignment for student=694f1f18d2757c2281e7bc24 status=in_progress
+creating TemplateAssignment for student=694f1f18d2757c2281e7bc2a status=in_progress
+creating TemplateAssignment for student=694f1f18d2757c2281e7bc30 status=completed
+creating TemplateAssignment for student=694f1f18d2757c2281e7bc36 status=completed
+creating TemplateAssignment for student=694f1f18d2757c2281e7bc3c status=completed
+creating TemplateAssignment for student=694f1f18d2757c2281e7bc42 status=completed
+creating TemplateAssignment for student=694f1f18d2757c2281e7bc48 status=completed
+creating TemplateAssignment for student=694f1f18d2757c2281e7bc4e status=completed
+creating TemplateAssignment for student=694f1f18d2757c2281e7bc54 status=in_progress
+creating TemplateAssignment for student=694f1f18d2757c2281e7bc5a status=completed
+creating TemplateAssignment for student=694f1f18d2757c2281e7bc60 status=completed
+creating TemplateAssignment for student=694f1f18d2757c2281e7bc66 status=completed
+creating TemplateAssignment for student=694f1f18d2757c2281e7bc6c status=completed
+creating TemplateAssignment for student=694f1f18d2757c2281e7bc72 status=in_progress
+creating TemplateAssignment for student=694f1f18d2757c2281e7bc78 status=completed
+creating TemplateAssignment for student=694f1f18d2757c2281e7bc7e status=completed
+creating TemplateAssignment for student=694f1f18d2757c2281e7bc84 status=in_progress
+creating TemplateAssignment for student=694f1f18d2757c2281e7bc8a status=completed
+creating TemplateAssignment for student=694f1f18d2757c2281e7bc90 status=completed
+creating TemplateAssignment for student=694f1f18d2757c2281e7bc96 status=completed
+creating TemplateAssignment for student=694f1f18d2757c2281e7bc9c status=in_progress
+creating TemplateAssignment for student=694f1f18d2757c2281e7bca2 status=completed
+creating TemplateAssignment for student=694f1f18d2757c2281e7bca8 status=in_progress
+creating TemplateAssignment for student=694f1f18d2757c2281e7bcae status=in_progress
+creating TemplateAssignment for student=694f1f18d2757c2281e7bcb4 status=in_progress
+creating TemplateAssignment for student=694f1f18d2757c2281e7bcba status=in_progress
+creating TemplateAssignment for student=694f1f18d2757c2281e7bcc0 status=completed
+creating TemplateAssignment for student=694f1f18d2757c2281e7bcc6 status=in_progress
+creating TemplateAssignment for student=694f1f18d2757c2281e7bccc status=in_progress
+creating TemplateAssignment for student=694f1f18d2757c2281e7bcd2 status=completed
+creating TemplateAssignment for student=694f1f18d2757c2281e7bcd8 status=completed
+creating TemplateAssignment for student=694f1f18d2757c2281e7bcde status=completed
+creating TemplateAssignment for student=694f1f18d2757c2281e7bce4 status=completed
+creating TemplateAssignment for student=694f1f18d2757c2281e7bcea status=completed
+creating TemplateAssignment for student=694f1f18d2757c2281e7bcf0 status=in_progress
+creating TemplateAssignment for student=694f1f18d2757c2281e7bcf6 status=in_progress
+creating TemplateAssignment for student=694f1f18d2757c2281e7bcfc status=completed
+creating TemplateAssignment for student=694f1f18d2757c2281e7bd02 status=completed
+runSimulation completed runId=694f1f10d2757c2281e7b989 totalActions=200 errorRate=1
+SSL certificates loaded. Starting HTTPS server.
+mongo connected
+simulations.start request teachers=30 subAdmins=5 durationSec=120 scenario=mixed
+runSimulation start runId=694f2079d2757c2281641ba3 durationSec=120 teachers=30 subAdmins=5
+ensureSeededData runId=694f2079d2757c2281641ba3 teachers=30 subAdmins=5 template=694f2079d2757c2281641ad4
+creating TemplateAssignment for student=694f207bd2757c2281641c40 status=in_progress
+creating TemplateAssignment for student=694f207bd2757c2281641c46 status=in_progress
+creating TemplateAssignment for student=694f207bd2757c2281641c4c status=completed
+creating TemplateAssignment for student=694f207bd2757c2281641c52 status=in_progress
+creating TemplateAssignment for student=694f207bd2757c2281641c58 status=completed
+creating TemplateAssignment for student=694f207bd2757c2281641c5e status=in_progress
+creating TemplateAssignment for student=694f207bd2757c2281641c64 status=completed
+creating TemplateAssignment for student=694f207bd2757c2281641c6a status=in_progress
+creating TemplateAssignment for student=694f207bd2757c2281641c70 status=in_progress
+creating TemplateAssignment for student=694f207bd2757c2281641c76 status=completed
+creating TemplateAssignment for student=694f207bd2757c2281641c7c status=in_progress
+creating TemplateAssignment for student=694f207bd2757c2281641c82 status=in_progress
+creating TemplateAssignment for student=694f207bd2757c2281641c88 status=completed
+creating TemplateAssignment for student=694f207bd2757c2281641c8e status=in_progress
+creating TemplateAssignment for student=694f207bd2757c2281641c94 status=in_progress
+creating TemplateAssignment for student=694f207bd2757c2281641c9a status=in_progress
+creating TemplateAssignment for student=694f207bd2757c2281641ca0 status=in_progress
+creating TemplateAssignment for student=694f207bd2757c2281641ca6 status=completed
+creating TemplateAssignment for student=694f207bd2757c2281641cac status=in_progress
+creating TemplateAssignment for student=694f207bd2757c2281641cb2 status=in_progress
+creating TemplateAssignment for student=694f207bd2757c2281641cb8 status=in_progress
+creating TemplateAssignment for student=694f207bd2757c2281641cbe status=in_progress
+creating TemplateAssignment for student=694f207bd2757c2281641cc4 status=completed
+creating TemplateAssignment for student=694f207bd2757c2281641cca status=in_progress
+creating TemplateAssignment for student=694f207bd2757c2281641cd0 status=in_progress
+creating TemplateAssignment for student=694f207bd2757c2281641cd6 status=completed
+creating TemplateAssignment for student=694f207bd2757c2281641cdc status=completed
+creating TemplateAssignment for student=694f207bd2757c2281641ce2 status=completed
+creating TemplateAssignment for student=694f207bd2757c2281641ce8 status=in_progress
+creating TemplateAssignment for student=694f207bd2757c2281641cee status=completed
+creating TemplateAssignment for student=694f207bd2757c2281641cf4 status=in_progress
+creating TemplateAssignment for student=694f207bd2757c2281641cfa status=in_progress
+creating TemplateAssignment for student=694f207bd2757c2281641d00 status=completed
+creating TemplateAssignment for student=694f207bd2757c2281641d06 status=completed
+creating TemplateAssignment for student=694f207bd2757c2281641d0c status=completed
+creating TemplateAssignment for student=694f207bd2757c2281641d12 status=in_progress
+creating TemplateAssignment for student=694f207bd2757c2281641d18 status=completed
+creating TemplateAssignment for student=694f207bd2757c2281641d1e status=completed
+creating TemplateAssignment for student=694f207bd2757c2281641d24 status=completed
+creating TemplateAssignment for student=694f207bd2757c2281641d2a status=completed
+creating TemplateAssignment for student=694f207bd2757c2281641d30 status=completed
+creating TemplateAssignment for student=694f207bd2757c2281641d36 status=completed
+creating TemplateAssignment for student=694f207bd2757c2281641d3c status=in_progress
+creating TemplateAssignment for student=694f207bd2757c2281641d42 status=in_progress
+creating TemplateAssignment for student=694f207bd2757c2281641d48 status=completed
+creating TemplateAssignment for student=694f207bd2757c2281641d4e status=completed
+creating TemplateAssignment for student=694f207bd2757c2281641d54 status=in_progress
+creating TemplateAssignment for student=694f207bd2757c2281641d5a status=in_progress
+creating TemplateAssignment for student=694f207bd2757c2281641d60 status=in_progress
+creating TemplateAssignment for student=694f207bd2757c2281641d66 status=in_progress
+creating TemplateAssignment for student=694f207bd2757c2281641d6c status=completed
+creating TemplateAssignment for student=694f207bd2757c2281641d72 status=completed
+creating TemplateAssignment for student=694f207bd2757c2281641d78 status=completed
+creating TemplateAssignment for student=694f207bd2757c2281641d7e status=completed
+creating TemplateAssignment for student=694f207bd2757c2281641d84 status=completed
+creating TemplateAssignment for student=694f207bd2757c2281641d8a status=in_progress
+creating TemplateAssignment for student=694f207bd2757c2281641d90 status=completed
+creating TemplateAssignment for student=694f207bd2757c2281641d96 status=in_progress
+creating TemplateAssignment for student=694f207bd2757c2281641d9c status=in_progress
+creating TemplateAssignment for student=694f207bd2757c2281641da2 status=in_progress
+runSimulation completed runId=694f2079d2757c2281641ba3 totalActions=200 errorRate=1
+simulations.start request teachers=30000 subAdmins=50000 durationSec=120 scenario=mixed
+runSimulation start runId=694f2121d2757c228185d2ef durationSec=120 teachers=200 subAdmins=50
+ensureSeededData runId=694f2121d2757c228185d2ef teachers=200 subAdmins=50 template=694f2121d2757c228185d220
+creating TemplateAssignment for student=694f212fd2757c228185d69c status=in_progress
+creating TemplateAssignment for student=694f212fd2757c228185d6a2 status=in_progress
+creating TemplateAssignment for student=694f212fd2757c228185d6a8 status=completed
+creating TemplateAssignment for student=694f212fd2757c228185d6ae status=completed
+creating TemplateAssignment for student=694f212fd2757c228185d6b4 status=completed
+creating TemplateAssignment for student=694f212fd2757c228185d6ba status=in_progress
+creating TemplateAssignment for student=694f212fd2757c228185d6c0 status=in_progress
+creating TemplateAssignment for student=694f212fd2757c228185d6c6 status=in_progress
+creating TemplateAssignment for student=694f212fd2757c228185d6cc status=completed
+creating TemplateAssignment for student=694f212fd2757c228185d6d2 status=completed
+creating TemplateAssignment for student=694f212fd2757c228185d6d8 status=completed
+creating TemplateAssignment for student=694f212fd2757c228185d6de status=in_progress
+creating TemplateAssignment for student=694f212fd2757c228185d6e4 status=in_progress
+creating TemplateAssignment for student=694f212fd2757c228185d6ea status=completed
+creating TemplateAssignment for student=694f212fd2757c228185d6f0 status=completed
+creating TemplateAssignment for student=694f212fd2757c228185d6f6 status=in_progress
+creating TemplateAssignment for student=694f212fd2757c228185d6fc status=completed
+creating TemplateAssignment for student=694f212fd2757c228185d702 status=in_progress
+creating TemplateAssignment for student=694f212fd2757c228185d708 status=completed
+creating TemplateAssignment for student=694f212fd2757c228185d70e status=completed
+creating TemplateAssignment for student=694f212fd2757c228185d714 status=in_progress
+creating TemplateAssignment for student=694f212fd2757c228185d71a status=completed
+creating TemplateAssignment for student=694f212fd2757c228185d720 status=in_progress
+creating TemplateAssignment for student=694f212fd2757c228185d726 status=completed
+creating TemplateAssignment for student=694f212fd2757c228185d72c status=in_progress
+creating TemplateAssignment for student=694f212fd2757c228185d732 status=completed
+creating TemplateAssignment for student=694f212fd2757c228185d738 status=in_progress
+creating TemplateAssignment for student=694f212fd2757c228185d73e status=completed
+creating TemplateAssignment for student=694f212fd2757c228185d744 status=completed
+creating TemplateAssignment for student=694f212fd2757c228185d74a status=in_progress
+creating TemplateAssignment for student=694f212fd2757c228185d750 status=in_progress
+creating TemplateAssignment for student=694f212fd2757c228185d756 status=in_progress
+creating TemplateAssignment for student=694f212fd2757c228185d75c status=completed
+creating TemplateAssignment for student=694f212fd2757c228185d762 status=in_progress
+creating TemplateAssignment for student=694f212fd2757c228185d768 status=in_progress
+creating TemplateAssignment for student=694f212fd2757c228185d76e status=completed
+creating TemplateAssignment for student=694f212fd2757c228185d774 status=completed
+creating TemplateAssignment for student=694f212fd2757c228185d77a status=in_progress
+creating TemplateAssignment for student=694f212fd2757c228185d780 status=completed
+creating TemplateAssignment for student=694f212fd2757c228185d786 status=completed
+creating TemplateAssignment for student=694f212fd2757c228185d78c status=completed
+creating TemplateAssignment for student=694f212fd2757c228185d792 status=completed
+creating TemplateAssignment for student=694f212fd2757c228185d798 status=completed
+creating TemplateAssignment for student=694f212fd2757c228185d79e status=completed
+creating TemplateAssignment for student=694f212fd2757c228185d7a4 status=completed
+creating TemplateAssignment for student=694f212fd2757c228185d7aa status=completed
+creating TemplateAssignment for student=694f212fd2757c228185d7b0 status=in_progress
+creating TemplateAssignment for student=694f212fd2757c228185d7b6 status=in_progress
+creating TemplateAssignment for student=694f212fd2757c228185d7bc status=completed
+creating TemplateAssignment for student=694f212fd2757c228185d7c2 status=in_progress
+creating TemplateAssignment for student=694f212fd2757c228185d7c8 status=in_progress
+creating TemplateAssignment for student=694f212fd2757c228185d7ce status=completed
+creating TemplateAssignment for student=694f212fd2757c228185d7d4 status=completed
+creating TemplateAssignment for student=694f212fd2757c228185d7da status=completed
+creating TemplateAssignment for student=694f212fd2757c228185d7e0 status=in_progress
+creating TemplateAssignment for student=694f212fd2757c228185d7e6 status=in_progress
+creating TemplateAssignment for student=694f212fd2757c228185d7ec status=completed
+creating TemplateAssignment for student=694f212fd2757c228185d7f2 status=completed
+creating TemplateAssignment for student=694f212fd2757c228185d7f8 status=completed
+creating TemplateAssignment for student=694f212fd2757c228185d7fe status=completed
+runSimulation completed runId=694f2121d2757c228185d2ef totalActions=200 errorRate=1
+simulations.start request teachers=1000 subAdmins=50 durationSec=120 scenario=mixed
+runSimulation start runId=694f2269d2757c2281fee8af durationSec=120 teachers=200 subAdmins=50
+ensureSeededData runId=694f2269d2757c2281fee8af teachers=200 subAdmins=50 template=694f2269d2757c2281fee7e0
+creating TemplateAssignment for student=694f2277d2757c2281feec5a status=completed
+creating TemplateAssignment for student=694f2277d2757c2281feec60 status=completed
+creating TemplateAssignment for student=694f2277d2757c2281feec66 status=in_progress
+creating TemplateAssignment for student=694f2277d2757c2281feec6c status=completed
+creating TemplateAssignment for student=694f2277d2757c2281feec72 status=completed
+creating TemplateAssignment for student=694f2277d2757c2281feec78 status=completed
+creating TemplateAssignment for student=694f2277d2757c2281feec7e status=completed
+creating TemplateAssignment for student=694f2277d2757c2281feec84 status=in_progress
+creating TemplateAssignment for student=694f2277d2757c2281feec8a status=in_progress
+creating TemplateAssignment for student=694f2277d2757c2281feec90 status=completed
+creating TemplateAssignment for student=694f2277d2757c2281feec96 status=completed
+creating TemplateAssignment for student=694f2277d2757c2281feec9c status=completed
+creating TemplateAssignment for student=694f2277d2757c2281feeca2 status=completed
+creating TemplateAssignment for student=694f2277d2757c2281feeca8 status=completed
+creating TemplateAssignment for student=694f2277d2757c2281feecae status=in_progress
+creating TemplateAssignment for student=694f2277d2757c2281feecb4 status=completed
+creating TemplateAssignment for student=694f2277d2757c2281feecba status=completed
+creating TemplateAssignment for student=694f2277d2757c2281feecc0 status=in_progress
+creating TemplateAssignment for student=694f2277d2757c2281feecc6 status=completed
+creating TemplateAssignment for student=694f2277d2757c2281feeccc status=in_progress
+creating TemplateAssignment for student=694f2277d2757c2281feecd2 status=in_progress
+creating TemplateAssignment for student=694f2277d2757c2281feecd8 status=in_progress
+creating TemplateAssignment for student=694f2277d2757c2281feecde status=completed
+creating TemplateAssignment for student=694f2277d2757c2281feece4 status=in_progress
+creating TemplateAssignment for student=694f2277d2757c2281feecea status=in_progress
+creating TemplateAssignment for student=694f2277d2757c2281feecf0 status=in_progress
+creating TemplateAssignment for student=694f2277d2757c2281feecf6 status=completed
+creating TemplateAssignment for student=694f2277d2757c2281feecfc status=in_progress
+creating TemplateAssignment for student=694f2277d2757c2281feed02 status=completed
+creating TemplateAssignment for student=694f2277d2757c2281feed08 status=completed
+creating TemplateAssignment for student=694f2277d2757c2281feed0e status=in_progress
+creating TemplateAssignment for student=694f2277d2757c2281feed14 status=in_progress
+creating TemplateAssignment for student=694f2277d2757c2281feed1a status=completed
+creating TemplateAssignment for student=694f2277d2757c2281feed20 status=in_progress
+creating TemplateAssignment for student=694f2277d2757c2281feed26 status=completed
+creating TemplateAssignment for student=694f2277d2757c2281feed2c status=in_progress
+creating TemplateAssignment for student=694f2277d2757c2281feed32 status=in_progress
+creating TemplateAssignment for student=694f2277d2757c2281feed38 status=completed
+creating TemplateAssignment for student=694f2277d2757c2281feed3e status=completed
+creating TemplateAssignment for student=694f2277d2757c2281feed44 status=in_progress
+creating TemplateAssignment for student=694f2277d2757c2281feed4a status=in_progress
+creating TemplateAssignment for student=694f2277d2757c2281feed50 status=completed
+creating TemplateAssignment for student=694f2277d2757c2281feed56 status=in_progress
+creating TemplateAssignment for student=694f2277d2757c2281feed5c status=completed
+creating TemplateAssignment for student=694f2277d2757c2281feed62 status=completed
+creating TemplateAssignment for student=694f2277d2757c2281feed68 status=completed
+creating TemplateAssignment for student=694f2277d2757c2281feed6e status=in_progress
+creating TemplateAssignment for student=694f2277d2757c2281feed74 status=completed
+creating TemplateAssignment for student=694f2277d2757c2281feed7a status=completed
+creating TemplateAssignment for student=694f2277d2757c2281feed80 status=in_progress
+creating TemplateAssignment for student=694f2277d2757c2281feed86 status=completed
+creating TemplateAssignment for student=694f2277d2757c2281feed8c status=completed
+creating TemplateAssignment for student=694f2277d2757c2281feed92 status=in_progress
+creating TemplateAssignment for student=694f2277d2757c2281feed98 status=completed
+creating TemplateAssignment for student=694f2277d2757c2281feed9e status=in_progress
+creating TemplateAssignment for student=694f2277d2757c2281feeda4 status=in_progress
+creating TemplateAssignment for student=694f2277d2757c2281feedaa status=completed
+creating TemplateAssignment for student=694f2277d2757c2281feedb0 status=in_progress
+creating TemplateAssignment for student=694f2277d2757c2281feedb6 status=in_progress
+creating TemplateAssignment for student=694f2277d2757c2281feedbc status=completed
+runSimulation completed runId=694f2269d2757c2281fee8af totalActions=200 errorRate=1
+SSL certificates loaded. Starting HTTPS server.
+mongo connected
+simulations.start request teachers=1000 subAdmins=50 durationSec=120 scenario=mixed
+runSimulation start runId=694f23b1d2757c2281911231 durationSec=120 teachers=200 subAdmins=50
+ensureSeededData runId=694f23b1d2757c2281911231 teachers=200 subAdmins=50 template=694f23b1d2757c2281911162
+creating TemplateAssignment for student=694f23bfd2757c22819115dc status=in_progress
+creating TemplateAssignment for student=694f23bfd2757c22819115e2 status=completed
+creating TemplateAssignment for student=694f23bfd2757c22819115e8 status=completed
+creating TemplateAssignment for student=694f23bfd2757c22819115ee status=in_progress
+creating TemplateAssignment for student=694f23bfd2757c22819115f4 status=completed
+creating TemplateAssignment for student=694f23bfd2757c22819115fa status=completed
+creating TemplateAssignment for student=694f23bfd2757c2281911600 status=in_progress
+creating TemplateAssignment for student=694f23bfd2757c2281911606 status=completed
+creating TemplateAssignment for student=694f23bfd2757c228191160c status=completed
+creating TemplateAssignment for student=694f23bfd2757c2281911612 status=in_progress
+creating TemplateAssignment for student=694f23bfd2757c2281911618 status=in_progress
+creating TemplateAssignment for student=694f23bfd2757c228191161e status=in_progress
+creating TemplateAssignment for student=694f23bfd2757c2281911624 status=in_progress
+creating TemplateAssignment for student=694f23bfd2757c228191162a status=completed
+creating TemplateAssignment for student=694f23bfd2757c2281911630 status=in_progress
+creating TemplateAssignment for student=694f23bfd2757c2281911636 status=in_progress
+creating TemplateAssignment for student=694f23bfd2757c228191163c status=completed
+creating TemplateAssignment for student=694f23bfd2757c2281911642 status=completed
+creating TemplateAssignment for student=694f23bfd2757c2281911648 status=completed
+creating TemplateAssignment for student=694f23bfd2757c228191164e status=completed
+creating TemplateAssignment for student=694f23bfd2757c2281911654 status=completed
+creating TemplateAssignment for student=694f23bfd2757c228191165a status=in_progress
+creating TemplateAssignment for student=694f23bfd2757c2281911660 status=completed
+creating TemplateAssignment for student=694f23bfd2757c2281911666 status=in_progress
+creating TemplateAssignment for student=694f23bfd2757c228191166c status=completed
+creating TemplateAssignment for student=694f23bfd2757c2281911672 status=completed
+creating TemplateAssignment for student=694f23bfd2757c2281911678 status=in_progress
+creating TemplateAssignment for student=694f23bfd2757c228191167e status=in_progress
+creating TemplateAssignment for student=694f23bfd2757c2281911684 status=completed
+creating TemplateAssignment for student=694f23bfd2757c228191168a status=in_progress
+creating TemplateAssignment for student=694f23bfd2757c2281911690 status=in_progress
+creating TemplateAssignment for student=694f23bfd2757c2281911696 status=in_progress
+creating TemplateAssignment for student=694f23bfd2757c228191169c status=in_progress
+creating TemplateAssignment for student=694f23bfd2757c22819116a2 status=completed
+creating TemplateAssignment for student=694f23bfd2757c22819116a8 status=completed
+creating TemplateAssignment for student=694f23bfd2757c22819116ae status=in_progress
+creating TemplateAssignment for student=694f23bfd2757c22819116b4 status=completed
+creating TemplateAssignment for student=694f23bfd2757c22819116ba status=in_progress
+creating TemplateAssignment for student=694f23bfd2757c22819116c0 status=in_progress
+creating TemplateAssignment for student=694f23bfd2757c22819116c6 status=completed
+creating TemplateAssignment for student=694f23bfd2757c22819116cc status=completed
+creating TemplateAssignment for student=694f23bfd2757c22819116d2 status=completed
+creating TemplateAssignment for student=694f23bfd2757c22819116d8 status=in_progress
+creating TemplateAssignment for student=694f23bfd2757c22819116de status=in_progress
+creating TemplateAssignment for student=694f23bfd2757c22819116e4 status=completed
+creating TemplateAssignment for student=694f23bfd2757c22819116ea status=completed
+creating TemplateAssignment for student=694f23bfd2757c22819116f0 status=in_progress
+creating TemplateAssignment for student=694f23bfd2757c22819116f6 status=completed
+creating TemplateAssignment for student=694f23bfd2757c22819116fc status=completed
+creating TemplateAssignment for student=694f23bfd2757c2281911702 status=completed
+creating TemplateAssignment for student=694f23bfd2757c2281911708 status=completed
+creating TemplateAssignment for student=694f23bfd2757c228191170e status=completed
+creating TemplateAssignment for student=694f23bfd2757c2281911714 status=completed
+creating TemplateAssignment for student=694f23bfd2757c228191171a status=in_progress
+creating TemplateAssignment for student=694f23bfd2757c2281911720 status=completed
+creating TemplateAssignment for student=694f23bfd2757c2281911726 status=completed
+creating TemplateAssignment for student=694f23bfd2757c228191172c status=completed
+creating TemplateAssignment for student=694f23bfd2757c2281911732 status=in_progress
+creating TemplateAssignment for student=694f23bfd2757c2281911738 status=completed
+creating TemplateAssignment for student=694f23bfd2757c228191173e status=in_progress
+runSimulation completed runId=694f23b1d2757c2281911231 totalActions=200 errorRate=1
+simulations.start request teachers=1000 subAdmins=50 durationSec=120 scenario=mixed
+runSimulation start runId=694f2407d2757c2281ea4fe1 durationSec=120 teachers=200 subAdmins=50
+ensureSeededData runId=694f2407d2757c2281ea4fe1 teachers=200 subAdmins=50 template=694f2407d2757c2281ea4f12
+creating TemplateAssignment for student=694f2414d2757c2281ea538c status=completed
+creating TemplateAssignment for student=694f2414d2757c2281ea5392 status=in_progress
+creating TemplateAssignment for student=694f2414d2757c2281ea5398 status=in_progress
+creating TemplateAssignment for student=694f2414d2757c2281ea539e status=in_progress
+creating TemplateAssignment for student=694f2414d2757c2281ea53a4 status=in_progress
+creating TemplateAssignment for student=694f2414d2757c2281ea53aa status=in_progress
+creating TemplateAssignment for student=694f2414d2757c2281ea53b0 status=completed
+creating TemplateAssignment for student=694f2414d2757c2281ea53b6 status=in_progress
+creating TemplateAssignment for student=694f2414d2757c2281ea53bc status=in_progress
+creating TemplateAssignment for student=694f2414d2757c2281ea53c2 status=completed
+creating TemplateAssignment for student=694f2414d2757c2281ea53c8 status=in_progress
+creating TemplateAssignment for student=694f2414d2757c2281ea53ce status=completed
+creating TemplateAssignment for student=694f2414d2757c2281ea53d4 status=completed
+creating TemplateAssignment for student=694f2414d2757c2281ea53da status=completed
+creating TemplateAssignment for student=694f2414d2757c2281ea53e0 status=completed
+creating TemplateAssignment for student=694f2414d2757c2281ea53e6 status=completed
+creating TemplateAssignment for student=694f2414d2757c2281ea53ec status=in_progress
+creating TemplateAssignment for student=694f2414d2757c2281ea53f2 status=in_progress
+creating TemplateAssignment for student=694f2414d2757c2281ea53f8 status=completed
+creating TemplateAssignment for student=694f2414d2757c2281ea53fe status=in_progress
+creating TemplateAssignment for student=694f2414d2757c2281ea5404 status=in_progress
+creating TemplateAssignment for student=694f2414d2757c2281ea540a status=in_progress
+creating TemplateAssignment for student=694f2414d2757c2281ea5410 status=completed
+creating TemplateAssignment for student=694f2414d2757c2281ea5416 status=completed
+creating TemplateAssignment for student=694f2414d2757c2281ea541c status=in_progress
+creating TemplateAssignment for student=694f2414d2757c2281ea5422 status=in_progress
+creating TemplateAssignment for student=694f2414d2757c2281ea5428 status=in_progress
+creating TemplateAssignment for student=694f2414d2757c2281ea542e status=completed
+creating TemplateAssignment for student=694f2414d2757c2281ea5434 status=in_progress
+creating TemplateAssignment for student=694f2414d2757c2281ea543a status=in_progress
+creating TemplateAssignment for student=694f2414d2757c2281ea5440 status=in_progress
+creating TemplateAssignment for student=694f2414d2757c2281ea5446 status=in_progress
+creating TemplateAssignment for student=694f2414d2757c2281ea544c status=in_progress
+creating TemplateAssignment for student=694f2414d2757c2281ea5452 status=completed
+creating TemplateAssignment for student=694f2414d2757c2281ea5458 status=in_progress
+creating TemplateAssignment for student=694f2414d2757c2281ea545e status=completed
+creating TemplateAssignment for student=694f2414d2757c2281ea5464 status=completed
+creating TemplateAssignment for student=694f2414d2757c2281ea546a status=completed
+creating TemplateAssignment for student=694f2414d2757c2281ea5470 status=completed
+creating TemplateAssignment for student=694f2414d2757c2281ea5476 status=in_progress
+creating TemplateAssignment for student=694f2414d2757c2281ea547c status=completed
+creating TemplateAssignment for student=694f2414d2757c2281ea5482 status=completed
+creating TemplateAssignment for student=694f2414d2757c2281ea5488 status=in_progress
+creating TemplateAssignment for student=694f2414d2757c2281ea548e status=completed
+creating TemplateAssignment for student=694f2414d2757c2281ea5494 status=completed
+creating TemplateAssignment for student=694f2414d2757c2281ea549a status=completed
+creating TemplateAssignment for student=694f2414d2757c2281ea54a0 status=completed
+creating TemplateAssignment for student=694f2414d2757c2281ea54a6 status=completed
+creating TemplateAssignment for student=694f2414d2757c2281ea54ac status=completed
+creating TemplateAssignment for student=694f2414d2757c2281ea54b2 status=in_progress
+creating TemplateAssignment for student=694f2414d2757c2281ea54b8 status=completed
+creating TemplateAssignment for student=694f2414d2757c2281ea54be status=completed
+creating TemplateAssignment for student=694f2414d2757c2281ea54c4 status=completed
+creating TemplateAssignment for student=694f2414d2757c2281ea54ca status=completed
+creating TemplateAssignment for student=694f2414d2757c2281ea54d0 status=completed
+creating TemplateAssignment for student=694f2414d2757c2281ea54d6 status=in_progress
+creating TemplateAssignment for student=694f2414d2757c2281ea54dc status=in_progress
+creating TemplateAssignment for student=694f2414d2757c2281ea54e2 status=in_progress
+creating TemplateAssignment for student=694f2414d2757c2281ea54e8 status=completed
+creating TemplateAssignment for student=694f2414d2757c2281ea54ee status=completed
+runSimulation completed runId=694f2407d2757c2281ea4fe1 totalActions=200 errorRate=1
+SSL certificates loaded. Starting HTTPS server.
+mongo connected
+simulations.start request teachers=1000 subAdmins=50 durationSec=120 scenario=mixed
+runSimulation start runId=694f2433d2757c2281f8b616 durationSec=120 teachers=200 subAdmins=50
+ensureSeededData runId=694f2433d2757c2281f8b616 teachers=200 subAdmins=50 template=694f2433d2757c2281f8b547
+creating TemplateAssignment for student=694f2441d2757c2281f8b9c1 status=completed
+creating TemplateAssignment for student=694f2441d2757c2281f8b9c7 status=in_progress
+creating TemplateAssignment for student=694f2441d2757c2281f8b9cd status=in_progress
+creating TemplateAssignment for student=694f2441d2757c2281f8b9d3 status=completed
+creating TemplateAssignment for student=694f2441d2757c2281f8b9d9 status=in_progress
+creating TemplateAssignment for student=694f2441d2757c2281f8b9df status=completed
+creating TemplateAssignment for student=694f2441d2757c2281f8b9e5 status=in_progress
+creating TemplateAssignment for student=694f2441d2757c2281f8b9eb status=in_progress
+creating TemplateAssignment for student=694f2441d2757c2281f8b9f1 status=completed
+creating TemplateAssignment for student=694f2441d2757c2281f8b9f7 status=completed
+creating TemplateAssignment for student=694f2441d2757c2281f8b9fd status=completed
+creating TemplateAssignment for student=694f2441d2757c2281f8ba03 status=in_progress
+creating TemplateAssignment for student=694f2441d2757c2281f8ba09 status=completed
+creating TemplateAssignment for student=694f2441d2757c2281f8ba0f status=in_progress
+creating TemplateAssignment for student=694f2441d2757c2281f8ba15 status=completed
+creating TemplateAssignment for student=694f2441d2757c2281f8ba1b status=completed
+creating TemplateAssignment for student=694f2441d2757c2281f8ba21 status=in_progress
+creating TemplateAssignment for student=694f2441d2757c2281f8ba27 status=in_progress
+creating TemplateAssignment for student=694f2441d2757c2281f8ba2d status=in_progress
+creating TemplateAssignment for student=694f2441d2757c2281f8ba33 status=completed
+creating TemplateAssignment for student=694f2441d2757c2281f8ba39 status=in_progress
+creating TemplateAssignment for student=694f2441d2757c2281f8ba3f status=completed
+creating TemplateAssignment for student=694f2441d2757c2281f8ba45 status=in_progress
+creating TemplateAssignment for student=694f2441d2757c2281f8ba4b status=completed
+creating TemplateAssignment for student=694f2441d2757c2281f8ba51 status=in_progress
+creating TemplateAssignment for student=694f2441d2757c2281f8ba57 status=completed
+creating TemplateAssignment for student=694f2441d2757c2281f8ba5d status=in_progress
+creating TemplateAssignment for student=694f2441d2757c2281f8ba63 status=in_progress
+creating TemplateAssignment for student=694f2441d2757c2281f8ba69 status=completed
+creating TemplateAssignment for student=694f2441d2757c2281f8ba6f status=in_progress
+creating TemplateAssignment for student=694f2441d2757c2281f8ba75 status=completed
+creating TemplateAssignment for student=694f2441d2757c2281f8ba7b status=in_progress
+creating TemplateAssignment for student=694f2441d2757c2281f8ba81 status=completed
+creating TemplateAssignment for student=694f2441d2757c2281f8ba87 status=in_progress
+creating TemplateAssignment for student=694f2441d2757c2281f8ba8d status=in_progress
+creating TemplateAssignment for student=694f2441d2757c2281f8ba93 status=completed
+creating TemplateAssignment for student=694f2441d2757c2281f8ba99 status=completed
+creating TemplateAssignment for student=694f2441d2757c2281f8ba9f status=completed
+creating TemplateAssignment for student=694f2441d2757c2281f8baa5 status=completed
+creating TemplateAssignment for student=694f2441d2757c2281f8baab status=in_progress
+creating TemplateAssignment for student=694f2441d2757c2281f8bab1 status=completed
+creating TemplateAssignment for student=694f2441d2757c2281f8bab7 status=completed
+creating TemplateAssignment for student=694f2441d2757c2281f8babd status=completed
+creating TemplateAssignment for student=694f2441d2757c2281f8bac3 status=completed
+creating TemplateAssignment for student=694f2441d2757c2281f8bac9 status=in_progress
+creating TemplateAssignment for student=694f2441d2757c2281f8bacf status=in_progress
+creating TemplateAssignment for student=694f2441d2757c2281f8bad5 status=completed
+creating TemplateAssignment for student=694f2441d2757c2281f8badb status=completed
+creating TemplateAssignment for student=694f2441d2757c2281f8bae1 status=in_progress
+creating TemplateAssignment for student=694f2441d2757c2281f8bae7 status=completed
+creating TemplateAssignment for student=694f2441d2757c2281f8baed status=in_progress
+creating TemplateAssignment for student=694f2441d2757c2281f8baf3 status=in_progress
+creating TemplateAssignment for student=694f2441d2757c2281f8baf9 status=completed
+creating TemplateAssignment for student=694f2441d2757c2281f8baff status=completed
+creating TemplateAssignment for student=694f2441d2757c2281f8bb05 status=in_progress
+creating TemplateAssignment for student=694f2441d2757c2281f8bb0b status=in_progress
+creating TemplateAssignment for student=694f2441d2757c2281f8bb11 status=completed
+creating TemplateAssignment for student=694f2441d2757c2281f8bb17 status=completed
+creating TemplateAssignment for student=694f2441d2757c2281f8bb1d status=in_progress
+creating TemplateAssignment for student=694f2441d2757c2281f8bb23 status=completed

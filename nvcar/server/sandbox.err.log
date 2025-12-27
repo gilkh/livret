@@ -1,0 +1,253 @@
+Uncaught Exception: Error: listen EADDRINUSE: address already in use :::4001
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at Server.listen (node:net:2099:7)
+    at Object.<anonymous> (C:\Users\Gilbert\Documents\GitHub\livret\nvcar\server\dist\index.js:72:8)
+    at Module._compile (node:internal/modules/cjs/loader:1554:14)
+    at Object..js (node:internal/modules/cjs/loader:1706:10)
+    at Module.load (node:internal/modules/cjs/loader:1289:32)
+    at Function._load (node:internal/modules/cjs/loader:1108:12)
+    at TracingChannel.traceSync (node:diagnostics_channel:322:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:220:24) {
+  code: 'EADDRINUSE',
+  errno: -4091,
+  syscall: 'listen',
+  address: '::',
+  port: 4001
+}
+runSimulation failed runId=694f11c3f3e7512dd11559f0 error=TemplateAssignment validation failed: status: `assigned` is not a valid enum value for path `status`.
+ValidationError: TemplateAssignment validation failed: status: `assigned` is not a valid enum value for path `status`.
+    at Document.invalidate (C:\Users\Gilbert\Documents\GitHub\livret\nvcar\server\node_modules\mongoose\lib\document.js:3362:32)
+    at C:\Users\Gilbert\Documents\GitHub\livret\nvcar\server\node_modules\mongoose\lib\document.js:3123:17
+    at C:\Users\Gilbert\Documents\GitHub\livret\nvcar\server\node_modules\mongoose\lib\schemaType.js:1420:9
+    at process.processTicksAndRejections (node:internal/process/task_queues:85:11)
+Uncaught Exception: Error: listen EADDRINUSE: address already in use :::4001
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at Server.listen (node:net:2099:7)
+    at Object.<anonymous> (C:\Users\Gilbert\Documents\GitHub\livret\nvcar\server\dist\index.js:72:8)
+    at Module._compile (node:internal/modules/cjs/loader:1554:14)
+    at Object..js (node:internal/modules/cjs/loader:1706:10)
+    at Module.load (node:internal/modules/cjs/loader:1289:32)
+    at Function._load (node:internal/modules/cjs/loader:1108:12)
+    at TracingChannel.traceSync (node:diagnostics_channel:322:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:220:24) {
+  code: 'EADDRINUSE',
+  errno: -4091,
+  syscall: 'listen',
+  address: '::',
+  port: 4001
+}
+runSimulation failed runId=694f123bf3e7512dd1155b71 error=TemplateAssignment validation failed: status: `assigned` is not a valid enum value for path `status`.
+ValidationError: TemplateAssignment validation failed: status: `assigned` is not a valid enum value for path `status`.
+    at Document.invalidate (C:\Users\Gilbert\Documents\GitHub\livret\nvcar\server\node_modules\mongoose\lib\document.js:3362:32)
+    at C:\Users\Gilbert\Documents\GitHub\livret\nvcar\server\node_modules\mongoose\lib\document.js:3123:17
+    at C:\Users\Gilbert\Documents\GitHub\livret\nvcar\server\node_modules\mongoose\lib\schemaType.js:1420:9
+    at process.processTicksAndRejections (node:internal/process/task_queues:85:11)
+runSimulation failed runId=694f124df3e7512dd1155cea error=TemplateAssignment validation failed: status: `assigned` is not a valid enum value for path `status`.
+ValidationError: TemplateAssignment validation failed: status: `assigned` is not a valid enum value for path `status`.
+    at Document.invalidate (C:\Users\Gilbert\Documents\GitHub\livret\nvcar\server\node_modules\mongoose\lib\document.js:3362:32)
+    at C:\Users\Gilbert\Documents\GitHub\livret\nvcar\server\node_modules\mongoose\lib\document.js:3123:17
+    at C:\Users\Gilbert\Documents\GitHub\livret\nvcar\server\node_modules\mongoose\lib\schemaType.js:1420:9
+    at process.processTicksAndRejections (node:internal/process/task_queues:85:11)
+runSimulation failed runId=694f1251f3e7512dd1155e63 error=TemplateAssignment validation failed: status: `assigned` is not a valid enum value for path `status`.
+ValidationError: TemplateAssignment validation failed: status: `assigned` is not a valid enum value for path `status`.
+    at Document.invalidate (C:\Users\Gilbert\Documents\GitHub\livret\nvcar\server\node_modules\mongoose\lib\document.js:3362:32)
+    at C:\Users\Gilbert\Documents\GitHub\livret\nvcar\server\node_modules\mongoose\lib\document.js:3123:17
+    at C:\Users\Gilbert\Documents\GitHub\livret\nvcar\server\node_modules\mongoose\lib\schemaType.js:1420:9
+    at process.processTicksAndRejections (node:internal/process/task_queues:85:11)
+Uncaught Exception: Error: listen EADDRINUSE: address already in use :::4001
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at Server.listen (node:net:2099:7)
+    at Object.<anonymous> (C:\Users\Gilbert\Documents\GitHub\livret\nvcar\server\dist\index.js:72:8)
+    at Module._compile (node:internal/modules/cjs/loader:1554:14)
+    at Object..js (node:internal/modules/cjs/loader:1706:10)
+    at Module.load (node:internal/modules/cjs/loader:1289:32)
+    at Function._load (node:internal/modules/cjs/loader:1108:12)
+    at TracingChannel.traceSync (node:diagnostics_channel:322:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:220:24) {
+  code: 'EADDRINUSE',
+  errno: -4091,
+  syscall: 'listen',
+  address: '::',
+  port: 4001
+}
+runSimulation failed runId=694f12acf3e7512dd1155fda error=TemplateAssignment validation failed: status: `assigned` is not a valid enum value for path `status`.
+ValidationError: TemplateAssignment validation failed: status: `assigned` is not a valid enum value for path `status`.
+    at Document.invalidate (C:\Users\Gilbert\Documents\GitHub\livret\nvcar\server\node_modules\mongoose\lib\document.js:3362:32)
+    at C:\Users\Gilbert\Documents\GitHub\livret\nvcar\server\node_modules\mongoose\lib\document.js:3123:17
+    at C:\Users\Gilbert\Documents\GitHub\livret\nvcar\server\node_modules\mongoose\lib\schemaType.js:1420:9
+    at process.processTicksAndRejections (node:internal/process/task_queues:85:11)
+runSimulation failed runId=694f12b2f3e7512dd1156153 error=TemplateAssignment validation failed: status: `assigned` is not a valid enum value for path `status`.
+ValidationError: TemplateAssignment validation failed: status: `assigned` is not a valid enum value for path `status`.
+    at Document.invalidate (C:\Users\Gilbert\Documents\GitHub\livret\nvcar\server\node_modules\mongoose\lib\document.js:3362:32)
+    at C:\Users\Gilbert\Documents\GitHub\livret\nvcar\server\node_modules\mongoose\lib\document.js:3123:17
+    at C:\Users\Gilbert\Documents\GitHub\livret\nvcar\server\node_modules\mongoose\lib\schemaType.js:1420:9
+    at process.processTicksAndRejections (node:internal/process/task_queues:85:11)
+runSimulation failed runId=694f12b6f3e7512dd11562f0 error=TemplateAssignment validation failed: status: `assigned` is not a valid enum value for path `status`.
+ValidationError: TemplateAssignment validation failed: status: `assigned` is not a valid enum value for path `status`.
+    at Document.invalidate (C:\Users\Gilbert\Documents\GitHub\livret\nvcar\server\node_modules\mongoose\lib\document.js:3362:32)
+    at C:\Users\Gilbert\Documents\GitHub\livret\nvcar\server\node_modules\mongoose\lib\document.js:3123:17
+    at C:\Users\Gilbert\Documents\GitHub\livret\nvcar\server\node_modules\mongoose\lib\schemaType.js:1420:9
+    at process.processTicksAndRejections (node:internal/process/task_queues:85:11)
+Uncaught Exception: Error: listen EADDRINUSE: address already in use :::4001
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at Server.listen (node:net:2099:7)
+    at Object.<anonymous> (C:\Users\Gilbert\Documents\GitHub\livret\nvcar\server\dist\index.js:72:8)
+    at Module._compile (node:internal/modules/cjs/loader:1554:14)
+    at Object..js (node:internal/modules/cjs/loader:1706:10)
+    at Module.load (node:internal/modules/cjs/loader:1289:32)
+    at Function._load (node:internal/modules/cjs/loader:1108:12)
+    at TracingChannel.traceSync (node:diagnostics_channel:322:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:220:24) {
+  code: 'EADDRINUSE',
+  errno: -4091,
+  syscall: 'listen',
+  address: '::',
+  port: 4001
+}
+runSimulation failed runId=694f12ebf3e7512dd115647b error=TemplateAssignment validation failed: status: `assigned` is not a valid enum value for path `status`.
+ValidationError: TemplateAssignment validation failed: status: `assigned` is not a valid enum value for path `status`.
+    at Document.invalidate (C:\Users\Gilbert\Documents\GitHub\livret\nvcar\server\node_modules\mongoose\lib\document.js:3362:32)
+    at C:\Users\Gilbert\Documents\GitHub\livret\nvcar\server\node_modules\mongoose\lib\document.js:3123:17
+    at C:\Users\Gilbert\Documents\GitHub\livret\nvcar\server\node_modules\mongoose\lib\schemaType.js:1420:9
+    at process.processTicksAndRejections (node:internal/process/task_queues:85:11)
+Uncaught Exception: Error: listen EADDRINUSE: address already in use :::4001
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at Server.listen (node:net:2099:7)
+    at Object.<anonymous> (C:\Users\Gilbert\Documents\GitHub\livret\nvcar\server\dist\index.js:72:8)
+    at Module._compile (node:internal/modules/cjs/loader:1554:14)
+    at Object..js (node:internal/modules/cjs/loader:1706:10)
+    at Module.load (node:internal/modules/cjs/loader:1289:32)
+    at Function._load (node:internal/modules/cjs/loader:1108:12)
+    at TracingChannel.traceSync (node:diagnostics_channel:322:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:220:24) {
+  code: 'EADDRINUSE',
+  errno: -4091,
+  syscall: 'listen',
+  address: '::',
+  port: 4001
+}
+Uncaught Exception: Error: listen EADDRINUSE: address already in use :::4001
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at Server.listen (node:net:2099:7)
+    at Object.<anonymous> (C:\Users\Gilbert\Documents\GitHub\livret\nvcar\server\dist\index.js:72:8)
+    at Module._compile (node:internal/modules/cjs/loader:1554:14)
+    at Object..js (node:internal/modules/cjs/loader:1706:10)
+    at Module.load (node:internal/modules/cjs/loader:1289:32)
+    at Function._load (node:internal/modules/cjs/loader:1108:12)
+    at TracingChannel.traceSync (node:diagnostics_channel:322:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:220:24) {
+  code: 'EADDRINUSE',
+  errno: -4091,
+  syscall: 'listen',
+  address: '::',
+  port: 4001
+}
+Uncaught Exception: Error: listen EADDRINUSE: address already in use :::4001
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at Server.listen (node:net:2099:7)
+    at Object.<anonymous> (C:\Users\Gilbert\Documents\GitHub\livret\nvcar\server\dist\index.js:72:8)
+    at Module._compile (node:internal/modules/cjs/loader:1554:14)
+    at Object..js (node:internal/modules/cjs/loader:1706:10)
+    at Module.load (node:internal/modules/cjs/loader:1289:32)
+    at Function._load (node:internal/modules/cjs/loader:1108:12)
+    at TracingChannel.traceSync (node:diagnostics_channel:322:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:220:24) {
+  code: 'EADDRINUSE',
+  errno: -4091,
+  syscall: 'listen',
+  address: '::',
+  port: 4001
+}
+runSimulation failed runId=694f13b9f3e7512dd1156600 error=TemplateAssignment validation failed: status: `assigned` is not a valid enum value for path `status`.
+ValidationError: TemplateAssignment validation failed: status: `assigned` is not a valid enum value for path `status`.
+    at Document.invalidate (C:\Users\Gilbert\Documents\GitHub\livret\nvcar\server\node_modules\mongoose\lib\document.js:3362:32)
+    at C:\Users\Gilbert\Documents\GitHub\livret\nvcar\server\node_modules\mongoose\lib\document.js:3123:17
+    at C:\Users\Gilbert\Documents\GitHub\livret\nvcar\server\node_modules\mongoose\lib\schemaType.js:1420:9
+    at process.processTicksAndRejections (node:internal/process/task_queues:85:11)
+runSimulation failed runId=694f13bcf3e7512dd1156790 error=TemplateAssignment validation failed: status: `assigned` is not a valid enum value for path `status`.
+ValidationError: TemplateAssignment validation failed: status: `assigned` is not a valid enum value for path `status`.
+    at Document.invalidate (C:\Users\Gilbert\Documents\GitHub\livret\nvcar\server\node_modules\mongoose\lib\document.js:3362:32)
+    at C:\Users\Gilbert\Documents\GitHub\livret\nvcar\server\node_modules\mongoose\lib\document.js:3123:17
+    at C:\Users\Gilbert\Documents\GitHub\livret\nvcar\server\node_modules\mongoose\lib\schemaType.js:1420:9
+    at process.processTicksAndRejections (node:internal/process/task_queues:85:11)
+runSimulation failed runId=694f13c1f3e7512dd1156915 error=TemplateAssignment validation failed: status: `assigned` is not a valid enum value for path `status`.
+ValidationError: TemplateAssignment validation failed: status: `assigned` is not a valid enum value for path `status`.
+    at Document.invalidate (C:\Users\Gilbert\Documents\GitHub\livret\nvcar\server\node_modules\mongoose\lib\document.js:3362:32)
+    at C:\Users\Gilbert\Documents\GitHub\livret\nvcar\server\node_modules\mongoose\lib\document.js:3123:17
+    at C:\Users\Gilbert\Documents\GitHub\livret\nvcar\server\node_modules\mongoose\lib\schemaType.js:1420:9
+    at process.processTicksAndRejections (node:internal/process/task_queues:85:11)
+Uncaught Exception: Error: listen EADDRINUSE: address already in use :::4001
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at Server.listen (node:net:2099:7)
+    at Object.<anonymous> (C:\Users\Gilbert\Documents\GitHub\livret\nvcar\server\dist\index.js:72:8)
+    at Module._compile (node:internal/modules/cjs/loader:1554:14)
+    at Object..js (node:internal/modules/cjs/loader:1706:10)
+    at Module.load (node:internal/modules/cjs/loader:1289:32)
+    at Function._load (node:internal/modules/cjs/loader:1108:12)
+    at TracingChannel.traceSync (node:diagnostics_channel:322:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:220:24) {
+  code: 'EADDRINUSE',
+  errno: -4091,
+  syscall: 'listen',
+  address: '::',
+  port: 4001
+}
+Uncaught Exception: Error: listen EADDRINUSE: address already in use :::4001
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at Server.listen (node:net:2099:7)
+    at Object.<anonymous> (C:\Users\Gilbert\Documents\GitHub\livret\nvcar\server\dist\index.js:72:8)
+    at Module._compile (node:internal/modules/cjs/loader:1554:14)
+    at Object..js (node:internal/modules/cjs/loader:1706:10)
+    at Module.load (node:internal/modules/cjs/loader:1289:32)
+    at Function._load (node:internal/modules/cjs/loader:1108:12)
+    at TracingChannel.traceSync (node:diagnostics_channel:322:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:220:24) {
+  code: 'EADDRINUSE',
+  errno: -4091,
+  syscall: 'listen',
+  address: '::',
+  port: 4001
+}
+Uncaught Exception: Error: listen EADDRINUSE: address already in use :::4001
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at Server.listen (node:net:2099:7)
+    at Object.<anonymous> (C:\Users\Gilbert\Documents\GitHub\livret\nvcar\server\dist\index.js:72:8)
+    at Module._compile (node:internal/modules/cjs/loader:1554:14)
+    at Object..js (node:internal/modules/cjs/loader:1706:10)
+    at Module.load (node:internal/modules/cjs/loader:1289:32)
+    at Function._load (node:internal/modules/cjs/loader:1108:12)
+    at TracingChannel.traceSync (node:diagnostics_channel:322:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:220:24) {
+  code: 'EADDRINUSE',
+  errno: -4091,
+  syscall: 'listen',
+  address: '::',
+  port: 4001
+}
+Uncaught Exception: Error: listen EADDRINUSE: address already in use :::4001
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at Server.listen (node:net:2099:7)
+    at Object.<anonymous> (C:\Users\Gilbert\Documents\GitHub\livret\nvcar\server\dist\index.js:72:8)
+    at Module._compile (node:internal/modules/cjs/loader:1554:14)
+    at Object..js (node:internal/modules/cjs/loader:1706:10)
+    at Module.load (node:internal/modules/cjs/loader:1289:32)
+    at Function._load (node:internal/modules/cjs/loader:1108:12)
+    at TracingChannel.traceSync (node:diagnostics_channel:322:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:220:24) {
+  code: 'EADDRINUSE',
+  errno: -4091,
+  syscall: 'listen',
+  address: '::',
+  port: 4001
+}

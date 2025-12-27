@@ -139,11 +139,15 @@ simulationsRouter.post('/start', requireAuth(['ADMIN']), async (req, res) => {
       return res.status(409).json({ error: 'already_running', runId: String((existing as any)._id) })
     }
 
-    const { teachers, subAdmins, durationSec, scenario, template } = req.body || {}
+    const { teachers, subAdmins, durationSec, thinkTimeMs, rampUpUsersPerSec, scenario, template } = req.body || {}
 
-    const t = Math.max(0, Math.min(200, Number(teachers) || 30))
-    const s = Math.max(0, Math.min(50, Number(subAdmins) || 5))
+    console.info(`simulations.start request teachers=${teachers} subAdmins=${subAdmins} durationSec=${durationSec} thinkTimeMs=${thinkTimeMs} rampUp=${rampUpUsersPerSec} scenario=${scenario}`)
+
+    const t = Math.max(0, Math.min(100000, Number(teachers) || 30))
+    const s = Math.max(0, Math.min(10000, Number(subAdmins) || 5))
     const d = Math.max(10, Math.min(60 * 30, Number(durationSec) || 120))
+    const tt = thinkTimeMs ? Math.max(0, Number(thinkTimeMs)) : undefined
+    const ru = rampUpUsersPerSec ? Math.max(0, Number(rampUpUsersPerSec)) : undefined
     const sc = String(scenario || 'mixed')
 
     let sandboxTemplateId: string | null = null
@@ -187,6 +191,8 @@ simulationsRouter.post('/start', requireAuth(['ADMIN']), async (req, res) => {
       teachers: t,
       subAdmins: s,
       templateId: sandboxTemplateId || undefined,
+      thinkTimeMs: tt,
+      rampUpUsersPerSec: ru,
     }).catch(() => {})
 
     res.json({ ok: true, runId: String(doc._id) })

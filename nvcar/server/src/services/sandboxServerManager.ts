@@ -109,8 +109,14 @@ export const startSandboxServer = async () => {
     throw new Error('sandbox_server_missing_build: run `npm run build` in nvcar/server to generate dist/index.js')
   }
 
+  // Spawn the sandbox as a detached background process and redirect logs to files
+  const outPath = path.join(process.cwd(), 'sandbox.out.log')
+  const errPath = path.join(process.cwd(), 'sandbox.err.log')
+  const outFd = fs.openSync(outPath, 'a')
+  const errFd = fs.openSync(errPath, 'a')
+
   proc = spawn(process.execPath, [entry], {
-    stdio: 'inherit',
+    stdio: ['ignore', outFd, errFd],
     env: {
       ...process.env,
       PORT: String(SANDBOX_PORT),
@@ -119,8 +125,14 @@ export const startSandboxServer = async () => {
       SIMULATION_SANDBOX_MARKER: 'sandbox',
       NODE_ENV: process.env.NODE_ENV || 'development',
     },
+    detached: true,
     windowsHide: false,
   })
+
+  // Allow the child to continue running independently
+  try { proc.unref() } catch (e) {}
+
+  console.info(`sandbox spawned pid=${proc?.pid} out=${outPath} err=${errPath}`)
 
   proc.on('exit', (code: any) => {
     if (code && code !== 0) lastError = `sandbox_server_exit_${code}`

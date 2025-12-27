@@ -26,6 +26,8 @@ export type SimulationConfig = {
   seededAssignmentId?: string
   seededAssignmentIds?: string[]
   seededClassIds?: string[]
+  thinkTimeMs?: number
+  rampUpUsersPerSec?: number
 }
 
 type ActionMetric = {
@@ -46,6 +48,8 @@ type LiveState = {
   inFlight: number
   lastMetrics: any
   recentActions: ActionMetric[]
+  totalActions: number
+  errorActions: number
 }
 
 const liveByRunId = new Map<string, LiveState>()
@@ -55,6 +59,8 @@ const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, m
 const recordAction = async (runId: string, action: ActionMetric) => {
   const live = liveByRunId.get(runId)
   if (live) {
+    live.totalActions++
+    if (!action.ok) live.errorActions++
     live.recentActions.push(action)
     if (live.recentActions.length > 200) live.recentActions.splice(0, live.recentActions.length - 200)
   }
@@ -161,6 +167,7 @@ const createSimUser = async (role: 'TEACHER' | 'SUBADMIN', runId: string) => {
 }
 
 const ensureSeededData = async (cfg: SimulationConfig, teacherIds: string[], subAdminIds: string[]) => {
+  console.info(`ensureSeededData runId=${cfg.runId} teachers=${teacherIds.length} subAdmins=${subAdminIds.length} template=${cfg.templateId}`)
   if (!cfg.templateId) return { assignmentId: null as string | null, assignmentIds: [] as string[], classIds: [] as string[] }
 
   const now = new Date()
@@ -207,7 +214,9 @@ const ensureSeededData = async (cfg: SimulationConfig, teacherIds: string[], sub
         isProfPolyvalent: true,
         assignedBy: 'simulation',
       })
-    } catch (e) {
+    } catch (e: any) {
+      console.error(`TeacherClassAssignment.create failed teacher=${teacherId} class=${classId} err=${String(e)}`)
+      if (e && e.stack) console.error(e.stack)
     }
   }
 
@@ -227,45 +236,104 @@ const ensureSeededData = async (cfg: SimulationConfig, teacherIds: string[], sub
       })
 
       const studentId = String((student as any)._id)
-      await Enrollment.create({ studentId, classId, schoolYearId, status: 'active' })
+      try {
+        await Enrollment.create({ studentId, classId, schoolYearId, status: 'active' })
+      } catch (e: any) {
+        console.error(`Enrollment.create failed student=${studentId} class=${classId} err=${String(e)}`)
+        if (e && e.stack) console.error(e.stack)
+      }
 
       const assignedTeachers = teacherId ? [teacherId] : []
 
       const completed = Math.random() < 0.55
 
-      const assignment = await TemplateAssignment.create({
-        templateId: cfg.templateId,
-        templateVersion: 1,
-        studentId,
-        completionSchoolYearId: schoolYearId,
-        assignedTeachers,
-        assignedBy: 'simulation',
-        status: completed ? 'completed' : 'assigned',
-        isCompleted: completed,
-        completedAt: completed ? new Date() : undefined,
-        completedBy: completed ? (teacherId || 'simulation') : undefined,
-        data: {},
-      })
+      const intendedStatus = completed ? 'completed' : 'in_progress'
+      console.info(`creating TemplateAssignment for student=${studentId} status=${intendedStatus}`)
 
-      assignmentIds.push(String((assignment as any)._id))
+      let assignment: any = null
+      try {
+        assignment = await TemplateAssignment.create({
+          templateId: cfg.templateId,
+          templateVersion: 1,
+          studentId,
+          completionSchoolYearId: schoolYearId,
+          assignedTeachers,
+          assignedBy: 'simulation',
+          status: intendedStatus,
+          isCompleted: completed,
+          completedAt: completed ? new Date() : undefined,
+          completedBy: completed ? (teacherId || 'simulation') : undefined,
+          data: {},
+        })
+      } catch (e: any) {
+        console.error(`TemplateAssignment.create failed for student=${studentId} err=${String(e)}`)
+        if (e && e.stack) console.error(e.stack)
+
+        // If the validation failure mentions the old 'assigned' value, retry with a safe status
+        if (String(e?.message || '').includes("status: `assigned`")) {
+          console.info(`Retrying TemplateAssignment.create for student=${studentId} with status=in_progress`)
+          try {
+            assignment = await TemplateAssignment.create({
+              templateId: cfg.templateId,
+              templateVersion: 1,
+              studentId,
+              completionSchoolYearId: schoolYearId,
+              assignedTeachers,
+              assignedBy: 'simulation',
+              status: 'in_progress',
+              isCompleted: completed,
+              completedAt: completed ? new Date() : undefined,
+              completedBy: completed ? (teacherId || 'simulation') : undefined,
+              data: {},
+            })
+          } catch (e2: any) {
+            console.error(`Retry failed for student=${studentId} err=${String(e2)}`)
+            if (e2 && e2.stack) console.error(e2.stack)
+            // Skip this student rather than abort the whole seeding process
+            console.info(`Skipping student=${studentId} due to TemplateAssignment validation failure`)
+            continue
+          }
+        } else if (e && e.name === 'ValidationError') {
+          // Skip student on any validation error
+          console.info(`Skipping student=${studentId} due to TemplateAssignment validation failure (non-assigned)`) 
+          continue
+        } else {
+          throw e
+        }
+      }
+
+      if (assignment) assignmentIds.push(String((assignment as any)._id))
     }
   }
 
   for (const subAdminId of subAdminIds) {
     try {
       await RoleScope.create({ userId: subAdminId, levels })
-    } catch (e) {
+    } catch (e: any) {
+      console.error(`RoleScope.create failed subAdmin=${subAdminId} err=${String(e)}`)
+      if (e && e.stack) console.error(e.stack)
     }
 
     for (const teacherId of teacherIds) {
       try {
         await SubAdminAssignment.create({ subAdminId, teacherId, assignedBy: 'simulation' })
-      } catch (e) {
+      } catch (e: any) {
+        console.error(`SubAdminAssignment.create failed subAdmin=${subAdminId} teacher=${teacherId} err=${String(e)}`)
+        if (e && e.stack) console.error(e.stack)
       }
     }
   }
 
   return { assignmentId: assignmentIds[0] || null, assignmentIds, classIds }
+}
+
+const simulatePageLoad = async (client: AxiosInstance, runId: string, role: 'teacher' | 'subadmin') => {
+  // Simulate common "app load" or "navigation" calls
+  const r1 = await timed(() => client.get('/settings/public').then(r => ({ status: r.status, data: r.data })))
+  await recordAction(runId, { name: `${role}.settingsPublic`, ok: r1.ok, ms: r1.ms, status: r1.status, error: r1.error, at: new Date() })
+
+  const r2 = await timed(() => client.get('/school-years').then(r => ({ status: r.status, data: r.data })))
+  await recordAction(runId, { name: `${role}.schoolYears`, ok: r2.ok, ms: r2.ms, status: r2.status, error: r2.error, at: new Date() })
 }
 
 const teacherLoop = async (cfg: SimulationConfig, token: string) => {
@@ -274,8 +342,16 @@ const teacherLoop = async (cfg: SimulationConfig, token: string) => {
 
   const client = makeClient(cfg.baseUrl, token)
 
+  // Initial "page load"
+  await simulatePageLoad(client, cfg.runId, 'teacher')
+
   while (!live.stopRequested && Date.now() - live.startedAt < cfg.durationSec * 1000) {
     live.inFlight++
+
+    // Occasional full page refresh/navigation (10% chance)
+    if (Math.random() < 0.1) {
+      await simulatePageLoad(client, cfg.runId, 'teacher')
+    }
 
     const r1 = await timed(() => client.get('/teacher/classes').then(r => ({ status: r.status, data: r.data })))
     await recordAction(cfg.runId, { name: 'teacher.classes', ok: r1.ok, ms: r1.ms, status: r1.status, error: r1.error, at: new Date() })
@@ -356,8 +432,14 @@ const teacherLoop = async (cfg: SimulationConfig, token: string) => {
 
     live.inFlight--
 
-    const think = 150 + Math.floor(Math.random() * 450)
-    await sleep(think)
+    let think = 0
+    if (cfg.thinkTimeMs) {
+      const variance = cfg.thinkTimeMs * 0.25
+      think = cfg.thinkTimeMs - variance + Math.random() * (variance * 2)
+    } else {
+      think = 150 + Math.floor(Math.random() * 450)
+    }
+    await sleep(Math.max(50, think))
   }
 }
 
@@ -367,8 +449,16 @@ const subAdminLoop = async (cfg: SimulationConfig, token: string) => {
 
   const client = makeClient(cfg.baseUrl, token)
 
+  // Initial "page load"
+  await simulatePageLoad(client, cfg.runId, 'subadmin')
+
   while (!live.stopRequested && Date.now() - live.startedAt < cfg.durationSec * 1000) {
     live.inFlight++
+
+    // Occasional full page refresh/navigation (10% chance)
+    if (Math.random() < 0.1) {
+      await simulatePageLoad(client, cfg.runId, 'subadmin')
+    }
 
     // Spread sub-admin work across many assignments/classes.
     const assignmentIds = (cfg.seededAssignmentIds && cfg.seededAssignmentIds.length > 0) ? cfg.seededAssignmentIds : (cfg.seededAssignmentId ? [cfg.seededAssignmentId] : [])
@@ -456,6 +546,7 @@ export const stopSimulation = async (runId: string) => {
 
 export const runSimulation = async (cfg: SimulationConfig) => {
   const startedAt = Date.now()
+  console.info(`runSimulation start runId=${cfg.runId} durationSec=${cfg.durationSec} teachers=${cfg.teachers} subAdmins=${cfg.subAdmins}`)
 
   const live: LiveState = {
     runId: cfg.runId,
@@ -466,6 +557,8 @@ export const runSimulation = async (cfg: SimulationConfig) => {
     inFlight: 0,
     lastMetrics: {},
     recentActions: [],
+    totalActions: 0,
+    errorActions: 0,
   }
 
   liveByRunId.set(cfg.runId, live)
@@ -492,7 +585,16 @@ export const runSimulation = async (cfg: SimulationConfig) => {
       subAdmins.push({ token: u.token, userId: u.userId })
     }
 
-    const seeded = await ensureSeededData(cfg, teachers.map(t => t.userId), subAdmins.map(s => s.userId))
+    let seeded: any = null
+    try {
+      seeded = await ensureSeededData(cfg, teachers.map(t => t.userId), subAdmins.map(s => s.userId))
+    } catch (e: any) {
+      console.error(`ensureSeededData failed runId=${cfg.runId} err=${String(e?.message || e)}`)
+      if (e && e.stack) console.error(e.stack)
+      // If seeding fails, continue the run without seeded data to avoid immediate abort.
+      seeded = { assignmentId: null, assignmentIds: [], classIds: [] }
+    }
+
     if (seeded.assignmentId) cfg.seededAssignmentId = seeded.assignmentId
     if (Array.isArray((seeded as any).assignmentIds)) cfg.seededAssignmentIds = (seeded as any).assignmentIds
     if (Array.isArray((seeded as any).classIds)) cfg.seededClassIds = (seeded as any).classIds
@@ -508,8 +610,8 @@ export const runSimulation = async (cfg: SimulationConfig) => {
       }
     })
 
-    live.activeTeacherUsers = teachers.length
-    live.activeSubAdminUsers = subAdmins.length
+    live.activeTeacherUsers = 0
+    live.activeSubAdminUsers = 0
 
     const sampler = (async () => {
       while (!live.stopRequested && Date.now() - startedAt < cfg.durationSec * 1000) {
@@ -536,21 +638,55 @@ export const runSimulation = async (cfg: SimulationConfig) => {
       }
     })()
 
-    const teacherPromises = teachers.map(async t => {
-      try {
-        await teacherLoop(cfg, t.token)
-      } finally {
-        live.activeTeacherUsers--
-      }
-    })
+    const teacherPromises: Promise<void>[] = []
+    const subAdminPromises: Promise<void>[] = []
 
-    const subAdminPromises = subAdmins.map(async s => {
-      try {
-        await subAdminLoop(cfg, s.token)
-      } finally {
-        live.activeSubAdminUsers--
+    const startUsers = async () => {
+      const allUsers = [
+        ...teachers.map(t => ({ type: 'TEACHER', ...t })),
+        ...subAdmins.map(s => ({ type: 'SUBADMIN', ...s }))
+      ]
+
+      // Shuffle so we don't start all teachers then all subAdmins
+      for (let i = allUsers.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [allUsers[i], allUsers[j]] = [allUsers[j], allUsers[i]];
       }
-    })
+
+      const rampUpDelayMs = cfg.rampUpUsersPerSec && cfg.rampUpUsersPerSec > 0 
+        ? 1000 / cfg.rampUpUsersPerSec 
+        : 0
+
+      for (const u of allUsers) {
+        if (live.stopRequested || Date.now() - startedAt >= cfg.durationSec * 1000) break
+
+        if (u.type === 'TEACHER') {
+          const p = (async () => {
+            live.activeTeacherUsers++
+            try {
+              await teacherLoop(cfg, u.token)
+            } finally {
+              live.activeTeacherUsers--
+            }
+          })()
+          teacherPromises.push(p)
+        } else {
+          const p = (async () => {
+            live.activeSubAdminUsers++
+            try {
+              await subAdminLoop(cfg, u.token)
+            } finally {
+              live.activeSubAdminUsers--
+            }
+          })()
+          subAdminPromises.push(p)
+        }
+
+        if (rampUpDelayMs > 0) {
+          await sleep(rampUpDelayMs)
+        }
+      }
+    }
 
     const collector = (async () => {
       while (!live.stopRequested && Date.now() - startedAt < cfg.durationSec * 1000) {
@@ -561,8 +697,13 @@ export const runSimulation = async (cfg: SimulationConfig) => {
       }
     })()
 
+    const usersManager = startUsers().then(async () => {
+      await Promise.all([...teacherPromises, ...subAdminPromises])
+    })
+
+    // Ensure the run lasts for the requested duration even when there are zero participants.
     await Promise.race([
-      Promise.all([...teacherPromises, ...subAdminPromises]),
+      Promise.all([usersManager, sampler, collector]),
       sleep(cfg.durationSec * 1000),
     ])
 
@@ -581,6 +722,8 @@ export const runSimulation = async (cfg: SimulationConfig) => {
       fail: summary.errorRate >= 0.15,
     }
 
+    console.info(`runSimulation completed runId=${cfg.runId} totalActions=${summary.totalActions} errorRate=${summary.errorRate}`)
+
     await SimulationRun.findByIdAndUpdate(cfg.runId, {
       $set: {
         status: 'completed',
@@ -598,6 +741,8 @@ export const runSimulation = async (cfg: SimulationConfig) => {
       }
     })
   } catch (e: any) {
+    console.error(`runSimulation failed runId=${cfg.runId} error=${String(e?.message || e)}`)
+    if (e && e.stack) console.error(e.stack)
     await SimulationRun.findByIdAndUpdate(cfg.runId, {
       $set: {
         status: 'failed',

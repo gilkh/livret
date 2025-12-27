@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import axios from 'axios'
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import api from '../api'
+import './SimulationLab.css'
 
 export default function SimulationLab() {
   const [msg, setMsg] = useState('')
@@ -28,6 +30,8 @@ export default function SimulationLab() {
   const [teachers, setTeachers] = useState(30)
   const [subAdmins, setSubAdmins] = useState(5)
   const [durationSec, setDurationSec] = useState(120)
+  const [thinkTimeMs, setThinkTimeMs] = useState(500)
+  const [rampUpUsersPerSec, setRampUpUsersPerSec] = useState(10)
 
   const [simStarting, setSimStarting] = useState(false)
   const [simStopping, setSimStopping] = useState(false)
@@ -36,11 +40,13 @@ export default function SimulationLab() {
   const [history, setHistory] = useState<any[]>([])
 
   const [tab, setTab] = useState<'live' | 'history' | 'raw'>('live')
+  const [now, setNow] = useState(Date.now())
 
   const selectedTemplate = useMemo(() => {
     return templates.find(t => String(t?._id) === String(templateId)) || null
   }, [templates, templateId])
 
+  // Move token logic to top level or a separate effect that doesn't conflict
   useEffect(() => {
     try {
       const params = new URLSearchParams(window.location.search || '')
@@ -50,7 +56,14 @@ export default function SimulationLab() {
       }
     } catch (e) {
     }
+  }, [])
 
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(t)
+  }, [])
+
+  useEffect(() => {
     ;(async () => {
       await Promise.all([loadSandboxServer(), loadTemplates(), loadStatus(), loadHistory()])
       setLoading(false)
@@ -163,6 +176,8 @@ export default function SimulationLab() {
         teachers,
         subAdmins,
         durationSec,
+        thinkTimeMs,
+        rampUpUsersPerSec,
         scenario: 'mixed',
         template: selectedTemplate,
       })
@@ -192,14 +207,82 @@ export default function SimulationLab() {
 
   if (loading) {
     return (
-      <div className="settings-container">
-        <div className="settings-header">
-          <h1 className="settings-title">Simulation Lab</h1>
-          <p className="settings-subtitle">Chargement…</p>
+      <div className="simulation-lab-container">
+        <div className="simulation-header">
+          <h1 className="simulation-title">Simulation Lab</h1>
+          <p className="simulation-subtitle">Chargement…</p>
         </div>
       </div>
     )
   }
+
+  return (
+    <SimulationLabContent
+      msg={msg}
+      sandboxServer={sandboxServer}
+      sandboxStarting={sandboxStarting}
+      sandboxStopping={sandboxStopping}
+      templateId={templateId}
+      setTemplateId={setTemplateId}
+      templates={templates}
+      teachers={teachers}
+      setTeachers={setTeachers}
+      subAdmins={subAdmins}
+      setSubAdmins={setSubAdmins}
+      durationSec={durationSec}
+      setDurationSec={setDurationSec}
+      thinkTimeMs={thinkTimeMs}
+      setThinkTimeMs={setThinkTimeMs}
+      rampUpUsersPerSec={rampUpUsersPerSec}
+      setRampUpUsersPerSec={setRampUpUsersPerSec}
+      running={running}
+      simStarting={simStarting}
+      simStopping={simStopping}
+      startSandbox={startSandbox}
+      stopSandbox={stopSandbox}
+      loadSandboxServer={loadSandboxServer}
+      loadTemplates={loadTemplates}
+      loadStatus={loadStatus}
+      loadHistory={loadHistory}
+      startSimulation={startSimulation}
+      stopSimulation={stopSimulation}
+      live={live}
+      history={history}
+      tab={tab}
+      setTab={setTab}
+      now={now}
+    />
+  )
+}
+
+function SimulationLabContent({
+  msg, sandboxServer, sandboxStarting, sandboxStopping,
+  templateId, setTemplateId, templates,
+  teachers, setTeachers, subAdmins, setSubAdmins, durationSec, setDurationSec,
+  thinkTimeMs, setThinkTimeMs, rampUpUsersPerSec, setRampUpUsersPerSec,
+  running, simStarting, simStopping,
+  startSandbox, stopSandbox, loadSandboxServer, loadTemplates, loadStatus, loadHistory,
+  startSimulation, stopSimulation,
+  live, history, tab, setTab, now
+}: any) {
+  const lastMetrics = live?.lastMetrics || running?.lastMetrics || null
+  const recentActions = Array.isArray(live?.recentActions) ? live.recentActions : Array.isArray(running?.recentActions) ? running.recentActions : []
+  const recentActionsView = recentActions.slice(-80).reverse()
+
+  const topRun = running
+  const topSummary = history?.[0]?.summary || null
+
+  const elapsedSec = live?.startedAt ? (now - new Date(live.startedAt).getTime()) / 1000 : 0
+  const rps = (elapsedSec > 1 && live?.totalActions) ? (live.totalActions / elapsedSec) : 0
+  const liveErrorRate = live?.totalActions ? (live.errorActions / live.totalActions) : 0
+
+  const chartData = useMemo(() => {
+    return recentActions.map((a: any) => ({
+      time: new Date(a.at).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+      ms: a.ms,
+      ok: a.ok
+    })).slice(-100)
+  }, [recentActions])
 
   const fmt = (n: any) => {
     const v = Number(n)
@@ -213,30 +296,23 @@ export default function SimulationLab() {
     return `${v}ms`
   }
 
-  const lastMetrics = live?.lastMetrics || running?.lastMetrics || null
-  const recentActions = Array.isArray(live?.recentActions) ? live.recentActions : Array.isArray(running?.recentActions) ? running.recentActions : []
-  const recentActionsView = recentActions.slice(-80).reverse()
-
-  const topRun = running
-  const topSummary = history?.[0]?.summary || null
-
   return (
-    <div className="settings-container">
-      <div className="settings-header">
-        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+    <div className="simulation-lab-container">
+      <div className="simulation-header">
+        <div className="simulation-title-row">
           <div>
-            <h1 className="settings-title">Simulation Lab</h1>
-            <p className="settings-subtitle">Contrôle du sandbox (DB isolée) + exécution/diagnostics.</p>
+            <h1 className="simulation-title">Simulation Lab</h1>
+            <p className="simulation-subtitle">Contrôle du sandbox (DB isolée) + exécution/diagnostics.</p>
           </div>
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-            <span style={{ fontSize: 12, padding: '6px 10px', borderRadius: 999, border: '1px solid #e2e8f0', background: sandboxServer?.running ? '#ecfdf5' : '#fef2f2', color: sandboxServer?.running ? '#047857' : '#b91c1c' }}>
+          <div className="simulation-status-badges">
+            <span className={`status-badge ${sandboxServer?.running ? 'running' : 'stopped'}`}>
               Sandbox: <strong>{sandboxServer?.running ? 'RUNNING' : 'STOPPED'}</strong>
             </span>
-            <span style={{ fontSize: 12, padding: '6px 10px', borderRadius: 999, border: '1px solid #e2e8f0', background: running ? '#eff6ff' : '#f8fafc', color: running ? '#1d4ed8' : '#475569' }}>
+            <span className={`status-badge ${running ? 'running' : 'idle'}`}>
               Simulation: <strong>{running ? 'RUNNING' : 'IDLE'}</strong>
             </span>
             {running?._id ? (
-              <span style={{ fontSize: 12, padding: '6px 10px', borderRadius: 999, border: '1px solid #e2e8f0', background: '#f8fafc', color: '#334155' }}>
+              <span className="status-badge info">
                 Run: <strong>{String(running._id).slice(-8)}</strong>
               </span>
             ) : null}
@@ -245,92 +321,130 @@ export default function SimulationLab() {
       </div>
 
       {msg && (
-        <>
-          <div className="toast-message">
-            <span>{msg}</span>
-          </div>
-        </>
+        <div className="toast-message">
+          <span>{msg}</span>
+        </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(320px, 420px) 1fr', gap: 14, alignItems: 'start' }}>
-        <div style={{ display: 'grid', gap: 14 }}>
-          <div className="settings-section" style={{ margin: 0 }}>
-            <div className="section-header">
-              <h2 className="section-title">Contrôle</h2>
+      <div className="simulation-grid">
+        <div className="control-column">
+          <div className="simulation-card">
+            <div className="card-header">
+              <h2 className="card-title">Contrôle</h2>
             </div>
 
-            <div className="setting-item" style={{ alignItems: 'flex-start' }}>
-              <div className="setting-info">
-                <h3>Sandbox Server</h3>
-                <p>Démarre un serveur séparé (port 4001) + DB isolée.</p>
-              </div>
-              <div style={{ width: '100%' }}>
-                <div style={{ display: 'grid', gap: 8 }}>
-                  <div style={{ fontSize: 12, color: '#475569' }}>
-                    BaseUrl: <strong>{sandboxServer?.baseUrl || '-'}</strong>
-                  </div>
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    {!sandboxServer?.running ? (
-                      <button className="btn" onClick={startSandbox} disabled={sandboxStarting}>
-                        {sandboxStarting ? 'Démarrage…' : 'Démarrer sandbox'}
-                      </button>
-                    ) : (
-                      <button className="btn" onClick={stopSandbox} disabled={sandboxStopping}>
-                        {sandboxStopping ? 'Arrêt…' : 'Arrêter sandbox'}
-                      </button>
-                    )}
-                    <button className="btn" onClick={loadSandboxServer}>↻ Statut</button>
-                  </div>
-                  {sandboxServer?.lastError ? (
-                    <div style={{ fontSize: 12, color: '#b91c1c' }}>Erreur: {String(sandboxServer.lastError)}</div>
-                  ) : null}
+            <div className="control-item">
+              <h3>Sandbox Server</h3>
+              <p>Démarre un serveur séparé (port 4001) + DB isolée.</p>
+              
+              <div style={{ display: 'grid', gap: 8 }}>
+                <div style={{ fontSize: 12, color: '#475569' }}>
+                  BaseUrl: <strong>{sandboxServer?.baseUrl || '-'}</strong>
                 </div>
-              </div>
-            </div>
-
-            <div className="setting-item" style={{ alignItems: 'flex-start' }}>
-              <div className="setting-info">
-                <h3>Template</h3>
-                <p>Le template sera copié dans le sandbox avant la simulation.</p>
-              </div>
-              <div style={{ width: '100%' }}>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                  <select value={templateId} onChange={(e) => setTemplateId(e.target.value)} style={{ flex: 1, minWidth: 220, padding: '6px 10px', borderRadius: 6, border: '1px solid #cbd5e1' }} disabled={!!running}>
-                    {templates.map(t => (
-                      <option key={String(t._id)} value={String(t._id)}>{t.name}</option>
-                    ))}
-                  </select>
-                  <button className="btn" onClick={loadTemplates} disabled={!!running}>↻</button>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {!sandboxServer?.running ? (
+                    <button className="btn" onClick={startSandbox} disabled={sandboxStarting}>
+                      {sandboxStarting ? 'Démarrage…' : 'Démarrer sandbox'}
+                    </button>
+                  ) : (
+                    <button className="btn" onClick={stopSandbox} disabled={sandboxStopping}>
+                      {sandboxStopping ? 'Arrêt…' : 'Arrêter sandbox'}
+                    </button>
+                  )}
+                  <button className="btn" onClick={loadSandboxServer}>↻ Statut</button>
                 </div>
+                {sandboxServer?.lastError ? (
+                  <div style={{ fontSize: 12, color: '#b91c1c' }}>Erreur: {String(sandboxServer.lastError)}</div>
+                ) : null}
               </div>
             </div>
 
-            <div className="setting-item" style={{ alignItems: 'flex-start' }}>
-              <div className="setting-info">
-                <h3>Charge</h3>
-                <p>Concurrence + durée.</p>
+            <div className="control-item">
+              <h3>Template</h3>
+              <p>Le template sera copié dans le sandbox avant la simulation.</p>
+              
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <select 
+                  className="select-field"
+                  value={templateId} 
+                  onChange={(e) => setTemplateId(e.target.value)} 
+                  disabled={!!running}
+                >
+                  {templates.map((t: any) => (
+                    <option key={String(t._id)} value={String(t._id)}>{t.name}</option>
+                  ))}
+                </select>
+                <button className="btn" onClick={loadTemplates} disabled={!!running}>↻</button>
               </div>
+            </div>
+
+            <div className="control-item">
+              <h3>Charge</h3>
+              <p>Concurrence + durée + performance.</p>
+              
               <div style={{ width: '100%', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 <label style={{ fontSize: 12, color: '#334155' }}>
                   Teachers
-                  <input type="number" value={teachers} onChange={(e) => setTeachers(Number(e.target.value))} style={{ marginTop: 6, width: '100%' }} disabled={!!running} />
+                  <input 
+                    type="number" 
+                    className="input-field"
+                    value={teachers} 
+                    onChange={(e) => setTeachers(Number(e.target.value))} 
+                    style={{ marginTop: 6 }} 
+                    disabled={!!running} 
+                  />
                 </label>
                 <label style={{ fontSize: 12, color: '#334155' }}>
                   SubAdmins
-                  <input type="number" value={subAdmins} onChange={(e) => setSubAdmins(Number(e.target.value))} style={{ marginTop: 6, width: '100%' }} disabled={!!running} />
+                  <input 
+                    type="number" 
+                    className="input-field"
+                    value={subAdmins} 
+                    onChange={(e) => setSubAdmins(Number(e.target.value))} 
+                    style={{ marginTop: 6 }} 
+                    disabled={!!running} 
+                  />
+                </label>
+                <label style={{ fontSize: 12, color: '#334155' }}>
+                  Think Time (ms)
+                  <input 
+                    type="number" 
+                    className="input-field"
+                    value={thinkTimeMs} 
+                    onChange={(e) => setThinkTimeMs(Number(e.target.value))} 
+                    style={{ marginTop: 6 }} 
+                    disabled={!!running} 
+                  />
+                </label>
+                <label style={{ fontSize: 12, color: '#334155' }}>
+                  Ramp-up (users/s)
+                  <input 
+                    type="number" 
+                    className="input-field"
+                    value={rampUpUsersPerSec} 
+                    onChange={(e) => setRampUpUsersPerSec(Number(e.target.value))} 
+                    style={{ marginTop: 6 }} 
+                    disabled={!!running} 
+                  />
                 </label>
                 <label style={{ fontSize: 12, color: '#334155', gridColumn: '1 / -1' }}>
                   Duration (sec)
-                  <input type="number" value={durationSec} onChange={(e) => setDurationSec(Number(e.target.value))} style={{ marginTop: 6, width: '100%' }} disabled={!!running} />
+                  <input 
+                    type="number" 
+                    className="input-field"
+                    value={durationSec} 
+                    onChange={(e) => setDurationSec(Number(e.target.value))} 
+                    style={{ marginTop: 6 }} 
+                    disabled={!!running} 
+                  />
                 </label>
               </div>
             </div>
 
-            <div className="setting-item">
-              <div className="setting-info">
-                <h3>Simulation</h3>
-                <p>Démarrer / arrêter.</p>
-              </div>
+            <div className="control-item">
+              <h3>Simulation</h3>
+              <p>Démarrer / arrêter.</p>
+              
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 {!running ? (
                   <button className="btn primary" onClick={startSimulation} disabled={simStarting || !sandboxServer?.running || !templateId}>
@@ -347,63 +461,89 @@ export default function SimulationLab() {
           </div>
         </div>
 
-        <div style={{ display: 'grid', gap: 14 }}>
-          <div className="settings-section" style={{ margin: 0 }}>
-            <div className="section-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <h2 className="section-title">Dashboard</h2>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <button className="btn" onClick={() => setTab('live')} style={{ background: tab === 'live' ? '#e2e8f0' : undefined }}>Live</button>
-                <button className="btn" onClick={() => setTab('history')} style={{ background: tab === 'history' ? '#e2e8f0' : undefined }}>History</button>
-                <button className="btn" onClick={() => setTab('raw')} style={{ background: tab === 'raw' ? '#e2e8f0' : undefined }}>Raw</button>
+        <div className="dashboard-column">
+          <div className="simulation-card">
+            <div className="card-header">
+              <h2 className="card-title">Dashboard</h2>
+              <div className="tab-group">
+                <button className={`tab-btn ${tab === 'live' ? 'active' : ''}`} onClick={() => setTab('live')}>Live</button>
+                <button className={`tab-btn ${tab === 'history' ? 'active' : ''}`} onClick={() => setTab('history')}>History</button>
+                <button className={`tab-btn ${tab === 'raw' ? 'active' : ''}`} onClick={() => setTab('raw')}>Raw</button>
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 10 }}>
-              <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: 10, background: '#fff' }}>
-                <div style={{ fontSize: 12, color: '#64748b' }}>Teachers actifs</div>
-                <div style={{ fontSize: 18, fontWeight: 700, color: '#0f172a' }}>{fmt(live?.activeTeacherUsers ?? lastMetrics?.activeUsers?.teachers ?? 0)}</div>
+            <div className="metrics-grid">
+              <div className="metric-card">
+                <div className="metric-label">Total Actions</div>
+                <div className="metric-value">{fmt(live?.totalActions ?? 0)}</div>
+                <div style={{ fontSize: 11, color: '#64748b' }}>{fmt(live?.errorActions ?? 0)} errors</div>
               </div>
-              <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: 10, background: '#fff' }}>
-                <div style={{ fontSize: 12, color: '#64748b' }}>SubAdmins actifs</div>
-                <div style={{ fontSize: 18, fontWeight: 700, color: '#0f172a' }}>{fmt(live?.activeSubAdminUsers ?? lastMetrics?.activeUsers?.subAdmins ?? 0)}</div>
+              <div className="metric-card">
+                <div className="metric-label">RPS (avg)</div>
+                <div className="metric-value" style={{ color: '#2563eb' }}>{rps.toFixed(1)}</div>
+                <div style={{ fontSize: 11, color: '#64748b' }}>req/sec</div>
               </div>
-              <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: 10, background: '#fff' }}>
-                <div style={{ fontSize: 12, color: '#64748b' }}>In-flight</div>
-                <div style={{ fontSize: 18, fontWeight: 700, color: '#0f172a' }}>{fmt(live?.inFlight ?? lastMetrics?.activeUsers?.inFlight ?? 0)}</div>
+              <div className="metric-card">
+                <div className="metric-label">In-flight</div>
+                <div className="metric-value">{fmt(live?.inFlight ?? lastMetrics?.activeUsers?.inFlight ?? 0)}</div>
+                <div style={{ fontSize: 11, color: '#64748b' }}>Active requests</div>
               </div>
-              <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: 10, background: '#fff' }}>
-                <div style={{ fontSize: 12, color: '#64748b' }}>p95 / err%</div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>
-                  {topSummary ? `${ms(topSummary.p95Ms)} / ${Math.round((topSummary.errorRate || 0) * 100)}%` : '-'}
+              <div className="metric-card">
+                <div className="metric-label">Error Rate</div>
+                <div className="metric-value" style={{ color: liveErrorRate > 0.05 ? '#dc2626' : '#059669' }}>
+                  {(liveErrorRate * 100).toFixed(1)}%
                 </div>
               </div>
+              <div className="metric-card">
+                <div className="metric-label">Active Users</div>
+                <div className="metric-value">{fmt((live?.activeTeacherUsers || 0) + (live?.activeSubAdminUsers || 0))}</div>
+                <div style={{ fontSize: 11, color: '#64748b' }}>Teachers + Admins</div>
+              </div>
             </div>
 
+            {chartData.length > 0 && (
+              <div style={{ height: 200, marginBottom: 20, background: '#fff', padding: 10, borderRadius: 12, border: '1px solid #e2e8f0' }}>
+                 <div style={{ fontSize: 12, fontWeight: 600, color: '#64748b', marginBottom: 10 }}>Response Time (ms) - Live</div>
+                 <ResponsiveContainer width="100%" height="100%">
+                   <LineChart data={chartData}>
+                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                     <XAxis dataKey="time" hide />
+                     <YAxis stroke="#94a3b8" fontSize={10} tickFormatter={(v) => `${v}ms`} />
+                     <Tooltip 
+                       contentStyle={{ borderRadius: 8, border: 'none', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}
+                       labelStyle={{ color: '#64748b', fontSize: 11 }}
+                     />
+                     <Line type="monotone" dataKey="ms" stroke="#3b82f6" strokeWidth={2} dot={false} isAnimationActive={false} />
+                   </LineChart>
+                 </ResponsiveContainer>
+              </div>
+            )}
+
             {tab === 'live' ? (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
-                <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, background: '#fff', overflow: 'hidden' }}>
-                  <div style={{ padding: 10, borderBottom: '1px solid #e2e8f0', fontSize: 12, color: '#334155', display: 'flex', justifyContent: 'space-between' }}>
-                    <strong>Actions récentes</strong>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div className="data-table-container">
+                  <div className="data-table-header">
+                    <span>Actions récentes</span>
                     <span style={{ color: '#64748b' }}>{recentActionsView.length} items</span>
                   </div>
                   <div style={{ maxHeight: 420, overflow: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                      <thead style={{ position: 'sticky', top: 0, background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                    <table className="data-table">
+                      <thead>
                         <tr>
-                          <th style={{ padding: 8, textAlign: 'left', color: '#64748b' }}>Action</th>
-                          <th style={{ padding: 8, textAlign: 'right', color: '#64748b' }}>ms</th>
-                          <th style={{ padding: 8, textAlign: 'right', color: '#64748b' }}>HTTP</th>
+                          <th>Action</th>
+                          <th style={{ textAlign: 'right' }}>ms</th>
+                          <th style={{ textAlign: 'right' }}>HTTP</th>
                         </tr>
                       </thead>
                       <tbody>
                         {recentActionsView.map((a: any, idx: number) => (
-                          <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                            <td style={{ padding: 8 }}>
+                          <tr key={idx}>
+                            <td>
                               <span style={{ color: a.ok ? '#047857' : '#b91c1c', fontWeight: 600 }}>{a.name}</span>
                               {a.error ? <div style={{ color: '#64748b', fontSize: 11, marginTop: 2 }}>{String(a.error).slice(0, 120)}</div> : null}
                             </td>
-                            <td style={{ padding: 8, textAlign: 'right', color: '#0f172a' }}>{fmt(a.ms)}</td>
-                            <td style={{ padding: 8, textAlign: 'right', color: '#64748b' }}>{a.status ?? '-'}</td>
+                            <td style={{ textAlign: 'right', color: '#0f172a' }}>{fmt(a.ms)}</td>
+                            <td style={{ textAlign: 'right', color: '#64748b' }}>{a.status ?? '-'}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -411,27 +551,27 @@ export default function SimulationLab() {
                   </div>
                 </div>
 
-                <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, background: '#fff', overflow: 'hidden' }}>
-                  <div style={{ padding: 10, borderBottom: '1px solid #e2e8f0', fontSize: 12, color: '#334155' }}>
-                    <strong>System / Metrics</strong>
+                <div className="data-table-container">
+                  <div className="data-table-header">
+                    <span>System / Metrics</span>
                   </div>
                   <div style={{ padding: 10, maxHeight: 420, overflow: 'auto' }}>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                      <div style={{ border: '1px solid #f1f5f9', borderRadius: 10, padding: 10, background: '#f8fafc' }}>
-                        <div style={{ fontSize: 12, color: '#64748b' }}>RSS</div>
-                        <div style={{ fontWeight: 700, color: '#0f172a' }}>{fmt(lastMetrics?.system?.memoryRss)}</div>
+                      <div className="metric-card" style={{ background: '#f8fafc', boxShadow: 'none' }}>
+                        <div className="metric-label">RSS</div>
+                        <div className="metric-value" style={{ fontSize: '1.25rem' }}>{fmt(lastMetrics?.system?.memoryRss)}</div>
                       </div>
-                      <div style={{ border: '1px solid #f1f5f9', borderRadius: 10, padding: 10, background: '#f8fafc' }}>
-                        <div style={{ fontSize: 12, color: '#64748b' }}>Heap Used</div>
-                        <div style={{ fontWeight: 700, color: '#0f172a' }}>{fmt(lastMetrics?.system?.heapUsed)}</div>
+                      <div className="metric-card" style={{ background: '#f8fafc', boxShadow: 'none' }}>
+                        <div className="metric-label">Heap Used</div>
+                        <div className="metric-value" style={{ fontSize: '1.25rem' }}>{fmt(lastMetrics?.system?.heapUsed)}</div>
                       </div>
-                      <div style={{ border: '1px solid #f1f5f9', borderRadius: 10, padding: 10, background: '#f8fafc' }}>
-                        <div style={{ fontSize: 12, color: '#64748b' }}>CPU user (µs)</div>
-                        <div style={{ fontWeight: 700, color: '#0f172a' }}>{fmt(lastMetrics?.system?.cpuUserMicros)}</div>
+                      <div className="metric-card" style={{ background: '#f8fafc', boxShadow: 'none' }}>
+                        <div className="metric-label">CPU user</div>
+                        <div className="metric-value" style={{ fontSize: '1.25rem' }}>{fmt(lastMetrics?.system?.cpuUserMicros)}</div>
                       </div>
-                      <div style={{ border: '1px solid #f1f5f9', borderRadius: 10, padding: 10, background: '#f8fafc' }}>
-                        <div style={{ fontSize: 12, color: '#64748b' }}>CPU sys (µs)</div>
-                        <div style={{ fontWeight: 700, color: '#0f172a' }}>{fmt(lastMetrics?.system?.cpuSystemMicros)}</div>
+                      <div className="metric-card" style={{ background: '#f8fafc', boxShadow: 'none' }}>
+                        <div className="metric-label">CPU sys</div>
+                        <div className="metric-value" style={{ fontSize: '1.25rem' }}>{fmt(lastMetrics?.system?.cpuSystemMicros)}</div>
                       </div>
                     </div>
 
@@ -449,34 +589,34 @@ export default function SimulationLab() {
             ) : null}
 
             {tab === 'history' ? (
-              <div style={{ marginTop: 12, border: '1px solid #e2e8f0', borderRadius: 10, background: '#fff', overflow: 'hidden' }}>
-                <div style={{ padding: 10, borderBottom: '1px solid #e2e8f0', fontSize: 12, color: '#334155', display: 'flex', justifyContent: 'space-between' }}>
-                  <strong>Historique</strong>
+              <div className="data-table-container">
+                <div className="data-table-header">
+                  <span>Historique</span>
                   <span style={{ color: '#64748b' }}>{Array.isArray(history) ? history.length : 0} runs</span>
                 </div>
                 <div style={{ maxHeight: 560, overflow: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                    <thead style={{ position: 'sticky', top: 0, background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                  <table className="data-table">
+                    <thead>
                       <tr>
-                        <th style={{ padding: 8, textAlign: 'left', color: '#64748b' }}>Date</th>
-                        <th style={{ padding: 8, textAlign: 'left', color: '#64748b' }}>Status</th>
-                        <th style={{ padding: 8, textAlign: 'right', color: '#64748b' }}>Actions</th>
-                        <th style={{ padding: 8, textAlign: 'right', color: '#64748b' }}>Errors</th>
-                        <th style={{ padding: 8, textAlign: 'right', color: '#64748b' }}>p95</th>
+                        <th>Date</th>
+                        <th>Status</th>
+                        <th style={{ textAlign: 'right' }}>Actions</th>
+                        <th style={{ textAlign: 'right' }}>Errors</th>
+                        <th style={{ textAlign: 'right' }}>p95</th>
                       </tr>
                     </thead>
                     <tbody>
                       {(history || []).map((r: any) => (
-                        <tr key={String(r._id)} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                          <td style={{ padding: 8, color: '#0f172a' }}>{r.startedAt ? new Date(r.startedAt).toLocaleString() : String(r._id).slice(-8)}</td>
-                          <td style={{ padding: 8 }}>
+                        <tr key={String(r._id)}>
+                          <td style={{ color: '#0f172a' }}>{r.startedAt ? new Date(r.startedAt).toLocaleString() : String(r._id).slice(-8)}</td>
+                          <td>
                             <span style={{ color: r.status === 'completed' ? '#047857' : r.status === 'running' ? '#1d4ed8' : r.status === 'failed' ? '#b91c1c' : '#475569', fontWeight: 700 }}>
                               {String(r.status || '-')}
                             </span>
                           </td>
-                          <td style={{ padding: 8, textAlign: 'right', color: '#0f172a' }}>{fmt(r.summary?.totalActions)}</td>
-                          <td style={{ padding: 8, textAlign: 'right', color: r.summary?.errorActions ? '#b91c1c' : '#0f172a' }}>{fmt(r.summary?.errorActions)}</td>
-                          <td style={{ padding: 8, textAlign: 'right', color: '#0f172a' }}>{ms(r.summary?.p95Ms)}</td>
+                          <td style={{ textAlign: 'right', color: '#0f172a' }}>{fmt(r.summary?.totalActions)}</td>
+                          <td style={{ textAlign: 'right', color: r.summary?.errorActions ? '#b91c1c' : '#0f172a' }}>{fmt(r.summary?.errorActions)}</td>
+                          <td style={{ textAlign: 'right', color: '#0f172a' }}>{ms(r.summary?.p95Ms)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -486,17 +626,17 @@ export default function SimulationLab() {
             ) : null}
 
             {tab === 'raw' ? (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
-                <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, background: '#fff', overflow: 'hidden' }}>
-                  <div style={{ padding: 10, borderBottom: '1px solid #e2e8f0', fontSize: 12, color: '#334155' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div className="data-table-container">
+                  <div className="data-table-header">
                     <strong>Running + Live (raw)</strong>
                   </div>
                   <div style={{ padding: 10, maxHeight: 560, overflow: 'auto' }}>
                     <pre style={{ margin: 0, fontSize: 11, whiteSpace: 'pre-wrap' }}>{JSON.stringify({ running, live }, null, 2)}</pre>
                   </div>
                 </div>
-                <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, background: '#fff', overflow: 'hidden' }}>
-                  <div style={{ padding: 10, borderBottom: '1px solid #e2e8f0', fontSize: 12, color: '#334155' }}>
+                <div className="data-table-container">
+                  <div className="data-table-header">
                     <strong>History (raw)</strong>
                   </div>
                   <div style={{ padding: 10, maxHeight: 560, overflow: 'auto' }}>
