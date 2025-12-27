@@ -484,6 +484,8 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                                 const explicitTarget = b.props.targetLevel as string | undefined
 
                                                 if (b.props.field === 'student') return <div>{student?.firstName} {student?.lastName}</div>
+                                                if (b.props.field === 'studentFirstName') return <div>{student?.firstName}</div>
+                                                if (b.props.field === 'studentLastName') return <div>{student?.lastName}</div>
                                                 if (b.props.field === 'currentLevel') return <div>{student?.level}</div>
 
                                                 let promo: any = null
@@ -590,6 +592,10 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                                         return <div style={{ fontWeight: 'bold' }}>Passage en {promo.to}</div>
                                                     } else if (b.props.field === 'student') {
                                                         return <div>{student?.firstName} {student?.lastName}</div>
+                                                    } else if (b.props.field === 'studentFirstName') {
+                                                        return <div>{student?.firstName}</div>
+                                                    } else if (b.props.field === 'studentLastName') {
+                                                        return <div>{student?.lastName}</div>
                                                     } else if (b.props.field === 'year') {
                                                         return <div>{getPromotionYearLabel(promo, blockLevel)}</div>
                                                     } else if (b.props.field === 'class') {
@@ -603,6 +609,56 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                                 }
                                                 return null
                                             })()}
+                                        </div>
+                                    )}
+
+                                    {b.type === 'teacher_text' && (
+                                        <div style={{
+                                            width: b.props.width || 300,
+                                            height: b.props.height || 60,
+                                            border: '1px solid #ddd',
+                                            borderRadius: 4,
+                                            padding: 8,
+                                            fontSize: b.props.fontSize || 12,
+                                            color: b.props.color || '#2d3436',
+                                            background: '#fff',
+                                            position: 'relative',
+                                            whiteSpace: 'pre-wrap'
+                                        }}>
+                                            {(() => {
+                                                // Level filtering: if block has a specific level, check if it matches student's level
+                                                if (b.props.level && student?.level && b.props.level !== student.level) {
+                                                    return null
+                                                }
+
+                                                // Generate unique key for this teacher text block
+                                                const blockId = (b as any).id || `teacher_text_${originalPageIdx}_${blockIdx}`
+                                                const textValue = assignment?.data?.[blockId] || ''
+
+                                                return (
+                                                    <div style={{ 
+                                                        width: '100%', 
+                                                        height: '100%',
+                                                        color: textValue ? 'inherit' : '#999'
+                                                    }}>
+                                                        {textValue || (b.props.placeholder || 'Texte éditable par le prof polyvalent...')}
+                                                    </div>
+                                                )
+                                            })()}
+                                            {b.props.label && (
+                                                <div style={{
+                                                    position: 'absolute',
+                                                    top: -10,
+                                                    left: 8,
+                                                    background: '#fff',
+                                                    padding: '2px 6px',
+                                                    fontSize: 10,
+                                                    color: '#e17055',
+                                                    fontWeight: 'bold'
+                                                }}>
+                                                    {b.props.label}
+                                                </div>
+                                            )}
                                         </div>
                                     )}
 
@@ -911,6 +967,8 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                                 const next = targetPromo ? targetPromo.to : getNextLevel(student?.level || '')
                                                 if (b.props.field === 'year') return <span>{String(yearLabel)}</span>
                                                 if (b.props.field === 'student') return <span>{student?.firstName} {student?.lastName}</span>
+                                                if (b.props.field === 'studentFirstName') return <span>{student?.firstName}</span>
+                                                if (b.props.field === 'studentLastName') return <span>{student?.lastName}</span>
                                                 if (b.props.field === 'nextLevel') return <span>{next || ''}</span>
                                                 return null
                                             })()}

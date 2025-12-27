@@ -327,7 +327,7 @@ const ensureSeededData = async (cfg: SimulationConfig, teacherIds: string[], sub
   return { assignmentId: assignmentIds[0] || null, assignmentIds, classIds }
 }
 
-const simulatePageLoad = async (client: AxiosInstance, runId: string, role: 'teacher' | 'subadmin') => {
+const simulatePageLoad = async (client: AxiosInstance, runId: string, role: 'teacher' | 'subadmin'): Promise<void> => {
   // Simulate common "app load" or "navigation" calls
   const r1 = await timed(() => client.get('/settings/public').then(r => ({ status: r.status, data: r.data })))
   await recordAction(runId, { name: `${role}.settingsPublic`, ok: r1.ok, ms: r1.ms, status: r1.status, error: r1.error, at: new Date() })

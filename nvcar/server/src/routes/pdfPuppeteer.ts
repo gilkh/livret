@@ -7,6 +7,7 @@ import { SavedGradebook } from '../models/SavedGradebook'
 import { requireAuth } from '../auth'
 import puppeteer, { Browser } from 'puppeteer'
 import archiver from 'archiver'
+import fs from 'fs'
 
 export const pdfPuppeteerRouter = Router()
 
@@ -99,8 +100,11 @@ const resolveFrontendUrl = () => {
 
 const generatePdfBufferFromPrintUrl = async (printUrl: string, token: string, frontendUrl: string) => {
   let page: any = null
+  const tStart = Date.now()
+  const safePrintUrl = String(printUrl || '').replace(/([?&])token=[^&]*/,'$1token=***')
   const browser = await getBrowser()
   page = await browser.newPage()
+  console.log(`[PDF TIMING] Starting PDF generation for ${safePrintUrl}`)
 
   try {
     page.on('console', (msg: any) => {
@@ -114,6 +118,7 @@ const generatePdfBufferFromPrintUrl = async (printUrl: string, token: string, fr
     })
 
     await page.setViewport({ width: 800, height: 1120 })
+    console.log(`[PDF TIMING] newPage created in ${Date.now() - tStart}ms`)
 
     if (token) {
       let cookieDomain = 'localhost'
@@ -128,33 +133,59 @@ const generatePdfBufferFromPrintUrl = async (printUrl: string, token: string, fr
       })
     }
 
+    // Try to navigate until DOM content loaded only (faster and avoids long-polling third-party scripts)
+    let navStart = Date.now()
+    let navMs = 0
     try {
-      await page.goto(printUrl, { waitUntil: 'networkidle0', timeout: 60000 })
+      await page.goto(printUrl, { waitUntil: 'domcontentloaded', timeout: 15000 })
+      navMs = Date.now() - navStart
+      console.log(`[PDF TIMING] page.goto completed in ${navMs}ms for ${safePrintUrl}`)
     } catch (e: any) {
-      console.warn('[PDF] Page navigation timeout or error, proceeding to wait for ready signal...', e.message)
+      navMs = Date.now() - navStart
+      console.warn(`[PDF TIMING] page.goto error after ${navMs}ms for ${safePrintUrl}, proceeding:`, e.message)
     }
+
+    // Wait for explicit ready signal from client, but shorter timeout (10s)
+    let readyStart = Date.now()
+    let readyMs = 0
     try {
       await page.waitForFunction(() => {
         // @ts-ignore
-        return window.__READY_FOR_PDF__ === true
-      }, { timeout: 30000 })
+        return (window as any).__READY_FOR_PDF__ === true
+      }, { timeout: 10000 })
+      readyMs = Date.now() - readyStart
+      console.log(`[PDF TIMING] waitForFunction resolved in ${readyMs}ms for ${safePrintUrl}`)
     } catch (e) {
-      console.warn('[PDF] Timeout waiting for READY_FOR_PDF signal in buffer generation, proceeding anyway...', e)
+      readyMs = Date.now() - readyStart
+      console.warn(`[PDF TIMING] Timeout waiting for READY_FOR_PDF after ${readyMs}ms for ${safePrintUrl}, proceeding...`)
     }
 
-    await new Promise(resolve => setTimeout(resolve, 1000))
+    // Keep a short safety delay (reduce from 1s to 250ms)
+    const delayStart = Date.now()
+    await new Promise(resolve => setTimeout(resolve, 250))
+    console.log(`[PDF TIMING] pre-pdf delay ${Date.now() - delayStart}ms for ${safePrintUrl}`)
 
     console.log('[PDF DEBUG] Generating PDF buffer')
+    const tPdfStart = Date.now()
     const pdfBufferRaw = await page.pdf({
       format: 'A4',
       printBackground: true,
       margin: { top: 0, right: 0, bottom: 0, left: 0 }
     })
+    const pdfMs = Date.now() - tPdfStart
     
     // Ensure we have a Buffer, not just a Uint8Array
     const pdfBuffer = Buffer.from(pdfBufferRaw)
 
-    console.log(`[PDF DEBUG] PDF buffer generated, size: ${pdfBuffer?.length || 0}, isBuffer: ${Buffer.isBuffer(pdfBuffer)}`)
+    console.log(`[PDF TIMING] page.pdf took ${pdfMs}ms, size: ${pdfBuffer?.length || 0}, isBuffer: ${Buffer.isBuffer(pdfBuffer)} for ${safePrintUrl}`)
+    const totalMs = Date.now() - tStart
+    console.log(`[PDF TIMING] generatePdfBufferFromPrintUrl total ${totalMs}ms (nav ${navMs}ms, ready ${readyMs}ms, pdf ${pdfMs}ms) for ${safePrintUrl}`)
+
+    try {
+      fs.appendFileSync('pdf-timings.log', `${new Date().toISOString()} ${safePrintUrl} totalMs=${totalMs} navMs=${navMs} readyMs=${readyMs} pdfMs=${pdfMs} size=${pdfBuffer?.length || 0}\n`)
+    } catch (e) {
+      console.warn('[PDF] Failed to append timing to file:', e)
+    }
 
     if (!pdfBuffer || pdfBuffer.length === 0) {
       throw new Error('Generated PDF buffer is empty')
@@ -216,8 +247,11 @@ pdfPuppeteerRouter.get('/student/:id', requireAuth(['ADMIN','SUBADMIN','TEACHER'
     const frontendUrl = resolveFrontendUrl()
     const printUrl = `${frontendUrl}/print/carnet/${assignment._id}?token=${token}`
     
-    console.log('[PDF] Generating PDF via shared function:', printUrl)
+    const safePrintUrl = String(printUrl || '').replace(/([?&])token=[^&]*/,'$1token=***')
+    console.log('[PDF] Generating PDF via shared function:', safePrintUrl)
+    const genStart = Date.now()
     const pdfBuffer = await generatePdfBufferFromPrintUrl(printUrl, token, frontendUrl)
+    console.log(`[PDF TIMING] generatePdfBufferFromPrintUrl total ${Date.now()-genStart}ms for ${safePrintUrl}`)
     
     console.log('[PDF] PDF generated successfully, size:', pdfBuffer.length, 'bytes')
     
@@ -306,35 +340,69 @@ pdfPuppeteerRouter.post('/assignments/zip', requireAuth(['ADMIN', 'SUBADMIN', 'A
 
     archive.pipe(res)
 
+    const zipStart = Date.now()
+    console.log(`[PDF ZIP] Starting zip generation for ${assignmentIds.length} assignments, group="${groupLabel}"`)
+
     archive.append(`Archive started at ${new Date().toISOString()}\n`, { name: 'info.txt' })
 
-    for (const assignmentId of assignmentIds) {
-      if (aborted) break
-      try {
-        const assignment = await TemplateAssignment.findById(assignmentId).lean()
-        if (!assignment) {
-          archive.append(`Assignment not found: ${assignmentId}\n`, { name: `errors/${sanitizeFileName(String(assignmentId))}.txt` })
-          continue
-        }
+    // Parallelize generation with a small worker pool to reduce wall-clock
+    const concurrency = Math.min(Math.max(1, Number(process.env.PDF_CONCURRENCY || '3')), assignmentIds.length)
+    console.log(`[PDF ZIP] Generating ${assignmentIds.length} PDFs using concurrency=${concurrency}`)
 
-        const student = await Student.findById(assignment.studentId).lean()
-        const template = await GradebookTemplate.findById(assignment.templateId).lean()
-
-        const studentLast = student?.lastName || 'Eleve'
-        const studentFirst = student?.firstName || ''
-        const templateName = template?.name || 'Carnet'
-        const pdfName = sanitizeFileName(`${studentLast}-${studentFirst}-${templateName}.pdf`)
-
-        const printUrl = `${frontendUrl}/print/carnet/${assignment._id}?token=${token}`
-        const pdfBuffer = await generatePdfBufferFromPrintUrl(printUrl, token, frontendUrl)
-
-        archive.append(pdfBuffer, { name: pdfName })
-      } catch (e: any) {
-        const errMsg = e?.message ? String(e.message) : 'pdf_generation_failed'
-        archive.append(`${errMsg}\n`, { name: `errors/${sanitizeFileName(String(assignmentId))}.txt` })
-      }
+    let idx = 0
+    const getNext = () => {
+      const i = idx
+      idx += 1
+      return assignmentIds[i]
     }
 
+    const workers = Array.from({ length: concurrency }).map((_, workerIdx) => (async () => {
+      while (true) {
+        if (aborted) break
+        const assignmentId = getNext()
+        if (!assignmentId) break
+        try {
+          const assignment = await TemplateAssignment.findById(assignmentId).lean()
+          if (!assignment) {
+            if (archive) archive.append(`Assignment not found: ${assignmentId}\n`, { name: `errors/${sanitizeFileName(String(assignmentId))}.txt` })
+            continue
+          }
+
+          const student = await Student.findById(assignment.studentId).lean()
+          const template = await GradebookTemplate.findById(assignment.templateId).lean()
+
+          const studentLast = student?.lastName || 'Eleve'
+          const studentFirst = student?.firstName || ''
+          const templateName = template?.name || 'Carnet'
+          const pdfName = sanitizeFileName(`${studentLast}-${studentFirst}-${templateName}.pdf`)
+
+          const printUrl = `${frontendUrl}/print/carnet/${assignment._id}?token=${token}`
+          const safePrintUrl = String(printUrl || '').replace(/([?&])token=[^&]*/,'$1token=***')
+          console.log(`[PDF ZIP] (worker ${workerIdx}) Generating PDF for assignment ${assignmentId} (${safePrintUrl})`)
+          const assignStart = Date.now()
+          const pdfBuffer = await generatePdfBufferFromPrintUrl(printUrl, token, frontendUrl)
+          const assignMs = Date.now() - assignStart
+          console.log(`[PDF ZIP] (worker ${workerIdx}) PDF for ${assignmentId} generated in ${assignMs}ms, size=${pdfBuffer?.length || 0}`)
+          try {
+            fs.appendFileSync('pdf-timings.log', `${new Date().toISOString()} assignment=${assignmentId} worker=${workerIdx} totalMs=${assignMs} size=${pdfBuffer?.length || 0} name=${pdfName}\n`)
+          } catch (e) {
+            console.warn('[PDF ZIP] Failed to append timing to file:', e)
+          }
+
+          // Append to archive
+          if (archive) archive.append(pdfBuffer, { name: pdfName })
+
+        } catch (e: any) {
+          const errMsg = e?.message ? String(e.message) : 'pdf_generation_failed'
+          if (archive) archive.append(`${errMsg}\n`, { name: `errors/${sanitizeFileName(String(assignmentId))}.txt` })
+        }
+      }
+    })())
+
+    await Promise.all(workers)
+
+    // finalize archive after all workers finish
+    console.log('[PDF ZIP] All workers completed, finalizing archive')
     await archive.finalize()
   } catch (e: any) {
     console.error('[PDF ZIP] Failed:', e)
@@ -391,8 +459,11 @@ pdfPuppeteerRouter.get('/preview/:templateId/:studentId', requireAuth(['ADMIN','
     
     const printUrl = `${frontendUrl}/print/preview/${templateId}/student/${studentId}?token=${token}`
     
-    console.log('[PDF] Generating Preview PDF via shared function:', printUrl)
+    const safePrintUrl = String(printUrl || '').replace(/([?&])token=[^&]*/,'$1token=***')
+    console.log('[PDF] Generating Preview PDF via shared function:', safePrintUrl)
+    const genStart = Date.now()
     const pdfBuffer = await generatePdfBufferFromPrintUrl(printUrl, token, frontendUrl)
+    console.log(`[PDF TIMING] generatePdfBufferFromPrintUrl total ${Date.now()-genStart}ms for ${safePrintUrl}`)
     
     // Verify PDF is valid
     if (!pdfBuffer || pdfBuffer.length === 0) {
@@ -458,8 +529,11 @@ pdfPuppeteerRouter.get('/saved/:id', requireAuth(['ADMIN','SUBADMIN','TEACHER'])
     
     const printUrl = `${frontendUrl}/print/saved/${saved._id}?token=${token}`
     
-    console.log('[PDF] Generating Saved Gradebook PDF via shared function:', printUrl)
+    const safePrintUrl = String(printUrl || '').replace(/([?&])token=[^&]*/,'$1token=***')
+    console.log('[PDF] Generating Saved Gradebook PDF via shared function:', safePrintUrl)
+    const genStart = Date.now()
     const pdfBuffer = await generatePdfBufferFromPrintUrl(printUrl, token, frontendUrl)
+    console.log(`[PDF TIMING] generatePdfBufferFromPrintUrl total ${Date.now()-genStart}ms for ${safePrintUrl}`)
     
     if (!pdfBuffer || pdfBuffer.length === 0) {
       throw new Error('Generated PDF buffer is empty')

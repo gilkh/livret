@@ -1,0 +1,28 @@
+2025-12-27T20:42:29.413Z https://localhost:5173/print/preview/695044b1033f4a4887881b43/student/6950441f065f75685020f1ae?token=*** totalMs=2488 navMs=1085 readyMs=7 pdfMs=122 size=79520
+2025-12-27T20:42:31.571Z https://localhost:5173/print/carnet/695044b193b0bdab6edca09d?token=*** totalMs=2122 navMs=916 readyMs=5 pdfMs=166 size=79520
+2025-12-27T20:42:31.583Z assignment=695044b193b0bdab6edca09d totalMs=2134 size=79520 name=One-Smoke-Smoke Test Template.pdf
+2025-12-27T20:42:33.603Z https://localhost:5173/print/carnet/695044b193b0bdab6edca09e?token=*** totalMs=2013 navMs=840 readyMs=7 pdfMs=127 size=79520
+2025-12-27T20:42:33.617Z assignment=695044b193b0bdab6edca09e totalMs=2027 size=79520 name=Two-Smoke-Smoke Test Template.pdf
+2025-12-27T20:48:09.647Z https://localhost:5173/print/preview/69504606a53a129afac01f6b/student/6950441f065f75685020f1ae?token=*** totalMs=1725 navMs=328 readyMs=720 pdfMs=124 size=79520
+2025-12-27T20:48:11.038Z https://localhost:5173/print/carnet/6950460693b0bdab6edca09f?token=*** totalMs=1354 navMs=237 readyMs=689 pdfMs=121 size=79520
+2025-12-27T20:48:11.051Z assignment=6950460693b0bdab6edca09f worker=0 totalMs=1367 size=79520 name=One-Smoke-Smoke Test Template.pdf
+2025-12-27T20:48:11.433Z https://localhost:5173/print/carnet/6950460693b0bdab6edca0a0?token=*** totalMs=1750 navMs=457 readyMs=871 pdfMs=119 size=79520
+2025-12-27T20:48:11.443Z assignment=6950460693b0bdab6edca0a0 worker=1 totalMs=1760 size=79520 name=Two-Smoke-Smoke Test Template.pdf
+2025-12-27T20:48:20.518Z https://localhost:5173/print/preview/69504612a53a129afac02024/student/6950441f065f75685020f1ae?token=*** totalMs=1253 navMs=178 readyMs=633 pdfMs=149 size=79520
+2025-12-27T20:48:21.907Z https://localhost:5173/print/carnet/6950461293b0bdab6edca0a2?token=*** totalMs=1341 navMs=189 readyMs=670 pdfMs=173 size=79520
+2025-12-27T20:48:21.918Z assignment=6950461293b0bdab6edca0a2 worker=1 totalMs=1352 size=79520 name=Two-Smoke-Smoke Test Template.pdf
+2025-12-27T20:48:22.326Z https://localhost:5173/print/carnet/6950461293b0bdab6edca0a1?token=*** totalMs=1761 navMs=362 readyMs=939 pdfMs=143 size=79520
+2025-12-27T20:48:22.336Z assignment=6950461293b0bdab6edca0a1 worker=0 totalMs=1771 size=79520 name=One-Smoke-Smoke Test Template.pdf
+2025-12-27T20:55:24.890Z https://localhost:5173/print/preview/695047ba3c1b886af37728da/student/6950441f065f75685020f1ae?token=*** totalMs=1655 navMs=320 readyMs=662 pdfMs=138 size=79520
+2025-12-27T20:55:26.237Z https://localhost:5173/print/carnet/695047ba93b0bdab6edca0a4?token=*** totalMs=1316 navMs=183 readyMs=675 pdfMs=145 size=79520
+2025-12-27T20:55:26.250Z assignment=695047ba93b0bdab6edca0a4 worker=1 totalMs=1329 size=79520 name=Two-Smoke-Smoke Test Template.pdf
+2025-12-27T20:55:26.635Z https://localhost:5173/print/carnet/695047ba93b0bdab6edca0a3?token=*** totalMs=1715 navMs=343 readyMs=947 pdfMs=119 size=79520
+2025-12-27T20:55:26.646Z assignment=695047ba93b0bdab6edca0a3 worker=0 totalMs=1725 size=79520 name=One-Smoke-Smoke Test Template.pdf
+2025-12-27T20:58:21.956Z https://localhost:5173/print/carnet/694efdad950954a27c6e9d81?token=*** totalMs=2136 navMs=222 readyMs=810 pdfMs=773 size=1813218
+2025-12-27T20:58:21.974Z assignment=694efdad950954a27c6e9d81 worker=1 totalMs=2154 size=1813218 name=test2-test2-Presentation carnet 5pages _ new des _Imported_.pdf
+2025-12-27T20:58:23.011Z https://localhost:5173/print/carnet/694f06fada5da1475f94fb72?token=*** totalMs=3196 navMs=694 readyMs=1427 pdfMs=741 size=1813335
+2025-12-27T20:58:23.015Z assignment=694f06fada5da1475f94fb72 worker=2 totalMs=3200 size=1813335 name=test32-test32-Presentation carnet 5pages _ new des _Imported_.pdf
+2025-12-27T20:58:23.858Z https://localhost:5173/print/carnet/694f083e30e9e9a879a27bc7?token=*** totalMs=1866 navMs=176 readyMs=708 pdfMs=675 size=1813217
+2025-12-27T20:58:23.871Z assignment=694f083e30e9e9a879a27bc7 worker=1 totalMs=1879 size=1813217 name=test11-test11-Presentation carnet 5pages _ new des _Imported_.pdf
+2025-12-27T20:58:24.866Z https://localhost:5173/print/carnet/694ef95d93b0bdab6edca096?token=*** totalMs=5054 navMs=701 readyMs=3300 pdfMs=703 size=1813299
+2025-12-27T20:58:24.876Z assignment=694ef95d93b0bdab6edca096 worker=0 totalMs=5064 size=1813299 name=test-test-Presentation carnet 5pages _ new des _Imported_.pdf

@@ -1288,6 +1288,10 @@ export default function TeacherTemplateEditor() {
                                                                     return <div style={{ fontWeight: 'bold' }}>Passage en {promo.to}</div>
                                                                 } else if (b.props.field === 'student') {
                                                                     return <div>{student?.firstName} {student?.lastName}</div>
+                                                                } else if (b.props.field === 'studentFirstName') {
+                                                                    return <div>{student?.firstName}</div>
+                                                                } else if (b.props.field === 'studentLastName') {
+                                                                    return <div>{student?.lastName}</div>
                                                                 } else if (b.props.field === 'year') {
                                                                     return <div>{promo.year}</div>
                                                                 } else if (b.props.field === 'class') {
@@ -1301,6 +1305,94 @@ export default function TeacherTemplateEditor() {
                                                             }
                                                             return null
                                                         })()}
+                                                    </div>
+                                                )}
+                                                {b.type === 'teacher_text' && (
+                                                    <div style={{
+                                                        width: b.props.width || 300,
+                                                        height: b.props.height || 60,
+                                                        border: '1px solid #ddd',
+                                                        borderRadius: 4,
+                                                        padding: 8,
+                                                        fontSize: b.props.fontSize || 12,
+                                                        color: b.props.color || '#2d3436',
+                                                        background: (canEdit && isProfPolyvalent) ? '#fff' : '#f9f9f9',
+                                                        cursor: (canEdit && isProfPolyvalent) ? 'text' : 'not-allowed',
+                                                        position: 'relative'
+                                                    }}>
+                                                        {(() => {
+                                                            // Level filtering: if block has a specific level, check if it matches student's level
+                                                            if (b.props.level && student?.level && b.props.level !== student.level) {
+                                                                return null
+                                                            }
+
+                                                            // Generate unique key for this teacher text block
+                                                            const blockId = b.id || `teacher_text_${actualPageIndex}_${idx}`
+                                                            const textValue = assignment?.data?.[blockId] || ''
+
+                                                            if (canEdit && isProfPolyvalent) {
+                                                                return (
+                                                                    <textarea
+                                                                        value={textValue}
+                                                                        placeholder={b.props.placeholder || 'Tapez votre texte ici...'}
+                                                                        onChange={async (e) => {
+                                                                            const newValue = e.target.value
+                                                                            if (assignment) {
+                                                                                const newData = { ...assignment.data, [blockId]: newValue }
+                                                                                setAssignment({ ...assignment, data: newData })
+
+                                                                                try {
+                                                                                    await api.patch(`/teacher/template-assignments/${assignment._id}/data`, { data: { [blockId]: newValue } })
+                                                                                    emitAssignmentDataUpdate({ [blockId]: newValue })
+                                                                                    setSaveStatus('Enregistré avec succès ✓')
+                                                                                    setTimeout(() => setSaveStatus(''), 2000)
+                                                                                } catch (err) {
+                                                                                    console.error('Failed to save teacher text:', err)
+                                                                                    setSaveStatus('Erreur de sauvegarde ❌')
+                                                                                    setTimeout(() => setSaveStatus(''), 3000)
+                                                                                }
+                                                                            }
+                                                                        }}
+                                                                        style={{
+                                                                            width: '100%',
+                                                                            height: '100%',
+                                                                            border: 'none',
+                                                                            outline: 'none',
+                                                                            resize: 'none',
+                                                                            background: 'transparent',
+                                                                            fontSize: 'inherit',
+                                                                            color: 'inherit',
+                                                                            fontFamily: 'inherit'
+                                                                        }}
+                                                                    />
+                                                                )
+                                                            } else {
+                                                                return (
+                                                                    <div style={{ 
+                                                                        width: '100%', 
+                                                                        height: '100%', 
+                                                                        whiteSpace: 'pre-wrap',
+                                                                        color: textValue ? 'inherit' : '#999'
+                                                                    }}>
+                                                                        {textValue || (b.props.placeholder || 'Texte éditable par le prof polyvalent...')}
+                                                                    </div>
+                                                                )
+                                                            }
+                                                        })()}
+                                                        {b.props.label && (
+                                                            <div style={{
+                                                                position: 'absolute',
+                                                                top: -10,
+                                                                left: 8,
+                                                                background: '#fff',
+                                                                padding: '2px 6px',
+                                                                fontSize: 10,
+                                                                color: '#e17055',
+                                                                fontWeight: 'bold'
+                                                            }}>
+                                                                {b.props.label}
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 )}
                                                 {b.type === 'final_signature_box' && (
@@ -1342,6 +1434,8 @@ export default function TeacherTemplateEditor() {
                                                                     </span>
                                                                 )}
                                                                 {b.props.field === 'student' && <span>{student?.firstName} {student?.lastName}</span>}
+                                                                {b.props.field === 'studentFirstName' && <span>{student?.firstName}</span>}
+                                                                {b.props.field === 'studentLastName' && <span>{student?.lastName}</span>}
                                                                 {b.props.field === 'nextLevel' && <span>{getNextLevel(student?.level || '')}</span>}
                                                             </>
                                                         ) : (

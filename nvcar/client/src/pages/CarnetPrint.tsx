@@ -651,6 +651,10 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                                 return <div style={{ fontWeight: 'bold' }}>Passage en {promo.to}</div>
                                             } else if (b.props.field === 'student') {
                                                 return <div>{student?.firstName} {student?.lastName}</div>
+                                            } else if (b.props.field === 'studentFirstName') {
+                                                return <div>{student?.firstName}</div>
+                                            } else if (b.props.field === 'studentLastName') {
+                                                return <div>{student?.lastName}</div>
                                             } else if (b.props.field === 'year') {
                                                 return <div>{promo.year}</div>
                                             } else if (b.props.field === 'class') {
@@ -664,6 +668,56 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                         }
                                         return null
                                     })()}
+                                </div>
+                            )}
+                            
+                            {b.type === 'teacher_text' && (
+                                <div style={{
+                                    width: b.props.width || 300,
+                                    height: b.props.height || 60,
+                                    border: '1px solid #ddd',
+                                    borderRadius: 4,
+                                    padding: 8,
+                                    fontSize: b.props.fontSize || 12,
+                                    color: b.props.color || '#2d3436',
+                                    background: '#fff',
+                                    position: 'relative',
+                                    whiteSpace: 'pre-wrap'
+                                }}>
+                                    {(() => {
+                                        // Level filtering: if block has a specific level, check if it matches student's level
+                                        if (b.props.level && student?.level && b.props.level !== student.level) {
+                                            return null
+                                        }
+
+                                        // Generate unique key for this teacher text block
+                                        const blockId = b.id || `teacher_text_${pageIndex}_${idx}`
+                                        const textValue = assignment?.data?.[blockId] || ''
+
+                                        return (
+                                            <div style={{ 
+                                                width: '100%', 
+                                                height: '100%',
+                                                color: textValue ? 'inherit' : '#999'
+                                            }}>
+                                                {textValue || (b.props.placeholder || 'Texte éditable par le prof polyvalent...')}
+                                            </div>
+                                        )
+                                    })()}
+                                    {b.props.label && (
+                                        <div style={{
+                                            position: 'absolute',
+                                            top: -10,
+                                            left: 8,
+                                            background: '#fff',
+                                            padding: '2px 6px',
+                                            fontSize: 10,
+                                            color: '#e17055',
+                                            fontWeight: 'bold'
+                                        }}>
+                                            {b.props.label}
+                                        </div>
+                                    )}
                                 </div>
                             )}
                             

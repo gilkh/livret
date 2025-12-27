@@ -357,6 +357,9 @@ export default function TemplateBuilder() {
 
     // Promotion / Student Info Components (The requested ones)
     { type: 'promotion_info', props: { field: 'student', width: 200, height: 30, fontSize: 12, color: '#2d3436', label: 'Nom de l\'élève' } },
+    { type: 'promotion_info', props: { field: 'studentFirstName', width: 120, height: 30, fontSize: 12, color: '#2d3436', label: 'Prénom' } },
+    { type: 'promotion_info', props: { field: 'studentLastName', width: 120, height: 30, fontSize: 12, color: '#2d3436', label: 'Nom de famille' } },
+    { type: 'teacher_text', props: { width: 300, height: 60, fontSize: 12, color: '#2d3436', label: 'Zone de texte prof', placeholder: 'Texte éditable par le prof polyvalent...' } },
     { type: 'promotion_info', props: { field: 'currentLevel', width: 100, height: 30, fontSize: 12, color: '#2d3436', label: 'Niveau Actuel' } },
     { type: 'promotion_info', props: { field: 'class', width: 100, height: 30, fontSize: 12, color: '#2d3436', label: 'Classe' } },
     { type: 'promotion_info', props: { field: 'level', width: 150, height: 30, fontSize: 12, color: '#2d3436', label: 'Niveau Suivant (Passage)' } },
@@ -1859,7 +1862,7 @@ export default function TemplateBuilder() {
             {
               title: 'Promotion & Signatures',
               items: [
-                ...blocksPalette.filter(b => ['promotion_info', 'signature_box', 'signature', 'student_photo'].includes(b.type))
+                ...blocksPalette.filter(b => ['promotion_info', 'teacher_text', 'signature_box', 'signature', 'student_photo'].includes(b.type))
               ]
             },
             {
@@ -1918,6 +1921,7 @@ export default function TemplateBuilder() {
                       {b.type === 'rect' && '▭'}
                       {b.type === 'circle' && '⬤'}
                       {b.type === 'promotion_info' && '🎓'}
+                      {b.type === 'teacher_text' && '📝'}
                       {b.type === 'signature_box' && '✍️'}
                       {b.type === 'signature' && '👥'}
                       {b.type === 'student_photo' && '📸'}
@@ -1938,6 +1942,7 @@ export default function TemplateBuilder() {
                                     b.type === 'rect' ? 'Rectangle' :
                                       b.type === 'circle' ? 'Cercle' :
                                         b.type === 'promotion_info' ? 'Info Passage' :
+                                          b.type === 'teacher_text' ? 'Zone Texte Prof' :
                                           b.type === 'signature_box' ? 'Signature Box' :
                                             b.type === 'signature' ? 'Signatures (Noms)' :
                                               b.type === 'student_photo' ? 'Photo Élève' :
@@ -2295,12 +2300,37 @@ export default function TemplateBuilder() {
                                   return <div style={{ fontWeight: 'bold' }}>{nextLevel ? `Passage en ${nextLevel}` : '(Passage)'}</div>
                                 }
                                 if (b.props.field === 'student') return <div>{studentName}</div>
+                                if (b.props.field === 'studentFirstName') return <div>{s ? s.firstName : '(Prénom)'}</div>
+                                if (b.props.field === 'studentLastName') return <div>{s ? s.lastName : '(Nom de famille)'}</div>
                                 if (b.props.field === 'year') return <div>{yearStr}</div>
                                 if (b.props.field === 'class') return <div>{className || (studentId ? '' : '(Classe)')}</div>
                                 if (b.props.field === 'currentLevel') return <div>{currentLevel || '(Niveau)'}</div>
 
                                 return <div>Variable inconnue: {b.props.field}</div>
                               })()}
+                            </div>
+                          )}
+                          {b.type === 'teacher_text' && (
+                            <div style={{
+                              width: b.props.width || 300,
+                              height: b.props.height || 60,
+                              border: '1px dashed #e17055',
+                              background: '#fff5f5',
+                              padding: 8,
+                              display: 'flex',
+                              flexDirection: 'column',
+                              justifyContent: 'center',
+                              alignItems: 'center',
+                              fontSize: b.props.fontSize || 12,
+                              color: b.props.color || '#2d3436',
+                              textAlign: 'center'
+                            }}>
+                              <div style={{ fontSize: 10, fontWeight: 'bold', color: '#e17055', marginBottom: 4 }}>
+                                📝 Zone Texte Prof Polyvalent
+                              </div>
+                              <div style={{ fontSize: b.props.fontSize || 12, color: '#666', fontStyle: 'italic' }}>
+                                {b.props.placeholder || 'Texte éditable par le prof polyvalent...'}
+                              </div>
                             </div>
                           )}
                           {b.type === 'dropdown' && (
@@ -2753,7 +2783,7 @@ export default function TemplateBuilder() {
                               )
                             })()
                           )}
-                          {['image', 'text', 'dynamic_text', 'student_info', 'student_photo', 'category_title', 'competency_list', 'signature', 'signature_box', 'promotion_info', 'language_toggle', 'language_toggle_v2'].includes(b.type) && selectedIndex === idx && selectedPage === pageIndex && (
+                          {['image', 'text', 'dynamic_text', 'student_info', 'student_photo', 'category_title', 'competency_list', 'signature', 'signature_box', 'promotion_info', 'teacher_text', 'language_toggle', 'language_toggle_v2'].includes(b.type) && selectedIndex === idx && selectedPage === pageIndex && (
                             <>
                               {['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'].map((dir) => {
                                 const style: React.CSSProperties = {
@@ -3927,7 +3957,9 @@ export default function TemplateBuilder() {
                         <option value="nextLevel">Niveau Suivant (ex: MS)</option>
                         <option value="year">Année Scolaire (ex: 2025/2026)</option>
                         <option value="class">Classe (ex: A)</option>
-                        <option value="student">Nom de l'élève</option>
+                        <option value="student">Nom complet de l'élève</option>
+                        <option value="studentFirstName">Prénom de l'élève</option>
+                        <option value="studentLastName">Nom de famille de l'élève</option>
                         <option value="level">Label Passage (ex: "Passage en MS")</option>
                       </select>
 
@@ -3979,6 +4011,63 @@ export default function TemplateBuilder() {
 
                       <input placeholder="Largeur" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.width || (tpl.pages[selectedPage].blocks[selectedIndex].props.field ? 150 : 300)} onChange={e => updateSelected({ width: Number(e.target.value) })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
                       <input placeholder="Hauteur" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.height || (tpl.pages[selectedPage].blocks[selectedIndex].props.field ? 30 : 100)} onChange={e => updateSelected({ height: Number(e.target.value) })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+                    </div>
+                  )}
+                  {tpl.pages[selectedPage].blocks[selectedIndex].type === 'teacher_text' && (
+                    <div style={{ display: 'grid', gap: 8 }}>
+                      <div className="note">
+                        Configuration Zone Texte Prof Polyvalent
+                      </div>
+
+                      <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Libellé</label>
+                      <input
+                        placeholder="Zone de texte prof"
+                        type="text"
+                        value={tpl.pages[selectedPage].blocks[selectedIndex].props.label || ''}
+                        onChange={e => updateSelected({ label: e.target.value })}
+                        style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', width: '100%' }}
+                      />
+
+                      <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Texte d'aide (placeholder)</label>
+                      <input
+                        placeholder="Texte éditable par le prof polyvalent..."
+                        type="text"
+                        value={tpl.pages[selectedPage].blocks[selectedIndex].props.placeholder || ''}
+                        onChange={e => updateSelected({ placeholder: e.target.value })}
+                        style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', width: '100%' }}
+                      />
+
+                      <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Visibilité par Niveau (Optionnel)</label>
+                      <div className="note" style={{ marginBottom: 4 }}>
+                        Afficher ce bloc uniquement pour ce niveau.
+                      </div>
+                      <select
+                        value={tpl.pages[selectedPage].blocks[selectedIndex].props.level || ''}
+                        onChange={e => updateSelected({ level: e.target.value })}
+                        style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', width: '100%' }}
+                      >
+                        <option value="">Tous les niveaux</option>
+                        {levels.map(l => (
+                          <option key={l.name} value={l.name}>{l.name}</option>
+                        ))}
+                      </select>
+
+                      <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Visibilité par Période (Optionnel)</label>
+                      <div className="note" style={{ marginBottom: 4 }}>
+                        Lier ce bloc à une signature (Mi-Année ou Fin d'Année).
+                      </div>
+                      <select
+                        value={tpl.pages[selectedPage].blocks[selectedIndex].props.period || ''}
+                        onChange={e => updateSelected({ period: e.target.value })}
+                        style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', width: '100%' }}
+                      >
+                        <option value="">Toujours visible</option>
+                        <option value="mid-year">Mi-Année seulement</option>
+                        <option value="end-year">Fin d'Année seulement</option>
+                      </select>
+
+                      <input placeholder="Largeur" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.width || 300} onChange={e => updateSelected({ width: Number(e.target.value) })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+                      <input placeholder="Hauteur" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.height || 60} onChange={e => updateSelected({ height: Number(e.target.value) })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
                     </div>
                   )}
                   {tpl.pages[selectedPage].blocks[selectedIndex].type === 'language_toggle' && (
