@@ -180,10 +180,18 @@ teacherTemplatesRouter.get('/template-assignments/:assignmentId', requireAuth(['
                 ; (page?.blocks || []).forEach((block: any, blockIdx: number) => {
                     if (['language_toggle', 'language_toggle_v2'].includes(block?.type)) {
                         const blockId = typeof block?.props?.blockId === 'string' && block.props.blockId.trim() ? block.props.blockId.trim() : null
-                        const keyStable = blockId ? `language_toggle_${blockId}` : `language_toggle_${pageIdx}_${blockIdx}`
+                        
+                        // REQUIRE stable blockId - skip blocks without it
+                        if (!blockId) {
+                            console.warn(`[teacherTemplates] Block at page ${pageIdx}, index ${blockIdx} has no blockId. Skipping normalization.`)
+                            return
+                        }
+                        
+                        const keyStable = `language_toggle_${blockId}`
                         const keyLegacy = `language_toggle_${pageIdx}_${blockIdx}`
 
                         const sourceItems = Array.isArray(block?.props?.items) ? block.props.items : []
+                        // Read from stable key first, fall back to legacy for migration
                         const savedRaw =
                             Array.isArray((assignment.data as any)?.[keyStable])
                                 ? (assignment.data as any)[keyStable]
@@ -194,8 +202,16 @@ teacherTemplatesRouter.get('/template-assignments/:assignmentId', requireAuth(['
                         if (Array.isArray(savedRaw) && sourceItems.length > 0) {
                             const merged = sourceItems.map((src: any, i: number) => ({ ...src, active: !!(savedRaw as any)?.[i]?.active }))
                             normalizedData[keyStable] = merged
+                            // Remove legacy key if it exists (migration)
+                            if (keyLegacy !== keyStable && normalizedData[keyLegacy]) {
+                                delete normalizedData[keyLegacy]
+                            }
                         } else if (Array.isArray(savedRaw)) {
                             normalizedData[keyStable] = savedRaw
+                            // Remove legacy key if it exists (migration)
+                            if (keyLegacy !== keyStable && normalizedData[keyLegacy]) {
+                                delete normalizedData[keyLegacy]
+                            }
                         }
                     }
 
@@ -207,15 +223,29 @@ teacherTemplatesRouter.get('/template-assignments/:assignmentId', requireAuth(['
                     const rowIds = Array.isArray(block?.props?.rowIds) ? block.props.rowIds : []
                     const blockId = typeof block?.props?.blockId === 'string' && block.props.blockId.trim() ? block.props.blockId.trim() : null
 
+                    // REQUIRE stable blockId for tables
+                    if (!blockId) {
+                        console.warn(`[teacherTemplates] Table block at page ${pageIdx}, index ${blockIdx} has no blockId. Skipping normalization.`)
+                        return
+                    }
+
                     for (let rowIdx = 0; rowIdx < (cells.length || 0); rowIdx++) {
                         const rowId = typeof rowIds?.[rowIdx] === 'string' && rowIds[rowIdx].trim() ? rowIds[rowIdx].trim() : null
-                        const keyStable = blockId && rowId ? `table_${blockId}_row_${rowId}` : `table_${pageIdx}_${blockIdx}_row_${rowIdx}`
+                        
+                        // REQUIRE stable rowId
+                        if (!rowId) {
+                            console.warn(`[teacherTemplates] Table row at page ${pageIdx}, block ${blockIdx}, row ${rowIdx} has no rowId. Skipping.`)
+                            continue
+                        }
+                        
+                        const keyStable = `table_${blockId}_row_${rowId}`
                         const keyLegacy1 = `table_${pageIdx}_${blockIdx}_row_${rowIdx}`
                         const keyLegacy2 = `table_${blockIdx}_row_${rowIdx}`
 
                         const source = rowLanguages?.[rowIdx] || expandedLanguages
                         if (!Array.isArray(source) || source.length === 0) continue
 
+                        // Read from stable key first, fall back to legacy for migration
                         const saved = Array.isArray((assignment.data as any)?.[keyStable])
                             ? (assignment.data as any)[keyStable]
                             : Array.isArray((assignment.data as any)?.[keyLegacy1])
@@ -232,6 +262,9 @@ teacherTemplatesRouter.get('/template-assignments/:assignmentId', requireAuth(['
                         })
 
                         normalizedData[keyStable] = merged
+                        // Remove legacy keys if they exist (migration)
+                        if (normalizedData[keyLegacy1]) delete normalizedData[keyLegacy1]
+                        if (normalizedData[keyLegacy2]) delete normalizedData[keyLegacy2]
                     }
                 })
             })
@@ -412,7 +445,19 @@ teacherTemplatesRouter.patch('/template-assignments/:assignmentId/language-toggl
 
         const currentData = assignment.data || {}
         const blockId = typeof targetBlock?.props?.blockId === 'string' && targetBlock.props.blockId.trim() ? targetBlock.props.blockId.trim() : null
-        const keyStable = blockId ? `language_toggle_${blockId}` : `language_toggle_${actualPageIndex}_${actualBlockIndex}`
+        
+        // REQUIRE stable blockId - no fallback to legacy format
+        if (!blockId) {
+            return res.status(400).json({ 
+                error: 'block_missing_id', 
+                message: 'Block does not have a stable blockId. Please run the migration script to fix template data.',
+                pageIndex: actualPageIndex,
+                blockIndex: actualBlockIndex
+            })
+        }
+        
+        const keyStable = `language_toggle_${blockId}`
+        // Also check legacy key for reading previous data (for backwards compatibility during migration)
         const keyLegacy = `language_toggle_${actualPageIndex}_${actualBlockIndex}`
         const previousItems = currentData[keyStable] || currentData[keyLegacy] || sourceItems || []
 

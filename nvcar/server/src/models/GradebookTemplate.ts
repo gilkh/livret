@@ -1,8 +1,32 @@
 import { Schema, model } from 'mongoose'
+import { randomUUID } from 'crypto'
 
+/**
+ * Block Schema with mandatory stable blockId
+ * 
+ * Every block MUST have a unique, stable blockId that persists across page reordering,
+ * additions, and deletions. This ensures student data always maps to the correct block.
+ * 
+ * The blockId is stored in props.blockId and is auto-generated if not provided.
+ */
 const blockSchema = new Schema({
   type: { type: String, required: true },
-  props: { type: Schema.Types.Mixed, default: {} },
+  props: { 
+    type: Schema.Types.Mixed, 
+    default: () => ({ blockId: randomUUID() }),
+    // Ensure blockId is always present via pre-save hook
+  },
+})
+
+// Pre-validate hook to ensure every block has a stable blockId
+blockSchema.pre('validate', function(next) {
+  if (!this.props) {
+    this.props = {}
+  }
+  if (!this.props.blockId || typeof this.props.blockId !== 'string' || !this.props.blockId.trim()) {
+    this.props.blockId = randomUUID()
+  }
+  next()
 })
 
 const pageSchema = new Schema({

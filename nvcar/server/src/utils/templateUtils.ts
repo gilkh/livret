@@ -20,19 +20,37 @@ export function getVersionedTemplate(template: any, templateVersion: any) {
   } as any
 }
 
+/**
+ * Build a map of blocks indexed by their stable blockId.
+ * 
+ * IMPORTANT: Every block MUST have a blockId. Blocks without blockIds are skipped
+ * and should be fixed by running ensureStableBlockIds on the template.
+ */
 export const buildBlocksById = (pages: any[]) => {
   const map = new Map<string, { block: any, pageIdx: number, blockIdx: number }>()
     ; (Array.isArray(pages) ? pages : []).forEach((page: any, pageIdx: number) => {
       ; (Array.isArray(page?.blocks) ? page.blocks : []).forEach((block: any, blockIdx: number) => {
         const raw = block?.props?.blockId
         const id = typeof raw === 'string' && raw.trim() ? raw.trim() : null
-        if (!id) return
+        if (!id) {
+          // Log warning for blocks without blockId - these should be fixed
+          console.warn(`[buildBlocksById] Block at page ${pageIdx}, index ${blockIdx} has no blockId. Run ensureStableBlockIds to fix.`)
+          return
+        }
         map.set(id, { block, pageIdx, blockIdx })
       })
     })
   return map
 }
 
+/**
+ * Merge assignment data into a template, using ONLY stable blockIds.
+ * 
+ * This function no longer supports legacy pageIndex_blockIndex keys.
+ * All data keys must use the stable blockId format:
+ * - language_toggle_{blockId}
+ * - table_{blockId}_row_{rowId}
+ */
 export function mergeAssignmentDataIntoTemplate(template: any, assignment: any) {
   if (!template) return null
   const templateVersion = (assignment as any)?.templateVersion
@@ -46,60 +64,83 @@ export function mergeAssignmentDataIntoTemplate(template: any, assignment: any) 
     const pages = versionedTemplate?.pages || []
 
     for (const [key, value] of Object.entries(assignment.data)) {
-      // 1. Language Toggle Merging
+      // 1. Language Toggle Merging - ONLY stable blockId format
       if (key.startsWith('language_toggle_')) {
-        const mStable = key.match(/^language_toggle_(.+)$/)
-        const mLegacy = key.match(/^language_toggle_(\d+)_(\d+)$/)
-
-        if (mStable) {
-          const blockId = String(mStable[1] || '').trim()
+        // Match stable format: language_toggle_{blockId}
+        // blockId is a UUID or any non-numeric string
+        const match = key.match(/^language_toggle_(.+)$/)
+        if (match) {
+          const blockId = String(match[1] || '').trim()
+          // Skip if it looks like legacy format (two numbers separated by underscore)
+          if (/^\d+_\d+$/.test(blockId)) {
+            // This is legacy format - try to migrate it
+            const legacyMatch = blockId.match(/^(\d+)_(\d+)$/)
+            if (legacyMatch) {
+              const pageIdx = parseInt(legacyMatch[1])
+              const blockIdx = parseInt(legacyMatch[2])
+              const block = pages[pageIdx]?.blocks?.[blockIdx]
+              if (block && ['language_toggle', 'language_toggle_v2'].includes(block.type)) {
+                const stableBlockId = block?.props?.blockId
+                if (stableBlockId) {
+                  // Migrate to stable format
+                  block.props = block.props || {}
+                  block.props.items = value
+                  console.info(`[mergeAssignmentDataIntoTemplate] Migrated legacy key ${key} to blockId ${stableBlockId}`)
+                }
+              }
+            }
+            continue
+          }
+          
           const found = blockId ? blocksById.get(blockId) : null
           if (found && ['language_toggle', 'language_toggle_v2'].includes(found.block?.type)) {
             found.block.props = found.block.props || {}
             found.block.props.items = value
           }
         }
-
-        if (mLegacy) {
-          const pageIdx = parseInt(mLegacy[1])
-          const blockIdx = parseInt(mLegacy[2])
-          const block = pages[pageIdx]?.blocks?.[blockIdx]
-          // Only use legacy if stable ID didn't already populate this (or if it doesn't have an ID)
-          if (block && ['language_toggle', 'language_toggle_v2'].includes(block.type)) {
-            // If the block has no stable ID, or if the data specifically targeted these coordinates
-            block.props = block.props || {}
-            block.props.items = value
-          }
-        }
       }
 
-      // 2. Table Row Merging (Skills)
-      const mTableStable = key.match(/^table_(.+)_row_(.+)$/)
-      const mTableLegacy = key.match(/^table_(\d+)_(\d+)_row_(\d+)$/)
-
-      if (mTableStable) {
-        const blockId = String(mTableStable[1] || '').trim()
-        const rowId = String(mTableStable[2] || '').trim()
-        const found = blockId ? blocksById.get(blockId) : null
-        const block = found?.block
-        if (block && block.type === 'table' && block.props?.expandedRows) {
-          const rowIds = Array.isArray(block.props.rowIds) ? block.props.rowIds : []
-          const rowIdx = rowIds.findIndex((v: any) => typeof v === 'string' && v.trim() === rowId)
-          if (rowIdx >= 0) {
-            block.props.rowLanguages = block.props.rowLanguages || {}
-            block.props.rowLanguages[rowIdx] = value
+      // 2. Table Row Merging - ONLY stable blockId_rowId format
+      if (key.startsWith('table_')) {
+        // Match stable format: table_{blockId}_row_{rowId}
+        const stableMatch = key.match(/^table_(.+)_row_(.+)$/)
+        if (stableMatch) {
+          const blockId = String(stableMatch[1] || '').trim()
+          const rowId = String(stableMatch[2] || '').trim()
+          
+          // Skip if it looks like legacy format (blockId is just numbers)
+          if (/^\d+_\d+$/.test(blockId) && /^\d+$/.test(rowId)) {
+            // This is legacy format - try to migrate it
+            const legacyMatch = blockId.match(/^(\d+)_(\d+)$/)
+            if (legacyMatch) {
+              const pageIdx = parseInt(legacyMatch[1])
+              const blockIdx = parseInt(legacyMatch[2])
+              const rowIdx = parseInt(rowId)
+              const block = pages[pageIdx]?.blocks?.[blockIdx]
+              if (block && block.type === 'table' && block.props?.expandedRows) {
+                const stableBlockId = block?.props?.blockId
+                const rowIds = Array.isArray(block.props.rowIds) ? block.props.rowIds : []
+                const stableRowId = rowIds[rowIdx]
+                if (stableBlockId && stableRowId) {
+                  block.props.rowLanguages = block.props.rowLanguages || {}
+                  block.props.rowLanguages[rowIdx] = value
+                  console.info(`[mergeAssignmentDataIntoTemplate] Migrated legacy table key ${key} to blockId ${stableBlockId}, rowId ${stableRowId}`)
+                }
+              }
+            }
+            continue
           }
-        }
-      }
-
-      if (mTableLegacy) {
-        const pageIdx = parseInt(mTableLegacy[1])
-        const blockIdx = parseInt(mTableLegacy[2])
-        const rowIdx = parseInt(mTableLegacy[3])
-        const block = pages[pageIdx]?.blocks?.[blockIdx]
-        if (block && block.type === 'table' && block.props?.expandedRows) {
-          block.props.rowLanguages = block.props.rowLanguages || {}
-          block.props.rowLanguages[rowIdx] = value
+          
+          const found = blockId ? blocksById.get(blockId) : null
+          const block = found?.block
+          if (block && block.type === 'table' && block.props?.expandedRows) {
+            const rowIds = Array.isArray(block.props.rowIds) ? block.props.rowIds : []
+            const rowIdx = rowIds.findIndex((v: any) => typeof v === 'string' && v.trim() === rowId)
+            if (rowIdx >= 0) {
+              block.props.rowLanguages = block.props.rowLanguages || {}
+              block.props.rowLanguages[rowIdx] = value
+            }
+          }
         }
       }
 
@@ -284,7 +325,27 @@ function getBlockSignature(block: any): string {
   return `${t}:${JSON.stringify(keyProps)}`
 }
 
-export function ensureStableBlockIds(previousPages: any[] | undefined, nextPages: any[] | undefined) {
+/**
+ * Ensure every block has a stable, unique blockId.
+ * 
+ * This function GUARANTEES that every block in the returned pages array
+ * has a valid blockId in props.blockId. This is critical for:
+ * - Mapping student data to the correct block even after page reordering
+ * - Maintaining data integrity when pages are added/removed
+ * - Future-proofing against template structure changes
+ * 
+ * Algorithm:
+ * 1. Build a map of existing blockIds from previous pages (if any)
+ * 2. For each block in next pages:
+ *    - If it already has a valid blockId, keep it
+ *    - Otherwise, try to match by signature to preserve existing IDs
+ *    - If no match, generate a new UUID
+ * 
+ * @param previousPages - The previous version of pages (for ID preservation)
+ * @param nextPages - The new pages to process
+ * @returns Pages array with guaranteed blockIds on every block
+ */
+export function ensureStableBlockIds(previousPages: any[] | undefined, nextPages: any[] | undefined): any[] {
   const pages = Array.isArray(nextPages) ? JSON.parse(JSON.stringify(nextPages)) : []
 
   const prevBlocksById = new Map<string, any>()
@@ -308,17 +369,39 @@ export function ensureStableBlockIds(previousPages: any[] | undefined, nextPages
     const blocks: any[] = Array.isArray(page?.blocks) ? page.blocks : []
     for (const block of blocks) {
       if (!block) continue
-      const currentId = block?.props?.blockId
+      
+      // Initialize props if missing
+      block.props = block.props || {}
+      
+      const currentId = block.props.blockId
       const currentIdValid = typeof currentId === 'string' && currentId.trim()
+      
+      // If block already has a valid blockId, keep it
       if (currentIdValid) continue
 
+      // Try to match by signature to preserve existing IDs
       const sig = getBlockSignature(block)
       const candidates = prevIdsBySignature.get(sig) || []
       const nextId = candidates.shift() || randomUUID()
       prevIdsBySignature.set(sig, candidates)
 
-      block.props = block.props || {}
+      // ALWAYS assign a blockId - this is mandatory
       block.props.blockId = nextId
+    }
+  }
+
+  // Final validation: ensure every block has a blockId
+  for (let pageIdx = 0; pageIdx < pages.length; pageIdx++) {
+    const page = pages[pageIdx]
+    const blocks: any[] = Array.isArray(page?.blocks) ? page.blocks : []
+    for (let blockIdx = 0; blockIdx < blocks.length; blockIdx++) {
+      const block = blocks[blockIdx]
+      if (!block) continue
+      block.props = block.props || {}
+      if (!block.props.blockId || typeof block.props.blockId !== 'string' || !block.props.blockId.trim()) {
+        block.props.blockId = randomUUID()
+        console.warn(`[ensureStableBlockIds] Generated missing blockId for block at page ${pageIdx}, index ${blockIdx}`)
+      }
     }
   }
 
