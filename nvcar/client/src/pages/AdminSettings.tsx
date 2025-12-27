@@ -26,6 +26,16 @@ export default function AdminSettings() {
   const [backups, setBackups] = useState<{ name: string, size: number, date: string }[]>([])
   const [emptyClickCount, setEmptyClickCount] = useState(0)
 
+  // SMTP Settings
+  const [smtpHost, setSmtpHost] = useState('')
+  const [smtpPort, setSmtpPort] = useState('587')
+  const [smtpUser, setSmtpUser] = useState('')
+  const [smtpPass, setSmtpPass] = useState('')
+  const [smtpSecure, setSmtpSecure] = useState(false)
+  const [smtpTestEmail, setSmtpTestEmail] = useState('')
+  const [smtpTesting, setSmtpTesting] = useState(false)
+  const [smtpTestResult, setSmtpTestResult] = useState<{ success: boolean; message: string } | null>(null)
+
   const openSimulationLab = () => {
     const token = sessionStorage.getItem('token') || localStorage.getItem('token')
     const url = token ? `/simulation-lab?token=${encodeURIComponent(token)}` : '/simulation-lab'
@@ -212,6 +222,13 @@ export default function AdminSettings() {
 
       // Auto-infer toggle (defaults to true)
       setAssignmentAutoInfer(res.data.assignment_long_term_auto_infer !== false)
+
+      // SMTP Settings
+      setSmtpHost(res.data.smtp_host || '')
+      setSmtpPort(res.data.smtp_port || '587')
+      setSmtpUser(res.data.smtp_user || '')
+      setSmtpPass(res.data.smtp_pass || '')
+      setSmtpSecure(res.data.smtp_secure === true)
     } catch (err) {
       console.error(err)
     } finally {
@@ -239,6 +256,43 @@ export default function AdminSettings() {
       console.error(err)
       setMsg('Erreur lors de la mise à jour')
       return false
+    }
+  }
+
+  // SMTP Functions
+  const saveSmtpSettings = async () => {
+    const results = await Promise.all([
+      saveSetting('smtp_host', smtpHost),
+      saveSetting('smtp_port', smtpPort),
+      saveSetting('smtp_user', smtpUser),
+      saveSetting('smtp_pass', smtpPass),
+      saveSetting('smtp_secure', smtpSecure)
+    ])
+    if (results.every(r => r)) {
+      setMsg('Configuration SMTP sauvegardée')
+    }
+  }
+
+  const testSmtpConnection = async (sendTestEmail = false) => {
+    setSmtpTesting(true)
+    setSmtpTestResult(null)
+    try {
+      const res = await api.post('/settings/smtp/test', {
+        host: smtpHost,
+        port: smtpPort,
+        user: smtpUser,
+        pass: smtpPass,
+        secure: smtpSecure,
+        testEmail: sendTestEmail ? smtpTestEmail : undefined
+      })
+      setSmtpTestResult({ success: true, message: res.data.message })
+    } catch (err: any) {
+      setSmtpTestResult({ 
+        success: false, 
+        message: err.response?.data?.error || 'Erreur de connexion SMTP'
+      })
+    } finally {
+      setSmtpTesting(false)
     }
   }
 
@@ -559,6 +613,192 @@ export default function AdminSettings() {
                 <span className="slider"></span>
               </label>
             </div>
+          </div>
+        </div>
+
+        {/* SMTP Email Settings Section */}
+        <div className="settings-section">
+          <div className="section-header">
+            <div className="section-icon-wrapper" style={{ background: 'rgba(52, 152, 219, 0.1)', color: '#3498db' }}>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
+                <polyline points="22,6 12,13 2,6"></polyline>
+              </svg>
+            </div>
+            <h2 className="section-title">Configuration SMTP (Email)</h2>
+          </div>
+
+          <div style={{ display: 'grid', gap: '1rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+              <div>
+                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500, color: '#475569' }}>Serveur SMTP</label>
+                <input
+                  type="text"
+                  value={smtpHost}
+                  onChange={(e) => setSmtpHost(e.target.value)}
+                  placeholder="smtp.gmail.com"
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    borderRadius: '8px',
+                    border: '1px solid #cbd5e1',
+                    fontSize: '0.95rem'
+                  }}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500, color: '#475569' }}>Port</label>
+                <input
+                  type="text"
+                  value={smtpPort}
+                  onChange={(e) => setSmtpPort(e.target.value)}
+                  placeholder="587"
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    borderRadius: '8px',
+                    border: '1px solid #cbd5e1',
+                    fontSize: '0.95rem'
+                  }}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+              <div>
+                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500, color: '#475569' }}>Email / Utilisateur</label>
+                <input
+                  type="email"
+                  value={smtpUser}
+                  onChange={(e) => setSmtpUser(e.target.value)}
+                  placeholder="votre@email.com"
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    borderRadius: '8px',
+                    border: '1px solid #cbd5e1',
+                    fontSize: '0.95rem'
+                  }}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500, color: '#475569' }}>Mot de passe</label>
+                <input
+                  type="password"
+                  value={smtpPass}
+                  onChange={(e) => setSmtpPass(e.target.value)}
+                  placeholder="••••••••"
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    borderRadius: '8px',
+                    border: '1px solid #cbd5e1',
+                    fontSize: '0.95rem'
+                  }}
+                />
+              </div>
+            </div>
+
+            <div className="setting-item" style={{ marginTop: '0.5rem' }}>
+              <div className="setting-info">
+                <h3>Connexion sécurisée (SSL/TLS)</h3>
+                <p>Activer pour le port 465, désactiver pour le port 587 avec STARTTLS</p>
+              </div>
+              <div className="flex items-center" style={{ gap: '1rem' }}>
+                <div className="status-indicator">
+                  <span className={`dot ${smtpSecure ? 'active' : 'inactive'}`}></span>
+                  <span style={{ color: smtpSecure ? 'var(--success)' : '#64748b' }}>
+                    {smtpSecure ? 'SSL/TLS' : 'STARTTLS'}
+                  </span>
+                </div>
+                <label className="switch">
+                  <input
+                    type="checkbox"
+                    checked={smtpSecure}
+                    onChange={(e) => setSmtpSecure(e.target.checked)}
+                  />
+                  <span className="slider"></span>
+                </label>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1rem' }}>
+              <button
+                className="btn primary"
+                onClick={saveSmtpSettings}
+                style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+              >
+                💾 Sauvegarder
+              </button>
+              <button
+                className="btn secondary"
+                onClick={() => testSmtpConnection(false)}
+                disabled={smtpTesting || !smtpHost || !smtpUser || !smtpPass}
+                style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+              >
+                {smtpTesting ? '⏳ Test...' : '🔌 Tester la connexion'}
+              </button>
+            </div>
+
+            {/* Test email section */}
+            <div style={{ 
+              marginTop: '1rem', 
+              padding: '1rem', 
+              background: '#f8fafc', 
+              borderRadius: '8px',
+              border: '1px solid #e2e8f0'
+            }}>
+              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500, color: '#475569' }}>
+                Envoyer un email de test
+              </label>
+              <div style={{ display: 'flex', gap: '0.75rem' }}>
+                <input
+                  type="email"
+                  value={smtpTestEmail}
+                  onChange={(e) => setSmtpTestEmail(e.target.value)}
+                  placeholder="destinataire@email.com"
+                  style={{
+                    flex: 1,
+                    padding: '10px 12px',
+                    borderRadius: '8px',
+                    border: '1px solid #cbd5e1',
+                    fontSize: '0.95rem'
+                  }}
+                />
+                <button
+                  className="btn"
+                  onClick={() => testSmtpConnection(true)}
+                  disabled={smtpTesting || !smtpHost || !smtpUser || !smtpPass || !smtpTestEmail}
+                  style={{ 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: '8px',
+                    background: '#10b981',
+                    color: 'white',
+                    border: 'none'
+                  }}
+                >
+                  {smtpTesting ? '⏳' : '📧'} Envoyer
+                </button>
+              </div>
+            </div>
+
+            {/* Test result */}
+            {smtpTestResult && (
+              <div style={{
+                marginTop: '0.75rem',
+                padding: '0.75rem 1rem',
+                borderRadius: '8px',
+                background: smtpTestResult.success ? '#ecfdf5' : '#fef2f2',
+                border: `1px solid ${smtpTestResult.success ? '#a7f3d0' : '#fecaca'}`,
+                color: smtpTestResult.success ? '#047857' : '#dc2626',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem'
+              }}>
+                {smtpTestResult.success ? '✅' : '❌'} {smtpTestResult.message}
+              </div>
+            )}
           </div>
         </div>
 
