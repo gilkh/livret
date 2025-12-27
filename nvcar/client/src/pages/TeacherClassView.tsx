@@ -380,61 +380,93 @@ export default function TeacherClassView() {
                                 {studentAssignments.length > 0 && (
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
                                         {studentAssignments.map(a => (
-                                            <Link 
-                                                key={a._id} 
-                                                to={`/teacher/templates/${a._id}/edit`}
-                                                style={{ textDecoration: 'none' }}
-                                            >
-                                                <div
-                                                style={{
-                                                    padding: '8px 12px',
-                                                    background: isAssignmentCompletedForActiveSemester(a) ? '#ecfdf5' : 'white',
-                                                    border: `1px solid ${isAssignmentCompletedForActiveSemester(a) ? '#10b981' : '#e2e8f0'}`,
-                                                    borderRadius: 6,
-                                                    fontSize: 13,
-                                                    color: '#334155',
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'space-between',
-                                                    transition: 'all 0.2s ease'
-                                                }}
-                                                onMouseEnter={(e) => {
-                                                    e.currentTarget.style.borderColor = '#6c5ce7';
-                                                    e.currentTarget.style.transform = 'translateX(2px)';
-                                                }}
-                                                onMouseLeave={(e) => {
-                                                    e.currentTarget.style.borderColor = isAssignmentCompletedForActiveSemester(a) ? '#10b981' : '#e2e8f0';
-                                                    e.currentTarget.style.transform = 'translateX(0)';
-                                                }}
+                                            <div key={a._id} style={{ display: 'flex', gap: 6 }}>
+                                                <Link 
+                                                    to={`/teacher/templates/${a._id}/quick`}
+                                                    style={{ textDecoration: 'none', flex: 1 }}
                                                 >
-                                                    <span style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Ouvrir</span>
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                        <div style={{ display: 'flex', gap: 2 }}>
-                                                            <span style={{ 
-                                                                fontSize: 10, 
-                                                                padding: '2px 4px', 
-                                                                borderRadius: 4, 
-                                                                background: a.isCompletedSem1 ? '#10b981' : '#f1f5f9', 
-                                                                color: a.isCompletedSem1 ? 'white' : '#94a3b8',
-                                                                fontWeight: 600
-                                                            }}>S1</span>
-                                                            <span style={{ 
-                                                                fontSize: 10, 
-                                                                padding: '2px 4px', 
-                                                                borderRadius: 4, 
-                                                                background: a.isCompletedSem2 ? '#10b981' : '#f1f5f9', 
-                                                                color: a.isCompletedSem2 ? 'white' : '#94a3b8',
-                                                                fontWeight: 600
-                                                            }}>S2</span>
+                                                    <div
+                                                    style={{
+                                                        padding: '8px 12px',
+                                                        background: isAssignmentCompletedForActiveSemester(a) ? '#ecfdf5' : 'white',
+                                                        border: `1px solid ${isAssignmentCompletedForActiveSemester(a) ? '#10b981' : '#e2e8f0'}`,
+                                                        borderRadius: 6,
+                                                        fontSize: 13,
+                                                        color: '#334155',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'space-between',
+                                                        transition: 'all 0.2s ease'
+                                                    }}
+                                                    onMouseEnter={(e) => {
+                                                        e.currentTarget.style.borderColor = '#6c5ce7';
+                                                        e.currentTarget.style.transform = 'translateX(2px)';
+                                                    }}
+                                                    onMouseLeave={(e) => {
+                                                        e.currentTarget.style.borderColor = isAssignmentCompletedForActiveSemester(a) ? '#10b981' : '#e2e8f0';
+                                                        e.currentTarget.style.transform = 'translateX(0)';
+                                                    }}
+                                                    >
+                                                        <span style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>⚡ Notation rapide</span>
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                            <div style={{ display: 'flex', gap: 2 }}>
+                                                                <span style={{ 
+                                                                    fontSize: 10, 
+                                                                    padding: '2px 4px', 
+                                                                    borderRadius: 4, 
+                                                                    background: a.isCompletedSem1 ? '#10b981' : '#f1f5f9', 
+                                                                    color: a.isCompletedSem1 ? 'white' : '#94a3b8',
+                                                                    fontWeight: 600
+                                                                }}>S1</span>
+                                                                <span style={{ 
+                                                                    fontSize: 10, 
+                                                                    padding: '2px 4px', 
+                                                                    borderRadius: 4, 
+                                                                    background: a.isCompletedSem2 ? '#10b981' : '#f1f5f9', 
+                                                                    color: a.isCompletedSem2 ? 'white' : '#94a3b8',
+                                                                    fontWeight: 600
+                                                                }}>S2</span>
+                                                            </div>
+                                                            {isAssignmentCompletedForActiveSemester(a) ? (
+                                                                <span style={{ color: '#10b981' }}>✓</span>
+                                                            ) : (
+                                                                <span style={{ color: '#6c5ce7' }}>→</span>
+                                                            )}
                                                         </div>
-                                                        {isAssignmentCompletedForActiveSemester(a) ? (
-                                                            <span style={{ color: '#10b981' }}>✓</span>
-                                                        ) : (
-                                                            <span style={{ color: '#6c5ce7' }}>→</span>
-                                                        )}
                                                     </div>
-                                                </div>
-                                            </Link>
+                                                </Link>
+                                                <Link 
+                                                    to={`/teacher/templates/${a._id}/edit`}
+                                                    style={{ textDecoration: 'none' }}
+                                                    title="Vue complète du carnet"
+                                                >
+                                                    <div
+                                                    style={{
+                                                        padding: '8px 10px',
+                                                        background: '#f1f5f9',
+                                                        border: '1px solid #e2e8f0',
+                                                        borderRadius: 6,
+                                                        fontSize: 13,
+                                                        color: '#64748b',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        transition: 'all 0.2s ease',
+                                                        height: '100%'
+                                                    }}
+                                                    onMouseEnter={(e) => {
+                                                        e.currentTarget.style.background = '#e0e7ff';
+                                                        e.currentTarget.style.color = '#4338ca';
+                                                    }}
+                                                    onMouseLeave={(e) => {
+                                                        e.currentTarget.style.background = '#f1f5f9';
+                                                        e.currentTarget.style.color = '#64748b';
+                                                    }}
+                                                    >
+                                                        📄
+                                                    </div>
+                                                </Link>
+                                            </div>
                                         ))}
                                     </div>
                                 )}

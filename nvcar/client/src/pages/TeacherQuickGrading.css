@@ -1,0 +1,25 @@
+.quick-grading-table tr:hover {
+    background: #f0f4ff !important;
+}
+
+.quick-grading-lang-btn {
+    transition: all 0.2s ease;
+}
+
+.quick-grading-lang-btn:hover:not(:disabled) {
+    transform: scale(1.15);
+    box-shadow: 0 4px 12px rgba(108, 92, 231, 0.4);
+}
+
+.quick-grading-lang-btn:active:not(:disabled) {
+    transform: scale(0.95);
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+.quick-grading-saving {
+    animation: pulse 1s infinite;
+}

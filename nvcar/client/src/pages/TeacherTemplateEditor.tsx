@@ -295,16 +295,27 @@ export default function TeacherTemplateEditor() {
         <div style={{ padding: 24 }}>
             <ScrollToTopButton />
             <div className="card">
-                <button className="btn secondary" onClick={() => window.history.back()} style={{
-                    marginBottom: 20,
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    background: '#f1f5f9',
-                    color: '#475569',
-                    fontWeight: 500,
-                    border: '1px solid #e2e8f0'
-                }}>← Retour</button>
+                <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
+                    <button className="btn secondary" onClick={() => window.history.back()} style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        background: '#f1f5f9',
+                        color: '#475569',
+                        fontWeight: 500,
+                        border: '1px solid #e2e8f0'
+                    }}>← Retour</button>
+                    <a href={`/teacher/templates/${assignmentId}/quick`} className="btn secondary" style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        background: '#fef3c7',
+                        color: '#92400e',
+                        fontWeight: 500,
+                        border: '1px solid #fcd34d',
+                        textDecoration: 'none'
+                    }}>⚡ Notation rapide</a>
+                </div>
 
                 <div style={{ marginBottom: 20 }}>
                     <h2 className="title" style={{ fontSize: 28, marginBottom: 8, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 12 }}>

@@ -15,6 +15,7 @@ import AdminMedia from './pages/AdminMedia'
 import TeacherClassView from './pages/TeacherClassView'
 import TeacherStudentTemplates from './pages/TeacherStudentTemplates'
 import TeacherTemplateEditor from './pages/TeacherTemplateEditor'
+import TeacherQuickGrading from './pages/TeacherQuickGrading'
 import SubAdminDashboard from './pages/SubAdminDashboard'
 import SubAdminTeacherView from './pages/SubAdminTeacherView'
 import SubAdminTemplateReview from './pages/SubAdminTemplateReview'
@@ -275,6 +276,14 @@ export default function App() {
           element={
             <RequireAuth>
               <TeacherTemplateEditor />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/teacher/templates/:assignmentId/quick"
+          element={
+            <RequireAuth>
+              <TeacherQuickGrading />
             </RequireAuth>
           }
         />
