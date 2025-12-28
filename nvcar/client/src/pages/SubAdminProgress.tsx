@@ -35,7 +35,7 @@ export default function SubAdminProgress() {
             try {
                 setLoading(true)
                 const res = await api.get('/subadmin-assignments/progress')
-                setStudents(res.data)
+                setStudents(Array.isArray(res.data) ? res.data : [])
             } catch (e: any) {
                 setError('Impossible de charger les données')
                 console.error(e)
@@ -46,7 +46,7 @@ export default function SubAdminProgress() {
         loadData()
     }, [])
 
-    const grouped = students.reduce((acc, student) => {
+    const grouped = (students || []).reduce((acc, student) => {
         const level = student.currentLevel || 'Sans niveau'
         const className = student.className || 'Sans classe'
         
@@ -113,10 +113,11 @@ export default function SubAdminProgress() {
                                                 </thead>
                                                 <tbody>
                                                     {grouped[level][className].map(student => {
-                                                        const levels = student.levelsData.length > 0 ? student.levelsData : [{ level: '-', activeCount: 0, totalAvailable: 0, percentage: 0, byCategory: [] }]
+                                                        const safeLevelsData = Array.isArray((student as any).levelsData) ? (student as any).levelsData : []
+                                                        const levels = safeLevelsData.length > 0 ? safeLevelsData : [{ level: '-', activeCount: 0, totalAvailable: 0, percentage: 0, byCategory: [] }]
                                                         
-                                                        return levels.map((lvlData, idx) => (
-                                                            <tr key={`${student._id}-${lvlData.level}`} style={{ borderBottom: idx === levels.length - 1 ? '1px solid #f1f5f9' : 'none' }}>
+                                                        return levels.map((lvlData: LevelProgress, idx: number) => (
+                                                            <tr key={`${student._id}-${lvlData.level ?? idx}`} style={{ borderBottom: idx === levels.length - 1 ? '1px solid #f1f5f9' : 'none' }}>
                                                                 {idx === 0 && (
                                                                     <td rowSpan={levels.length} style={{ padding: 12, fontWeight: 500, verticalAlign: 'top', borderRight: '1px solid #f1f5f9' }}>
                                                                         {student.firstName} {student.lastName}
@@ -152,7 +153,7 @@ export default function SubAdminProgress() {
                                                                 </td>
                                                                 <td style={{ padding: 12 }}>
                                                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                                                                        {lvlData.byCategory.map(cat => (
+                                                                        {(Array.isArray((lvlData as any).byCategory) ? (lvlData as any).byCategory : []).map((cat: any) => (
                                                                             <div key={cat.name} style={{ 
                                                                                 background: '#f8fafc', 
                                                                                 border: '1px solid #e2e8f0',
