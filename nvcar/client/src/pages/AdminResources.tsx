@@ -5,6 +5,27 @@ import { useSchoolYear } from '../context/SchoolYearContext'
 import { useLevels } from '../context/LevelContext'
 import './AdminResources.css'
 import Toast, { ToastType } from '../components/Toast' 
+import { 
+  Calendar, 
+  Users, 
+  GraduationCap, 
+  Plus, 
+  Trash2, 
+  Edit2, 
+  Save, 
+  X, 
+  Download, 
+  Upload, 
+  Search, 
+  Check, 
+  AlertCircle, 
+  FileText, 
+  ChevronRight,
+  MoreVertical,
+  School,
+  Clock,
+  ArrowRight
+} from 'lucide-react'
 
 type Year = { _id: string; name: string; startDate: string; endDate: string; active: boolean; activeSemester?: number }
 type ClassDoc = { _id: string; name: string; level?: string; schoolYearId: string }
@@ -51,6 +72,9 @@ export default function AdminResources() {
   const [editingStudentId, setEditingStudentId] = useState<string | null>(null)
   const [showImportModal, setShowImportModal] = useState(false)
   const [showBulkAssignModal, setShowBulkAssignModal] = useState(false)
+  
+  // Search state
+  const [studentSearch, setStudentSearch] = useState('')
 
   // Toast notification
   const [toast, setToast] = useState<{message: string, type: ToastType} | null>(null)
@@ -84,10 +108,15 @@ export default function AdminResources() {
       return groups
   }, [otherUnassignedStudents])
 
-  // Stats
-  const totalStudents = useMemo(() => {
-    return students.length + unassignedStudents.length
-  }, [students, unassignedStudents])
+  // Filtered Students
+  const filteredStudents = useMemo(() => {
+    if (!studentSearch.trim()) return students
+    const lower = studentSearch.toLowerCase()
+    return students.filter(s => 
+      s.firstName.toLowerCase().includes(lower) || 
+      s.lastName.toLowerCase().includes(lower)
+    )
+  }, [students, studentSearch])
 
   const loadYears = async () => { 
     const r = await api.get('/school-years')
@@ -215,7 +244,6 @@ export default function AdminResources() {
   const saveYear = async () => {
     if (selectedYear) {
       try {
-        // Build payload from form; if semester changed compared to server, ensure the year becomes active
         const payload: any = { ...yearForm }
         if (selectedYear.activeSemester !== payload.activeSemester) {
           payload.active = true
@@ -337,491 +365,442 @@ export default function AdminResources() {
     return `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase()
   }
 
-  const formatDate = (dateStr: string) => {
-    if (!dateStr) return ''
-    const date = new Date(dateStr)
-    return date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })
-  }
-
   const selectedClass = classes.find(c => c._id === selectedClassId)
 
   return (
     <div className="resources-page">
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+      
       {/* Header */}
       <header className="resources-header">
         <div className="resources-header-left">
-          <div className="resources-header-icon">🏫</div>
-          <div>
+          <div className="resources-header-icon-wrapper">
+            <School className="resources-header-icon" />
+          </div>
+          <div className="resources-header-text">
             <h1>Ressources Scolaires</h1>
-            <p>Gérez les années scolaires, classes et élèves</p>
+            <p>Gestion globale des années, classes et affectations</p>
           </div>
         </div>
         <div className="resources-header-actions">
-          <button 
-            className="header-btn secondary" 
+           <button 
+            className="feature-btn" 
             onClick={() => navigate('/admin/students')}
           >
-            <span>👨‍🎓</span> Gestion des Élèves
+            <Users className="btn-icon" size={18} />
+            <span>Tous les élèves</span>
           </button>
         </div>
       </header>
 
       {/* Stats Summary */}
-      <div className="stats-summary">
-        <div className="stat-card">
-          <div className="stat-card-icon years">📅</div>
-          <div className="stat-card-value">{years.length}</div>
-          <div className="stat-card-label">Années scolaires</div>
+      <div className="stats-grid">
+        <div className="stat-item">
+          <div className="stat-icon-wrapper blue"><Calendar size={24} /></div>
+          <div className="stat-content">
+            <span className="stat-value">{years.length}</span>
+            <span className="stat-label">Années scolaires</span>
+          </div>
         </div>
-        <div className="stat-card">
-          <div className="stat-card-icon classes">🏫</div>
-          <div className="stat-card-value">{classes.length}</div>
-          <div className="stat-card-label">Classes</div>
+        <div className="stat-item">
+          <div className="stat-icon-wrapper purple"><School size={24} /></div>
+          <div className="stat-content">
+            <span className="stat-value">{classes.length}</span>
+            <span className="stat-label">Classes actives</span>
+          </div>
         </div>
-        <div className="stat-card">
-          <div className="stat-card-icon students">🎓</div>
-          <div className="stat-card-value">{students.length}</div>
-          <div className="stat-card-label">Élèves (classe sélectionnée)</div>
+        <div className="stat-item">
+          <div className="stat-icon-wrapper green"><GraduationCap size={24} /></div>
+          <div className="stat-content">
+            <span className="stat-value">{students.length}</span>
+            <span className="stat-label">Élèves (classe)</span>
+          </div>
         </div>
-        <div className="stat-card">
-          <div className="stat-card-icon pending">⏳</div>
-          <div className="stat-card-value">{unassignedStudents.length}</div>
-          <div className="stat-card-label">En attente d'affectation</div>
+        <div className="stat-item">
+          <div className="stat-icon-wrapper orange"><Clock size={24} /></div>
+          <div className="stat-content">
+            <span className="stat-value text-orange">{unassignedStudents.length}</span>
+            <span className="stat-label">À affecter</span>
+          </div>
         </div>
       </div>
 
-      {/* Main Grid */}
-      <div className="resources-grid">
+      {/* Main Content Grid */}
+      <div className="main-grid">
         
         {/* Column 1: Years */}
-        <div className="resource-card">
-          <div className="card-header">
-            <div className="card-header-icon years">📅</div>
-            <div className="card-header-content">
-              <h3>Années Scolaires</h3>
-              <p>Sélectionnez une année à gérer</p>
+        <div className="column-card">
+          <div className="column-header">
+            <div className="column-header-title">
+              <Calendar className="column-icon blue" size={20} />
+              <h3>Années</h3>
             </div>
           </div>
-
-          <div className="card-body">
-            <div className="years-list">
+          
+          <div className="column-body">
+            <div className="years-list-container">
               {years.map(y => (
                 <div 
                   key={y._id} 
-                  className={`year-item ${selectedYear?._id === y._id ? 'selected' : ''} ${y.active ? 'active' : ''}`}
+                  className={`list-item ${selectedYear?._id === y._id ? 'selected' : ''} ${y.active ? 'active-year' : ''}`}
                   onClick={() => selectYear(y)}
                 >
-                  <div className="year-item-left">
-                    <div className="year-icon">📆</div>
-                    <div>
-                      <div className="year-name">{y.name}</div>
+                  <div className="list-item-main">
+                    <span className="year-title">{y.name}</span>
+                    <div className="year-badges-row">
+                      {y.active && <span className="status-badge active">Actif</span>}
+                      {y.active && y.activeSemester && <span className="status-badge semester">S{y.activeSemester}</span>}
                     </div>
                   </div>
-                  <div className="year-badges">
-                    {y.active && <span className="badge active">Active</span>}
-                    {y.active && y.activeSemester && <span className="badge semester">S{y.activeSemester}</span>}
-                    {y._id === oldestYearId && (
-                      <button
-                        className="year-add-old"
-                        onClick={(e) => addPreviousYear(e)}
-                        title="Ajouter l'année précédente"
-                        disabled={creatingPreviousYear}
+                  
+                  <div className="list-item-actions">
+                     {y._id === oldestYearId && (
+                        <button
+                          className="icon-action-btn small"
+                          onClick={(e) => addPreviousYear(e)}
+                          title="Ajouter l'année précédente"
+                          disabled={creatingPreviousYear}
+                        >
+                          <Plus size={14} />
+                        </button>
+                      )}
+                      <button 
+                        className="icon-action-btn small danger"
+                        onClick={(e) => deleteYear(e, y._id)}
+                        title="Supprimer"
                       >
-                        +
+                        <Trash2 size={14} />
                       </button>
-                    )}
                   </div>
-                  <button 
-                    className="year-delete"
-                    onClick={(e) => deleteYear(e, y._id)}
-                    title="Supprimer"
-                  >
-                    ✕
-                  </button>
                 </div>
               ))}
             </div>
             
-            <button className="add-year-btn" onClick={addNextYear}>
-              <span>➕</span> Ajouter l'année suivante
+            <button className="primary-add-btn" onClick={addNextYear}>
+              <Plus size={18} />
+              <span>Nouvelle année</span>
             </button>
 
-            {/* Year Edit Form */}
             {selectedYear && (
-              <div className="year-edit-form">
-                <div className="form-section-title">
-                  <span>✏️</span> Modifier l'année
+              <div className="edit-panel">
+                <div className="edit-panel-header">
+                  <Edit2 size={16} />
+                  <span>Modifier {selectedYear.name}</span>
                 </div>
                 
-                <div className="form-group">
-                  <label className="form-label">Nom de l'année</label>
+                <div className="edit-form-group">
+                  <label>Nom</label>
                   <input 
-                    className="form-input"
                     value={yearForm.name} 
                     onChange={e => setYearForm({...yearForm, name: e.target.value})} 
-                    placeholder="ex: 2024/2025"
+                    placeholder="2024/2025"
                   />
                 </div>
-                
-                <div className="form-row">
-                  <div className="form-group">
-                    <label className="form-label">Date de début</label>
-                    <input 
-                      type="date" 
-                      className="form-input"
-                      value={yearForm.startDate} 
-                      onChange={e => setYearForm({...yearForm, startDate: e.target.value})} 
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Date de fin</label>
-                    <input 
-                      type="date" 
-                      className="form-input"
-                      value={yearForm.endDate} 
-                      onChange={e => setYearForm({...yearForm, endDate: e.target.value})} 
-                    />
-                  </div>
-                </div>
+                 <div className="edit-form-row">
+                    <div className="edit-form-group">
+                        <label>Début</label>
+                        <input type="date" value={yearForm.startDate} onChange={e => setYearForm({...yearForm, startDate: e.target.value})} />
+                    </div>
+                    <div className="edit-form-group">
+                        <label>Fin</label>
+                        <input type="date" value={yearForm.endDate} onChange={e => setYearForm({...yearForm, endDate: e.target.value})} />
+                    </div>
+                 </div>
 
-                <div className="form-group">
-                  <label className="form-label">Semestre actif</label>
-                  <div className="semester-toggle">
+                 <div className="semester-selector">
                     <button 
-                      className={`semester-btn ${(yearForm.activeSemester || 1) === 1 ? 'active' : ''}`}
-                      onClick={() => setYearForm({...yearForm, activeSemester: 1})}
+                        className={`sem-btn ${(yearForm.activeSemester || 1) === 1 ? 'selected' : ''}`}
+                        onClick={() => setYearForm({...yearForm, activeSemester: 1})}
                     >
-                      Semestre 1
+                        S1
                     </button>
                     <button 
-                      className={`semester-btn ${(yearForm.activeSemester || 1) === 2 ? 'active' : ''}`}
-                      onClick={() => setYearForm({...yearForm, activeSemester: 2})}
+                         className={`sem-btn ${(yearForm.activeSemester || 1) === 2 ? 'selected' : ''}`}
+                        onClick={() => setYearForm({...yearForm, activeSemester: 2})}
                     >
-                      Semestre 2
+                        S2
                     </button>
-                  </div>
-                </div>
+                 </div>
 
-                <div className="form-checkbox">
-                  <input 
-                    type="checkbox" 
-                    id="yearActive"
-                    checked={yearForm.active} 
-                    onChange={e => setYearForm({...yearForm, active: e.target.checked})} 
-                  />
-                  <label htmlFor="yearActive">Année active</label>
-                </div>
+                 <div className="edit-form-checkbox">
+                    <input 
+                        type="checkbox" 
+                        checked={yearForm.active} 
+                        onChange={e => setYearForm({...yearForm, active: e.target.checked})} 
+                        id="activeCheck"
+                    />
+                    <label htmlFor="activeCheck">Année active</label>
+                 </div>
 
-                <button className="save-btn" onClick={saveYear}>
-                  💾 Enregistrer les modifications
-                </button>
+                 <button className="save-action-btn" onClick={saveYear}>
+                    <Save size={16} />
+                    Enregistrer
+                 </button>
               </div>
             )}
           </div>
         </div>
 
         {/* Column 2: Classes */}
-        <div className={`resource-card ${!selectedYear ? 'disabled' : ''}`}>
-          <div className="card-header">
-            <div className="card-header-icon classes">🏫</div>
-            <div className="card-header-content">
-              <h3>Classes & Sections</h3>
-              <p>{selectedYear ? `${selectedYear.name} - ${classes.length} classes` : 'Sélectionnez une année'}</p>
+        <div className={`column-card ${!selectedYear ? 'disabled' : ''}`}>
+           <div className="column-header">
+            <div className="column-header-title">
+              <School className="column-icon purple" size={20} />
+              <h3>Classes</h3>
             </div>
+             {selectedYear && <span className="header-count">{classes.length}</span>}
           </div>
 
-          <div className="card-body">
-            {!selectedYear ? (
-              <div className="empty-state">
-                <div className="empty-state-icon">📋</div>
-                <h4 className="empty-state-title">Aucune année sélectionnée</h4>
-                <p className="empty-state-text">Sélectionnez une année scolaire pour voir les classes</p>
-              </div>
-            ) : (
-              <div className="classes-container">
-                {levels.filter(l => ['PS', 'MS', 'GS'].includes(l.name)).map(level => {
-                  const levelClasses = classes.filter(c => c.level === level.name).sort((a,b) => a.name.localeCompare(b.name))
-                  return (
-                    <div key={level._id} className="level-section">
-                      <div className="level-header">
-                        <div className="level-title">
-                          <span className={`level-badge ${level.name.toLowerCase()}`}>{level.name}</span>
-                          <div>
-                            <span className="level-name">
-                              {level.name === 'PS' ? 'Petite Section' : level.name === 'MS' ? 'Moyenne Section' : 'Grande Section'}
-                            </span>
-                            <span className="level-count"> · {levelClasses.length} section{levelClasses.length > 1 ? 's' : ''}</span>
-                          </div>
-                        </div>
-                        <button 
-                          className="add-section-btn" 
-                          onClick={() => addSection(level.name)}
-                          title="Ajouter une section"
-                        >
-                          +
-                        </button>
-                      </div>
-                      <div className="sections-grid">
-                        {levelClasses.map(c => {
-                          const letter = c.name.replace(level.name, '').trim() || c.name
-                          return (
-                            <div 
-                              key={c._id} 
-                              className={`section-chip ${selectedClassId === c._id ? 'selected' : ''} ${level.name.toLowerCase()}`}
-                              onClick={() => selectClass(c._id)}
-                            >
-                              <span className={`section-letter ${level.name.toLowerCase()}`}>{letter}</span>
-                              <span className="section-name">{c.name}</span>
-                              {selectedClassId === c._id && (
-                                <button 
-                                  className="section-delete"
-                                  onClick={(e) => deleteClass(e, c._id)}
-                                  title="Supprimer"
-                                >
-                                  ✕
-                                </button>
-                              )}
-                            </div>
-                          )
-                        })}
-                        {levelClasses.length === 0 && (
-                          <div className="no-sections">Aucune section créée</div>
-                        )}
-                      </div>
-                    </div>
-                  )
-                })}
-
-                <div className="import-section">
-                  <button className="import-btn" onClick={() => setShowImportModal(true)}>
-                    <span>📥</span> Importer des élèves (CSV)
-                  </button>
+          <div className="column-body">
+             {!selectedYear ? (
+                <div className="empty-placeholder">
+                    <ArrowRight size={48} className="placeholder-icon" />
+                    <p>Sélectionnez une année</p>
                 </div>
-              </div>
-            )}
+             ) : (
+                <div className="classes-list-wrapper">
+                    {levels.filter(l => ['PS', 'MS', 'GS'].includes(l.name)).map(level => {
+                        const levelClasses = classes.filter(c => c.level === level.name).sort((a,b) => a.name.localeCompare(b.name))
+                         return (
+                            <div key={level._id} className="level-group">
+                                <div className="level-group-header">
+                                    <span className={`level-pill ${level.name.toLowerCase()}`}>{level.name}</span>
+                                    <div className="level-line"></div>
+                                    <button 
+                                        className="icon-action-btn" 
+                                        onClick={() => addSection(level.name)}
+                                        title="Ajouter une section"
+                                    >
+                                        <Plus size={16} />
+                                    </button>
+                                </div>
+                                
+                                <div className="sections-grid-new">
+                                    {levelClasses.map(c => {
+                                        const letter = c.name.replace(level.name, '').trim() || c.name
+                                        return (
+                                            <div 
+                                                key={c._id} 
+                                                className={`section-card ${selectedClassId === c._id ? 'selected' : ''} ${level.name.toLowerCase()}`}
+                                                onClick={() => selectClass(c._id)}
+                                            >
+                                                <span className="section-letter">{letter}</span>
+                                                {selectedClassId === c._id && (
+                                                     <button 
+                                                        className="delete-section-btn"
+                                                        onClick={(e) => deleteClass(e, c._id)}
+                                                    >
+                                                        <Trash2 size={12} />
+                                                    </button>
+                                                )}
+                                            </div>
+                                        )
+                                    })}
+                                    {levelClasses.length === 0 && <span className="empty-level-text">Aucune classe</span>}
+                                </div>
+                            </div>
+                         )
+                    })}
+                    
+                    <button className="import-action-btn" onClick={() => setShowImportModal(true)}>
+                        <Upload size={16} />
+                        <span>Importer CSV</span>
+                    </button>
+                </div>
+             )}
           </div>
         </div>
 
         {/* Column 3: Students */}
-        <div className={`resource-card ${!selectedClassId ? 'disabled' : ''}`}>
-          <div className="card-header">
-            <div className="card-header-icon students">🎓</div>
-            <div className="card-header-content">
-              <h3>Élèves</h3>
-              <p>{selectedClass ? `${selectedClass.name} - ${students.length} élèves` : 'Sélectionnez une classe'}</p>
+        <div className={`column-card ${!selectedClassId ? 'disabled' : ''}`}>
+             <div className="column-header">
+                <div className="column-header-title">
+                <GraduationCap className="column-icon green" size={20} />
+                <h3>Élèves</h3>
+                </div>
+                 {selectedClass && <span className="header-count">{students.length}</span>}
             </div>
-          </div>
 
-          <div className="card-body">
-            {!selectedClassId ? (
-              <div className="empty-state">
-                <div className="empty-state-icon">👥</div>
-                <h4 className="empty-state-title">Aucune classe sélectionnée</h4>
-                <p className="empty-state-text">Sélectionnez une classe pour voir et gérer les élèves</p>
-              </div>
-            ) : (
-              <div className="students-container">
-                {/* Add/Edit Student Form */}
-                <div className="student-form">
-                  <h4 className="student-form-title">
-                    {editingStudentId ? '✏️ Modifier l\'élève' : '➕ Ajouter un élève'}
-                  </h4>
-                  <div className="student-form-inputs">
-                    <input 
-                      className="form-input"
-                      placeholder="Prénom" 
-                      value={firstName} 
-                      onChange={e => setFirstName(e.target.value)} 
-                    />
-                    <input 
-                      className="form-input"
-                      placeholder="Nom" 
-                      value={lastName} 
-                      onChange={e => setLastName(e.target.value)} 
-                    />
-                    <select
-                        className="form-input"
-                        value={targetClassId}
-                        onChange={e => setTargetClassId(e.target.value)}
-                        title="Classe de l'élève"
-                    >
-                        {classes.sort((a,b) => a.name.localeCompare(b.name)).map(c => (
-                            <option key={c._id} value={c._id}>{c.name}</option>
-                        ))}
-                    </select>
-                  </div>
-                  <div className="student-form-actions">
-                    <button 
-                      className="add-student-btn" 
-                      onClick={saveStudent}
-                      disabled={!firstName.trim() || !lastName.trim()}
-                    >
-                      {editingStudentId ? '💾 Mettre à jour' : '➕ Ajouter'}
-                    </button>
-                    {editingStudentId && (
-                      <button className="cancel-btn" onClick={() => resetStudentForm()}>
-                        Annuler
-                      </button>
-                    )}
-                  </div>
-                </div>
+            <div className="column-body">
+                {!selectedClassId ? (
+                     <div className="empty-placeholder">
+                        <ArrowRight size={48} className="placeholder-icon" />
+                        <p>Sélectionnez une classe</p>
+                    </div>
+                ) : (
+                    <div className="students-panel">
+                        <div className="student-input-area">
+                            <div className="student-form-row">
+                                <input 
+                                    className="clean-input" 
+                                    placeholder="Prénom" 
+                                    value={firstName} 
+                                    onChange={e => setFirstName(e.target.value)} 
+                                />
+                                <input 
+                                    className="clean-input" 
+                                    placeholder="Nom" 
+                                    value={lastName} 
+                                    onChange={e => setLastName(e.target.value)} 
+                                />
+                            </div>
+                            
+                            {/* Class select only if creating new/editing */}
+                            {editingStudentId && (
+                                <select
+                                    className="clean-select"
+                                    value={targetClassId}
+                                    onChange={e => setTargetClassId(e.target.value)}
+                                >
+                                    {classes.sort((a,b) => a.name.localeCompare(b.name)).map(c => (
+                                        <option key={c._id} value={c._id}>{c.name}</option>
+                                    ))}
+                                </select>
+                            )}
 
-                {/* Students List */}
-                <div className="students-list">
-                  {students.map(s => (
-                    <div key={s._id} className="student-item">
-                      <div className="student-info">
-                        <div className="student-avatar">
-                          {getInitials(s.firstName, s.lastName)}
+                             <div className="student-form-actions">
+                                <button 
+                                    className={`action-btn primary ${editingStudentId ? 'warning' : ''}`}
+                                    onClick={saveStudent}
+                                    disabled={!firstName.trim() || !lastName.trim()}
+                                >
+                                    {editingStudentId ? <Save size={16} /> : <Plus size={16} />}
+                                    <span>{editingStudentId ? 'Mettre à jour' : 'Ajouter'}</span>
+                                </button>
+                                {editingStudentId && (
+                                    <button className="action-btn ghost" onClick={() => resetStudentForm()}>
+                                        <X size={16} />
+                                    </button>
+                                )}
+                            </div>
                         </div>
-                        <span className="student-name">{s.firstName} {s.lastName}</span>
-                      </div>
-                      <div className="student-actions">
-                        <button 
-                          className="student-action-btn edit"
-                          onClick={() => startEditStudent(s)}
-                          title="Modifier"
-                        >
-                          ✏️
-                        </button>
-                        <button 
-                          className="student-action-btn delete"
-                          onClick={() => deleteStudent(s._id)}
-                          title="Supprimer"
-                        >
-                          🗑️
-                        </button>
-                      </div>
+
+                        <div className="search-bar">
+                            <Search size={16} className="search-icon" />
+                            <input 
+                                placeholder="Rechercher un élève..." 
+                                value={studentSearch}
+                                onChange={e => setStudentSearch(e.target.value)}
+                            />
+                        </div>
+
+                        <div className="students-list-new">
+                            {filteredStudents.map(s => (
+                                <div key={s._id} className="student-row">
+                                    <div className="student-avatar-small">
+                                        {getInitials(s.firstName, s.lastName)}
+                                    </div>
+                                    <div className="student-info-col">
+                                        <span className="student-fullname">{s.firstName} {s.lastName}</span>
+                                    </div>
+                                    <div className="student-row-actions">
+                                        <button onClick={() => startEditStudent(s)} className="icon-btn-row edit">
+                                            <Edit2 size={14} />
+                                        </button>
+                                        <button onClick={() => deleteStudent(s._id)} className="icon-btn-row delete">
+                                            <Trash2 size={14} />
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+                            {filteredStudents.length === 0 && (
+                                <div className="empty-list-msg">Aucun élève trouvé</div>
+                            )}
+                        </div>
                     </div>
-                  ))}
-                  {students.length === 0 && (
-                    <div className="no-students">
-                      <div className="no-students-icon">📭</div>
-                      <p className="no-students-text">Aucun élève dans cette classe</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
+                )}
+            </div>
         </div>
       </div>
 
-      {/* Unassigned Students Section */}
+      {/* Unassigned Section */}
       {selectedYear && (
-        <div className="unassigned-section">
-          <div className="unassigned-card">
-            <div className="unassigned-header">
-              <div className="unassigned-header-left">
-                <div className="card-header-icon unassigned">⏳</div>
-                <div className="card-header-content">
-                  <h3>Élèves en attente d'affectation</h3>
-                  <p>{unassignedStudents.length} élève{unassignedStudents.length > 1 ? 's' : ''} à affecter pour {selectedYear.name}</p>
-                </div>
-              </div>
-              <div className="unassigned-actions">
-                <button className="csv-btn download" onClick={downloadUnassignedCsv}>
-                  <span>📥</span> Télécharger CSV
-                </button>
-                <button className="csv-btn upload" onClick={() => setShowBulkAssignModal(true)}>
-                  <span>📤</span> Affectation en masse
-                </button>
-              </div>
-            </div>
-
-            <div className="unassigned-body">
-              {unassignedStudents.length === 0 ? (
-                <div className="unassigned-empty">
-                  <div className="unassigned-empty-icon">🎉</div>
-                  <h4 className="unassigned-empty-title">Tous les élèves sont affectés !</h4>
-                  <p className="unassigned-empty-text">
-                    Aucun élève en attente d'affectation pour cette année scolaire.
-                    <br />Les élèves promus par les sous-admins apparaîtront ici.
-                  </p>
-                </div>
-              ) : (
-                <div className="unassigned-groups">
-                  {/* Other Unassigned */}
-                  {Object.entries(groupedOtherStudents).map(([groupName, groupStudents]) => (
-                    <div key={groupName} className="unassigned-group">
-                      <div className="unassigned-group-header">
-                        <span className="unassigned-group-title">{groupName}</span>
-                        <span className="unassigned-group-count">{groupStudents.length}</span>
-                      </div>
-                      <div className="unassigned-group-students">
-                        {groupStudents.map(s => (
-                          <div key={s._id} className="unassigned-student">
-                            <div className="unassigned-student-info">
-                              <div className="unassigned-student-avatar">
-                                {getInitials(s.firstName, s.lastName)}
-                              </div>
-                              <div>
-                                <div className="unassigned-student-name">{s.firstName} {s.lastName}</div>
-                                <div className="unassigned-student-meta">Niveau: {s.level || '?'}</div>
-                              </div>
-                            </div>
-                            <select 
-                              className="section-select"
-                              onChange={(e) => {
-                                if (e.target.value) assignSection(s._id, s.level || 'MS', e.target.value)
-                              }}
-                              defaultValue=""
-                            >
-                              <option value="" disabled>Section...</option>
-                              {['A','B','C','D','E','F','G','H','I','J','K'].map(l => (
-                                <option key={l} value={l}>{l}</option>
-                              ))}
-                            </select>
-                          </div>
-                        ))}
-                      </div>
+          <div className="unassigned-panel">
+            <div className="unassigned-header-row">
+                <div className="unassigned-title">
+                    <AlertCircle className="unassign-icon" size={24} />
+                    <div>
+                        <h3>En attente d'affectation</h3>
+                        <p>{unassignedStudents.length} élèves à placer</p>
                     </div>
-                  ))}
-
-                  {/* Promoted Unassigned */}
-                  {Object.entries(groupedPromotedStudents).map(([groupName, groupStudents]) => (
-                    <div key={groupName} className="unassigned-group">
-                      <div className="unassigned-group-header promoted">
-                        <span className="unassigned-group-title">🎓 {groupName}</span>
-                        <span className="unassigned-group-count">{groupStudents.length}</span>
-                      </div>
-                      <div className="unassigned-group-students">
-                        {groupStudents.map(s => (
-                          <div key={s._id} className="unassigned-student">
-                            <div className="unassigned-student-info">
-                              <div className="unassigned-student-avatar">
-                                {getInitials(s.firstName, s.lastName)}
-                              </div>
-                              <div>
-                                <div className="unassigned-student-name">{s.firstName} {s.lastName}</div>
-                                <div className="unassigned-student-meta">
-                                  Promu: {s.promotion?.from} → {s.promotion?.to}
-                                </div>
-                              </div>
-                            </div>
-                            <select 
-                              className="section-select"
-                              onChange={(e) => {
-                                if (e.target.value) assignSection(s._id, s.level || 'MS', e.target.value)
-                              }}
-                              defaultValue=""
-                            >
-                              <option value="" disabled>Section...</option>
-                              {['A','B','C','D','E','F','G','H','I','J','K'].map(l => (
-                                <option key={l} value={l}>{l}</option>
-                              ))}
-                            </select>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
                 </div>
-              )}
+                <div className="unassigned-actions-row">
+                    <button className="secondary-action-btn" onClick={downloadUnassignedCsv}>
+                        <Download size={16} /> CSV
+                    </button>
+                    <button className="secondary-action-btn" onClick={() => setShowBulkAssignModal(true)}>
+                        <Upload size={16} /> Importer affectations
+                    </button>
+                </div>
             </div>
+            
+            {unassignedStudents.length > 0 ? (
+                <div className="unassigned-grid-layout">
+                    {/* Other Students */}
+                     {Object.entries(groupedOtherStudents).map(([groupName, groupStudents]) => (
+                        <div key={groupName} className="unassigned-card-group">
+                            <div className="group-header">
+                                <span className="group-name">{groupName}</span>
+                                <span className="group-badge">{groupStudents.length}</span>
+                            </div>
+                            <div className="group-list">
+                                {groupStudents.map(s => (
+                                    <div key={s._id} className="unassigned-item">
+                                        <span className="u-name">{s.firstName} {s.lastName}</span>
+                                        <select 
+                                            className="u-select"
+                                            onChange={(e) => {
+                                                if (e.target.value) assignSection(s._id, s.level || 'MS', e.target.value)
+                                            }}
+                                            defaultValue=""
+                                        >
+                                            <option value="" disabled>Section...</option>
+                                            {['A','B','C','D','E','F','G','H','I','J','K'].map(l => (
+                                                <option key={l} value={l}>{l}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                     ))}
+                     
+                     {/* Promoted Students */}
+                     {Object.entries(groupedPromotedStudents).map(([groupName, groupStudents]) => (
+                        <div key={groupName} className="unassigned-card-group promoted">
+                            <div className="group-header">
+                                <span className="group-name">{groupName}</span>
+                                <span className="group-badge promoted">{groupStudents.length}</span>
+                            </div>
+                            <div className="group-list">
+                                {groupStudents.map(s => (
+                                    <div key={s._id} className="unassigned-item">
+                                        <span className="u-name">{s.firstName} {s.lastName}</span>
+                                         <select 
+                                            className="u-select"
+                                            onChange={(e) => {
+                                                if (e.target.value) assignSection(s._id, s.level || 'MS', e.target.value)
+                                            }}
+                                            defaultValue=""
+                                        >
+                                            <option value="" disabled>Section...</option>
+                                            {['A','B','C','D','E','F','G','H','I','J','K'].map(l => (
+                                                <option key={l} value={l}>{l}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                     ))}
+                </div>
+            ) : (
+                <div className="all-clear-message">
+                    <Check size={48} className="success-icon" />
+                    <p>Tous les élèves sont affectés pour cette année !</p>
+                </div>
+            )}
           </div>
-        </div>
       )}
 
       {/* Modals */}
@@ -931,10 +910,10 @@ function ImportStudentsModal({ isOpen, onClose, schoolYearId }: { isOpen: boolea
       <div className="modal-content" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <div className="modal-title">
-            <div className="modal-title-icon">📥</div>
+            <Upload size={20} className="modal-icon" />
             <h3>Importer des élèves</h3>
           </div>
-          <button className="modal-close" onClick={onClose}>✕</button>
+          <button className="modal-close" onClick={onClose}><X size={20} /></button>
         </div>
 
         <div className="modal-body">
@@ -943,7 +922,7 @@ function ImportStudentsModal({ isOpen, onClose, schoolYearId }: { isOpen: boolea
             onClick={() => document.getElementById('csv-upload')?.click()}
           >
             <input type="file" accept=".csv" onChange={onFile} style={{ display: 'none' }} id="csv-upload" />
-            <div className="file-upload-icon">📄</div>
+            <FileText size={32} className="upload-icon" />
             <p className="file-upload-text">Cliquez pour sélectionner un fichier CSV</p>
             <p className="file-upload-hint">ou glissez-déposez le fichier ici</p>
           </div>
@@ -957,14 +936,14 @@ function ImportStudentsModal({ isOpen, onClose, schoolYearId }: { isOpen: boolea
           />
           
           <div className="format-hint">
-            <span>💡</span>
+            <AlertCircle size={14} />
             Format attendu: <code>FirstName,LastName,level,section</code>
           </div>
 
           {report && (
             <div className={`import-result ${report.created > 0 ? 'success' : 'warning'}`}>
               <h4 className="import-result-title">
-                {report.created > 0 ? '✅ Import réussi' : '⚠️ Résultat de l\'import'}
+                {report.created > 0 ? 'Import réussi' : 'Résultat de l\'import'}
               </h4>
               <div className="import-result-stats">
                 <div className="import-stat">
@@ -1000,7 +979,7 @@ function ImportStudentsModal({ isOpen, onClose, schoolYearId }: { isOpen: boolea
             onClick={submit} 
             disabled={loading || !csv.trim()}
           >
-            {loading ? '⏳ Importation...' : '📥 Importer les élèves'}
+            {loading ? 'Importation...' : 'Importer'}
           </button>
         </div>
       </div>
@@ -1051,10 +1030,10 @@ function BulkAssignModal({ isOpen, onClose, schoolYearId, onSuccess }: { isOpen:
       <div className="modal-content" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <div className="modal-title">
-            <div className="modal-title-icon">📤</div>
+            <Upload size={20} className="modal-icon" />
             <h3>Affectation en masse</h3>
           </div>
-          <button className="modal-close" onClick={onClose}>✕</button>
+          <button className="modal-close" onClick={onClose}><X size={20} /></button>
         </div>
 
         <div className="modal-body">
@@ -1063,7 +1042,7 @@ function BulkAssignModal({ isOpen, onClose, schoolYearId, onSuccess }: { isOpen:
             onClick={() => document.getElementById('bulk-csv-upload')?.click()}
           >
             <input type="file" accept=".csv" onChange={onFile} style={{ display: 'none' }} id="bulk-csv-upload" />
-            <div className="file-upload-icon">📄</div>
+            <FileText size={32} className="upload-icon" />
             <p className="file-upload-text">Cliquez pour sélectionner un fichier CSV</p>
             <p className="file-upload-hint">ou glissez-déposez le fichier ici</p>
           </div>
@@ -1077,14 +1056,14 @@ function BulkAssignModal({ isOpen, onClose, schoolYearId, onSuccess }: { isOpen:
           />
           
           <div className="format-hint">
-            <span>💡</span>
-            Colonnes requises: <code>StudentId, NextClass</code> (ex: "MS A")
+            <AlertCircle size={14} />
+            Colonnes requises: <code>StudentId, NextClass</code>
           </div>
 
           {report && (
             <div className={`import-result ${report.success > 0 ? 'success' : 'warning'}`}>
               <h4 className="import-result-title">
-                {report.success > 0 ? '✅ Affectation réussie' : '⚠️ Résultat'}
+                {report.success > 0 ? 'Affectation réussie' : 'Résultat'}
               </h4>
               <div className="import-result-stats" style={{ gridTemplateColumns: 'repeat(2, 1fr)' }}>
                 <div className="import-stat">
@@ -1112,7 +1091,7 @@ function BulkAssignModal({ isOpen, onClose, schoolYearId, onSuccess }: { isOpen:
             onClick={submit} 
             disabled={loading || !csv.trim()}
           >
-            {loading ? '⏳ Traitement...' : '📤 Lancer l\'affectation'}
+            {loading ? 'Traitement...' : 'Lancer l\'affectation'}
           </button>
         </div>
       </div>
