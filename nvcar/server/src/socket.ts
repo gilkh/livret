@@ -25,7 +25,7 @@ export const initSocket = (httpServer: HttpServer) => {
 
     socket.on('update-template', (data: { templateId: string, template: any }, ack?: (res: any) => void) => {
       // Broadcast to everyone else in the room and ack with a change id
-      const { generateChangeId } = require('../utils/changeId')
+      const { generateChangeId } = require('./utils/changeId')
       const changeId = generateChangeId()
       socket.to(`template:${data.templateId}`).emit('template-updated', { template: data.template, changeId })
       if (ack) ack({ status: 'ok', changeId })

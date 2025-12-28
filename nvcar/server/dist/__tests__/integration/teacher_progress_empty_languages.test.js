@@ -1,0 +1,68 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+/// <reference path="../../test/types.d.ts" />
+// @ts-ignore: allow test-time import when @types not installed
+const request = require('supertest');
+const utils_1 = require("../../test/utils");
+const auth_1 = require("../../auth");
+const app_1 = require("../../app");
+const User_1 = require("../../models/User");
+const Class_1 = require("../../models/Class");
+const SchoolYear_1 = require("../../models/SchoolYear");
+const Student_1 = require("../../models/Student");
+const Enrollment_1 = require("../../models/Enrollment");
+const TeacherClassAssignment_1 = require("../../models/TeacherClassAssignment");
+const GradebookTemplate_1 = require("../../models/GradebookTemplate");
+const TemplateAssignment_1 = require("../../models/TemplateAssignment");
+const RoleScope_1 = require("../../models/RoleScope");
+let app;
+describe('teacher progress empty languages behavior', () => {
+    beforeAll(async () => {
+        await (0, utils_1.connectTestDb)();
+        app = (0, app_1.createApp)();
+    });
+    afterAll(async () => {
+        await (0, utils_1.closeTestDb)();
+    });
+    beforeEach(async () => {
+        await (0, utils_1.clearTestDb)();
+    });
+    it('counts empty languages assignment as responsible for Polyvalent, Arabic and English when teacher completed', async () => {
+        // Create active year
+        const active = await SchoolYear_1.SchoolYear.create({ name: '2024/2025', active: true, startDate: new Date('2024-09-01'), endDate: new Date('2025-07-01') });
+        // Create class
+        const cls = await Class_1.ClassModel.create({ name: 'Class1', level: 'MS', schoolYearId: String(active._id) });
+        // Teacher assigned with empty languages (means all)
+        const t = await User_1.User.create({ email: 't', role: 'TEACHER', displayName: 'Teacher', passwordHash: 'hash' });
+        await TeacherClassAssignment_1.TeacherClassAssignment.create({ teacherId: String(t._id), classId: String(cls._id), schoolYearId: String(active._id), languages: [], isProfPolyvalent: false, assignedBy: String(t._id) });
+        // SubAdmin and RoleScope to allow access
+        const sub = await User_1.User.create({ email: 'sub', role: 'SUBADMIN', displayName: 'Sub', passwordHash: 'hash' });
+        await RoleScope_1.RoleScope.create({ userId: String(sub._id), levels: ['MS'] });
+        // Student in class
+        const student = await Student_1.Student.create({ firstName: 'S', lastName: 'L', dateOfBirth: new Date('2018-01-01'), logicalKey: 'S1' });
+        await Enrollment_1.Enrollment.create({ studentId: String(student._id), classId: String(cls._id), schoolYearId: String(active._id), status: 'active' });
+        // Template with language_toggle items for fr (polyvalent), ar, en
+        const tpl = await GradebookTemplate_1.GradebookTemplate.create({ name: 'tpl', pages: [{ blocks: [{ type: 'language_toggle', props: { items: [{ code: 'fr', label: 'Français', active: false }, { code: 'ar', label: 'Arabe', active: false }, { code: 'en', label: 'Anglais', active: false }], blockId: 'b1' } }] }], currentVersion: 1 });
+        // Assignment: teacher has completed
+        await TemplateAssignment_1.TemplateAssignment.create({ templateId: String(tpl._id), studentId: String(student._id), completionSchoolYearId: String(active._id), assignedTeachers: [String(t._id)], assignedBy: String(t._id), status: 'completed', isCompleted: true, teacherCompletions: [{ teacherId: String(t._id), completed: true, completedAt: new Date() }] });
+        const subToken = (0, auth_1.signToken)({ userId: String(sub._id), role: 'SUBADMIN' });
+        const res = await request(app).get('/subadmin-assignments/teacher-progress').set('Authorization', `Bearer ${subToken}`);
+        expect(res.status).toBe(200);
+        const clsRow = res.body.find((c) => c.classId === String(cls._id));
+        expect(clsRow).toBeTruthy();
+        // Find categories
+        const poly = (clsRow.byCategory || []).find((c) => c.name === 'Polyvalent');
+        const ar = (clsRow.byCategory || []).find((c) => c.name === 'Arabe');
+        const en = (clsRow.byCategory || []).find((c) => c.name === 'Anglais');
+        expect(poly).toBeTruthy();
+        expect(ar).toBeTruthy();
+        expect(en).toBeTruthy();
+        // Each category should have total > 0 and filled == total (since teacher completed)
+        expect(poly.total).toBeGreaterThan(0);
+        expect(poly.filled).toBe(poly.total);
+        expect(ar.total).toBeGreaterThan(0);
+        expect(ar.filled).toBe(ar.total);
+        expect(en.total).toBeGreaterThan(0);
+        expect(en.filled).toBe(en.total);
+    });
+});

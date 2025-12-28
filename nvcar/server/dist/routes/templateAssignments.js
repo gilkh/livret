@@ -13,6 +13,7 @@ const Class_1 = require("../models/Class");
 const SchoolYear_1 = require("../models/SchoolYear");
 const signatureService_1 = require("../services/signatureService");
 const rolloverService_1 = require("../services/rolloverService");
+const transactionUtils_1 = require("../utils/transactionUtils");
 exports.templateAssignmentsRouter = (0, express_1.Router)();
 // Admin: Assign template to all students in a level
 exports.templateAssignmentsRouter.post('/bulk-level', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
@@ -78,83 +79,97 @@ exports.templateAssignmentsRouter.post('/bulk-level', (0, auth_1.requireAuth)(['
         const now = new Date();
         const assignedBy = req.user.userId;
         const force = !!req.body.force;
-        const ops = Array.from(enrollmentByStudent.values()).map((enrollment) => {
-            const teachers = (enrollment.classId && teacherMap.get(enrollment.classId)) || [];
-            const setOnInsert = {
+        // Execute bulk assignment within a transaction
+        const result = await (0, transactionUtils_1.withTransaction)(async (session) => {
+            const ops = Array.from(enrollmentByStudent.values()).map((enrollment) => {
+                const teachers = (enrollment.classId && teacherMap.get(enrollment.classId)) || [];
+                const setOnInsert = {
+                    templateId,
+                    studentId: enrollment.studentId,
+                    status: 'draft',
+                    completionSchoolYearId: String(targetYearId),
+                    isCompleted: false,
+                    completedAt: null,
+                    completedBy: null,
+                    isCompletedSem1: false,
+                    completedAtSem1: null,
+                    isCompletedSem2: false,
+                    completedAtSem2: null,
+                    teacherCompletions: [],
+                    createdAt: now,
+                    assignedBy,
+                    assignedAt: now,
+                };
+                const setFields = {
+                    templateVersion: template.currentVersion || 1,
+                    assignedTeachers: teachers,
+                };
+                if (force) {
+                    // When force:true we intentionally reset progress/status fields
+                    const rolloverUpdate = (0, rolloverService_1.getRolloverUpdate)(String(targetYearId), assignedBy);
+                    Object.assign(setFields, rolloverUpdate);
+                    // Remove colliding fields from setOnInsert
+                    Object.keys(rolloverUpdate).forEach(key => {
+                        delete setOnInsert[key];
+                    });
+                }
+                const updateObj = { $setOnInsert: setOnInsert, $set: setFields };
+                return {
+                    updateOne: {
+                        filter: { templateId, studentId: enrollment.studentId },
+                        update: updateObj,
+                        upsert: true,
+                    },
+                };
+            });
+            const chunkSize = 1000;
+            let totalProcessed = 0;
+            for (let i = 0; i < ops.length; i += chunkSize) {
+                const chunk = ops.slice(i, i + chunkSize);
+                if (!chunk.length)
+                    continue;
+                try {
+                    await TemplateAssignment_1.TemplateAssignment.bulkWrite(chunk, { ordered: false, session });
+                    totalProcessed += chunk.length;
+                }
+                catch (e) {
+                    const writeErrors = e?.writeErrors || [];
+                    const hasNonDup = writeErrors.some((we) => (we?.code !== 11000));
+                    // With a unique (templateId, studentId) index, concurrent upserts can produce
+                    // duplicate-key errors; treat those as benign.
+                    if (writeErrors.length > 0 && !hasNonDup) {
+                        totalProcessed += chunk.length - writeErrors.length;
+                    }
+                    else {
+                        throw e;
+                    }
+                }
+            }
+            // If the carnet already exists from a previous year, roll it over to this year
+            // by stamping completionSchoolYearId and resetting year-bound workflow fields.
+            await TemplateAssignment_1.TemplateAssignment.updateMany({
                 templateId,
-                studentId: enrollment.studentId,
-                status: 'draft',
-                completionSchoolYearId: String(targetYearId),
-                isCompleted: false,
-                completedAt: null,
-                completedBy: null,
-                isCompletedSem1: false,
-                completedAtSem1: null,
-                isCompletedSem2: false,
-                completedAtSem2: null,
-                teacherCompletions: [],
-                createdAt: now,
-                assignedBy,
-                assignedAt: now,
-            };
-            const setFields = {
-                templateVersion: template.currentVersion || 1,
-                assignedTeachers: teachers,
-            };
-            if (force) {
-                // When force:true we intentionally reset progress/status fields
-                const rolloverUpdate = (0, rolloverService_1.getRolloverUpdate)(String(targetYearId), assignedBy);
-                Object.assign(setFields, rolloverUpdate);
-                // Remove colliding fields from setOnInsert
-                Object.keys(rolloverUpdate).forEach(key => {
-                    delete setOnInsert[key];
-                });
-            }
-            else {
-                // Keep progress fields intact for existing assignments; assignedBy/assignedAt remain on insert only
-            }
-            const updateObj = { $setOnInsert: setOnInsert, $set: setFields };
-            return {
-                updateOne: {
-                    filter: { templateId, studentId: enrollment.studentId },
-                    update: updateObj,
-                    upsert: true,
-                },
-            };
+                studentId: { $in: selectedStudentIds },
+                completionSchoolYearId: { $ne: String(targetYearId) }
+            }, {
+                $set: (0, rolloverService_1.getRolloverUpdate)(String(targetYearId), assignedBy),
+                $inc: { dataVersion: 1 }
+            }, { session });
+            return { count: ops.length, totalProcessed };
         });
-        const chunkSize = 1000;
-        for (let i = 0; i < ops.length; i += chunkSize) {
-            const chunk = ops.slice(i, i + chunkSize);
-            if (!chunk.length)
-                continue;
-            try {
-                await TemplateAssignment_1.TemplateAssignment.bulkWrite(chunk, { ordered: false });
-            }
-            catch (e) {
-                const writeErrors = e?.writeErrors || [];
-                const hasNonDup = writeErrors.some((we) => (we?.code !== 11000));
-                // With a unique (templateId, studentId) index, concurrent upserts can produce
-                // duplicate-key errors; treat those as benign.
-                if (writeErrors.length > 0 && !hasNonDup) {
-                    // ignore
-                }
-                else {
-                    throw e;
-                }
-            }
+        if (!result.success) {
+            return res.status(500).json({
+                error: 'bulk_assign_failed',
+                message: result.error,
+                transactionUsed: result.usedTransaction
+            });
         }
-        // If the carnet already exists from a previous year, roll it over to this year
-        // by stamping completionSchoolYearId and resetting year-bound workflow fields.
-        await TemplateAssignment_1.TemplateAssignment.updateMany({
-            templateId,
-            studentId: { $in: selectedStudentIds },
-            completionSchoolYearId: { $ne: String(targetYearId) }
-        }, {
-            $set: (0, rolloverService_1.getRolloverUpdate)(String(targetYearId), assignedBy),
-            $inc: { dataVersion: 1 }
+        const { count } = result.data;
+        res.json({
+            count,
+            message: `Assigned template to ${count} students`,
+            transactionUsed: result.usedTransaction
         });
-        const count = ops.length;
-        res.json({ count, message: `Assigned template to ${count} students` });
     }
     catch (e) {
         res.status(500).json({ error: 'bulk_assign_failed', message: e.message });

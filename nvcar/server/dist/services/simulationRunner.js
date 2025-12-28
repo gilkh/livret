@@ -104,6 +104,12 @@ const pickRandom = (arr) => {
         return null;
     return arr[Math.floor(Math.random() * arr.length)];
 };
+/**
+ * Build a data patch from a template for simulation purposes.
+ *
+ * IMPORTANT: This function now REQUIRES stable blockIds on all blocks.
+ * Blocks without blockIds will be skipped with a warning.
+ */
 const buildDataPatchFromTemplate = (template) => {
     const patch = {};
     const pages = Array.isArray(template?.pages) ? template.pages : [];
@@ -113,10 +119,16 @@ const buildDataPatchFromTemplate = (template) => {
             const block = blocks[blockIdx];
             const blockType = String(block?.type || '');
             const blockId = typeof block?.props?.blockId === 'string' && block.props.blockId.trim() ? block.props.blockId.trim() : null;
+            // Skip blocks without stable blockId - they should be fixed in the template
+            if (!blockId) {
+                console.warn(`[buildDataPatchFromTemplate] Block at page ${pageIdx}, index ${blockIdx} has no blockId. Skipping.`);
+                continue;
+            }
             if (blockType === 'language_toggle' || blockType === 'language_toggle_v2') {
                 const items = Array.isArray(block?.props?.items) ? block.props.items : [];
                 if (items.length > 0) {
-                    const key = blockId ? `language_toggle_${blockId}` : `language_toggle_${pageIdx}_${blockIdx}`;
+                    // Always use stable blockId format
+                    const key = `language_toggle_${blockId}`;
                     patch[key] = items.map((it) => ({ ...it, active: Math.random() < 0.6 }));
                 }
             }
@@ -131,7 +143,13 @@ const buildDataPatchFromTemplate = (template) => {
                     if (!Array.isArray(source) || source.length === 0)
                         continue;
                     const rowId = typeof rowIds?.[rowIdx] === 'string' && rowIds[rowIdx].trim() ? rowIds[rowIdx].trim() : null;
-                    const key = blockId && rowId ? `table_${blockId}_row_${rowId}` : `table_${pageIdx}_${blockIdx}_row_${rowIdx}`;
+                    // Skip rows without stable rowId
+                    if (!rowId) {
+                        console.warn(`[buildDataPatchFromTemplate] Table row at page ${pageIdx}, block ${blockIdx}, row ${rowIdx} has no rowId. Skipping.`);
+                        continue;
+                    }
+                    // Always use stable blockId_rowId format
+                    const key = `table_${blockId}_row_${rowId}`;
                     patch[key] = source.map((it) => ({ ...it, active: Math.random() < 0.5 }));
                 }
             }

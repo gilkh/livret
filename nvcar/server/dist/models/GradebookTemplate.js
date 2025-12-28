@@ -2,9 +2,32 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.GradebookTemplate = void 0;
 const mongoose_1 = require("mongoose");
+const crypto_1 = require("crypto");
+/**
+ * Block Schema with mandatory stable blockId
+ *
+ * Every block MUST have a unique, stable blockId that persists across page reordering,
+ * additions, and deletions. This ensures student data always maps to the correct block.
+ *
+ * The blockId is stored in props.blockId and is auto-generated if not provided.
+ */
 const blockSchema = new mongoose_1.Schema({
     type: { type: String, required: true },
-    props: { type: mongoose_1.Schema.Types.Mixed, default: {} },
+    props: {
+        type: mongoose_1.Schema.Types.Mixed,
+        default: () => ({ blockId: (0, crypto_1.randomUUID)() }),
+        // Ensure blockId is always present via pre-save hook
+    },
+});
+// Pre-validate hook to ensure every block has a stable blockId
+blockSchema.pre('validate', function (next) {
+    if (!this.props) {
+        this.props = {};
+    }
+    if (!this.props.blockId || typeof this.props.blockId !== 'string' || !this.props.blockId.trim()) {
+        this.props.blockId = (0, crypto_1.randomUUID)();
+    }
+    next();
 });
 const pageSchema = new mongoose_1.Schema({
     title: { type: String },

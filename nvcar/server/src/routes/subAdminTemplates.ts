@@ -1549,7 +1549,8 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
                             if (langs.length === 0) return !(ta as any).isProfPolyvalent
                             return langs.some((v: string) => v === 'en' || v.includes('anglais') || v.includes('english'))
                         }
-                        return (ta as any).isProfPolyvalent
+                        // Polyvalent: teachers explicitly marked as such OR teachers with no languages (and not explicitly polyvalent)
+                        return (ta as any).isProfPolyvalent || (langs.length === 0 && !(ta as any).isProfPolyvalent)
                     })
                     .map((ta: any) => String(ta.teacherId))
                 if (responsible.length === 0) responsible = ((assignment as any).assignedTeachers || []).map((id: any) => String(id))
@@ -1625,8 +1626,8 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
         }
 
         const isResponsibleTeacherFor = (ta: any, category: 'ar' | 'en' | 'poly') => {
-            if (category === 'poly') return (ta as any).isProfPolyvalent
             const langs = ((ta as any).languages || []).map((x: string) => String(x || '').toLowerCase())
+            if (category === 'poly') return (ta as any).isProfPolyvalent || (langs.length === 0 && !(ta as any).isProfPolyvalent)
             if (langs.length === 0) return !(ta as any).isProfPolyvalent
             if (category === 'ar') return langMatch(langs, ['ar', 'arabe', 'arabic', 'العربية'])
             return langMatch(langs, ['en', 'uk', 'gb', 'anglais', 'english'])

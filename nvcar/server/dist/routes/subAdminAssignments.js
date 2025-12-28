@@ -514,7 +514,8 @@ exports.subAdminAssignmentsRouter.get('/teacher-progress-detailed', (0, auth_1.r
                                                     return !ta.isProfPolyvalent;
                                                 return langs.some((v) => v === 'en' || v === 'uk' || v === 'gb' || v.includes('anglais') || v.includes('english'));
                                             }
-                                            return ta.isProfPolyvalent;
+                                            // Polyvalent: include teachers who are explicitly polyvalent OR assigned to all languages (empty languages)
+                                            return ta.isProfPolyvalent || langs.length === 0;
                                         })
                                             .map((ta) => ta.teacherId);
                                         if (responsibleTeachers.length === 0) {
@@ -676,8 +677,8 @@ exports.subAdminAssignmentsRouter.get('/teacher-progress', (0, auth_1.requireAut
                                 return !ta.isProfPolyvalent;
                             return langs.some((v) => v === 'en' || v === 'uk' || v === 'gb' || v.includes('anglais') || v.includes('english'));
                         }
-                        // Polyvalent
-                        return ta.isProfPolyvalent;
+                        // Polyvalent: include teachers who are explicitly polyvalent OR assigned to all languages (empty languages)
+                        return ta.isProfPolyvalent || langs.length === 0;
                     })
                         .map((ta) => ta.teacherId);
                     // Fallback: if none found via class assignments, use assignment-level teachers

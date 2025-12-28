@@ -67,13 +67,24 @@ subAdminAssignmentsRouter.get('/progress', requireAuth(['SUBADMIN', 'AEFE']), as
             return res.json([])
         }
 
-        // Find completed assignments (Carnet Done) for active school year
+        // Find assignments considered completed for active school year.
+        // Some legacy flows may set `status: 'completed'` or `teacherCompletions.completed` without setting `isCompleted`.
         const completedAssignments = await TemplateAssignment.find({
             studentId: { $in: studentIds },
-            isCompleted: true,
             $or: [
-                { completionSchoolYearId: String(activeYear._id) },
-                { completionSchoolYearId: { $exists: false }, assignedAt: { $gte: new Date(activeYear.startDate) } }
+                { isCompleted: true },
+                { isCompletedSem1: true },
+                { isCompletedSem2: true },
+                { status: 'completed' },
+                { 'teacherCompletions.completed': true }
+            ],
+            $and: [
+                {
+                    $or: [
+                        { completionSchoolYearId: String(activeYear._id) },
+                        { completionSchoolYearId: { $exists: false }, assignedAt: { $gte: new Date(activeYear.startDate) } }
+                    ]
+                }
             ]
         }).lean()
 
@@ -599,16 +610,20 @@ subAdminAssignmentsRouter.get('/teacher-progress-detailed', requireAuth(['SUBADM
                                             .filter((ta: any) => {
                                                 const langs = ((ta as any).languages || []).map((tl: string) => tl.toLowerCase())
                                                 if (isArabic) {
+                                                    // Polyvalent teachers with empty languages are NOT responsible for Arabic
                                                     if (langs.length === 0) return !(ta as any).isProfPolyvalent
                                                     return langs.some((v: string) => v === 'ar' || v === 'lb' || v.includes('arabe') || v.includes('arabic') || v.includes('العربية'))
                                                 }
                                                 if (isEnglish) {
+                                                    // Polyvalent teachers with empty languages are NOT responsible for English
                                                     if (langs.length === 0) return !(ta as any).isProfPolyvalent
                                                     return langs.some((v: string) => v === 'en' || v === 'uk' || v === 'gb' || v.includes('anglais') || v.includes('english'))
                                                 }
-                                                return (ta as any).isProfPolyvalent
+
+                                                // Polyvalent: include teachers who are explicitly polyvalent OR assigned to all languages (empty languages)
+                                                return (ta as any).isProfPolyvalent || (langs.length === 0 && !(ta as any).isProfPolyvalent)
                                             })
-                                            .map((ta: any) => (ta as any).teacherId)
+                                            .map((ta: any) => String((ta as any).teacherId))
 
                                         if (responsibleTeachers.length === 0) {
                                             const assignedTeacherIds: string[] = ((assignment as any).assignedTeachers || []).map((id: any) => String(id))
@@ -616,7 +631,9 @@ subAdminAssignmentsRouter.get('/teacher-progress-detailed', requireAuth(['SUBADM
                                         }
 
                                         return responsibleTeachers.some((tid: any) =>
-                                            teacherCompletions.some((tc: any) => String(tc.teacherId) === String(tid) && tc.completed)
+                                            teacherCompletions.some((tc: any) =>
+                                                String(tc.teacherId) === String(tid) && (tc.completed || tc.completedSem1 || tc.completedSem2)
+                                            )
                                         )
                                     }
 
@@ -793,18 +810,19 @@ subAdminAssignmentsRouter.get('/teacher-progress', requireAuth(['SUBADMIN', 'AEF
                         .filter((ta: any) => {
                             const langs = (ta.languages || []).map((tl: string) => tl.toLowerCase())
                             if (isArabic) {
-                                // Empty languages means all special languages are allowed ONLY if not polyvalent
+                                // Polyvalent teachers with empty languages are NOT responsible for Arabic
                                 if (langs.length === 0) return !(ta as any).isProfPolyvalent
                                 return langs.some((v: string) => v === 'ar' || v === 'lb' || v.includes('arabe') || v.includes('arabic') || v.includes('العربية'))
                             }
                             if (isEnglish) {
+                                // Polyvalent teachers with empty languages are NOT responsible for English
                                 if (langs.length === 0) return !(ta as any).isProfPolyvalent
                                 return langs.some((v: string) => v === 'en' || v === 'uk' || v === 'gb' || v.includes('anglais') || v.includes('english'))
                             }
-                            // Polyvalent
-                            return (ta as any).isProfPolyvalent
+                            // Polyvalent: include teachers who are explicitly polyvalent OR assigned to all languages (empty languages)
+                            return (ta as any).isProfPolyvalent || (langs.length === 0 && !(ta as any).isProfPolyvalent)
                         })
-                        .map((ta: any) => ta.teacherId)
+                        .map((ta: any) => String(ta.teacherId))
 
                     // Fallback: if none found via class assignments, use assignment-level teachers
                     if (responsibleTeachers.length === 0) {
@@ -813,7 +831,9 @@ subAdminAssignmentsRouter.get('/teacher-progress', requireAuth(['SUBADMIN', 'AEF
                     }
 
                     return responsibleTeachers.some((tid: any) =>
-                        teacherCompletions.some((tc: any) => String(tc.teacherId) === String(tid) && tc.completed)
+                        teacherCompletions.some((tc: any) =>
+                            String(tc.teacherId) === String(tid) && (tc.completed || tc.completedSem1 || tc.completedSem2)
+                        )
                     )
                 }
 
@@ -883,15 +903,17 @@ subAdminAssignmentsRouter.get('/teacher-progress', requireAuth(['SUBADMIN', 'AEF
                                             const langs = (ta.languages || []).map((tl: string) => tl.toLowerCase())
 
                                             if (isArabic) {
+                                                // Polyvalent teachers with empty languages are NOT responsible for Arabic
                                                 if (langs.length === 0) return !(ta as any).isProfPolyvalent
                                                 return langs.some((v: string) => v === 'ar' || v === 'lb' || v.includes('arabe') || v.includes('arabic'))
                                             }
                                             if (isEnglish) {
+                                                // Polyvalent teachers with empty languages are NOT responsible for English
                                                 if (langs.length === 0) return !(ta as any).isProfPolyvalent
                                                 return langs.some((v: string) => v === 'en' || v === 'uk' || v === 'gb' || v.includes('anglais') || v.includes('english'))
                                             }
-                                            // Default/Polyvalent
-                                            return (ta as any).isProfPolyvalent;
+                                            // Default/Polyvalent: include teachers who are explicitly polyvalent OR assigned to all languages (empty languages)
+                                            return (ta as any).isProfPolyvalent || (langs.length === 0 && !(ta as any).isProfPolyvalent);
                                         })
                                         .map((ta: any) => teacherMap.get(ta.teacherId)?.displayName || 'Unknown');
 

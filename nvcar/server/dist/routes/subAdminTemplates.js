@@ -1515,9 +1515,9 @@ exports.subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', (
             return needles.some(n => normalized.some(v => v === n || v.includes(n)));
         };
         const isResponsibleTeacherFor = (ta, category) => {
-            if (category === 'poly')
-                return ta.isProfPolyvalent;
             const langs = (ta.languages || []).map((x) => String(x || '').toLowerCase());
+            if (category === 'poly')
+                return ta.isProfPolyvalent || langs.length === 0;
             if (langs.length === 0)
                 return !ta.isProfPolyvalent;
             if (category === 'ar')
