@@ -1,6 +1,7 @@
 import React from 'react'
 import { useLevels } from '../context/LevelContext'
 import { useSchoolYear } from '../context/SchoolYearContext'
+import { GradebookPocket } from './GradebookPocket'
 
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
@@ -372,6 +373,22 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                     {b.type === 'image' && <img src={b.props.url} style={{ width: b.props.width || 120, height: b.props.height || 120, borderRadius: 8 }} alt="" />}
                                     {b.type === 'rect' && <div style={{ width: b.props.width, height: b.props.height, background: b.props.color, borderRadius: b.props.radius || 8, border: b.props.stroke ? `${b.props.strokeWidth || 1}px solid ${b.props.stroke}` : 'none' }} />}
                                     {b.type === 'circle' && <div style={{ width: (b.props.radius || 60) * 2, height: (b.props.radius || 60) * 2, background: b.props.color, borderRadius: '50%', border: b.props.stroke ? `${b.props.strokeWidth || 1}px solid ${b.props.stroke}` : 'none' }} />}
+                                    {b.type === 'gradebook_pocket' && (
+                                        <GradebookPocket
+                                            number={b.props.number || '1'}
+                                            width={b.props.width || 120}
+                                            fontSize={b.props.fontSize}
+                                            supplyColor1={b.props.supplyColor1 || '#e74c3c'}
+                                            supplyColor2={b.props.supplyColor2 || '#f4d03f'}
+                                            pencilTipColor={b.props.pencilTipColor || '#2c3e50'}
+                                            supplyColor3={b.props.supplyColor3 || '#ff9ff3'}
+                                            supplyColor4={b.props.supplyColor4 || '#2ecc71'}
+                                            supplyColor5={b.props.supplyColor5 || '#9b59b6'}
+                                            pocketFillColor={b.props.pocketFillColor || '#3498db'}
+                                            stitchColor={b.props.stitchColor || '#ffffff'}
+                                            numberColor={b.props.numberColor || '#ffffff'}
+                                        />
+                                    )}
                                     {b.type === 'line' && <div style={{ width: b.props.x2 || 100, height: b.props.strokeWidth || 2, background: b.props.stroke || '#b2bec3' }} />}
                                     {b.type === 'arrow' && <div style={{ width: b.props.x2 || 100, height: b.props.strokeWidth || 2, background: b.props.stroke || '#6c5ce7', position: 'relative' }}><div style={{ position: 'absolute', right: 0, top: -6, width: 0, height: 0, borderTop: '8px solid transparent', borderBottom: '8px solid transparent', borderLeft: `12px solid ${b.props.stroke || '#6c5ce7'}` }} /></div>}
 

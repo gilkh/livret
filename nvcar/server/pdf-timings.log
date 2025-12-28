@@ -26,3 +26,23 @@
 2025-12-27T20:58:23.871Z assignment=694f083e30e9e9a879a27bc7 worker=1 totalMs=1879 size=1813217 name=test11-test11-Presentation carnet 5pages _ new des _Imported_.pdf
 2025-12-27T20:58:24.866Z https://localhost:5173/print/carnet/694ef95d93b0bdab6edca096?token=*** totalMs=5054 navMs=701 readyMs=3300 pdfMs=703 size=1813299
 2025-12-27T20:58:24.876Z assignment=694ef95d93b0bdab6edca096 worker=0 totalMs=5064 size=1813299 name=test-test-Presentation carnet 5pages _ new des _Imported_.pdf
+2025-12-28T11:52:14.649Z https://localhost:5173/print/preview/694ef3be57289c4b79b560ef/student/694ef912cebf4e675bad18b5?token=*** totalMs=8866 navMs=6242 readyMs=796 pdfMs=784 size=1791873
+2025-12-28T11:52:19.839Z https://localhost:5173/print/preview/694ef3be57289c4b79b560ef/student/694ef912cebf4e675bad18b5?token=*** totalMs=2008 navMs=233 readyMs=762 pdfMs=726 size=1791873
+2025-12-28T11:52:22.230Z https://localhost:5173/print/preview/694ef3be57289c4b79b560ef/student/694ef912cebf4e675bad18b5?token=*** totalMs=2328 navMs=261 readyMs=868 pdfMs=861 size=1791873
+2025-12-28T11:52:23.321Z https://localhost:5173/print/preview/694ef3be57289c4b79b560ef/student/694ef912cebf4e675bad18b5?token=*** totalMs=3436 navMs=595 readyMs=1677 pdfMs=806 size=1791873
+2025-12-28T11:59:17.507Z https://localhost:5173/print/preview/694ef3be57289c4b79b560ef/student/694ef912cebf4e675bad18b5?token=*** totalMs=2072 navMs=249 readyMs=759 pdfMs=752 size=1835018
+2025-12-28T11:59:23.856Z https://localhost:5173/print/preview/694ef3be57289c4b79b560ef/student/694ef912cebf4e675bad18b5?token=*** totalMs=2012 navMs=229 readyMs=752 pdfMs=734 size=1835018
+2025-12-28T11:59:26.212Z https://localhost:5173/print/preview/694ef3be57289c4b79b560ef/student/694ef912cebf4e675bad18b5?token=*** totalMs=2295 navMs=261 readyMs=825 pdfMs=873 size=1835018
+2025-12-28T11:59:27.302Z https://localhost:5173/print/preview/694ef3be57289c4b79b560ef/student/694ef912cebf4e675bad18b5?token=*** totalMs=3401 navMs=575 readyMs=1695 pdfMs=781 size=1835018
+2025-12-28T12:00:32.727Z https://localhost:5173/print/preview/694ef3be57289c4b79b560ef/student/694ef912cebf4e675bad18b5?token=*** totalMs=2035 navMs=238 readyMs=749 pdfMs=749 size=1833627
+2025-12-28T12:00:39.339Z https://localhost:5173/print/preview/694ef3be57289c4b79b560ef/student/694ef912cebf4e675bad18b5?token=*** totalMs=2036 navMs=239 readyMs=765 pdfMs=745 size=1833627
+2025-12-28T12:00:41.711Z https://localhost:5173/print/preview/694ef3be57289c4b79b560ef/student/694ef912cebf4e675bad18b5?token=*** totalMs=2321 navMs=270 readyMs=801 pdfMs=907 size=1833627
+2025-12-28T12:00:42.857Z https://localhost:5173/print/preview/694ef3be57289c4b79b560ef/student/694ef912cebf4e675bad18b5?token=*** totalMs=3478 navMs=639 readyMs=1625 pdfMs=859 size=1833627
+2025-12-28T12:07:32.492Z https://localhost:5173/print/preview/694ef3be57289c4b79b560ef/student/694ef912cebf4e675bad18b5?token=*** totalMs=2061 navMs=246 readyMs=758 pdfMs=767 size=1876806
+2025-12-28T12:07:39.334Z https://localhost:5173/print/preview/694ef3be57289c4b79b560ef/student/694ef912cebf4e675bad18b5?token=*** totalMs=2020 navMs=228 readyMs=764 pdfMs=746 size=1876806
+2025-12-28T12:07:41.688Z https://localhost:5173/print/preview/694ef3be57289c4b79b560ef/student/694ef912cebf4e675bad18b5?token=*** totalMs=2290 navMs=259 readyMs=827 pdfMs=871 size=1876806
+2025-12-28T12:07:42.728Z https://localhost:5173/print/preview/694ef3be57289c4b79b560ef/student/694ef912cebf4e675bad18b5?token=*** totalMs=3350 navMs=672 readyMs=1568 pdfMs=759 size=1876806
+2025-12-28T12:37:14.132Z https://localhost:5173/print/preview/694ef3be57289c4b79b560ef/student/694ef912cebf4e675bad18b5?token=*** totalMs=2295 navMs=300 readyMs=802 pdfMs=884 size=1849562
+2025-12-28T12:37:20.568Z https://localhost:5173/print/preview/694ef3be57289c4b79b560ef/student/694ef912cebf4e675bad18b5?token=*** totalMs=2058 navMs=230 readyMs=758 pdfMs=777 size=1849562
+2025-12-28T12:37:23.046Z https://localhost:5173/print/preview/694ef3be57289c4b79b560ef/student/694ef912cebf4e675bad18b5?token=*** totalMs=2391 navMs=277 readyMs=903 pdfMs=860 size=1849562
+2025-12-28T12:37:24.165Z https://localhost:5173/print/preview/694ef3be57289c4b79b560ef/student/694ef912cebf4e675bad18b5?token=*** totalMs=3543 navMs=546 readyMs=1772 pdfMs=832 size=1849562

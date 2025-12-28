@@ -1,0 +1,118 @@
+.gradebook-pocket {
+  --pocket-width: 120px;
+  /* Responsive unit based on width (1% of width) */
+  --p-unit: calc(var(--pocket-width) / 100);
+  
+  /* Use the passed prop for font size if available, otherwise calc default */
+  --number-font-size: calc(var(--pocket-width) * 0.4);
+  
+  /* Fallback defaults if props are not passed (though they usually are) */
+  --supply-color-1: #e74c3c; /* Ruler */
+  --supply-color-2: #f4d03f; /* Pencil */
+  --supply-color-3: #ff9ff3; /* Eraser */
+  --supply-color-4: #2ecc71; /* Pen */
+  --supply-color-5: #9b59b6; /* Marker */
+  --pencil-tip-color: #2c3e50;
+  --pocket-fill-color: #3498db;
+  --stitch-color: #ffffff;
+  --number-color: #ffffff;
+
+  position: relative;
+  width: var(--pocket-width);
+  /* height: auto;  Let the image determine height to keep ratio */
+  display: flex;
+  flex-direction: column;
+  background: transparent;
+  transition: width 0.3s ease-out, z-index 0.3s; /* Smooth resizing */
+}
+
+.gradebook-pocket[draggable="true"] {
+  cursor: grab;
+}
+
+.gradebook-pocket[draggable="true"]:active {
+  cursor: grabbing;
+}
+
+.gradebook-pocket[role="button"] {
+  cursor: pointer;
+}
+
+.gradebook-pocket[role="button"]:hover {
+  transform: scale(1.02);
+  transition: transform 0.15s ease;
+}
+
+.gradebook-pocket[role="button"]:focus-visible {
+  outline: calc(2 * var(--p-unit)) solid var(--pocket-fill-color);
+  outline-offset: calc(4 * var(--p-unit));
+  border-radius: calc(4 * var(--p-unit));
+}
+
+/* TOGGLE BUTTON */
+.pocket-toggle-btn {
+  position: absolute;
+  top: calc(2 * var(--p-unit));
+  right: calc(2 * var(--p-unit));
+  z-index: 20; /* Above supplies and everything */
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(0,0,0,0.1);
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+  opacity: 0; 
+  transform: scale(0.8);
+  transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  color: #555;
+}
+
+.gradebook-pocket:hover .pocket-toggle-btn,
+.gradebook-pocket:focus-within .pocket-toggle-btn,
+.pocket-toggle-btn:focus {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.pocket-toggle-btn:hover {
+  background: white;
+  color: #000;
+  transform: scale(1.15);
+  box-shadow: 0 3px 8px rgba(0,0,0,0.25);
+}
+
+/* POCKET BODY - Image */
+.pocket-body {
+  position: relative;
+  width: 100%;
+  height: auto;
+  /* Removed CSS drawing properties to rely on image */
+  background: transparent;
+  z-index: 2;
+}
+
+.pocket-image {
+  width: 100%;
+  height: auto; /* Maintain aspect ratio */
+  display: block;
+  /* Drop shadow for the whole image */
+  filter: drop-shadow(0 calc(4 * var(--p-unit)) calc(10 * var(--p-unit)) rgba(0, 0, 0, 0.15));
+}
+
+.pocket-number {
+  position: absolute;
+  bottom: 20%; /* Adjusted position relative to image */
+  left: 50%;
+  transform: translateX(-50%);
+  color: var(--number-color);
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-weight: bold;
+  font-size: var(--number-font-size);
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  z-index: 3;
+}

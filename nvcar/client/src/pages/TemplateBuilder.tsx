@@ -5,6 +5,7 @@ import api from '../api'
 import { useLevels } from '../context/LevelContext'
 import { useSocket } from '../context/SocketContext'
 import { useSchoolYear } from '../context/SchoolYearContext'
+import { GradebookPocket } from '../components/GradebookPocket'
 
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
@@ -394,6 +395,22 @@ export default function TemplateBuilder() {
     { type: 'dropdown', props: { label: 'Menu déroulant', options: ['Option 1', 'Option 2'], variableName: 'var1', width: 200, height: 40, fontSize: 12, color: '#333', semesters: [1, 2] } },
     { type: 'dropdown_reference', props: { dropdownNumber: 1, text: 'Référence dropdown #{number}', fontSize: 12, color: '#2d3436' } },
     { type: 'dynamic_text', props: { text: '{student.firstName} {student.lastName}', fontSize: 14, color: '#2d3436' } },
+    
+    // Gradebook Pocket (school supplies pocket)
+    { type: 'gradebook_pocket', props: { 
+      width: 120, 
+      number: '1',
+      supplyColor1: '#e74c3c',
+      supplyColor2: '#f4d03f', 
+      pencilTipColor: '#2c3e50',
+      supplyColor3: '#ff9ff3',
+      supplyColor4: '#2ecc71',
+      supplyColor5: '#9b59b6',
+      pocketFillColor: '#3498db',
+      stitchColor: '#ffffff',
+      numberColor: '#ffffff',
+      label: 'Poche Carnet'
+    }},
   ]), [])
 
   // Get all dropdowns across all pages to determine next dropdown number
@@ -1856,7 +1873,7 @@ export default function TemplateBuilder() {
             {
               title: 'Général',
               items: [
-                ...blocksPalette.filter(b => ['text', 'image', 'table', 'qr', 'line', 'arrow', 'rect', 'circle'].includes(b.type))
+                ...blocksPalette.filter(b => ['text', 'image', 'table', 'qr', 'line', 'arrow', 'rect', 'circle', 'gradebook_pocket'].includes(b.type))
               ]
             },
             {
@@ -1930,6 +1947,7 @@ export default function TemplateBuilder() {
                       {b.type === 'dropdown' && '🔽'}
                       {b.type === 'dropdown_reference' && '🔗'}
                       {b.type === 'dynamic_text' && '🔤'}
+                      {b.type === 'gradebook_pocket' && '🎒'}
                     </span>
                     <span style={{ fontSize: 13, fontWeight: 500 }}>
                       {b.props.label || (
@@ -1951,7 +1969,8 @@ export default function TemplateBuilder() {
                                                     b.type === 'dropdown' ? 'Menu déroulant' :
                                                       b.type === 'dropdown_reference' ? 'Référence Dropdown' :
                                                         b.type === 'dynamic_text' ? 'Texte Dynamique' :
-                                                          b.type
+                                                          b.type === 'gradebook_pocket' ? 'Poche Carnet' :
+                                                            b.type
                       )}
                     </span>
                   </div>
@@ -2116,6 +2135,22 @@ export default function TemplateBuilder() {
                           })()}
                           {b.type === 'rect' && <div style={{ width: b.props.width, height: b.props.height, background: b.props.color, borderRadius: b.props.radius || 8, border: b.props.stroke ? `${b.props.strokeWidth || 1}px solid ${b.props.stroke}` : 'none' }} />}
                           {b.type === 'circle' && <div style={{ width: (b.props.radius || 60) * 2, height: (b.props.radius || 60) * 2, background: b.props.color, borderRadius: '50%', border: b.props.stroke ? `${b.props.strokeWidth || 1}px solid ${b.props.stroke}` : 'none' }} />}
+                          {b.type === 'gradebook_pocket' && (
+                            <GradebookPocket
+                              number={b.props.number || '1'}
+                              width={b.props.width || 120}
+                              fontSize={b.props.fontSize}
+                              supplyColor1={b.props.supplyColor1 || '#e74c3c'}
+                              supplyColor2={b.props.supplyColor2 || '#f4d03f'}
+                              pencilTipColor={b.props.pencilTipColor || '#2c3e50'}
+                              supplyColor3={b.props.supplyColor3 || '#ff9ff3'}
+                              pocketFillColor={b.props.pocketFillColor || '#3498db'}
+                              stitchColor={b.props.stitchColor || '#ffffff'}
+                              numberColor={b.props.numberColor || '#ffffff'}
+                              supplyColor4={b.props.supplyColor4 || '#2ecc71'}
+                              supplyColor5={b.props.supplyColor5 || '#9b59b6'}
+                            />
+                          )}
                           {b.type === 'language_toggle' && (
                             <div style={{ display: 'flex', flexDirection: (b.props.direction as any) || 'column', alignItems: 'center', gap: b.props.spacing || 12 }}>
                               {(b.props.items || []).map((it: any, i: number) => {
@@ -2783,7 +2818,7 @@ export default function TemplateBuilder() {
                               )
                             })()
                           )}
-                          {['image', 'text', 'dynamic_text', 'student_info', 'student_photo', 'category_title', 'competency_list', 'signature', 'signature_box', 'promotion_info', 'teacher_text', 'language_toggle', 'language_toggle_v2'].includes(b.type) && selectedIndex === idx && selectedPage === pageIndex && (
+                          {['image', 'text', 'dynamic_text', 'student_info', 'student_photo', 'category_title', 'competency_list', 'signature', 'signature_box', 'promotion_info', 'teacher_text', 'language_toggle', 'language_toggle_v2', 'gradebook_pocket'].includes(b.type) && selectedIndex === idx && selectedPage === pageIndex && (
                             <>
                               {['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'].map((dir) => {
                                 const style: React.CSSProperties = {
@@ -2935,6 +2970,7 @@ export default function TemplateBuilder() {
                         {b.type === 'text' && <div style={{ color: b.props.color, fontSize: (b.props.fontSize || 12) * 0.3 }}>{(b.props.text || '').slice(0, 20)}</div>}
                         {b.type === 'image' && <img src={b.props.url} style={{ width: (b.props.width || 120) * 0.3, height: (b.props.height || 120) * 0.3, borderRadius: 2 }} />}
                         {b.type === 'rect' && <div style={{ width: (b.props.width || 80) * 0.3, height: (b.props.height || 80) * 0.3, background: b.props.color, borderRadius: 2 }} />}
+                        {b.type === 'gradebook_pocket' && <div style={{ width: (b.props.width || 120) * 0.3, height: (b.props.width || 120) * 0.33, background: b.props.pocketFillColor || '#3498db', borderRadius: '2px 2px 8px 8px' }} />}
                         {b.type === 'signature_box' && <div style={{ width: (b.props.width || 200) * 0.3, height: (b.props.height || 80) * 0.3, border: 'none', background: '#fff' }} />}
                       </div>
                     ))}
@@ -4377,6 +4413,134 @@ export default function TemplateBuilder() {
                       <input placeholder="Hauteur minimale" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.height || 40} onChange={e => updateSelected({ height: Number(e.target.value) })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
                       <div style={{ padding: 8, background: '#fff9e6', borderRadius: 8, fontSize: 12 }}>
                         💡 Ce bloc affichera la valeur sélectionnée dans le Dropdown #{tpl.pages[selectedPage].blocks[selectedIndex].props.dropdownNumber || 1}
+                      </div>
+                    </div>
+                  )}
+                  {tpl.pages[selectedPage].blocks[selectedIndex].type === 'gradebook_pocket' && (
+                    <div style={{ display: 'grid', gap: 8 }}>
+                      <div className="note">🎒 Poche Carnet - Configuration</div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                        <div style={{ display: 'grid', gap: 4 }}>
+                          <label style={{ fontSize: 12, fontWeight: 500 }}>Texte / Numéro</label>
+                          <input
+                            placeholder="Ex: 1, A, CP..."
+                            value={tpl.pages[selectedPage].blocks[selectedIndex].props.number || '1'}
+                            onChange={e => updateSelected({ number: e.target.value })}
+                            style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', width: '100%', boxSizing: 'border-box' }}
+                          />
+                        </div>
+                        <div style={{ display: 'grid', gap: 4 }}>
+                          <label style={{ fontSize: 12, fontWeight: 500 }}>Taille Police</label>
+                          <input
+                            type="number"
+                            placeholder="Auto"
+                            value={tpl.pages[selectedPage].blocks[selectedIndex].props.fontSize || ''}
+                            onChange={e => updateSelected({ fontSize: e.target.value ? Number(e.target.value) : undefined })}
+                            style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', width: '100%', boxSizing: 'border-box' }}
+                          />
+                        </div>
+                      </div>
+                      <div style={{ display: 'grid', gap: 4 }}>
+                        <label style={{ fontSize: 12, fontWeight: 500 }}>Taille (largeur)</label>
+                        <input
+                          type="number"
+                          min="60"
+                          max="300"
+                          value={tpl.pages[selectedPage].blocks[selectedIndex].props.width || 120}
+                          onChange={e => updateSelected({ width: Number(e.target.value) })}
+                          style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }}
+                        />
+                      </div>
+                      <div style={{ padding: 12, background: '#f0f4ff', borderRadius: 8 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: '#3498db' }}>🎨 Couleurs de la poche</div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <input
+                              type="color"
+                              value={tpl.pages[selectedPage].blocks[selectedIndex].props.pocketFillColor || '#3498db'}
+                              onChange={e => updateSelected({ pocketFillColor: e.target.value })}
+                              style={{ width: 32, height: 32, border: 'none', borderRadius: 4, cursor: 'pointer' }}
+                            />
+                            <span style={{ fontSize: 11 }}>Poche</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <input
+                              type="color"
+                              value={tpl.pages[selectedPage].blocks[selectedIndex].props.stitchColor || '#ffffff'}
+                              onChange={e => updateSelected({ stitchColor: e.target.value })}
+                              style={{ width: 32, height: 32, border: 'none', borderRadius: 4, cursor: 'pointer' }}
+                            />
+                            <span style={{ fontSize: 11 }}>Coutures</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <input
+                              type="color"
+                              value={tpl.pages[selectedPage].blocks[selectedIndex].props.numberColor || '#ffffff'}
+                              onChange={e => updateSelected({ numberColor: e.target.value })}
+                              style={{ width: 32, height: 32, border: 'none', borderRadius: 4, cursor: 'pointer' }}
+                            />
+                            <span style={{ fontSize: 11 }}>Numéro</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div style={{ padding: 12, background: '#fff5f5', borderRadius: 8 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: '#e74c3c' }}>✏️ Couleurs des fournitures</div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <input
+                              type="color"
+                              value={tpl.pages[selectedPage].blocks[selectedIndex].props.supplyColor1 || '#e74c3c'}
+                              onChange={e => updateSelected({ supplyColor1: e.target.value })}
+                              style={{ width: 32, height: 32, border: 'none', borderRadius: 4, cursor: 'pointer' }}
+                            />
+                            <span style={{ fontSize: 11 }}>Règle</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <input
+                              type="color"
+                              value={tpl.pages[selectedPage].blocks[selectedIndex].props.supplyColor2 || '#f4d03f'}
+                              onChange={e => updateSelected({ supplyColor2: e.target.value })}
+                              style={{ width: 32, height: 32, border: 'none', borderRadius: 4, cursor: 'pointer' }}
+                            />
+                            <span style={{ fontSize: 11 }}>Crayon</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <input
+                              type="color"
+                              value={tpl.pages[selectedPage].blocks[selectedIndex].props.pencilTipColor || '#2c3e50'}
+                              onChange={e => updateSelected({ pencilTipColor: e.target.value })}
+                              style={{ width: 32, height: 32, border: 'none', borderRadius: 4, cursor: 'pointer' }}
+                            />
+                            <span style={{ fontSize: 11 }}>Pointe</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <input
+                              type="color"
+                              value={tpl.pages[selectedPage].blocks[selectedIndex].props.supplyColor3 || '#ff9ff3'}
+                              onChange={e => updateSelected({ supplyColor3: e.target.value })}
+                              style={{ width: 32, height: 32, border: 'none', borderRadius: 4, cursor: 'pointer' }}
+                            />
+                            <span style={{ fontSize: 11 }}>Gomme</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <input
+                              type="color"
+                              value={tpl.pages[selectedPage].blocks[selectedIndex].props.supplyColor4 || '#2ecc71'}
+                              onChange={e => updateSelected({ supplyColor4: e.target.value })}
+                              style={{ width: 32, height: 32, border: 'none', borderRadius: 4, cursor: 'pointer' }}
+                            />
+                            <span style={{ fontSize: 11 }}>Stylo</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <input
+                              type="color"
+                              value={tpl.pages[selectedPage].blocks[selectedIndex].props.supplyColor5 || '#9b59b6'}
+                              onChange={e => updateSelected({ supplyColor5: e.target.value })}
+                              style={{ width: 32, height: 32, border: 'none', borderRadius: 4, cursor: 'pointer' }}
+                            />
+                            <span style={{ fontSize: 11 }}>Marqueur</span>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   )}
