@@ -1,0 +1,467 @@
+/* ProgressionChart - Modern, Premium Design */
+
+.progression-chart-container {
+    margin-bottom: 28px;
+    padding: 28px;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.95) 100%);
+    border-radius: 20px;
+    border: 1px solid rgba(226, 232, 240, 0.8);
+    box-shadow:
+        0 4px 6px -1px rgba(0, 0, 0, 0.05),
+        0 10px 15px -3px rgba(0, 0, 0, 0.05),
+        0 20px 25px -5px rgba(0, 0, 0, 0.03);
+    backdrop-filter: blur(10px);
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+    animation: fadeInUp 0.5s ease-out;
+}
+
+.progression-chart-container:hover {
+    transform: translateY(-2px);
+    box-shadow:
+        0 8px 12px -1px rgba(0, 0, 0, 0.08),
+        0 16px 24px -3px rgba(0, 0, 0, 0.08),
+        0 24px 32px -5px rgba(0, 0, 0, 0.05);
+}
+
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Header */
+.progression-chart-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 24px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid rgba(226, 232, 240, 0.6);
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.progression-chart-title-section {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.progression-chart-title {
+    margin: 0;
+    font-size: 22px;
+    color: #0f172a;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+}
+
+.progression-chart-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    border-radius: 20px;
+    border: 1.5px solid;
+    transition: transform 0.2s ease;
+}
+
+.progression-chart-badge:hover {
+    transform: scale(1.02);
+}
+
+.progression-chart-summary {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+    padding: 10px 18px;
+    border-radius: 12px;
+    border: 1px solid #e2e8f0;
+}
+
+.progression-chart-stat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.stat-number {
+    font-size: 24px;
+    font-weight: 800;
+    color: #1e293b;
+    line-height: 1;
+}
+
+.stat-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #64748b;
+    margin-top: 4px;
+}
+
+.progression-chart-divider {
+    font-size: 24px;
+    color: #cbd5e1;
+    font-weight: 300;
+}
+
+/* Content Layout */
+.progression-chart-content {
+    display: flex;
+    gap: 40px;
+    align-items: flex-start;
+}
+
+.progression-chart-content.compact-mode {
+    flex-direction: row;
+    flex-wrap: wrap;
+}
+
+.progression-chart-content.full-mode {
+    flex-direction: row;
+    flex-wrap: wrap;
+}
+
+/* Radial Section */
+.progression-chart-radial {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 200px;
+}
+
+.radial-container {
+    position: relative;
+    width: 200px;
+    height: 200px;
+}
+
+.compact-mode .radial-container {
+    width: 180px;
+    height: 180px;
+}
+
+.radial-center {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    pointer-events: none;
+}
+
+.radial-percentage {
+    font-size: 36px;
+    font-weight: 800;
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    line-height: 1;
+}
+
+.radial-label {
+    font-size: 13px;
+    color: #64748b;
+    margin-top: 4px;
+    font-weight: 500;
+}
+
+.radial-legend {
+    display: flex;
+    gap: 20px;
+    margin-top: 16px;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.legend-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.legend-dot.completed {
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+}
+
+.legend-dot.remaining {
+    background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
+    border: 1px solid #cbd5e1;
+}
+
+.legend-text {
+    font-size: 13px;
+    color: #475569;
+    font-weight: 500;
+}
+
+/* Breakdown Section */
+.progression-chart-breakdown {
+    flex: 1;
+    min-width: 300px;
+}
+
+.breakdown-title {
+    margin: 0 0 20px 0;
+    font-size: 17px;
+    color: #334155;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* Card Layout for Compact Mode */
+.breakdown-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 16px;
+}
+
+.breakdown-card {
+    background: linear-gradient(135deg, #ffffff 0%, #fafbfc 100%);
+    border-radius: 16px;
+    padding: 20px;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+.breakdown-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: linear-gradient(90deg, var(--card-gradient-start), var(--card-gradient-end));
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.breakdown-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+    border-color: var(--card-gradient-start);
+}
+
+.breakdown-card:hover::before {
+    opacity: 1;
+}
+
+.breakdown-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 14px;
+}
+
+.breakdown-card-name {
+    font-size: 16px;
+    font-weight: 700;
+    color: #1e293b;
+    letter-spacing: -0.01em;
+}
+
+.breakdown-card-percentage {
+    font-size: 20px;
+    font-weight: 800;
+}
+
+.breakdown-card-progress {
+    height: 10px;
+    background: #f1f5f9;
+    border-radius: 999px;
+    overflow: hidden;
+    margin-bottom: 14px;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.breakdown-card-progress-fill {
+    height: 100%;
+    border-radius: 999px;
+    transition: width 1s ease-out;
+    position: relative;
+}
+
+.breakdown-card-progress-fill::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(90deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.3) 50%, rgba(255, 255, 255, 0) 100%);
+    animation: shimmer 2s infinite;
+}
+
+@keyframes shimmer {
+    0% {
+        transform: translateX(-100%);
+    }
+
+    100% {
+        transform: translateX(100%);
+    }
+}
+
+.breakdown-card-stats {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+}
+
+.card-stat {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: #64748b;
+    font-weight: 500;
+}
+
+.card-stat-icon {
+    font-size: 12px;
+}
+
+.card-stat.remaining {
+    color: #94a3b8;
+}
+
+/* Bar Chart for Full Mode */
+.breakdown-chart {
+    background: linear-gradient(135deg, #fafbfc 0%, #ffffff 100%);
+    border-radius: 14px;
+    padding: 16px;
+    border: 1px solid #f1f5f9;
+}
+
+/* Custom Tooltip */
+.custom-tooltip {
+    background: rgba(255, 255, 255, 0.98);
+    backdrop-filter: blur(10px);
+    padding: 16px;
+    border-radius: 14px;
+    border: 1px solid #e2e8f0;
+    box-shadow:
+        0 10px 25px rgba(0, 0, 0, 0.1),
+        0 6px 12px rgba(0, 0, 0, 0.05);
+    min-width: 180px;
+}
+
+.tooltip-header {
+    font-size: 15px;
+    font-weight: 700;
+    color: #0f172a;
+    margin-bottom: 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #f1f5f9;
+}
+
+.tooltip-percentage {
+    font-size: 18px;
+    font-weight: 800;
+    margin-bottom: 12px;
+}
+
+.tooltip-stats {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.tooltip-stat {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+}
+
+.tooltip-stat.completed {
+    color: #6366f1;
+}
+
+.tooltip-stat.remaining {
+    color: #94a3b8;
+}
+
+.tooltip-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+
+.tooltip-stat.completed .tooltip-dot {
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+}
+
+.tooltip-stat.remaining .tooltip-dot {
+    background: #e2e8f0;
+}
+
+.tooltip-total {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid #f1f5f9;
+    font-size: 12px;
+    color: #64748b;
+    font-weight: 500;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .progression-chart-container {
+        padding: 20px;
+    }
+
+    .progression-chart-header {
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .progression-chart-content {
+        flex-direction: column;
+    }
+
+    .progression-chart-radial {
+        width: 100%;
+    }
+
+    .radial-container {
+        margin: 0 auto;
+    }
+
+    .progression-chart-breakdown {
+        min-width: 100%;
+    }
+
+    .breakdown-cards {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Dark mode support (if needed) */
+@media (prefers-color-scheme: dark) {
+    /* Can be extended for dark mode support */
+}

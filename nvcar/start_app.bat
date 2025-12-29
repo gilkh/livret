@@ -43,10 +43,10 @@ for /f "tokens=5" %%a in ('netstat -ano ^| findstr :5173 ^| findstr LISTENING') 
     taskkill /F /PID %%a >nul 2>&1
 )
 
-:: Kill any existing processes on port 5174 (Alternative Client Port)
-echo [3/6] Checking for processes on port 5174...
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr :5174 ^| findstr LISTENING') do (
-    echo       Killing process %%a on port 5174
+:: Kill any existing processes on port 443 (Client HTTPS)
+echo [3/6] Checking for processes on port 443...
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr :443 ^| findstr LISTENING') do (
+    echo       Killing process %%a on port 443
     taskkill /F /PID %%a >nul 2>&1
 )
 
@@ -129,7 +129,7 @@ echo Waiting for client to initialize...
 timeout /t 5 /nobreak >nul
 
 :: Open Browser
-start https://localhost:5173
+start https://localhost
 
 echo.
 echo ========================================
@@ -137,7 +137,7 @@ echo   Network Access Information
 echo ========================================
 for /f %%i in ('powershell -NoProfile -Command "(Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' }).IPAddress"') do (
   echo   Server: https://%%i:4000
-  echo   Client: https://%%i:5173
+  echo   Client: https://%%i
 )
 echo.
 echo If devices on your LAN cannot connect, allow Node/Vite through Windows Firewall.
