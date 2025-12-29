@@ -15,7 +15,7 @@ export default defineConfig({
       cert: fs.readFileSync(path.resolve(__dirname, '../certs/cert.pem')),
     },
     host: true, // Listen on all addresses
-    port: 5173,
+    port: 443,
     proxy: {
       '/socket.io': {
         target: 'https://localhost:4000',

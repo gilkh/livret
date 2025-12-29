@@ -9,12 +9,13 @@ export const microsoftRouter = Router()
 
 const CLIENT_ID = process.env.MICROSOFT_CLIENT_ID || ''
 const CLIENT_SECRET = process.env.MICROSOFT_CLIENT_SECRET || ''
-const DEFAULT_REDIRECT_URI = process.env.MICROSOFT_REDIRECT_URI || 'http://localhost:5173'
+const DEFAULT_REDIRECT_URI = process.env.MICROSOFT_REDIRECT_URI || 'https://localhost'
 const ALLOWED_REDIRECT_URIS = [
   DEFAULT_REDIRECT_URI,
-  'https://192.168.1.74:5173',
-  'https://192.168.17.10:5173',
-  'https://localhost:5173'
+  'https://192.168.1.74',
+  'https://192.168.17.10',
+  'https://localhost',
+  'https://livret.champville.com'
 ]
 const TENANT = process.env.MICROSOFT_TENANT || 'common' // 'common' allows any Microsoft account
 
@@ -55,6 +56,12 @@ microsoftRouter.post('/callback', async (req, res) => {
     }
 
     let redirectUri = redirect_uri
+    
+    // Force clean domain if it matches ours (strip port 5173)
+    if (redirectUri && redirectUri.includes('livret.champville.com:5173')) {
+      redirectUri = 'https://livret.champville.com'
+    }
+
     if (!redirectUri || !ALLOWED_REDIRECT_URIS.includes(redirectUri)) {
       redirectUri = DEFAULT_REDIRECT_URI
     }

@@ -239,9 +239,12 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                     }
                 }
             `}</style>
-            {template.pages.filter(p => !p.excludeFromPdf).map((page, pageIdx) => (
+            {template.pages
+                .map((page, actualPageIndex) => ({ page, actualPageIndex }))
+                .filter(({ page }) => !page.excludeFromPdf)
+                .map(({ page, actualPageIndex }) => (
                 <div 
-                    key={pageIdx}
+                    key={actualPageIndex}
                     className="page-canvas" 
                     style={{ 
                         height: pageHeight, 
@@ -708,8 +711,11 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                             return null
                                         }
 
-                                        // Generate unique key for this teacher text block
-                                        const blockId = b.id || `teacher_text_${pageIndex}_${idx}`
+                                        const stableBlockId =
+                                            typeof b?.props?.blockId === 'string' && b.props.blockId.trim()
+                                                ? b.props.blockId.trim()
+                                                : null
+                                        const blockId = stableBlockId || `teacher_text_${actualPageIndex}_${idx}`
                                         const textValue = assignment?.data?.[blockId] || ''
 
                                         return (

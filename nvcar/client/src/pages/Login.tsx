@@ -53,12 +53,23 @@ export default function Login() {
     }
   }, [])
 
+  const getRedirectUri = () => {
+    // If we are on the production domain or the server IP, force the clean domain without port
+    if (window.location.hostname === 'livret.champville.com' || 
+        window.location.hostname === '192.168.17.10' ||
+        window.location.hostname === '192.168.1.74') {
+      return 'https://livret.champville.com'
+    }
+    // Otherwise (localhost dev), use the current origin
+    return window.location.origin
+  }
+
   const handleMicrosoftCallback = async (code: string) => {
     setIsLoadingMicrosoft(true)
     setError(null)
     try {
       console.log('Microsoft callback - exchanging code for token...')
-      const redirectUri = window.location.origin
+      const redirectUri = getRedirectUri()
       const r = await api.post('/microsoft/callback', { code, redirect_uri: redirectUri })
       console.log('Microsoft login successful:', r.data)
       
@@ -110,7 +121,7 @@ export default function Login() {
     setError(null)
     setIsLoadingMicrosoft(true)
     try {
-      const redirectUri = window.location.origin
+      const redirectUri = getRedirectUri()
       const r = await api.get(`/microsoft/auth-url?redirect_uri=${encodeURIComponent(redirectUri)}`)
       window.location.href = r.data.authUrl
     } catch (e: any) {

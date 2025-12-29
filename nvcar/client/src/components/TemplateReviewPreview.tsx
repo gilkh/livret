@@ -630,8 +630,11 @@ export default function TemplateReviewPreview({ template, student, assignment, s
                                                         return null
                                                     }
 
-                                                    // Generate unique key for this teacher text block
-                                                    const blockId = b.id || `teacher_text_${pageIndex}_${idx}`
+                                                    const stableBlockId =
+                                                        typeof b?.props?.blockId === 'string' && b.props.blockId.trim()
+                                                            ? b.props.blockId.trim()
+                                                            : null
+                                                    const blockId = stableBlockId || `teacher_text_${actualPageIndex}_${idx}`
                                                     const textValue = assignment?.data?.[blockId] || ''
 
                                                     return (
