@@ -102,17 +102,17 @@ export default function SubAdminDashboard() {
 
     const groupTemplates = (templates: PendingTemplate[]) => {
         const grouped: Record<string, Record<string, PendingTemplate[]>> = {}
-        
+
         templates.forEach(t => {
             const level = t.level || 'Sans niveau'
             const className = t.className || 'Sans classe'
-            
+
             if (!grouped[level]) grouped[level] = {}
             if (!grouped[level][className]) grouped[level][className] = []
-            
+
             grouped[level][className].push(t)
         })
-        
+
         return grouped
     }
 
@@ -172,7 +172,7 @@ export default function SubAdminDashboard() {
                     } catch {
                         message = text || message
                     }
-                } catch {}
+                } catch { }
                 setPromotionDownloads(prev => ({
                     ...prev,
                     [group]: { status: 'error', progress: 0, error: message }
@@ -220,7 +220,7 @@ export default function SubAdminDashboard() {
                 } else {
                     message = e?.response?.data?.message || e?.response?.data?.error || message
                 }
-            } catch {}
+            } catch { }
             setPromotionDownloads(prev => ({
                 ...prev,
                 [group]: { status: 'error', progress: 0, error: message }
@@ -273,93 +273,118 @@ export default function SubAdminDashboard() {
     return (
         <div className="container">
             <div className="card">
-                <div style={{ marginBottom: 24 }}>
-                    <h2 className="title" style={{ fontSize: 32, marginBottom: 8, color: '#1e293b' }}>🎯 Tableau de bord sous-administrateur</h2>
-                    <div className="note" style={{ fontSize: 14 }}>Gérez les signatures et suivez les carnets des différentes classes</div>
+                {/* Minimal Header */}
+                <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    marginBottom: 28,
+                    flexWrap: 'wrap',
+                    gap: 16
+                }}>
+                    <div>
+                        <h2 style={{
+                            fontSize: 26,
+                            margin: 0,
+                            color: '#0f172a',
+                            fontWeight: 700,
+                            letterSpacing: '-0.02em'
+                        }}>
+                            Tableau de bord
+                        </h2>
+                        <p style={{
+                            margin: '6px 0 0 0',
+                            fontSize: 14,
+                            color: '#64748b',
+                            fontWeight: 400
+                        }}>
+                            {totalStudents > 0 ? `${totalStudents} élève${totalStudents > 1 ? 's' : ''} • ${classes.length} classe${classes.length > 1 ? 's' : ''}` : 'Aucun élève'}
+                        </p>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <span style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            padding: '6px 12px',
+                            fontSize: 13,
+                            fontWeight: 600,
+                            borderRadius: 8,
+                            background: '#f1f5f9',
+                            color: '#475569',
+                            border: '1px solid #e2e8f0'
+                        }}>
+                            {activeSemesterLabel}
+                        </span>
+                        {activeYear?.name && (
+                            <span style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 6,
+                                padding: '6px 12px',
+                                fontSize: 13,
+                                fontWeight: 600,
+                                borderRadius: 8,
+                                background: '#eef2ff',
+                                color: '#4f46e5',
+                                border: '1px solid #c7d2fe'
+                            }}>
+                                {activeYear.name}
+                            </span>
+                        )}
+                    </div>
                 </div>
 
-                {loading && <div className="note" style={{ textAlign: 'center', padding: 24 }}>Chargement...</div>}
-                {error && <div className="note" style={{ color: '#dc2626', background: '#fef2f2', padding: 12, borderRadius: 8, border: '1px solid #fecaca' }}>{error}</div>}
-
-                {/* Global Statistics Bar */}
-                {!loading && (
-                    <div style={{ marginBottom: 28 }}>
-                        <div style={{ 
-                            display: 'flex', 
-                            alignItems: 'flex-end', 
-                            justifyContent: 'space-between',
-                            flexWrap: 'wrap',
-                            gap: 12,
-                            marginBottom: 12
-                        }}>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                                <h3 style={{ margin: 0, fontSize: 22, color: '#1e293b', fontWeight: 700 }}>📊 Progression Globale</h3>
-                                <div className="note" style={{ fontSize: 13 }}>
-                                    {schoolYearLoading ? 'Année scolaire…' : activeYear?.name ? activeYear.name : 'Année scolaire'}
-                                    <span style={{ color: '#94a3b8', margin: '0 8px' }}>•</span>
-                                    <span style={{ 
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        padding: '2px 10px',
-                                        borderRadius: 999,
-                                        border: '1px solid #bfdbfe',
-                                        background: '#eff6ff',
-                                        color: '#1d4ed8',
-                                        fontWeight: 600
-                                    }}>
-                                        {activeSemesterLabel} actif
-                                    </span>
-                                </div>
-                            </div>
-
-                            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                                <div style={{ 
-                                    padding: '10px 12px',
-                                    borderRadius: 12,
-                                    border: '1px solid #e2e8f0',
-                                    background: '#ffffff',
-                                    minWidth: 140
-                                }}>
-                                    <div style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>Élèves</div>
-                                    <div style={{ fontSize: 20, color: '#0f172a', fontWeight: 800, marginTop: 2 }}>{totalStudents}</div>
-                                </div>
-                                <div style={{ 
-                                    padding: '10px 12px',
-                                    borderRadius: 12,
-                                    border: '1px solid #bbf7d0',
-                                    background: '#f0fdf4',
-                                    minWidth: 140
-                                }}>
-                                    <div style={{ fontSize: 12, color: '#166534', fontWeight: 700 }}>Signés ({activeSemesterLabel})</div>
-                                    <div style={{ fontSize: 20, color: '#065f46', fontWeight: 800, marginTop: 2 }}>{activeCompletedCount}</div>
-                                </div>
-                                <div style={{ 
-                                    padding: '10px 12px',
-                                    borderRadius: 12,
-                                    border: '1px solid #fed7aa',
-                                    background: '#fff7ed',
-                                    minWidth: 140
-                                }}>
-                                    <div style={{ fontSize: 12, color: '#9a3412', fontWeight: 700 }}>Restants ({activeSemesterLabel})</div>
-                                    <div style={{ fontSize: 20, color: '#7c2d12', fontWeight: 800, marginTop: 2 }}>{Math.max(0, totalStudents - activeCompletedCount)}</div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <ProgressionChart 
-                            title={`Détails — ${activeSemesterLabel}`}
-                            total={totalStudents}
-                            completed={activeCompletedCount}
-                            breakdown={activeBreakdown}
-                        />
+                {loading && (
+                    <div style={{
+                        textAlign: 'center',
+                        padding: 40,
+                        color: '#64748b',
+                        fontSize: 14
+                    }}>
+                        <div style={{
+                            width: 32,
+                            height: 32,
+                            border: '3px solid #e2e8f0',
+                            borderTopColor: '#6366f1',
+                            borderRadius: '50%',
+                            margin: '0 auto 12px',
+                            animation: 'spin 1s linear infinite'
+                        }} />
+                        Chargement...
                     </div>
+                )}
+                {error && (
+                    <div style={{
+                        color: '#dc2626',
+                        background: '#fef2f2',
+                        padding: '12px 16px',
+                        borderRadius: 10,
+                        border: '1px solid #fecaca',
+                        fontSize: 14,
+                        fontWeight: 500,
+                        marginBottom: 20
+                    }}>
+                        {error}
+                    </div>
+                )}
+
+                {/* Progression Chart */}
+                {!loading && (
+                    <ProgressionChart
+                        title={`📊 Progression — ${activeSemesterLabel}`}
+                        total={totalStudents}
+                        completed={activeCompletedCount}
+                        breakdown={activeBreakdown}
+                    />
                 )}
 
                 {/* Promoted Students Section */}
                 {promotedStudents.length > 0 && (
                     <div style={{ marginBottom: 32 }}>
                         <h3 style={{ fontSize: 22, color: '#1e293b', fontWeight: 600, marginBottom: 16 }}>🎓 Élèves Promus (En attente d'affectation)</h3>
-                        
+
                         {Object.entries(promotedStudents.reduce((acc, student) => {
                             const key = `${student.fromLevel || '?'} → ${student.toLevel || '?'}`
                             if (!acc[key]) acc[key] = []
@@ -475,16 +500,16 @@ export default function SubAdminDashboard() {
                                                     <td style={{ padding: '12px 16px', fontSize: 14, color: '#1e293b', fontWeight: 500 }}>
                                                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                                             {student.avatarUrl && (
-                                                                <img 
-                                                                    src={student.avatarUrl} 
-                                                                    alt="" 
-                                                                    style={{ 
-                                                                        width: 24, 
-                                                                        height: 24, 
-                                                                        borderRadius: '50%', 
+                                                                <img
+                                                                    src={student.avatarUrl}
+                                                                    alt=""
+                                                                    style={{
+                                                                        width: 24,
+                                                                        height: 24,
+                                                                        borderRadius: '50%',
                                                                         objectFit: 'cover',
                                                                         border: '1px solid #e2e8f0'
-                                                                    }} 
+                                                                    }}
                                                                 />
                                                             )}
                                                             <span>{student.firstName} {student.lastName}</span>
@@ -495,9 +520,9 @@ export default function SubAdminDashboard() {
                                                     </td>
                                                     <td style={{ padding: '12px 16px', textAlign: 'right' }}>
                                                         {student.assignmentId && (
-                                                            <Link 
+                                                            <Link
                                                                 to={`${routePrefix}/templates/${student.assignmentId}/review`}
-                                                                style={{ 
+                                                                style={{
                                                                     display: 'inline-block',
                                                                     padding: '6px 12px',
                                                                     background: '#3b82f6',
@@ -528,9 +553,9 @@ export default function SubAdminDashboard() {
                     <select
                         value={filter}
                         onChange={e => setFilter(e.target.value as any)}
-                        style={{ 
-                            padding: '10px 16px', 
-                            borderRadius: 8, 
+                        style={{
+                            padding: '10px 16px',
+                            borderRadius: 8,
                             border: '1px solid #cbd5e1',
                             fontSize: 14,
                             fontWeight: 500,
@@ -559,16 +584,16 @@ export default function SubAdminDashboard() {
                                     const sem1SignedInClass = templates.filter(isSem1Signed).length
                                     const sem2SignedInClass = templates.filter(isSem2Signed).length
                                     const totalCount = templates.length
-                                    
+
                                     return (
                                         <div key={className} style={{ border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden' }}>
-                                            <div 
+                                            <div
                                                 onClick={() => toggleClass(level, className)}
-                                                style={{ 
-                                                    padding: '12px 16px', 
-                                                    background: '#f8fafc', 
+                                                style={{
+                                                    padding: '12px 16px',
+                                                    background: '#f8fafc',
                                                     cursor: 'pointer',
-                                                    display: 'flex', 
+                                                    display: 'flex',
                                                     justifyContent: 'space-between',
                                                     alignItems: 'center',
                                                     userSelect: 'none'
@@ -584,7 +609,7 @@ export default function SubAdminDashboard() {
                                                     <span style={{ color: '#334155', fontWeight: 600 }}>S2</span> {sem2SignedInClass}/{totalCount}
                                                 </div>
                                             </div>
-                                            
+
                                             {isExpanded && (
                                                 <div style={{ padding: 16, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16, background: 'white', borderTop: '1px solid #e2e8f0' }}>
                                                     {Object.values(
@@ -601,9 +626,9 @@ export default function SubAdminDashboard() {
                                                     }).map(studentTemplates => {
                                                         const student = studentTemplates[0].student
                                                         const isPromoted = studentTemplates.some(t => t.isPromoted)
-                                                        
+
                                                         return (
-                                                            <div key={studentTemplates[0].studentId || Math.random().toString()} className="card" style={{ 
+                                                            <div key={studentTemplates[0].studentId || Math.random().toString()} className="card" style={{
                                                                 border: isPromoted ? '1px solid #86efac' : '1px solid #e2e8f0',
                                                                 background: isPromoted ? '#f0fdf4' : '#fff',
                                                                 padding: 16,
@@ -613,27 +638,27 @@ export default function SubAdminDashboard() {
                                                                 <div style={{ marginBottom: 12 }}>
                                                                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                                                                         {student?.avatarUrl && (
-                                                                            <img 
-                                                                                src={student.avatarUrl} 
-                                                                                alt="" 
-                                                                                style={{ 
-                                                                                    width: 32, 
-                                                                                    height: 32, 
-                                                                                    borderRadius: '50%', 
+                                                                            <img
+                                                                                src={student.avatarUrl}
+                                                                                alt=""
+                                                                                style={{
+                                                                                    width: 32,
+                                                                                    height: 32,
+                                                                                    borderRadius: '50%',
                                                                                     objectFit: 'cover',
                                                                                     border: '1px solid #e2e8f0'
-                                                                                }} 
+                                                                                }}
                                                                             />
                                                                         )}
                                                                         <h3 style={{ fontSize: 18, color: '#1e293b', fontWeight: 700, margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                                                             {student ? `${student.firstName} ${student.lastName}` : 'Élève Inconnu'}
                                                                         </h3>
                                                                         {isPromoted ? (
-                                                                            <span style={{ 
-                                                                                fontSize: 10, 
-                                                                                background: '#166534', 
-                                                                                color: '#fff', 
-                                                                                padding: '2px 8px', 
+                                                                            <span style={{
+                                                                                fontSize: 10,
+                                                                                background: '#166534',
+                                                                                color: '#fff',
+                                                                                padding: '2px 8px',
                                                                                 borderRadius: 12,
                                                                                 fontWeight: 600,
                                                                                 whiteSpace: 'nowrap'
@@ -641,11 +666,11 @@ export default function SubAdminDashboard() {
                                                                                 Promu
                                                                             </span>
                                                                         ) : (
-                                                                            <span style={{ 
-                                                                                fontSize: 10, 
-                                                                                background: '#f1f5f9', 
-                                                                                color: '#64748b', 
-                                                                                padding: '2px 8px', 
+                                                                            <span style={{
+                                                                                fontSize: 10,
+                                                                                background: '#f1f5f9',
+                                                                                color: '#64748b',
+                                                                                padding: '2px 8px',
                                                                                 borderRadius: 12,
                                                                                 fontWeight: 600,
                                                                                 whiteSpace: 'nowrap',
@@ -660,24 +685,24 @@ export default function SubAdminDashboard() {
                                                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                                                                     {studentTemplates.map(p => (
                                                                         <Link key={p._id} to={`${routePrefix}/templates/${p._id}/review`} style={{ textDecoration: 'none' }}>
-                                                                            <div style={{ 
-                                                                                padding: '8px 10px', 
-                                                                                background: '#f8fafc', 
-                                                                                borderRadius: 6, 
+                                                                            <div style={{
+                                                                                padding: '8px 10px',
+                                                                                background: '#f8fafc',
+                                                                                borderRadius: 6,
                                                                                 border: '1px solid #e2e8f0',
                                                                                 transition: 'all 0.2s',
                                                                                 display: 'flex',
                                                                                 justifyContent: 'space-between',
                                                                                 alignItems: 'center'
                                                                             }}
-                                                                            onMouseEnter={(e) => {
-                                                                                e.currentTarget.style.borderColor = '#94a3b8';
-                                                                                e.currentTarget.style.background = '#f1f5f9';
-                                                                            }}
-                                                                            onMouseLeave={(e) => {
-                                                                                e.currentTarget.style.borderColor = '#e2e8f0';
-                                                                                e.currentTarget.style.background = '#f8fafc';
-                                                                            }}>
+                                                                                onMouseEnter={(e) => {
+                                                                                    e.currentTarget.style.borderColor = '#94a3b8';
+                                                                                    e.currentTarget.style.background = '#f1f5f9';
+                                                                                }}
+                                                                                onMouseLeave={(e) => {
+                                                                                    e.currentTarget.style.borderColor = '#e2e8f0';
+                                                                                    e.currentTarget.style.background = '#f8fafc';
+                                                                                }}>
                                                                                 <div style={{ flex: 1, minWidth: 0 }}>
                                                                                     <div style={{ fontSize: 13, fontWeight: 600, color: '#334155', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                                                                         Ouvrir

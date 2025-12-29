@@ -65,7 +65,7 @@ export default function TeacherDashboard() {
     loadClasses()
 
     return () => {
-        isMounted = false
+      isMounted = false
     }
   }, [activeYearId, activeYear?.activeSemester, isYearLoading])
 
@@ -88,24 +88,104 @@ export default function TeacherDashboard() {
   return (
     <div className="container">
       <div className="card">
-        <div style={{ marginBottom: 24 }}>
-          <h2 className="title" style={{ fontSize: 32, marginBottom: 8, color: '#1e293b' }}>📚 Mes Classes</h2>
-          <div className="note" style={{ fontSize: 14 }}>Sélectionnez une classe pour voir les élèves et gérer leurs carnets.</div>
-          <div style={{ display: 'flex', gap: 12, marginTop: 6, alignItems: 'center' }}>
-            <div className="note" style={{ fontSize: 14 }}>Semestre actif : S{activeSemester}</div>
+        {/* Minimal Header */}
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: 28,
+          flexWrap: 'wrap',
+          gap: 16
+        }}>
+          <div>
+            <h2 style={{
+              fontSize: 26,
+              margin: 0,
+              color: '#0f172a',
+              fontWeight: 700,
+              letterSpacing: '-0.02em'
+            }}>
+              Mes Classes
+            </h2>
+            <p style={{
+              margin: '6px 0 0 0',
+              fontSize: 14,
+              color: '#64748b',
+              fontWeight: 400
+            }}>
+              {classes.length > 0 ? `${classes.length} classe${classes.length > 1 ? 's' : ''} assignée${classes.length > 1 ? 's' : ''}` : 'Aucune classe'}
+            </p>
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <span style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '6px 12px',
+              fontSize: 13,
+              fontWeight: 600,
+              borderRadius: 8,
+              background: '#f1f5f9',
+              color: '#475569',
+              border: '1px solid #e2e8f0'
+            }}>
+              S{activeSemester}
+            </span>
             {activeYear?.name && (
-              <div className="note" style={{ fontSize: 14, background: '#eef2ff', padding: '4px 10px', borderRadius: 8, color: '#3730a3' }}>
-                Année : {activeYear.name}
-              </div>
+              <span style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '6px 12px',
+                fontSize: 13,
+                fontWeight: 600,
+                borderRadius: 8,
+                background: '#eef2ff',
+                color: '#4f46e5',
+                border: '1px solid #c7d2fe'
+              }}>
+                {activeYear.name}
+              </span>
             )}
           </div>
         </div>
 
-        {loading && <div className="note" style={{ textAlign: 'center', padding: 24 }}>Chargement...</div>}
-        {error && <div className="note" style={{ color: '#dc2626', background: '#fef2f2', padding: 12, borderRadius: 8, border: '1px solid #fecaca' }}>{error}</div>}
+        {loading && (
+          <div style={{
+            textAlign: 'center',
+            padding: 40,
+            color: '#64748b',
+            fontSize: 14
+          }}>
+            <div style={{
+              width: 32,
+              height: 32,
+              border: '3px solid #e2e8f0',
+              borderTopColor: '#6366f1',
+              borderRadius: '50%',
+              margin: '0 auto 12px',
+              animation: 'spin 1s linear infinite'
+            }} />
+            Chargement...
+          </div>
+        )}
+        {error && (
+          <div style={{
+            color: '#dc2626',
+            background: '#fef2f2',
+            padding: '12px 16px',
+            borderRadius: 10,
+            border: '1px solid #fecaca',
+            fontSize: 14,
+            fontWeight: 500
+          }}>
+            {error}
+          </div>
+        )}
 
         {!loading && classes.length > 0 && (
-          <ProgressionChart 
+          <ProgressionChart
             title="📊 Progression Globale"
             total={globalStats.total}
             completed={globalStats.completed}
@@ -127,9 +207,9 @@ export default function TeacherDashboard() {
                   const stats = statsMap.get(c._id)
                   return (
                     <Link key={c._id} to={`/teacher/classes/${c._id}`} style={{ textDecoration: 'none' }}>
-                      <div className="card" style={{ 
-                        cursor: 'pointer', 
-                        transition: 'all 0.3s ease', 
+                      <div className="card" style={{
+                        cursor: 'pointer',
+                        transition: 'all 0.3s ease',
                         position: 'relative',
                         border: '1px solid #e2e8f0',
                         background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)'
@@ -160,8 +240,8 @@ export default function TeacherDashboard() {
                             ✓
                           </div>
                         )}
-                        <div className="title" style={{ 
-                          fontSize: 20, 
+                        <div className="title" style={{
+                          fontSize: 20,
                           paddingRight: stats?.completionPercentage === 100 ? 44 : 0,
                           marginBottom: 8,
                           color: '#1e293b',
@@ -179,8 +259,8 @@ export default function TeacherDashboard() {
                               <div style={{
                                 width: `${stats.completionPercentage}%`,
                                 height: '100%',
-                                background: stats.completionPercentage === 100 
-                                  ? 'linear-gradient(90deg, #10b981 0%, #059669 100%)' 
+                                background: stats.completionPercentage === 100
+                                  ? 'linear-gradient(90deg, #10b981 0%, #059669 100%)'
                                   : 'linear-gradient(90deg, #6c5ce7 0%, #5b4bc4 100%)',
                                 transition: 'width 0.5s ease',
                                 boxShadow: stats.completionPercentage > 0 ? 'inset 0 1px 2px rgba(255,255,255,0.3)' : 'none'
@@ -188,8 +268,8 @@ export default function TeacherDashboard() {
                             </div>
                           </div>
                         )}
-                        <div className="btn" style={{ 
-                          marginTop: 16, 
+                        <div className="btn" style={{
+                          marginTop: 16,
                           fontSize: 14,
                           fontWeight: 500,
                           padding: '10px 16px',
