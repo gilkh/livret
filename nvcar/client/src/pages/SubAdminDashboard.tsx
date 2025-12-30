@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom'
 import api from '../api'
 import ProgressionChart from '../components/ProgressionChart'
 import { useSchoolYear } from '../context/SchoolYearContext'
-import { AlertTriangle, CheckCircle2, Download } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Download, PenTool } from 'lucide-react'
 
 type Teacher = { _id: string; email: string; displayName: string }
 type PendingTemplate = {
@@ -56,6 +56,24 @@ export default function SubAdminDashboard() {
     const [error, setError] = useState('')
     const [expandedClasses, setExpandedClasses] = useState<Record<string, boolean>>({})
     const [promotionDownloads, setPromotionDownloads] = useState<Record<string, { status: 'idle' | 'preparing' | 'downloading' | 'done' | 'error'; progress: number; error?: string }>>({})
+    const [hasSignature, setHasSignature] = useState<boolean | null>(null)
+
+    // Check if user has a signature
+    useEffect(() => {
+        const checkSignature = async () => {
+            try {
+                const r = await api.get(`${apiPrefix}/signature`)
+                setHasSignature(!!r.data.signatureUrl)
+            } catch (e: any) {
+                if (e.response?.status === 404) {
+                    setHasSignature(false)
+                } else {
+                    console.error('Error checking signature:', e)
+                }
+            }
+        }
+        checkSignature()
+    }, [apiPrefix])
 
     useEffect(() => {
         const loadData = async () => {
@@ -335,6 +353,38 @@ export default function SubAdminDashboard() {
                         )}
                     </div>
                 </div>
+
+                {/* Signature Warning Notice */}
+                {hasSignature === false && (
+                    <Link to={`${routePrefix}/signature`} style={{ textDecoration: 'none' }}>
+                        <div style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            padding: '8px 14px',
+                            marginBottom: 16,
+                            background: '#fef2f2',
+                            border: '1px solid #fecaca',
+                            borderRadius: 8,
+                            cursor: 'pointer',
+                            transition: 'all 0.2s ease'
+                        }}
+                            onMouseEnter={(e) => {
+                                e.currentTarget.style.background = '#fee2e2'
+                                e.currentTarget.style.borderColor = '#f87171'
+                            }}
+                            onMouseLeave={(e) => {
+                                e.currentTarget.style.background = '#fef2f2'
+                                e.currentTarget.style.borderColor = '#fecaca'
+                            }}>
+                            <PenTool size={14} color="#dc2626" />
+                            <span style={{ fontSize: 13, fontWeight: 600, color: '#dc2626' }}>
+                                Signature manquante — Cliquez pour ajouter
+                            </span>
+                        </div>
+                    </Link>
+                )}
+
 
                 {loading && (
                     <div style={{

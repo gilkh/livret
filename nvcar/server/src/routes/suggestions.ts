@@ -74,6 +74,20 @@ suggestionsRouter.post('/', requireAuth(['SUBADMIN', 'AEFE']), async (req, res) 
             if (already) return res.status(400).json({ error: 'already_requested', message: 'Vous avez déjà demandé le passage pour cette année scolaire.' })
         }
 
+        // If this is a next year request, ensure it's only allowed once per active school year
+        if (type === 'next_year_request') {
+            const activeYear = await SchoolYear.findOne({ active: true }).lean()
+            if (!activeYear) return res.status(400).json({ error: 'no_active_year', message: 'Aucune année scolaire active.' })
+
+            const already = await TemplateChangeSuggestion.findOne({
+                subAdminId,
+                type: 'next_year_request',
+                createdAt: { $gte: activeYear.startDate, $lte: activeYear.endDate }
+            }).lean()
+
+            if (already) return res.status(400).json({ error: 'already_requested', message: 'Vous avez déjà demandé le passage à l\'année suivante.' })
+        }
+
         const suggestion = await TemplateChangeSuggestion.create({
             subAdminId,
             type,

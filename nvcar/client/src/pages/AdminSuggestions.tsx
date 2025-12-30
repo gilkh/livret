@@ -4,7 +4,7 @@ import api from '../api'
 type Suggestion = {
     _id: string
     subAdminId: string
-    type?: 'template_edit' | 'semester_request'
+    type?: 'template_edit' | 'semester_request' | 'next_year_request'
     templateId?: string
     pageIndex?: number
     blockIndex?: number
@@ -76,12 +76,15 @@ export default function AdminSuggestions() {
                         <div style={{ fontWeight: 700, color: '#1e293b', fontSize: 20 }}>{totalSubadmins !== null ? totalSubadmins : '—'}</div>
                     </div>
                     <div style={{ padding: 12, borderRadius: 10, background: '#eff6ff', border: '1px solid #bfdbfe' }}>
-                        <div style={{ fontSize: 12, color: '#2563eb' }}>Demandes de Passage (Semestre)</div>
+                        <div style={{ fontSize: 12, color: '#2563eb' }}>Passage Semestre 2</div>
                         <div style={{ fontWeight: 700, color: '#1e40af', fontSize: 20 }}>
-                            {(() => {
-                                const setIds = new Set(suggestions.filter(s => s.type === 'semester_request').map(s => s.subAdminId))
-                                return setIds.size
-                            })()}
+                            {suggestions.filter(s => s.type === 'semester_request' && s.status === 'pending').length}
+                        </div>
+                    </div>
+                    <div style={{ padding: 12, borderRadius: 10, background: '#f5f3ff', border: '1px solid #ddd6fe' }}>
+                        <div style={{ fontSize: 12, color: '#7c3aed' }}>Passage Année Suivante</div>
+                        <div style={{ fontWeight: 700, color: '#6d28d9', fontSize: 20 }}>
+                            {suggestions.filter(s => s.type === 'next_year_request' && s.status === 'pending').length}
                         </div>
                     </div>
                 </div>
@@ -106,7 +109,9 @@ export default function AdminSuggestions() {
                                 <div>
                                     <div style={{ fontWeight: 600, color: '#1e293b' }}>
                                         {s.type === 'semester_request' ? (
-                                            <span style={{ color: '#3b82f6' }}>📅 Demande de Semestre</span>
+                                            <span style={{ color: '#3b82f6' }}>📅 Passage au Semestre 2</span>
+                                        ) : s.type === 'next_year_request' ? (
+                                            <span style={{ color: '#8b5cf6' }}>🎓 Passage à l'Année Suivante</span>
                                         ) : (
                                             <>
                                                 {s.template?.name || 'Template inconnu'}
@@ -137,15 +142,30 @@ export default function AdminSuggestions() {
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
                                 <div style={{ padding: 12, background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0' }}>
                                     <div style={{ fontSize: 11, fontWeight: 600, color: '#64748b', marginBottom: 4, textTransform: 'uppercase' }}>
-                                        {s.type === 'semester_request' ? 'Sujet' : 'Original'}
+                                        {(s.type === 'semester_request' || s.type === 'next_year_request') ? 'Sujet' : 'Original'}
                                     </div>
                                     <div style={{ fontSize: 14, color: '#334155', whiteSpace: 'pre-wrap' }}>{s.originalText}</div>
                                 </div>
-                                <div style={{ padding: 12, background: s.type === 'semester_request' ? '#eff6ff' : '#f0fdfa', borderRadius: 8, border: `1px solid ${s.type === 'semester_request' ? '#bfdbfe' : '#ccfbf1'}` }}>
-                                    <div style={{ fontSize: 11, fontWeight: 600, color: s.type === 'semester_request' ? '#2563eb' : '#0d9488', marginBottom: 4, textTransform: 'uppercase' }}>
-                                        {s.type === 'semester_request' ? 'Détails' : 'Suggestion'}
+                                <div style={{
+                                    padding: 12,
+                                    background: s.type === 'semester_request' ? '#eff6ff' : s.type === 'next_year_request' ? '#f5f3ff' : '#f0fdfa',
+                                    borderRadius: 8,
+                                    border: `1px solid ${s.type === 'semester_request' ? '#bfdbfe' : s.type === 'next_year_request' ? '#ddd6fe' : '#ccfbf1'}`
+                                }}>
+                                    <div style={{
+                                        fontSize: 11,
+                                        fontWeight: 600,
+                                        color: s.type === 'semester_request' ? '#2563eb' : s.type === 'next_year_request' ? '#7c3aed' : '#0d9488',
+                                        marginBottom: 4,
+                                        textTransform: 'uppercase'
+                                    }}>
+                                        {(s.type === 'semester_request' || s.type === 'next_year_request') ? 'Détails' : 'Suggestion'}
                                     </div>
-                                    <div style={{ fontSize: 14, color: s.type === 'semester_request' ? '#1e40af' : '#115e59', whiteSpace: 'pre-wrap' }}>{s.suggestedText}</div>
+                                    <div style={{
+                                        fontSize: 14,
+                                        color: s.type === 'semester_request' ? '#1e40af' : s.type === 'next_year_request' ? '#6d28d9' : '#115e59',
+                                        whiteSpace: 'pre-wrap'
+                                    }}>{s.suggestedText}</div>
                                 </div>
                             </div>
 

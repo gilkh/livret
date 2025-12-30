@@ -96,6 +96,8 @@ export default function SubAdminTemplateReview() {
     // UI State
     const [toast, setToast] = useState<{ message: string, type: ToastType } | null>(null)
     const [confirmModal, setConfirmModal] = useState<{ isOpen: boolean, title: string, content: React.ReactNode, onConfirm: () => void } | null>(null)
+    const [hasSignature, setHasSignature] = useState<boolean | null>(null)
+    const [signatureWarningModal, setSignatureWarningModal] = useState<boolean>(false)
 
     const { levels } = useLevels()
     const { activeYear } = useSchoolYear()
@@ -207,6 +209,23 @@ export default function SubAdminTemplateReview() {
         if (assignmentId) loadData()
     }, [assignmentId, apiPrefix])
 
+    // Check if user has a signature
+    useEffect(() => {
+        const checkSignature = async () => {
+            try {
+                const r = await api.get(`${apiPrefix}/signature`)
+                setHasSignature(!!r.data.signatureUrl)
+            } catch (e: any) {
+                if (e.response?.status === 404) {
+                    setHasSignature(false)
+                } else {
+                    console.error('Error checking signature:', e)
+                }
+            }
+        }
+        checkSignature()
+    }, [apiPrefix])
+
     // Close dropdown when clicking outside
     useEffect(() => {
         const handleClickOutside = () => setOpenDropdown(null)
@@ -215,6 +234,7 @@ export default function SubAdminTemplateReview() {
             return () => document.removeEventListener('click', handleClickOutside)
         }
     }, [openDropdown])
+
 
     const updateLanguageToggle = async (pageIndex: number, blockIndex: number, items: any[]) => {
         try {
@@ -430,6 +450,12 @@ export default function SubAdminTemplateReview() {
     }
 
     const handleSign = async () => {
+        // Check if user has a signature
+        if (hasSignature === false) {
+            setSignatureWarningModal(true)
+            return
+        }
+
         const isSem1Done = assignment?.isCompletedSem1 || assignment?.isCompleted
         if (!isSem1Done) {
             showToast('Le semestre 1 n\'est pas terminé par les enseignants.', 'error')
@@ -480,6 +506,12 @@ export default function SubAdminTemplateReview() {
     }
 
     const handleSignFinal = async () => {
+        // Check if user has a signature
+        if (hasSignature === false) {
+            setSignatureWarningModal(true)
+            return
+        }
+
         const isSem2Done = assignment?.isCompletedSem2
         if (!isSem2Done) {
             showToast('Le semestre 2 n\'est pas terminé par les enseignants.', 'info')
@@ -648,6 +680,74 @@ export default function SubAdminTemplateReview() {
                 {confirmModal?.content}
             </Modal>
 
+            {/* Signature Warning Modal */}
+            <Modal
+                isOpen={signatureWarningModal}
+                onClose={() => setSignatureWarningModal(false)}
+                title="⚠️ Signature manquante"
+                footer={
+                    <>
+                        <button
+                            className="btn secondary"
+                            onClick={() => setSignatureWarningModal(false)}
+                            style={{
+                                background: '#f1f5f9',
+                                color: '#475569',
+                                border: '1px solid #e2e8f0'
+                            }}
+                        >
+                            Annuler
+                        </button>
+                        <button
+                            className="btn"
+                            onClick={() => {
+                                setSignatureWarningModal(false)
+                                navigate(`${isAefeUser ? '/aefe' : '/subadmin'}/signature`)
+                            }}
+                            style={{
+                                background: 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)',
+                                color: 'white',
+                                boxShadow: '0 2px 8px rgba(220, 38, 38, 0.3)'
+                            }}
+                        >
+                            ✍️ Ajouter ma signature
+                        </button>
+                    </>
+                }
+            >
+                <div style={{ textAlign: 'center', padding: '20px 0' }}>
+                    <div style={{
+                        width: 80,
+                        height: 80,
+                        borderRadius: '50%',
+                        background: 'linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%)',
+                        border: '3px solid #fecaca',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        margin: '0 auto 20px',
+                        fontSize: 36
+                    }}>
+                        ✍️
+                    </div>
+                    <p style={{
+                        fontSize: 16,
+                        color: '#1e293b',
+                        marginBottom: 12,
+                        fontWeight: 500
+                    }}>
+                        Vous devez d'abord ajouter votre signature
+                    </p>
+                    <p style={{
+                        fontSize: 14,
+                        color: '#64748b',
+                        lineHeight: 1.5
+                    }}>
+                        Pour signer les carnets des élèves, vous devez télécharger une image de votre signature.
+                        Cette signature sera automatiquement insérée dans les carnets que vous signez.
+                    </p>
+                </div>
+            </Modal>
 
 
             <div className="card">
@@ -1494,8 +1594,8 @@ export default function SubAdminTemplateReview() {
                                                             const textValue = assignment?.data?.[blockId] || ''
 
                                                             return (
-                                                                <div style={{ 
-                                                                    width: '100%', 
+                                                                <div style={{
+                                                                    width: '100%',
                                                                     height: '100%',
                                                                     color: textValue ? 'inherit' : '#999'
                                                                 }}>

@@ -35,6 +35,7 @@ import { savedGradebooksRouter } from './routes/savedGradebooks'
 import { Level } from './models/Level'
 import { adminExtrasRouter } from './routes/adminExtras'
 import { simulationsRouter } from './routes/simulations'
+import { templatePropagationRouter } from './routes/templatePropagation'
 import compression from 'compression'
 
 export const createApp = () => {
@@ -88,6 +89,7 @@ export const createApp = () => {
   app.use('/backup', backupRouter)
   app.use('/saved-gradebooks', savedGradebooksRouter)
   app.use('/simulations', simulationsRouter)
+  app.use('/template-propagation', templatePropagationRouter)
   app.use('/uploads', express.static(path.join(process.cwd(), 'public', 'uploads')))
 
   app.get('/health', (_, res) => res.json({ ok: true }))

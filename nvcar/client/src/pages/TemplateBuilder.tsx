@@ -6,6 +6,8 @@ import { useLevels } from '../context/LevelContext'
 import { useSocket } from '../context/SocketContext'
 import { useSchoolYear } from '../context/SchoolYearContext'
 import { GradebookPocket } from '../components/GradebookPocket'
+import { TemplatePropagationModal } from '../components/TemplatePropagationModal'
+import { TemplateHistoryModal } from '../components/TemplateHistoryModal'
 
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
@@ -340,6 +342,9 @@ export default function TemplateBuilder() {
   // Modal state
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [newTemplateName, setNewTemplateName] = useState('')
+  const [showPropagationModal, setShowPropagationModal] = useState(false)
+  const [showHistoryModal, setShowHistoryModal] = useState(false)
+  const [pendingSave, setPendingSave] = useState(false)
 
   // Custom dropdown state
   const [openDropdown, setOpenDropdown] = useState<string | null>(null)
@@ -395,22 +400,24 @@ export default function TemplateBuilder() {
     { type: 'dropdown', props: { label: 'Menu déroulant', options: ['Option 1', 'Option 2'], variableName: 'var1', width: 200, height: 40, fontSize: 12, color: '#333', semesters: [1, 2] } },
     { type: 'dropdown_reference', props: { dropdownNumber: 1, text: 'Référence dropdown #{number}', fontSize: 12, color: '#2d3436' } },
     { type: 'dynamic_text', props: { text: '{student.firstName} {student.lastName}', fontSize: 14, color: '#2d3436' } },
-    
+
     // Gradebook Pocket (school supplies pocket)
-    { type: 'gradebook_pocket', props: { 
-      width: 120, 
-      number: '1',
-      supplyColor1: '#e74c3c',
-      supplyColor2: '#f4d03f', 
-      pencilTipColor: '#2c3e50',
-      supplyColor3: '#ff9ff3',
-      supplyColor4: '#2ecc71',
-      supplyColor5: '#9b59b6',
-      pocketFillColor: '#3498db',
-      stitchColor: '#ffffff',
-      numberColor: '#ffffff',
-      label: 'Poche Carnet'
-    }},
+    {
+      type: 'gradebook_pocket', props: {
+        width: 120,
+        number: '1',
+        supplyColor1: '#e74c3c',
+        supplyColor2: '#f4d03f',
+        pencilTipColor: '#2c3e50',
+        supplyColor3: '#ff9ff3',
+        supplyColor4: '#2ecc71',
+        supplyColor5: '#9b59b6',
+        pocketFillColor: '#3498db',
+        stitchColor: '#ffffff',
+        numberColor: '#ffffff',
+        label: 'Poche Carnet'
+      }
+    },
   ]), [])
 
   // Get all dropdowns across all pages to determine next dropdown number
@@ -830,11 +837,53 @@ export default function TemplateBuilder() {
 
   const save = async () => {
     if (tpl._id) {
+      // Check if there are existing assignments that might be affected
+      try {
+        const checkRes = await api.get(`/template-propagation/${tpl._id}/assignments`)
+        if (checkRes.data.totalCount > 0) {
+          // Show the propagation modal to let admin choose which assignments to update
+          setShowPropagationModal(true)
+          return
+        }
+      } catch (e) {
+        // If the check fails, just proceed with normal save
+        console.warn('Could not check for assignments, proceeding with normal save', e)
+      }
+
+      // No assignments, proceed with normal save
       const r = await api.patch(`/templates/${tpl._id}`, tpl)
       setTpl(normalizeTemplateNumbers(r.data))
+      setSaveStatus('✓ Sauvegardé')
+      setTimeout(() => setSaveStatus(''), 3000)
     } else {
       const r = await api.post('/templates', tpl)
       setTpl(normalizeTemplateNumbers(r.data))
+      setSaveStatus('✓ Créé')
+      setTimeout(() => setSaveStatus(''), 3000)
+    }
+  }
+
+  // Handler for propagation modal save
+  const handlePropagationSave = async (propagateToAssignmentIds: string[] | 'all' | 'none', changeDescription?: string) => {
+    try {
+      setPendingSave(true)
+      const r = await api.patch(`/template-propagation/${tpl._id}`, {
+        templateData: tpl,
+        propagateToAssignmentIds,
+        changeDescription
+      })
+      setTpl(normalizeTemplateNumbers(r.data.template))
+      setShowPropagationModal(false)
+
+      const { propagation } = r.data
+      let statusMsg = '✓ Sauvegardé'
+      if (propagation.hasSignificantChange) {
+        statusMsg = `✓ Version ${propagation.newVersion} - ${propagation.propagatedCount} mise(s) à jour, ${propagation.skippedCount} maintenu(s)`
+      }
+      setSaveStatus(statusMsg)
+      setTimeout(() => setSaveStatus(''), 5000)
+    } finally {
+      setPendingSave(false)
     }
   }
 
@@ -1420,32 +1469,57 @@ export default function TemplateBuilder() {
             </h2>
           </div>
         </div>
-        <button
-          className="btn"
-          onClick={async () => {
-            try {
-              setError('');
-              setSaveStatus('');
-              await save();
-              setSaveStatus('Enregistré avec succès');
-              setTimeout(() => setSaveStatus(''), 3000);
-              await loadTemplates()
-            } catch (e: any) {
-              setError('Échec de l\'enregistrement');
-              setTimeout(() => setError(''), 3000)
-            }
-          }}
-          style={{
-            padding: '12px 32px',
-            fontSize: 15,
-            fontWeight: 600,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8
-          }}
-        >
-          💾 Enregistrer
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {/* History Button */}
+          {tpl._id && (
+            <button
+              className="btn secondary"
+              onClick={() => setShowHistoryModal(true)}
+              title="Voir l'historique des versions"
+              style={{
+                padding: '12px 20px',
+                fontSize: 15,
+                fontWeight: 600,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                background: '#f3f4f6',
+                border: '1px solid #e5e7eb',
+                color: '#374151'
+              }}
+            >
+              📜 Historique
+            </button>
+          )}
+
+          {/* Save Button */}
+          <button
+            className="btn"
+            onClick={async () => {
+              try {
+                setError('');
+                setSaveStatus('');
+                await save();
+                setSaveStatus('Enregistré avec succès');
+                setTimeout(() => setSaveStatus(''), 3000);
+                await loadTemplates()
+              } catch (e: any) {
+                setError('Échec de l\'enregistrement');
+                setTimeout(() => setError(''), 3000)
+              }
+            }}
+            style={{
+              padding: '12px 32px',
+              fontSize: 15,
+              fontWeight: 600,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8
+            }}
+          >
+            💾 Enregistrer
+          </button>
+        </div>
       </div>
 
       {/* Status Messages - Toast Notifications */}
@@ -1961,16 +2035,16 @@ export default function TemplateBuilder() {
                                       b.type === 'circle' ? 'Cercle' :
                                         b.type === 'promotion_info' ? 'Info Passage' :
                                           b.type === 'teacher_text' ? 'Zone Texte Prof' :
-                                          b.type === 'signature_box' ? 'Signature Box' :
-                                            b.type === 'signature' ? 'Signatures (Noms)' :
-                                              b.type === 'student_photo' ? 'Photo Élève' :
-                                                b.type === 'language_toggle' ? 'Langues (V1)' :
-                                                  b.type === 'language_toggle_v2' ? 'Langues (V2)' :
-                                                    b.type === 'dropdown' ? 'Menu déroulant' :
-                                                      b.type === 'dropdown_reference' ? 'Référence Dropdown' :
-                                                        b.type === 'dynamic_text' ? 'Texte Dynamique' :
-                                                          b.type === 'gradebook_pocket' ? 'Poche Carnet' :
-                                                            b.type
+                                            b.type === 'signature_box' ? 'Signature Box' :
+                                              b.type === 'signature' ? 'Signatures (Noms)' :
+                                                b.type === 'student_photo' ? 'Photo Élève' :
+                                                  b.type === 'language_toggle' ? 'Langues (V1)' :
+                                                    b.type === 'language_toggle_v2' ? 'Langues (V2)' :
+                                                      b.type === 'dropdown' ? 'Menu déroulant' :
+                                                        b.type === 'dropdown_reference' ? 'Référence Dropdown' :
+                                                          b.type === 'dynamic_text' ? 'Texte Dynamique' :
+                                                            b.type === 'gradebook_pocket' ? 'Poche Carnet' :
+                                                              b.type
                       )}
                     </span>
                   </div>
@@ -4571,6 +4645,26 @@ export default function TemplateBuilder() {
           )}
         </div>
       </div>
-    </div >
+
+      {/* Template Propagation Modal */}
+      {showPropagationModal && tpl._id && (
+        <TemplatePropagationModal
+          templateId={tpl._id}
+          templateName={tpl.name}
+          currentVersion={(tpl as any).currentVersion || 1}
+          onClose={() => setShowPropagationModal(false)}
+          onSave={handlePropagationSave}
+        />
+      )}
+
+      {/* Template History Modal */}
+      {showHistoryModal && tpl._id && (
+        <TemplateHistoryModal
+          templateId={tpl._id}
+          templateName={tpl.name}
+          onClose={() => setShowHistoryModal(false)}
+        />
+      )}
+    </div>
   )
 }

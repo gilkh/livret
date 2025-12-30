@@ -46,3 +46,5 @@
 2025-12-28T12:37:20.568Z https://localhost:5173/print/preview/694ef3be57289c4b79b560ef/student/694ef912cebf4e675bad18b5?token=*** totalMs=2058 navMs=230 readyMs=758 pdfMs=777 size=1849562
 2025-12-28T12:37:23.046Z https://localhost:5173/print/preview/694ef3be57289c4b79b560ef/student/694ef912cebf4e675bad18b5?token=*** totalMs=2391 navMs=277 readyMs=903 pdfMs=860 size=1849562
 2025-12-28T12:37:24.165Z https://localhost:5173/print/preview/694ef3be57289c4b79b560ef/student/694ef912cebf4e675bad18b5?token=*** totalMs=3543 navMs=546 readyMs=1772 pdfMs=832 size=1849562
+2025-12-30T21:05:16.828Z https://localhost:5173/print/carnet/69543d5afb450742576d3e5c?token=*** totalMs=12796 navMs=2320 readyMs=10009 pdfMs=154 size=70104
+2025-12-30T21:05:16.837Z assignment=69543d5afb450742576d3e5c worker=0 totalMs=12805 size=70104 name=TEST-TEST-Presentation carnet 5pages _ new des _Imported_ _Imported_.pdf

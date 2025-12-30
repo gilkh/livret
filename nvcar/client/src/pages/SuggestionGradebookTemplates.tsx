@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import api from '../api'
 import Modal from '../components/Modal'
 import Toast, { ToastType } from '../components/Toast'
@@ -19,6 +19,7 @@ const pageHeight = 1120
 
 export default function SuggestionGradebookTemplates() {
     const location = useLocation()
+    const navigate = useNavigate()
     const isAefeUser = location.pathname.includes('/aefe/')
 
     const [templates, setTemplates] = useState<Template[]>([])
@@ -120,7 +121,33 @@ export default function SuggestionGradebookTemplates() {
             <div className="card">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
                     <div>
-                        <h2 className="title" style={{ fontSize: 28, marginBottom: 6, color: '#1e293b' }}>Suggestion</h2>
+                        <button
+                            onClick={() => navigate(isAefeUser ? '/aefe/suggestion' : '/subadmin/suggestion')}
+                            style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 6,
+                                padding: '8px 14px',
+                                background: '#f1f5f9',
+                                border: '1px solid #e2e8f0',
+                                borderRadius: 8,
+                                color: '#475569',
+                                fontSize: 13,
+                                fontWeight: 500,
+                                cursor: 'pointer',
+                                marginBottom: 16,
+                                transition: 'all 0.2s'
+                            }}
+                            onMouseEnter={e => {
+                                e.currentTarget.style.background = '#e2e8f0'
+                            }}
+                            onMouseLeave={e => {
+                                e.currentTarget.style.background = '#f1f5f9'
+                            }}
+                        >
+                            ← Retour aux demandes
+                        </button>
+                        <h2 className="title" style={{ fontSize: 28, marginBottom: 6, color: '#1e293b' }}>Modifications des Carnets</h2>
                         <div className="note" style={{ fontSize: 14, color: '#64748b' }}>
                             {isAefeUser ? 'RPP / Direction' : 'Sous-admin'} — suggérez des modifications sur les carnets (templates).
                         </div>

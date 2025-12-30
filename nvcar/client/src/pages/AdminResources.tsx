@@ -4,22 +4,22 @@ import api from '../api'
 import { useSchoolYear } from '../context/SchoolYearContext'
 import { useLevels } from '../context/LevelContext'
 import './AdminResources.css'
-import Toast, { ToastType } from '../components/Toast' 
-import { 
-  Calendar, 
-  Users, 
-  GraduationCap, 
-  Plus, 
-  Trash2, 
-  Edit2, 
-  Save, 
-  X, 
-  Download, 
-  Upload, 
-  Search, 
-  Check, 
-  AlertCircle, 
-  FileText, 
+import Toast, { ToastType } from '../components/Toast'
+import {
+  Calendar,
+  Users,
+  GraduationCap,
+  Plus,
+  Trash2,
+  Edit2,
+  Save,
+  X,
+  Download,
+  Upload,
+  Search,
+  Check,
+  AlertCircle,
+  FileText,
   ChevronRight,
   MoreVertical,
   School,
@@ -29,21 +29,21 @@ import {
 
 type Year = { _id: string; name: string; startDate: string; endDate: string; active: boolean; activeSemester?: number }
 type ClassDoc = { _id: string; name: string; level?: string; schoolYearId: string }
-type StudentDoc = { 
-    _id: string; 
-    firstName: string; 
-    lastName: string; 
-    dateOfBirth: string; 
-    parentName?: string; 
-    parentPhone?: string; 
-    level?: string;
-    promotion?: { from: string; to: string; date: string; year: string }
-    previousClassName?: string
+type StudentDoc = {
+  _id: string;
+  firstName: string;
+  lastName: string;
+  dateOfBirth: string;
+  parentName?: string;
+  parentPhone?: string;
+  level?: string;
+  promotion?: { from: string; to: string; date: string; year: string }
+  previousClassName?: string
 }
 
 export default function AdminResources() {
   const navigate = useNavigate()
-  const { activeYearId } = useSchoolYear()
+  const { activeYearId, refetchYears } = useSchoolYear()
   const { levels } = useLevels()
   const [years, setYears] = useState<Year[]>([])
   const [selectedYear, setSelectedYear] = useState<Year | null>(null)
@@ -55,7 +55,7 @@ export default function AdminResources() {
     }
     return true
   }
-  
+
   // Year editing state
   const [yearForm, setYearForm] = useState({ name: '', startDate: '', endDate: '', active: true, activeSemester: 1 })
 
@@ -72,55 +72,55 @@ export default function AdminResources() {
   const [editingStudentId, setEditingStudentId] = useState<string | null>(null)
   const [showImportModal, setShowImportModal] = useState(false)
   const [showBulkAssignModal, setShowBulkAssignModal] = useState(false)
-  
+
   // Search state
   const [studentSearch, setStudentSearch] = useState('')
 
   // Toast notification
-  const [toast, setToast] = useState<{message: string, type: ToastType} | null>(null)
+  const [toast, setToast] = useState<{ message: string, type: ToastType } | null>(null)
   const showToast = (message: string, type: ToastType = 'success') => setToast({ message, type })
 
   const promotedStudents = useMemo(() => {
-      return unassignedStudents.filter(s => s.promotion && s.promotion.from !== s.promotion.to)
+    return unassignedStudents.filter(s => s.promotion && s.promotion.from !== s.promotion.to)
   }, [unassignedStudents])
-  
+
   const otherUnassignedStudents = useMemo(() => {
-      return unassignedStudents.filter(s => !s.promotion || s.promotion.from === s.promotion.to)
+    return unassignedStudents.filter(s => !s.promotion || s.promotion.from === s.promotion.to)
   }, [unassignedStudents])
 
   const groupedPromotedStudents = useMemo(() => {
-      const groups: Record<string, StudentDoc[]> = {}
-      for (const s of promotedStudents) {
-          const key = `${s.promotion?.from || '?'} → ${s.promotion?.to || '?'} (${s.previousClassName || '?'})`
-          if (!groups[key]) groups[key] = []
-          groups[key].push(s)
-      }
-      return groups
+    const groups: Record<string, StudentDoc[]> = {}
+    for (const s of promotedStudents) {
+      const key = `${s.promotion?.from || '?'} → ${s.promotion?.to || '?'} (${s.previousClassName || '?'})`
+      if (!groups[key]) groups[key] = []
+      groups[key].push(s)
+    }
+    return groups
   }, [promotedStudents])
 
   const groupedOtherStudents = useMemo(() => {
-      const groups: Record<string, StudentDoc[]> = {}
-      for (const s of otherUnassignedStudents) {
-          const key = `${s.level || '?'} (${s.previousClassName || '?'})`
-          if (!groups[key]) groups[key] = []
-          groups[key].push(s)
-      }
-      return groups
+    const groups: Record<string, StudentDoc[]> = {}
+    for (const s of otherUnassignedStudents) {
+      const key = `${s.level || '?'} (${s.previousClassName || '?'})`
+      if (!groups[key]) groups[key] = []
+      groups[key].push(s)
+    }
+    return groups
   }, [otherUnassignedStudents])
 
   // Filtered Students
   const filteredStudents = useMemo(() => {
     if (!studentSearch.trim()) return students
     const lower = studentSearch.toLowerCase()
-    return students.filter(s => 
-      s.firstName.toLowerCase().includes(lower) || 
+    return students.filter(s =>
+      s.firstName.toLowerCase().includes(lower) ||
       s.lastName.toLowerCase().includes(lower)
     )
   }, [students, studentSearch])
 
-  const loadYears = async () => { 
+  const loadYears = async () => {
     const r = await api.get('/school-years')
-    setYears(r.data.sort((a: Year, b: Year) => a.name.localeCompare(b.name))) 
+    setYears(r.data.sort((a: Year, b: Year) => a.name.localeCompare(b.name)))
   }
   useEffect(() => { loadYears() }, [])
 
@@ -138,27 +138,27 @@ export default function AdminResources() {
     return oldest._id
   }, [years])
 
-  const loadClasses = async (yearId: string) => { 
+  const loadClasses = async (yearId: string) => {
     const r = await api.get('/classes', { params: { schoolYearId: yearId } })
-    setClasses(r.data) 
+    setClasses(r.data)
   }
-  const loadStudents = async (classId: string) => { 
+  const loadStudents = async (classId: string) => {
     const r = await api.get(`/students/by-class/${classId}`)
-    setStudents(r.data) 
+    setStudents(r.data)
   }
-  const loadUnassignedStudents = async (yearId: string) => { 
+  const loadUnassignedStudents = async (yearId: string) => {
     const r = await api.get(`/students/unassigned/${yearId}`)
-    setUnassignedStudents(r.data) 
+    setUnassignedStudents(r.data)
   }
 
   const selectYear = async (y: Year) => {
     setSelectedYear(y)
     setYearForm({
-        name: y.name,
-        startDate: y.startDate?.slice(0,10) || '',
-        endDate: y.endDate?.slice(0,10) || '',
-        active: !!y.active,
-        activeSemester: y.activeSemester || 1
+      name: y.name,
+      startDate: y.startDate?.slice(0, 10) || '',
+      endDate: y.endDate?.slice(0, 10) || '',
+      active: !!y.active,
+      activeSemester: y.activeSemester || 1
     })
     await loadClasses(y._id)
     await loadUnassignedStudents(y._id)
@@ -168,14 +168,14 @@ export default function AdminResources() {
   }
 
   const assignSection = async (studentId: string, level: string, section: string) => {
-      if (!selectedYear) return
-      await api.post(`/students/${studentId}/assign-section`, {
-          schoolYearId: selectedYear._id,
-          level,
-          section
-      })
-      await loadUnassignedStudents(selectedYear._id)
-      await loadClasses(selectedYear._id)
+    if (!selectedYear) return
+    await api.post(`/students/${studentId}/assign-section`, {
+      schoolYearId: selectedYear._id,
+      level,
+      section
+    })
+    await loadUnassignedStudents(selectedYear._id)
+    await loadClasses(selectedYear._id)
   }
 
   const addPreviousYear = async (e: React.MouseEvent) => {
@@ -223,20 +223,20 @@ export default function AdminResources() {
     const last = sorted[sorted.length - 1]
     let startYear = new Date().getFullYear()
     if (last) {
-        const parts = last.name.split('/')
-        if (parts.length === 2) {
-            const y1 = parseInt(parts[0])
-            if (!isNaN(y1)) startYear = y1 + 1
-        } else {
-            const match = last.name.match(/(\d{4})/)
-            if (match) startYear = parseInt(match[1]) + 1
-        }
+      const parts = last.name.split('/')
+      if (parts.length === 2) {
+        const y1 = parseInt(parts[0])
+        if (!isNaN(y1)) startYear = y1 + 1
+      } else {
+        const match = last.name.match(/(\d{4})/)
+        if (match) startYear = parseInt(match[1]) + 1
+      }
     }
-    
+
     const name = `${startYear}/${startYear + 1}`
     const startDate = `${startYear}-09-01`
     const endDate = `${startYear + 1}-07-01`
-    
+
     await api.post('/school-years', { name, startDate, endDate, active: false })
     await loadYears()
   }
@@ -251,6 +251,7 @@ export default function AdminResources() {
 
         const r = await api.patch(`/school-years/${selectedYear._id}`, payload)
         await loadYears()
+        await refetchYears() // Sync NavBar with the new active year
         setSelectedYear(r.data)
         if (r.data.active) {
           const sem = r.data.activeSemester || payload.activeSemester || 1
@@ -265,11 +266,11 @@ export default function AdminResources() {
   }
 
   const deleteYear = async (e: React.MouseEvent, id: string) => {
-      e.stopPropagation()
-      if(!tripleConfirm('Êtes-vous sûr de vouloir supprimer cette année scolaire ?')) return
-      await api.delete(`/school-years/${id}`)
-      await loadYears()
-      if(selectedYear?._id === id) setSelectedYear(null)
+    e.stopPropagation()
+    if (!tripleConfirm('Êtes-vous sûr de vouloir supprimer cette année scolaire ?')) return
+    await api.delete(`/school-years/${id}`)
+    await loadYears()
+    if (selectedYear?._id === id) setSelectedYear(null)
   }
 
 
@@ -278,42 +279,42 @@ export default function AdminResources() {
     if (!selectedYear) return
     const levelClasses = classes.filter(c => c.level === level)
     const usedLetters = new Set(levelClasses.map(c => {
-        return c.name.replace(level, '').trim()
+      return c.name.replace(level, '').trim()
     }))
-    
+
     const alphabet = 'ABCDEFGHIJK'
     let nextLetter = 'A'
     for (const char of alphabet) {
-        if (!usedLetters.has(char)) {
-            nextLetter = char
-            break
-        }
+      if (!usedLetters.has(char)) {
+        nextLetter = char
+        break
+      }
     }
-    
+
     const name = `${level} ${nextLetter}`
     await api.post('/classes', { name, level, schoolYearId: selectedYear._id })
     await loadClasses(selectedYear._id)
   }
 
   const deleteClass = async (e: React.MouseEvent, id: string) => {
-      e.stopPropagation()
-      if(!tripleConfirm('Êtes-vous sûr de vouloir supprimer cette classe ?')) return
-      await api.delete(`/classes/${id}`)
-      if(selectedYear) await loadClasses(selectedYear._id)
-      if(selectedClassId === id) {
-          setSelectedClassId('')
-          setStudents([])
-      }
+    e.stopPropagation()
+    if (!tripleConfirm('Êtes-vous sûr de vouloir supprimer cette classe ?')) return
+    await api.delete(`/classes/${id}`)
+    if (selectedYear) await loadClasses(selectedYear._id)
+    if (selectedClassId === id) {
+      setSelectedClassId('')
+      setStudents([])
+    }
   }
 
-  const selectClass = async (classId: string) => { 
+  const selectClass = async (classId: string) => {
     setSelectedClassId(classId)
     await loadStudents(classId)
-    resetStudentForm(classId) 
+    resetStudentForm(classId)
   }
 
   // Students
-  const startEditStudent = (s: StudentDoc) => { 
+  const startEditStudent = (s: StudentDoc) => {
     setEditingStudentId(s._id)
     setFirstName(s.firstName)
     setLastName(s.lastName)
@@ -332,7 +333,7 @@ export default function AdminResources() {
     await loadStudents(selectedClassId)
   }
 
-  const resetStudentForm = (defaultClassId?: string) => { 
+  const resetStudentForm = (defaultClassId?: string) => {
     setEditingStudentId(null)
     setFirstName('')
     setLastName('')
@@ -340,25 +341,25 @@ export default function AdminResources() {
   }
 
   const deleteStudent = async (id: string) => {
-      if(!tripleConfirm('Êtes-vous sûr de vouloir supprimer cet élève ?')) return
-      await api.delete(`/students/${id}`)
-      if(selectedClassId) await loadStudents(selectedClassId)
+    if (!tripleConfirm('Êtes-vous sûr de vouloir supprimer cet élève ?')) return
+    await api.delete(`/students/${id}`)
+    if (selectedClassId) await loadStudents(selectedClassId)
   }
 
   const downloadUnassignedCsv = async () => {
-      if (!selectedYear) return
-      try {
-          const response = await api.get(`/students/unassigned/export/${selectedYear._id}`, { responseType: 'blob' })
-          const url = window.URL.createObjectURL(new Blob([response.data]))
-          const link = document.createElement('a')
-          link.href = url
-          link.setAttribute('download', 'students_to_assign.csv')
-          document.body.appendChild(link)
-          link.click()
-          link.remove()
-      } catch (e) {
-          alert('Erreur lors du téléchargement')
-      }
+    if (!selectedYear) return
+    try {
+      const response = await api.get(`/students/unassigned/export/${selectedYear._id}`, { responseType: 'blob' })
+      const url = window.URL.createObjectURL(new Blob([response.data]))
+      const link = document.createElement('a')
+      link.href = url
+      link.setAttribute('download', 'students_to_assign.csv')
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+    } catch (e) {
+      alert('Erreur lors du téléchargement')
+    }
   }
 
   const getInitials = (firstName: string, lastName: string) => {
@@ -370,7 +371,7 @@ export default function AdminResources() {
   return (
     <div className="resources-page">
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
-      
+
       {/* Header */}
       <header className="resources-header">
         <div className="resources-header-left">
@@ -383,8 +384,8 @@ export default function AdminResources() {
           </div>
         </div>
         <div className="resources-header-actions">
-           <button 
-            className="feature-btn" 
+          <button
+            className="feature-btn"
             onClick={() => navigate('/admin/students')}
           >
             <Users className="btn-icon" size={18} />
@@ -427,7 +428,7 @@ export default function AdminResources() {
 
       {/* Main Content Grid */}
       <div className="main-grid">
-        
+
         {/* Column 1: Years */}
         <div className="column-card">
           <div className="column-header">
@@ -436,12 +437,12 @@ export default function AdminResources() {
               <h3>Années</h3>
             </div>
           </div>
-          
+
           <div className="column-body">
             <div className="years-list-container">
               {years.map(y => (
-                <div 
-                  key={y._id} 
+                <div
+                  key={y._id}
                   className={`list-item ${selectedYear?._id === y._id ? 'selected' : ''} ${y.active ? 'active-year' : ''}`}
                   onClick={() => selectYear(y)}
                 >
@@ -452,30 +453,30 @@ export default function AdminResources() {
                       {y.active && y.activeSemester && <span className="status-badge semester">S{y.activeSemester}</span>}
                     </div>
                   </div>
-                  
+
                   <div className="list-item-actions">
-                     {y._id === oldestYearId && (
-                        <button
-                          className="icon-action-btn small"
-                          onClick={(e) => addPreviousYear(e)}
-                          title="Ajouter l'année précédente"
-                          disabled={creatingPreviousYear}
-                        >
-                          <Plus size={14} />
-                        </button>
-                      )}
-                      <button 
-                        className="icon-action-btn small danger"
-                        onClick={(e) => deleteYear(e, y._id)}
-                        title="Supprimer"
+                    {y._id === oldestYearId && (
+                      <button
+                        className="icon-action-btn small"
+                        onClick={(e) => addPreviousYear(e)}
+                        title="Ajouter l'année précédente"
+                        disabled={creatingPreviousYear}
                       >
-                        <Trash2 size={14} />
+                        <Plus size={14} />
                       </button>
+                    )}
+                    <button
+                      className="icon-action-btn small danger"
+                      onClick={(e) => deleteYear(e, y._id)}
+                      title="Supprimer"
+                    >
+                      <Trash2 size={14} />
+                    </button>
                   </div>
                 </div>
               ))}
             </div>
-            
+
             <button className="primary-add-btn" onClick={addNextYear}>
               <Plus size={18} />
               <span>Nouvelle année</span>
@@ -487,55 +488,55 @@ export default function AdminResources() {
                   <Edit2 size={16} />
                   <span>Modifier {selectedYear.name}</span>
                 </div>
-                
+
                 <div className="edit-form-group">
                   <label>Nom</label>
-                  <input 
-                    value={yearForm.name} 
-                    onChange={e => setYearForm({...yearForm, name: e.target.value})} 
+                  <input
+                    value={yearForm.name}
+                    onChange={e => setYearForm({ ...yearForm, name: e.target.value })}
                     placeholder="2024/2025"
                   />
                 </div>
-                 <div className="edit-form-row">
-                    <div className="edit-form-group">
-                        <label>Début</label>
-                        <input type="date" value={yearForm.startDate} onChange={e => setYearForm({...yearForm, startDate: e.target.value})} />
-                    </div>
-                    <div className="edit-form-group">
-                        <label>Fin</label>
-                        <input type="date" value={yearForm.endDate} onChange={e => setYearForm({...yearForm, endDate: e.target.value})} />
-                    </div>
-                 </div>
+                <div className="edit-form-row">
+                  <div className="edit-form-group">
+                    <label>Début</label>
+                    <input type="date" value={yearForm.startDate} onChange={e => setYearForm({ ...yearForm, startDate: e.target.value })} />
+                  </div>
+                  <div className="edit-form-group">
+                    <label>Fin</label>
+                    <input type="date" value={yearForm.endDate} onChange={e => setYearForm({ ...yearForm, endDate: e.target.value })} />
+                  </div>
+                </div>
 
-                 <div className="semester-selector">
-                    <button 
-                        className={`sem-btn ${(yearForm.activeSemester || 1) === 1 ? 'selected' : ''}`}
-                        onClick={() => setYearForm({...yearForm, activeSemester: 1})}
-                    >
-                        S1
-                    </button>
-                    <button 
-                         className={`sem-btn ${(yearForm.activeSemester || 1) === 2 ? 'selected' : ''}`}
-                        onClick={() => setYearForm({...yearForm, activeSemester: 2})}
-                    >
-                        S2
-                    </button>
-                 </div>
+                <div className="semester-selector">
+                  <button
+                    className={`sem-btn ${(yearForm.activeSemester || 1) === 1 ? 'selected' : ''}`}
+                    onClick={() => setYearForm({ ...yearForm, activeSemester: 1 })}
+                  >
+                    S1
+                  </button>
+                  <button
+                    className={`sem-btn ${(yearForm.activeSemester || 1) === 2 ? 'selected' : ''}`}
+                    onClick={() => setYearForm({ ...yearForm, activeSemester: 2 })}
+                  >
+                    S2
+                  </button>
+                </div>
 
-                 <div className="edit-form-checkbox">
-                    <input 
-                        type="checkbox" 
-                        checked={yearForm.active} 
-                        onChange={e => setYearForm({...yearForm, active: e.target.checked})} 
-                        id="activeCheck"
-                    />
-                    <label htmlFor="activeCheck">Année active</label>
-                 </div>
+                <div className="edit-form-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={yearForm.active}
+                    onChange={e => setYearForm({ ...yearForm, active: e.target.checked })}
+                    id="activeCheck"
+                  />
+                  <label htmlFor="activeCheck">Année active</label>
+                </div>
 
-                 <button className="save-action-btn" onClick={saveYear}>
-                    <Save size={16} />
-                    Enregistrer
-                 </button>
+                <button className="save-action-btn" onClick={saveYear}>
+                  <Save size={16} />
+                  Enregistrer
+                </button>
               </div>
             )}
           </div>
@@ -543,278 +544,278 @@ export default function AdminResources() {
 
         {/* Column 2: Classes */}
         <div className={`column-card ${!selectedYear ? 'disabled' : ''}`}>
-           <div className="column-header">
+          <div className="column-header">
             <div className="column-header-title">
               <School className="column-icon purple" size={20} />
               <h3>Classes</h3>
             </div>
-             {selectedYear && <span className="header-count">{classes.length}</span>}
+            {selectedYear && <span className="header-count">{classes.length}</span>}
           </div>
 
           <div className="column-body">
-             {!selectedYear ? (
-                <div className="empty-placeholder">
-                    <ArrowRight size={48} className="placeholder-icon" />
-                    <p>Sélectionnez une année</p>
-                </div>
-             ) : (
-                <div className="classes-list-wrapper">
-                    {levels.filter(l => ['PS', 'MS', 'GS'].includes(l.name)).map(level => {
-                        const levelClasses = classes.filter(c => c.level === level.name).sort((a,b) => a.name.localeCompare(b.name))
-                         return (
-                            <div key={level._id} className="level-group">
-                                <div className="level-group-header">
-                                    <span className={`level-pill ${level.name.toLowerCase()}`}>{level.name}</span>
-                                    <div className="level-line"></div>
-                                    <button 
-                                        className="icon-action-btn" 
-                                        onClick={() => addSection(level.name)}
-                                        title="Ajouter une section"
-                                    >
-                                        <Plus size={16} />
-                                    </button>
-                                </div>
-                                
-                                <div className="sections-grid-new">
-                                    {levelClasses.map(c => {
-                                        const letter = c.name.replace(level.name, '').trim() || c.name
-                                        return (
-                                            <div 
-                                                key={c._id} 
-                                                className={`section-card ${selectedClassId === c._id ? 'selected' : ''} ${level.name.toLowerCase()}`}
-                                                onClick={() => selectClass(c._id)}
-                                            >
-                                                <span className="section-letter">{letter}</span>
-                                                {selectedClassId === c._id && (
-                                                     <button 
-                                                        className="delete-section-btn"
-                                                        onClick={(e) => deleteClass(e, c._id)}
-                                                    >
-                                                        <Trash2 size={12} />
-                                                    </button>
-                                                )}
-                                            </div>
-                                        )
-                                    })}
-                                    {levelClasses.length === 0 && <span className="empty-level-text">Aucune classe</span>}
-                                </div>
+            {!selectedYear ? (
+              <div className="empty-placeholder">
+                <ArrowRight size={48} className="placeholder-icon" />
+                <p>Sélectionnez une année</p>
+              </div>
+            ) : (
+              <div className="classes-list-wrapper">
+                {levels.filter(l => ['PS', 'MS', 'GS'].includes(l.name)).map(level => {
+                  const levelClasses = classes.filter(c => c.level === level.name).sort((a, b) => a.name.localeCompare(b.name))
+                  return (
+                    <div key={level._id} className="level-group">
+                      <div className="level-group-header">
+                        <span className={`level-pill ${level.name.toLowerCase()}`}>{level.name}</span>
+                        <div className="level-line"></div>
+                        <button
+                          className="icon-action-btn"
+                          onClick={() => addSection(level.name)}
+                          title="Ajouter une section"
+                        >
+                          <Plus size={16} />
+                        </button>
+                      </div>
+
+                      <div className="sections-grid-new">
+                        {levelClasses.map(c => {
+                          const letter = c.name.replace(level.name, '').trim() || c.name
+                          return (
+                            <div
+                              key={c._id}
+                              className={`section-card ${selectedClassId === c._id ? 'selected' : ''} ${level.name.toLowerCase()}`}
+                              onClick={() => selectClass(c._id)}
+                            >
+                              <span className="section-letter">{letter}</span>
+                              {selectedClassId === c._id && (
+                                <button
+                                  className="delete-section-btn"
+                                  onClick={(e) => deleteClass(e, c._id)}
+                                >
+                                  <Trash2 size={12} />
+                                </button>
+                              )}
                             </div>
-                         )
-                    })}
-                    
-                    <button className="import-action-btn" onClick={() => setShowImportModal(true)}>
-                        <Upload size={16} />
-                        <span>Importer CSV</span>
-                    </button>
-                </div>
-             )}
+                          )
+                        })}
+                        {levelClasses.length === 0 && <span className="empty-level-text">Aucune classe</span>}
+                      </div>
+                    </div>
+                  )
+                })}
+
+                <button className="import-action-btn" onClick={() => setShowImportModal(true)}>
+                  <Upload size={16} />
+                  <span>Importer CSV</span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
         {/* Column 3: Students */}
         <div className={`column-card ${!selectedClassId ? 'disabled' : ''}`}>
-             <div className="column-header">
-                <div className="column-header-title">
-                <GraduationCap className="column-icon green" size={20} />
-                <h3>Élèves</h3>
+          <div className="column-header">
+            <div className="column-header-title">
+              <GraduationCap className="column-icon green" size={20} />
+              <h3>Élèves</h3>
+            </div>
+            {selectedClass && <span className="header-count">{students.length}</span>}
+          </div>
+
+          <div className="column-body">
+            {!selectedClassId ? (
+              <div className="empty-placeholder">
+                <ArrowRight size={48} className="placeholder-icon" />
+                <p>Sélectionnez une classe</p>
+              </div>
+            ) : (
+              <div className="students-panel">
+                <div className="student-input-area">
+                  <div className="student-form-row">
+                    <input
+                      className="clean-input"
+                      placeholder="Prénom"
+                      value={firstName}
+                      onChange={e => setFirstName(e.target.value)}
+                    />
+                    <input
+                      className="clean-input"
+                      placeholder="Nom"
+                      value={lastName}
+                      onChange={e => setLastName(e.target.value)}
+                    />
+                  </div>
+
+                  {/* Class select only if creating new/editing */}
+                  {editingStudentId && (
+                    <select
+                      className="clean-select"
+                      value={targetClassId}
+                      onChange={e => setTargetClassId(e.target.value)}
+                    >
+                      {classes.sort((a, b) => a.name.localeCompare(b.name)).map(c => (
+                        <option key={c._id} value={c._id}>{c.name}</option>
+                      ))}
+                    </select>
+                  )}
+
+                  <div className="student-form-actions">
+                    <button
+                      className={`action-btn primary ${editingStudentId ? 'warning' : ''}`}
+                      onClick={saveStudent}
+                      disabled={!firstName.trim() || !lastName.trim()}
+                    >
+                      {editingStudentId ? <Save size={16} /> : <Plus size={16} />}
+                      <span>{editingStudentId ? 'Mettre à jour' : 'Ajouter'}</span>
+                    </button>
+                    {editingStudentId && (
+                      <button className="action-btn ghost" onClick={() => resetStudentForm()}>
+                        <X size={16} />
+                      </button>
+                    )}
+                  </div>
                 </div>
-                 {selectedClass && <span className="header-count">{students.length}</span>}
-            </div>
 
-            <div className="column-body">
-                {!selectedClassId ? (
-                     <div className="empty-placeholder">
-                        <ArrowRight size={48} className="placeholder-icon" />
-                        <p>Sélectionnez une classe</p>
+                <div className="search-bar">
+                  <Search size={16} className="search-icon" />
+                  <input
+                    placeholder="Rechercher un élève..."
+                    value={studentSearch}
+                    onChange={e => setStudentSearch(e.target.value)}
+                  />
+                </div>
+
+                <div className="students-list-new">
+                  {filteredStudents.map(s => (
+                    <div key={s._id} className="student-row">
+                      <div className="student-avatar-small">
+                        {getInitials(s.firstName, s.lastName)}
+                      </div>
+                      <div className="student-info-col">
+                        <span className="student-fullname">{s.firstName} {s.lastName}</span>
+                      </div>
+                      <div className="student-row-actions">
+                        <button onClick={() => startEditStudent(s)} className="icon-btn-row edit">
+                          <Edit2 size={14} />
+                        </button>
+                        <button onClick={() => deleteStudent(s._id)} className="icon-btn-row delete">
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
                     </div>
-                ) : (
-                    <div className="students-panel">
-                        <div className="student-input-area">
-                            <div className="student-form-row">
-                                <input 
-                                    className="clean-input" 
-                                    placeholder="Prénom" 
-                                    value={firstName} 
-                                    onChange={e => setFirstName(e.target.value)} 
-                                />
-                                <input 
-                                    className="clean-input" 
-                                    placeholder="Nom" 
-                                    value={lastName} 
-                                    onChange={e => setLastName(e.target.value)} 
-                                />
-                            </div>
-                            
-                            {/* Class select only if creating new/editing */}
-                            {editingStudentId && (
-                                <select
-                                    className="clean-select"
-                                    value={targetClassId}
-                                    onChange={e => setTargetClassId(e.target.value)}
-                                >
-                                    {classes.sort((a,b) => a.name.localeCompare(b.name)).map(c => (
-                                        <option key={c._id} value={c._id}>{c.name}</option>
-                                    ))}
-                                </select>
-                            )}
-
-                             <div className="student-form-actions">
-                                <button 
-                                    className={`action-btn primary ${editingStudentId ? 'warning' : ''}`}
-                                    onClick={saveStudent}
-                                    disabled={!firstName.trim() || !lastName.trim()}
-                                >
-                                    {editingStudentId ? <Save size={16} /> : <Plus size={16} />}
-                                    <span>{editingStudentId ? 'Mettre à jour' : 'Ajouter'}</span>
-                                </button>
-                                {editingStudentId && (
-                                    <button className="action-btn ghost" onClick={() => resetStudentForm()}>
-                                        <X size={16} />
-                                    </button>
-                                )}
-                            </div>
-                        </div>
-
-                        <div className="search-bar">
-                            <Search size={16} className="search-icon" />
-                            <input 
-                                placeholder="Rechercher un élève..." 
-                                value={studentSearch}
-                                onChange={e => setStudentSearch(e.target.value)}
-                            />
-                        </div>
-
-                        <div className="students-list-new">
-                            {filteredStudents.map(s => (
-                                <div key={s._id} className="student-row">
-                                    <div className="student-avatar-small">
-                                        {getInitials(s.firstName, s.lastName)}
-                                    </div>
-                                    <div className="student-info-col">
-                                        <span className="student-fullname">{s.firstName} {s.lastName}</span>
-                                    </div>
-                                    <div className="student-row-actions">
-                                        <button onClick={() => startEditStudent(s)} className="icon-btn-row edit">
-                                            <Edit2 size={14} />
-                                        </button>
-                                        <button onClick={() => deleteStudent(s._id)} className="icon-btn-row delete">
-                                            <Trash2 size={14} />
-                                        </button>
-                                    </div>
-                                </div>
-                            ))}
-                            {filteredStudents.length === 0 && (
-                                <div className="empty-list-msg">Aucun élève trouvé</div>
-                            )}
-                        </div>
-                    </div>
-                )}
-            </div>
+                  ))}
+                  {filteredStudents.length === 0 && (
+                    <div className="empty-list-msg">Aucun élève trouvé</div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
       {/* Unassigned Section */}
       {selectedYear && (
-          <div className="unassigned-panel">
-            <div className="unassigned-header-row">
-                <div className="unassigned-title">
-                    <AlertCircle className="unassign-icon" size={24} />
-                    <div>
-                        <h3>En attente d'affectation</h3>
-                        <p>{unassignedStudents.length} élèves à placer</p>
-                    </div>
-                </div>
-                <div className="unassigned-actions-row">
-                    <button className="secondary-action-btn" onClick={downloadUnassignedCsv}>
-                        <Download size={16} /> CSV
-                    </button>
-                    <button className="secondary-action-btn" onClick={() => setShowBulkAssignModal(true)}>
-                        <Upload size={16} /> Importer affectations
-                    </button>
-                </div>
+        <div className="unassigned-panel">
+          <div className="unassigned-header-row">
+            <div className="unassigned-title">
+              <AlertCircle className="unassign-icon" size={24} />
+              <div>
+                <h3>En attente d'affectation</h3>
+                <p>{unassignedStudents.length} élèves à placer</p>
+              </div>
             </div>
-            
-            {unassignedStudents.length > 0 ? (
-                <div className="unassigned-grid-layout">
-                    {/* Other Students */}
-                     {Object.entries(groupedOtherStudents).map(([groupName, groupStudents]) => (
-                        <div key={groupName} className="unassigned-card-group">
-                            <div className="group-header">
-                                <span className="group-name">{groupName}</span>
-                                <span className="group-badge">{groupStudents.length}</span>
-                            </div>
-                            <div className="group-list">
-                                {groupStudents.map(s => (
-                                    <div key={s._id} className="unassigned-item">
-                                        <span className="u-name">{s.firstName} {s.lastName}</span>
-                                        <select 
-                                            className="u-select"
-                                            onChange={(e) => {
-                                                if (e.target.value) assignSection(s._id, s.level || 'MS', e.target.value)
-                                            }}
-                                            defaultValue=""
-                                        >
-                                            <option value="" disabled>Section...</option>
-                                            {['A','B','C','D','E','F','G','H','I','J','K'].map(l => (
-                                                <option key={l} value={l}>{l}</option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                     ))}
-                     
-                     {/* Promoted Students */}
-                     {Object.entries(groupedPromotedStudents).map(([groupName, groupStudents]) => (
-                        <div key={groupName} className="unassigned-card-group promoted">
-                            <div className="group-header">
-                                <span className="group-name">{groupName}</span>
-                                <span className="group-badge promoted">{groupStudents.length}</span>
-                            </div>
-                            <div className="group-list">
-                                {groupStudents.map(s => (
-                                    <div key={s._id} className="unassigned-item">
-                                        <span className="u-name">{s.firstName} {s.lastName}</span>
-                                         <select 
-                                            className="u-select"
-                                            onChange={(e) => {
-                                                if (e.target.value) assignSection(s._id, s.level || 'MS', e.target.value)
-                                            }}
-                                            defaultValue=""
-                                        >
-                                            <option value="" disabled>Section...</option>
-                                            {['A','B','C','D','E','F','G','H','I','J','K'].map(l => (
-                                                <option key={l} value={l}>{l}</option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                     ))}
-                </div>
-            ) : (
-                <div className="all-clear-message">
-                    <Check size={48} className="success-icon" />
-                    <p>Tous les élèves sont affectés pour cette année !</p>
-                </div>
-            )}
+            <div className="unassigned-actions-row">
+              <button className="secondary-action-btn" onClick={downloadUnassignedCsv}>
+                <Download size={16} /> CSV
+              </button>
+              <button className="secondary-action-btn" onClick={() => setShowBulkAssignModal(true)}>
+                <Upload size={16} /> Importer affectations
+              </button>
+            </div>
           </div>
+
+          {unassignedStudents.length > 0 ? (
+            <div className="unassigned-grid-layout">
+              {/* Other Students */}
+              {Object.entries(groupedOtherStudents).map(([groupName, groupStudents]) => (
+                <div key={groupName} className="unassigned-card-group">
+                  <div className="group-header">
+                    <span className="group-name">{groupName}</span>
+                    <span className="group-badge">{groupStudents.length}</span>
+                  </div>
+                  <div className="group-list">
+                    {groupStudents.map(s => (
+                      <div key={s._id} className="unassigned-item">
+                        <span className="u-name">{s.firstName} {s.lastName}</span>
+                        <select
+                          className="u-select"
+                          onChange={(e) => {
+                            if (e.target.value) assignSection(s._id, s.level || 'MS', e.target.value)
+                          }}
+                          defaultValue=""
+                        >
+                          <option value="" disabled>Section...</option>
+                          {['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K'].map(l => (
+                            <option key={l} value={l}>{l}</option>
+                          ))}
+                        </select>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+
+              {/* Promoted Students */}
+              {Object.entries(groupedPromotedStudents).map(([groupName, groupStudents]) => (
+                <div key={groupName} className="unassigned-card-group promoted">
+                  <div className="group-header">
+                    <span className="group-name">{groupName}</span>
+                    <span className="group-badge promoted">{groupStudents.length}</span>
+                  </div>
+                  <div className="group-list">
+                    {groupStudents.map(s => (
+                      <div key={s._id} className="unassigned-item">
+                        <span className="u-name">{s.firstName} {s.lastName}</span>
+                        <select
+                          className="u-select"
+                          onChange={(e) => {
+                            if (e.target.value) assignSection(s._id, s.level || 'MS', e.target.value)
+                          }}
+                          defaultValue=""
+                        >
+                          <option value="" disabled>Section...</option>
+                          {['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K'].map(l => (
+                            <option key={l} value={l}>{l}</option>
+                          ))}
+                        </select>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="all-clear-message">
+              <Check size={48} className="success-icon" />
+              <p>Tous les élèves sont affectés pour cette année !</p>
+            </div>
+          )}
+        </div>
       )}
 
       {/* Modals */}
       {selectedYear && (
         <>
-          <ImportStudentsModal 
-            isOpen={showImportModal} 
-            onClose={() => setShowImportModal(false)} 
-            schoolYearId={selectedYear._id} 
+          <ImportStudentsModal
+            isOpen={showImportModal}
+            onClose={() => setShowImportModal(false)}
+            schoolYearId={selectedYear._id}
           />
-          <BulkAssignModal 
-            isOpen={showBulkAssignModal} 
-            onClose={() => setShowBulkAssignModal(false)} 
-            schoolYearId={selectedYear._id} 
+          <BulkAssignModal
+            isOpen={showBulkAssignModal}
+            onClose={() => setShowBulkAssignModal(false)}
+            schoolYearId={selectedYear._id}
             onSuccess={() => {
               loadUnassignedStudents(selectedYear._id)
               loadClasses(selectedYear._id)
@@ -849,11 +850,11 @@ function ImportStudentsModal({ isOpen, onClose, schoolYearId }: { isOpen: boolea
   const submit = async () => {
     setLoading(true)
     setReport(null)
-    
+
     let processedCsv = csv
     try {
       let lines = processedCsv.split(/\r?\n/).filter(l => l.trim().length > 0)
-      
+
       if (lines.length > 0) {
         const firstLine = lines[0].toLowerCase()
         if (!firstLine.includes('firstname') && !firstLine.includes('nom') && !firstLine.includes('prenom')) {
@@ -863,7 +864,7 @@ function ImportStudentsModal({ isOpen, onClose, schoolYearId }: { isOpen: boolea
 
       if (lines.length > 1) {
         let headers = lines[0].split(',').map(h => h.trim())
-        
+
         const dobIdx = headers.findIndex(h => h.toLowerCase().includes('date') || h.toLowerCase() === 'dob')
         if (dobIdx === -1) {
           headers.push('DateOfBirth')
@@ -876,7 +877,7 @@ function ImportStudentsModal({ isOpen, onClose, schoolYearId }: { isOpen: boolea
         const hasClassName = headers.some(h => h.toLowerCase() === 'classname')
         const levelIdx = headers.findIndex(h => h.toLowerCase() === 'level')
         const sectionIdx = headers.findIndex(h => h.toLowerCase() === 'section')
-        
+
         if (!hasClassName && levelIdx !== -1 && sectionIdx !== -1) {
           const newHeaders = [...headers, 'ClassName']
           const newRows = lines.slice(1).map(row => {
@@ -891,7 +892,7 @@ function ImportStudentsModal({ isOpen, onClose, schoolYearId }: { isOpen: boolea
           processedCsv = lines.join('\n')
         }
       }
-    } catch {}
+    } catch { }
 
     try {
       const r = await api.post('/import/students', { csv: processedCsv, schoolYearId, dryRun: false })
@@ -917,7 +918,7 @@ function ImportStudentsModal({ isOpen, onClose, schoolYearId }: { isOpen: boolea
         </div>
 
         <div className="modal-body">
-          <div 
+          <div
             className="file-upload-zone"
             onClick={() => document.getElementById('csv-upload')?.click()}
           >
@@ -926,15 +927,15 @@ function ImportStudentsModal({ isOpen, onClose, schoolYearId }: { isOpen: boolea
             <p className="file-upload-text">Cliquez pour sélectionner un fichier CSV</p>
             <p className="file-upload-hint">ou glissez-déposez le fichier ici</p>
           </div>
-          
-          <textarea 
+
+          <textarea
             className="csv-textarea"
-            value={csv} 
-            onChange={e => setCsv(e.target.value)} 
-            rows={8} 
+            value={csv}
+            onChange={e => setCsv(e.target.value)}
+            rows={8}
             placeholder="FirstName,LastName,level,section..."
           />
-          
+
           <div className="format-hint">
             <AlertCircle size={14} />
             Format attendu: <code>FirstName,LastName,level,section</code>
@@ -974,9 +975,9 @@ function ImportStudentsModal({ isOpen, onClose, schoolYearId }: { isOpen: boolea
 
         <div className="modal-footer">
           <button className="modal-btn secondary" onClick={onClose}>Fermer</button>
-          <button 
-            className="modal-btn primary" 
-            onClick={submit} 
+          <button
+            className="modal-btn primary"
+            onClick={submit}
             disabled={loading || !csv.trim()}
           >
             {loading ? 'Importation...' : 'Importer'}
@@ -1037,7 +1038,7 @@ function BulkAssignModal({ isOpen, onClose, schoolYearId, onSuccess }: { isOpen:
         </div>
 
         <div className="modal-body">
-          <div 
+          <div
             className="file-upload-zone"
             onClick={() => document.getElementById('bulk-csv-upload')?.click()}
           >
@@ -1046,15 +1047,15 @@ function BulkAssignModal({ isOpen, onClose, schoolYearId, onSuccess }: { isOpen:
             <p className="file-upload-text">Cliquez pour sélectionner un fichier CSV</p>
             <p className="file-upload-hint">ou glissez-déposez le fichier ici</p>
           </div>
-          
-          <textarea 
+
+          <textarea
             className="csv-textarea"
-            value={csv} 
-            onChange={e => setCsv(e.target.value)} 
-            rows={8} 
+            value={csv}
+            onChange={e => setCsv(e.target.value)}
+            rows={8}
             placeholder="StudentId,FirstName,LastName,PreviousClass,TargetLevel,NextClass..."
           />
-          
+
           <div className="format-hint">
             <AlertCircle size={14} />
             Colonnes requises: <code>StudentId, NextClass</code>
@@ -1086,9 +1087,9 @@ function BulkAssignModal({ isOpen, onClose, schoolYearId, onSuccess }: { isOpen:
 
         <div className="modal-footer">
           <button className="modal-btn secondary" onClick={onClose}>Fermer</button>
-          <button 
-            className="modal-btn primary" 
-            onClick={submit} 
+          <button
+            className="modal-btn primary"
+            onClick={submit}
             disabled={loading || !csv.trim()}
           >
             {loading ? 'Traitement...' : 'Lancer l\'affectation'}

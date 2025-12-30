@@ -18,6 +18,7 @@ type SchoolYearContextType = {
   setActiveYearId: (id: string) => void
   activeYear: SchoolYear | undefined
   isLoading: boolean
+  refetchYears: () => Promise<void>
 }
 
 const SchoolYearContext = createContext<SchoolYearContextType | undefined>(undefined)
@@ -27,6 +28,34 @@ export function SchoolYearProvider({ children }: { children: ReactNode }) {
   const [activeYearId, setActiveYearId] = useState<string>('')
   const [isLoading, setIsLoading] = useState(true)
   const location = useLocation()
+
+  const loadYears = async (forceUpdateActiveId = false) => {
+    try {
+      const res = await api.get('/school-years')
+      const list = res.data
+      setYears(list)
+
+      // If forceUpdateActiveId is true, or if there's no current activeYearId,
+      // set it to the active year from DB
+      if (forceUpdateActiveId || !activeYearId) {
+        const active = list.find((y: SchoolYear) => y.active)
+        if (active) {
+          setActiveYearId(active._id)
+        } else if (list.length > 0 && !activeYearId) {
+          setActiveYearId(list[0]._id)
+        }
+      }
+    } catch (e) {
+      console.error('Failed to load school years', e)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const refetchYears = async () => {
+    // Force update to sync with DB active year
+    await loadYears(true)
+  }
 
   useEffect(() => {
     const token = localStorage.getItem('token')
@@ -39,32 +68,13 @@ export function SchoolYearProvider({ children }: { children: ReactNode }) {
 
     if (years.length > 0) return
 
-    const loadYears = async () => {
-      try {
-        const res = await api.get('/school-years')
-        const list = res.data
-        setYears(list)
-        
-        // Default to the active year from DB, or the first one
-        const active = list.find((y: SchoolYear) => y.active)
-        if (active) {
-          setActiveYearId(active._id)
-        } else if (list.length > 0) {
-          setActiveYearId(list[0]._id)
-        }
-      } catch (e) {
-        console.error('Failed to load school years', e)
-      } finally {
-        setIsLoading(false)
-      }
-    }
-    loadYears()
+    loadYears(false)
   }, [location.pathname, years.length])
 
   const activeYear = years.find(y => y._id === activeYearId)
 
   return (
-    <SchoolYearContext.Provider value={{ years, activeYearId, setActiveYearId, activeYear, isLoading }}>
+    <SchoolYearContext.Provider value={{ years, activeYearId, setActiveYearId, activeYear, isLoading, refetchYears }}>
       {children}
     </SchoolYearContext.Provider>
   )
