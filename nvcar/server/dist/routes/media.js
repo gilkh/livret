@@ -93,6 +93,37 @@ exports.mediaRouter.post('/convert-emf', (0, auth_1.requireAuth)(['ADMIN', 'SUBA
     fs_1.default.writeFileSync(savePath, out, { encoding: null });
     res.json({ url: `/uploads/media/${filename}` });
 });
+// Helper function to find similar students using Levenshtein distance
+function levenshteinDistance(a, b) {
+    const matrix = [];
+    for (let i = 0; i <= b.length; i++)
+        matrix[i] = [i];
+    for (let j = 0; j <= a.length; j++)
+        matrix[0][j] = j;
+    for (let i = 1; i <= b.length; i++) {
+        for (let j = 1; j <= a.length; j++) {
+            matrix[i][j] = b.charAt(i - 1) === a.charAt(j - 1)
+                ? matrix[i - 1][j - 1]
+                : Math.min(matrix[i - 1][j - 1] + 1, matrix[i][j - 1] + 1, matrix[i - 1][j] + 1);
+        }
+    }
+    return matrix[b.length][a.length];
+}
+function findSimilarStudents(searchName, students, maxResults = 3) {
+    const searchLower = searchName.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+    const scored = students.map(s => {
+        const fullName = `${s.firstName} ${s.lastName}`.toLowerCase();
+        const reverseName = `${s.lastName} ${s.firstName}`.toLowerCase();
+        const dist1 = levenshteinDistance(searchLower, fullName);
+        const dist2 = levenshteinDistance(searchLower, reverseName);
+        return { student: s, distance: Math.min(dist1, dist2) };
+    });
+    return scored
+        .filter(s => s.distance <= Math.max(5, searchLower.length * 0.4)) // Allow ~40% difference
+        .sort((a, b) => a.distance - b.distance)
+        .slice(0, maxResults)
+        .map(s => ({ _id: s.student._id, name: `${s.student.firstName} ${s.student.lastName}`, distance: s.distance }));
+}
 exports.mediaRouter.post('/import-photos', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN']), upload.single('file'), async (req, res) => {
     if (!req.file)
         return res.status(400).json({ error: 'no_file' });
@@ -154,7 +185,9 @@ exports.mediaRouter.post('/import-photos', (0, auth_1.requireAuth)(['ADMIN', 'SU
             }
             else {
                 failed++;
-                report.push({ filename, status: 'no_match' });
+                // Find similar students for manual assignment
+                const similarStudents = findSimilarStudents(baseName, students);
+                report.push({ filename, status: 'no_match', similarStudents });
             }
         }
         // Cleanup zip file

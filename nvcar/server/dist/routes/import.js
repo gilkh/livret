@@ -7,6 +7,7 @@ const Class_1 = require("../models/Class");
 const Student_1 = require("../models/Student");
 const Enrollment_1 = require("../models/Enrollment");
 const CsvImportJob_1 = require("../models/CsvImportJob");
+const SchoolYear_1 = require("../models/SchoolYear");
 const sync_1 = require("csv-parse/sync");
 const templateUtils_1 = require("../utils/templateUtils");
 const transactionUtils_1 = require("../utils/transactionUtils");
@@ -16,6 +17,14 @@ exports.importRouter.post('/students', (0, auth_1.requireAuth)(['ADMIN', 'SUBADM
     if (!csv || !schoolYearId)
         return res.status(400).json({ error: 'missing_payload' });
     const records = (0, sync_1.parse)(csv, { columns: true, skip_empty_lines: true, trim: true });
+    // Get the join year from the school year
+    let joinYear = new Date().getFullYear().toString();
+    const schoolYear = await SchoolYear_1.SchoolYear.findById(schoolYearId).lean();
+    if (schoolYear && schoolYear.name) {
+        const match = schoolYear.name.match(/(\d{4})/);
+        if (match)
+            joinYear = match[1];
+    }
     // For dry run, just validate without transaction
     if (dryRun) {
         let added = 0, updated = 0, errorCount = 0;
@@ -27,8 +36,11 @@ exports.importRouter.post('/students', (0, auth_1.requireAuth)(['ADMIN', 'SUBADM
                 const lastName = col('lastName', 'LastName');
                 const dob = new Date(col('dateOfBirth', 'DateOfBirth'));
                 const className = col('className', 'ClassName');
-                const key = `${firstName.toLowerCase()}_${lastName.toLowerCase()}_${dob.toISOString().slice(0, 10)}`;
-                const existing = await Student_1.Student.findOne({ logicalKey: key });
+                // Check for existing student by name pattern (any year)
+                const baseKeyPattern = `${firstName.toLowerCase()}_${lastName.toLowerCase()}_`;
+                const existing = await Student_1.Student.findOne({
+                    logicalKey: { $regex: `^${baseKeyPattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}` }
+                });
                 if (existing) {
                     updated += 1;
                     report.push({ status: 'would_update', studentId: String(existing._id) });
@@ -60,14 +72,27 @@ exports.importRouter.post('/students', (0, auth_1.requireAuth)(['ADMIN', 'SUBADM
                 const className = col('className', 'ClassName');
                 const parentName = col('parentName', 'ParentName');
                 const parentPhone = col('parentPhone', 'ParentPhone');
-                const key = `${firstName.toLowerCase()}_${lastName.toLowerCase()}_${dob.toISOString().slice(0, 10)}`;
-                const existing = await Student_1.Student.findOne({ logicalKey: key }).session(session);
+                // Check for existing student by name pattern (any year)
+                const baseKeyPattern = `${firstName.toLowerCase()}_${lastName.toLowerCase()}_`;
+                const existing = await Student_1.Student.findOne({
+                    logicalKey: { $regex: `^${baseKeyPattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}` }
+                }).session(session);
                 let student;
                 if (existing) {
                     student = await Student_1.Student.findByIdAndUpdate(existing._id, { firstName, lastName, dateOfBirth: dob, parentName, parentPhone }, { new: true, session });
                     updated += 1;
                 }
                 else {
+                    // Generate logicalKey as firstName_lastName_yearJoined with suffix for duplicates
+                    const baseKey = `${firstName.toLowerCase()}_${lastName.toLowerCase()}_${joinYear}`;
+                    let key = baseKey;
+                    let suffix = 1;
+                    let keyExists = await Student_1.Student.findOne({ logicalKey: key }).session(session);
+                    while (keyExists) {
+                        suffix++;
+                        key = `${baseKey}_${suffix}`;
+                        keyExists = await Student_1.Student.findOne({ logicalKey: key }).session(session);
+                    }
                     const created = await Student_1.Student.create([{
                             logicalKey: key,
                             firstName,

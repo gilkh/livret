@@ -472,6 +472,7 @@ subAdminAssignmentsRouter.get('/', requireAuth(['ADMIN']), async (req, res) => {
 subAdminAssignmentsRouter.get('/teacher-progress-detailed', requireAuth(['SUBADMIN', 'AEFE']), async (req, res) => {
     try {
         const subAdminId = (req as any).user.userId
+        const { schoolYearId } = req.query
 
         // Get assigned levels
         const scope = await RoleScope.findOne({ userId: subAdminId }).lean()
@@ -481,8 +482,14 @@ subAdminAssignmentsRouter.get('/teacher-progress-detailed', requireAuth(['SUBADM
 
         const levels = scope.levels
 
-        // Get active school year
-        const activeYear = await SchoolYear.findOne({ active: true }).lean()
+        // Get school year - use provided schoolYearId or fall back to active year
+        let activeYear
+        if (schoolYearId && typeof schoolYearId === 'string') {
+            activeYear = await SchoolYear.findById(schoolYearId).lean()
+        }
+        if (!activeYear) {
+            activeYear = await SchoolYear.findOne({ active: true }).lean()
+        }
         if (!activeYear) {
             return res.status(400).json({ error: 'no_active_year' })
         }
@@ -691,6 +698,7 @@ subAdminAssignmentsRouter.get('/teacher-progress-detailed', requireAuth(['SUBADM
 subAdminAssignmentsRouter.get('/teacher-progress', requireAuth(['SUBADMIN', 'AEFE']), async (req, res) => {
     try {
         const subAdminId = (req as any).user.userId
+        const { schoolYearId } = req.query
 
         // Get assigned levels
         const scope = await RoleScope.findOne({ userId: subAdminId }).lean()
@@ -700,8 +708,14 @@ subAdminAssignmentsRouter.get('/teacher-progress', requireAuth(['SUBADMIN', 'AEF
 
         const levels = scope.levels
 
-        // Get active school year
-        const activeYear = await SchoolYear.findOne({ active: true }).lean()
+        // Get school year - use provided schoolYearId or fall back to active year
+        let activeYear
+        if (schoolYearId && typeof schoolYearId === 'string') {
+            activeYear = await SchoolYear.findById(schoolYearId).lean()
+        }
+        if (!activeYear) {
+            activeYear = await SchoolYear.findOne({ active: true }).lean()
+        }
         if (!activeYear) {
             return res.status(400).json({ error: 'no_active_year' })
         }

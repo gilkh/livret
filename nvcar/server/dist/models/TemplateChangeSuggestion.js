@@ -4,7 +4,7 @@ exports.TemplateChangeSuggestion = void 0;
 const mongoose_1 = require("mongoose");
 const templateChangeSuggestionSchema = new mongoose_1.Schema({
     subAdminId: { type: String, required: true },
-    type: { type: String, enum: ['template_edit', 'semester_request'], default: 'template_edit' },
+    type: { type: String, enum: ['template_edit', 'semester_request', 'next_year_request'], default: 'template_edit' },
     templateId: { type: String },
     templateVersion: { type: Number },
     pageIndex: { type: Number },

@@ -43,7 +43,7 @@ process.on('uncaughtException', (error) => {
 process.on('unhandledRejection', (reason, promise) => {
     console.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });
-const port = process.env.PORT ? Number(process.env.PORT) : 4000;
+const port = process.env.PORT ? Number(process.env.PORT) : 443;
 const app = (0, app_1.createApp)();
 try {
     // Look for certs in ../certs relative to project root (server folder)

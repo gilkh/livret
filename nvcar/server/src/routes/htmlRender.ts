@@ -6,6 +6,46 @@ import { requireAuth } from '../auth'
 
 export const htmlRenderRouter = Router()
 
+// Helper function to compute next school year name
+function computeNextSchoolYearName(year: string | undefined): string {
+  if (!year) return ''
+  const m = year.match(/(\d{4})\s*([/\-])\s*(\d{4})/)
+  if (!m) return ''
+  const start = parseInt(m[1], 10)
+  const sep = m[2]
+  const end = parseInt(m[3], 10)
+  if (Number.isNaN(start) || Number.isNaN(end)) return ''
+  return `${start + 1}${sep}${end + 1}`
+}
+
+// Helper function to get the promotion year label (next year)
+function getPromotionYearLabel(promo: any, assignmentData: any, blockLevel: string | null): string {
+  const year = String(promo?.year || '')
+  if (year) {
+    const next = computeNextSchoolYearName(year)
+    if (next) return next
+  }
+
+  if (!year) return ''
+
+  const history = assignmentData?.signatures || []
+  const level = String(promo?.from || blockLevel || '')
+  const endSig = Array.isArray(history)
+    ? history
+        .filter((s: any) => (s?.type === 'end_of_year') && s?.schoolYearName)
+        .find((s: any) => {
+          if (!level) return true
+          if (s?.level) return String(s.level) === level
+          return false
+        })
+    : null
+
+  if (endSig?.schoolYearName) return String(endSig.schoolYearName)
+
+  const next = computeNextSchoolYearName(year)
+  return next || year
+}
+
 // HTML template for rendering the carnet
 htmlRenderRouter.get('/carnet/:assignmentId', requireAuth(['ADMIN','SUBADMIN','TEACHER']), async (req, res) => {
   try {
@@ -162,19 +202,20 @@ function renderBlock(block: any, student: any, assignmentData: any): string {
       const promotions = assignmentData.promotions || []
       const promo = promotions.find((p: any) => p.to === targetLevel)
       if (promo) {
+        const yearLabel = getPromotionYearLabel(promo, assignmentData, null)
         if (!props.field) {
           return `<div class="block" style="${style}">
             <div class="promotion-box" style="width: ${props.width || 300}px; height: ${props.height || 100}px; font-size: ${props.fontSize || 12}px; color: ${props.color || '#2d3436'};">
               <div style="font-weight: bold; margin-bottom: 8px;">Passage en ${targetLevel}</div>
               <div>${student.firstName} ${student.lastName}</div>
-              <div style="font-size: ${(props.fontSize || 12) * 0.8}px; color: #666; margin-top: 8px;">Année ${promo.year}</div>
+              <div style="font-size: ${(props.fontSize || 12) * 0.8}px; color: #666; margin-top: 8px;">Année ${yearLabel}</div>
             </div>
           </div>`
         } else {
           let content = ''
           if (props.field === 'level') content = `Passage en ${targetLevel}`
           else if (props.field === 'student') content = `${student.firstName} ${student.lastName}`
-          else if (props.field === 'year') content = `Année ${promo.year}`
+          else if (props.field === 'year') content = `Année ${yearLabel}`
           return `<div class="block" style="${style} width: ${props.width || 150}px; height: ${props.height || 30}px; font-size: ${props.fontSize || 12}px; color: ${props.color || '#2d3436'}; display: flex; align-items: center; justify-content: center; text-align: center;">${content}</div>`
         }
       }

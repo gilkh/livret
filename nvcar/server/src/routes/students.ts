@@ -395,17 +395,36 @@ studentsRouter.post('/', requireAuth(['ADMIN', 'SUBADMIN']), async (req, res) =>
   const { firstName, lastName, dateOfBirth, parentName, parentPhone, classId } = req.body
   if (!firstName || !lastName || !classId) return res.status(400).json({ error: 'missing_payload' })
   const dob = dateOfBirth ? new Date(dateOfBirth) : new Date('2000-01-01')
-  const key = `${String(firstName).toLowerCase()}_${String(lastName).toLowerCase()}_${dob.toISOString().slice(0, 10)}`
-  const existing = await Student.findOne({ logicalKey: key })
-  let student
-  if (existing) {
-    student = await Student.findByIdAndUpdate(existing._id, { firstName, lastName, dateOfBirth: dob, parentName, parentPhone }, { new: true })
-  } else {
-    student = await Student.create({ logicalKey: key, firstName, lastName, dateOfBirth: dob, parentName, parentPhone })
+  
+  // Get the school year from the class to determine the join year
+  const clsDoc = await ClassModel.findById(classId).lean()
+  let joinYear = new Date().getFullYear().toString()
+  if (clsDoc && clsDoc.schoolYearId) {
+    const schoolYear = await SchoolYear.findById(clsDoc.schoolYearId).lean()
+    if (schoolYear && schoolYear.name) {
+      // Extract first year from format like "2024/2025" or "2024-2025"
+      const match = schoolYear.name.match(/(\d{4})/)
+      if (match) joinYear = match[1]
+    }
   }
+  
+  // Generate logicalKey as firstName_lastName_yearJoined
+  const baseKey = `${String(firstName).toLowerCase()}_${String(lastName).toLowerCase()}_${joinYear}`
+  
+  // Check for duplicates and add suffix if needed
+  let key = baseKey
+  let suffix = 1
+  let existing = await Student.findOne({ logicalKey: key })
+  while (existing) {
+    suffix++
+    key = `${baseKey}_${suffix}`
+    existing = await Student.findOne({ logicalKey: key })
+  }
+  
+  const student = await Student.create({ logicalKey: key, firstName, lastName, dateOfBirth: dob, parentName, parentPhone })
+  
   const existsEnroll = await Enrollment.findOne({ studentId: String(student!._id), classId })
   if (!existsEnroll) {
-    const clsDoc = await ClassModel.findById(classId).lean()
     await Enrollment.create({ studentId: String(student!._id), classId, schoolYearId: clsDoc ? clsDoc.schoolYearId : '' })
     if (clsDoc && clsDoc.level) {
       await checkAndAssignTemplates(String(student!._id), clsDoc.level, clsDoc.schoolYearId, classId, (req as any).user.userId)

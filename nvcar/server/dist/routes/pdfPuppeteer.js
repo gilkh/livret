@@ -72,31 +72,14 @@ const getTokenFromReq = (req) => {
     return '';
 };
 const resolveFrontendUrl = () => {
-    let frontendUrl = process.env.FRONTEND_URL || 'https://localhost:5173';
-    try {
-        const u = new URL(frontendUrl);
-        if (u.hostname === 'localhost' && u.port === '5173' && u.protocol === 'http:') {
-            u.protocol = 'https:';
-            frontendUrl = u.toString().replace(/\/$/, '');
-        }
+    // Use custom domain if available, otherwise localhost on default HTTPS port (443)
+    // Since we changed vite config to port 443, we should not include :5173
+    let frontendUrl = process.env.FRONTEND_URL || 'https://livret.champville.com';
+    // Fallback logic in case environment variable is missing but we want to be safe
+    if (!process.env.FRONTEND_URL) {
+        // If running locally without domain setup, fallback to localhost
+        // frontendUrl = 'https://localhost' 
     }
-    catch { }
-    try {
-        const u = new URL(frontendUrl);
-        if (u.hostname === 'localhost' && u.port === '5173' && u.protocol === 'http:') {
-            u.protocol = 'https:';
-            frontendUrl = u.toString().replace(/\/$/, '');
-        }
-    }
-    catch { }
-    try {
-        const u = new URL(frontendUrl);
-        if (u.hostname === 'localhost' && u.port === '5173' && u.protocol === 'http:') {
-            u.protocol = 'https:';
-            frontendUrl = u.toString().replace(/\/$/, '');
-        }
-    }
-    catch { }
     return frontendUrl;
 };
 const generatePdfBufferFromPrintUrl = async (printUrl, token, frontendUrl) => {

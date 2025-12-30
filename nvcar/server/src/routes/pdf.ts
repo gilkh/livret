@@ -18,6 +18,46 @@ import { requireAuth } from '../auth'
 
 export const pdfRouter = Router()
 
+// Helper function to compute next school year name
+function computeNextSchoolYearName(year: string | undefined): string {
+  if (!year) return ''
+  const m = year.match(/(\d{4})\s*([/\-])\s*(\d{4})/)
+  if (!m) return ''
+  const start = parseInt(m[1], 10)
+  const sep = m[2]
+  const end = parseInt(m[3], 10)
+  if (Number.isNaN(start) || Number.isNaN(end)) return ''
+  return `${start + 1}${sep}${end + 1}`
+}
+
+// Helper function to get the promotion year label (next year)
+function getPromotionYearLabel(promo: any, assignmentData: any): string {
+  const year = String(promo?.year || '')
+  if (year) {
+    const next = computeNextSchoolYearName(year)
+    if (next) return next
+  }
+
+  if (!year) return ''
+
+  const history = assignmentData?.signatures || []
+  const level = String(promo?.from || '')
+  const endSig = Array.isArray(history)
+    ? history
+        .filter((s: any) => (s?.type === 'end_of_year') && s?.schoolYearName)
+        .find((s: any) => {
+          if (!level) return true
+          if (s?.level) return String(s.level) === level
+          return false
+        })
+    : null
+
+  if (endSig?.schoolYearName) return String(endSig.schoolYearName)
+
+  const next = computeNextSchoolYearName(year)
+  return next || year
+}
+
 const imgCache = new Map<string, Buffer>()
 const fetchImage = async (url: string) => {
   if (imgCache.has(url)) return imgCache.get(url)
@@ -610,6 +650,7 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), asy
         const promo = promotions.find((p: any) => p.to === targetLevel)
 
         if (promo) {
+          const yearLabel = getPromotionYearLabel(promo, assignmentData)
           const x = px(b.props?.x || 50)
           const y = py(b.props?.y || 50)
           const width = sx(b.props?.width || (b.props?.field ? 150 : 300))
@@ -629,7 +670,7 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), asy
             doc.font('Helvetica').text(`${student.firstName} ${student.lastName}`, textX, textY, { width: width - 20, align: 'center' })
             textY += 20
             doc.fontSize((b.props?.fontSize || 12) * 0.8).fillColor('#666')
-            doc.text(`Année ${promo.year}`, textX, textY, { width: width - 20, align: 'center' })
+            doc.text(`Année ${yearLabel}`, textX, textY, { width: width - 20, align: 'center' })
           } else {
             // Specific field
             if (b.props.field === 'level') {
@@ -637,7 +678,7 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), asy
             } else if (b.props.field === 'student') {
               doc.font('Helvetica').text(`${student.firstName} ${student.lastName}`, x, y + (height / 2) - 6, { width, align: 'center' })
             } else if (b.props.field === 'year') {
-              doc.text(`Année ${promo.year}`, x, y + (height / 2) - 6, { width, align: 'center' })
+              doc.text(`Année ${yearLabel}`, x, y + (height / 2) - 6, { width, align: 'center' })
             }
           }
 

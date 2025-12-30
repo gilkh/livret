@@ -49,6 +49,58 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
         return ''
     }
 
+    const getBlockLevel = (b: Block) => {
+        if (b.props.level) return b.props.level
+        const label = (b.props.label || '').toUpperCase()
+        if (/\bTPS\b/.test(label)) return 'TPS'
+        if (/\bPS\b/.test(label)) return 'PS'
+        if (/\bMS\b/.test(label)) return 'MS'
+        if (/\bGS\b/.test(label)) return 'GS'
+        if (/\bEB1\b/.test(label)) return 'EB1'
+        if (/\bKG1\b/.test(label)) return 'KG1'
+        if (/\bKG2\b/.test(label)) return 'KG2'
+        if (/\bKG3\b/.test(label)) return 'KG3'
+        return null
+    }
+
+    const computeNextSchoolYearName = (year: string | undefined) => {
+        if (!year) return ''
+        const m = year.match(/(\d{4})\s*([/\-])\s*(\d{4})/)
+        if (!m) return ''
+        const start = parseInt(m[1], 10)
+        const sep = m[2]
+        const end = parseInt(m[3], 10)
+        if (Number.isNaN(start) || Number.isNaN(end)) return ''
+        return `${start + 1}${sep}${end + 1}`
+    }
+
+    const getPromotionYearLabel = (promo: any, blockLevel: string | null) => {
+        const year = String(promo?.year || '')
+        if (year) {
+            const next = computeNextSchoolYearName(year)
+            if (next) return next
+        }
+
+        if (!year) return ''
+
+        const history = assignment?.data?.signatures || []
+        const level = String(promo?.from || blockLevel || '')
+        const endSig = Array.isArray(history)
+            ? history
+                .filter((s: any) => (s?.type === 'end_of_year') && s?.schoolYearName)
+                .find((s: any) => {
+                    if (!level) return true
+                    if (s?.level) return String(s.level) === level
+                    return false
+                })
+            : null
+
+        if (endSig?.schoolYearName) return String(endSig.schoolYearName)
+
+        const next = computeNextSchoolYearName(year)
+        return next || year
+    }
+
     useEffect(() => {
         // Initialize as not ready
         // @ts-ignore
@@ -634,38 +686,115 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                     textAlign: 'center'
                                 }}>
                                     {(() => {
-                                        const targetLevel = b.props.targetLevel || getNextLevel(student?.level || '')
                                         const promotions = assignment?.data?.promotions || []
-                                        let promoData = promotions.find((p: any) => p.to === targetLevel)
-                                        let promo = promoData ? { ...promoData } : null
-                                        
+                                        const blockLevel = getBlockLevel(b)
+                                        const explicitTarget = b.props.targetLevel as string | undefined
+
+                                        if (b.props.field === 'student') return <div>{student?.firstName} {student?.lastName}</div>
+                                        if (b.props.field === 'studentFirstName') return <div>{student?.firstName}</div>
+                                        if (b.props.field === 'studentLastName') return <div>{student?.lastName}</div>
+                                        if (b.props.field === 'currentLevel') return <div>{student?.level}</div>
+
+                                        let promo: any = null
+
+                                        // Strategy 1: Match by explicit target level
+                                        if (explicitTarget) {
+                                            promo = promotions.find((p: any) => p.to === explicitTarget)
+                                        }
+
+                                        // Strategy 2: Match by block level (from)
+                                        if (!promo && blockLevel) {
+                                            promo = promotions.find((p: any) => p.from === blockLevel)
+                                        }
+
+                                        // Strategy 3: If only one promotion exists and no specific target/level
+                                        if (!promo && !explicitTarget && !blockLevel) {
+                                            if (promotions.length === 1) {
+                                                promo = { ...(promotions[0] as any) }
+                                            }
+                                        }
+
+                                        // Strategy 4: Try to find from signature history
+                                        if (!promo && blockLevel) {
+                                            const history = assignment?.data?.signatures || []
+                                            const isMidYearBlock = b.props.period === 'mid-year'
+                                            const wantEndOfYear = b.props.period === 'end-year'
+                                            const candidates = history.filter((sig: any) => {
+                                                if (wantEndOfYear) {
+                                                    if (sig.type !== 'end_of_year') return false
+                                                } else if (isMidYearBlock) {
+                                                    if (sig.type && sig.type !== 'standard') return false
+                                                }
+                                                if (sig.level && sig.level !== blockLevel) return false
+                                                return true
+                                            }).sort((a: any, b: any) => {
+                                                const ad = new Date(a.signedAt || 0).getTime()
+                                                const bd = new Date(b.signedAt || 0).getTime()
+                                                return bd - ad
+                                            })
+
+                                            const sig = candidates[0]
+                                            if (sig) {
+                                                let yearLabel = sig.schoolYearName as string | undefined
+                                                if (!yearLabel && sig.signedAt) {
+                                                    const d = new Date(sig.signedAt)
+                                                    const y = d.getFullYear()
+                                                    const m = d.getMonth()
+                                                    const startYear = m >= 8 ? y : y - 1
+                                                    yearLabel = `${startYear}/${startYear + 1}`
+                                                }
+                                                if (!yearLabel) {
+                                                    const currentYear = new Date().getFullYear()
+                                                    const month = new Date().getMonth()
+                                                    const startYear = month >= 8 ? currentYear : currentYear - 1
+                                                    yearLabel = `${startYear}/${startYear + 1}`
+                                                }
+
+                                                const baseLevel = blockLevel
+                                                const target = explicitTarget || getNextLevel(baseLevel || '') || ''
+
+                                                promo = {
+                                                    year: yearLabel,
+                                                    from: baseLevel,
+                                                    to: target || '?',
+                                                    class: student?.className || ''
+                                                }
+                                            }
+                                        }
+
+                                        // Strategy 5: Fallback - create prediction based on current date
                                         if (!promo) {
                                             const currentYear = new Date().getFullYear()
                                             const month = new Date().getMonth()
                                             const startYear = month >= 8 ? currentYear : currentYear - 1
-                                            
-                                            const isMidYearContext = b.props.period === 'mid-year'
-                                            const displayYear = isMidYearContext ? `${startYear}/${startYear + 1}` : `${startYear + 1}/${startYear + 2}`
+                                            const displayYear = `${startYear}/${startYear + 1}`
+
+                                            const baseLevel = blockLevel || student?.level || ''
+                                            const targetLevel = explicitTarget || getNextLevel(baseLevel) || '?'
 
                                             promo = {
                                                 year: displayYear,
-                                                from: student?.level || '',
-                                                to: targetLevel || '?',
+                                                from: baseLevel,
+                                                to: targetLevel,
                                                 class: student?.className || ''
                                             }
                                         } else {
                                             // Enrich existing promo with current data if missing
                                             if (!promo.class && student?.className) promo.class = student.className
-                                            if (!promo.from && student?.level) promo.from = student.level
+                                            if (!promo.from) {
+                                                if (blockLevel) promo.from = blockLevel
+                                                else if (student?.level) promo.from = student.level
+                                            }
                                         }
 
                                         if (promo) {
+                                            const yearLabel = getPromotionYearLabel(promo, blockLevel)
                                             if (!b.props.field) {
                                                 return (
                                                     <>
                                                         <div style={{ fontWeight: 'bold', marginBottom: 8 }}>Passage en {promo.to}</div>
                                                         <div>{student?.firstName} {student?.lastName}</div>
-                                                        <div style={{ fontSize: (b.props.fontSize || 12) * 0.8, color: '#666', marginTop: 8 }}>Année {promo.year}</div>
+                                                        <div style={{ fontSize: (b.props.fontSize || 12) * 0.8, color: '#666', marginTop: 8 }}>Année {yearLabel}</div>
                                                     </>
                                                 )
                                             } else if (b.props.field === 'level') {
@@ -677,7 +806,7 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                             } else if (b.props.field === 'studentLastName') {
                                                 return <div>{student?.lastName}</div>
                                             } else if (b.props.field === 'year') {
-                                                return <div>{promo.year}</div>
+                                                return <div>{yearLabel}</div>
                                             } else if (b.props.field === 'class') {
                                                 const raw = promo.class || ''
                                                 const parts = raw.split(/\s*[-\s]\s*/)

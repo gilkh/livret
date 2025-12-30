@@ -149,17 +149,29 @@ export default function FileDropZone({
                         <div style={{ background: '#f8fafc', padding: '12px 16px', borderBottom: '1px solid #e2e8f0', fontSize: 13, fontWeight: 600, color: '#475569' }}>
                           Détails des fichiers
                         </div>
-                        <div style={{ maxHeight: 200, overflowY: 'auto', background: '#fff' }}>
+                        <div style={{ maxHeight: 300, overflowY: 'auto', background: '#fff' }}>
                             {importReport.report.map((r: any, i: number) => (
-                                <div key={i} style={{ padding: '10px 16px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13 }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                      <FileArchive size={14} color="#94a3b8" />
-                                      <span style={{ color: '#334155' }}>{r.filename}</span>
+                                <div key={i} style={{ padding: '10px 16px', borderBottom: '1px solid #f1f5f9', fontSize: 13 }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                        <FileArchive size={14} color="#94a3b8" />
+                                        <span style={{ color: '#334155' }}>{r.filename}</span>
+                                      </div>
+                                      {r.status === 'matched' ? (
+                                        <span className="pill green" style={{ fontSize: 11, padding: '2px 8px' }}>✓ {r.student}</span>
+                                      ) : (
+                                        <span className="pill red" style={{ fontSize: 11, padding: '2px 8px' }}>Introuvable</span>
+                                      )}
                                     </div>
-                                    {r.status === 'matched' ? (
-                                      <span className="pill green" style={{ fontSize: 11, padding: '2px 8px' }}>Succès</span>
-                                    ) : (
-                                      <span className="pill red" style={{ fontSize: 11, padding: '2px 8px' }}>Introuvable</span>
+                                    {r.status === 'no_match' && r.similarStudents && r.similarStudents.length > 0 && (
+                                      <div style={{ marginTop: 8, marginLeft: 24, padding: '8px 12px', background: '#fef3c7', borderRadius: 6, fontSize: 12 }}>
+                                        <div style={{ color: '#92400e', fontWeight: 500, marginBottom: 4 }}>Élèves similaires :</div>
+                                        {r.similarStudents.map((s: any, j: number) => (
+                                          <div key={j} style={{ color: '#78350f', padding: '2px 0' }}>
+                                            • {s.name}
+                                          </div>
+                                        ))}
+                                      </div>
                                     )}
                                 </div>
                             ))}

@@ -277,6 +277,7 @@ export default function TeacherTemplateEditor() {
     const getBlockLevel = (b: Block) => {
         if (b.props.level) return b.props.level
         const label = (b.props.label || '').toUpperCase()
+        if (/\bTPS\b/.test(label)) return 'TPS'
         if (/\bPS\b/.test(label)) return 'PS'
         if (/\bMS\b/.test(label)) return 'MS'
         if (/\bGS\b/.test(label)) return 'GS'
@@ -285,6 +286,47 @@ export default function TeacherTemplateEditor() {
         if (/\bKG2\b/.test(label)) return 'KG2'
         if (/\bKG3\b/.test(label)) return 'KG3'
         return null
+    }
+
+    const computeNextSchoolYearName = (year: string | undefined) => {
+        if (!year) return ''
+        const m = year.match(/(\d{4})\s*([/\-])\s*(\d{4})/)
+        if (!m) return ''
+        const start = parseInt(m[1], 10)
+        const sep = m[2]
+        const end = parseInt(m[3], 10)
+        if (Number.isNaN(start) || Number.isNaN(end)) return ''
+        return `${start + 1}${sep}${end + 1}`
+    }
+
+    const getPromotionYearLabel = (promo: any, blockLevel: string | null) => {
+        const year = String(promo?.year || '')
+        if (year) {
+            const next = computeNextSchoolYearName(year)
+            if (next) return next
+        }
+
+        const nextFromActive = computeNextSchoolYearName(activeYear?.name)
+        if (nextFromActive) return nextFromActive
+
+        if (!year) return ''
+
+        const history = assignment?.data?.signatures || []
+        const level = String(promo?.from || blockLevel || '')
+        const endSig = Array.isArray(history)
+            ? history
+                .filter((s: any) => (s?.type === 'end_of_year') && s?.schoolYearName)
+                .find((s: any) => {
+                    if (!level) return true
+                    if (s?.level) return String(s.level) === level
+                    return false
+                })
+            : null
+
+        if (endSig?.schoolYearName) return String(endSig.schoolYearName)
+
+        const next = computeNextSchoolYearName(year)
+        return next || year
     }
 
     if (loading) return <div className="container"><div className="card"><div className="note">Chargement...</div></div></div>
@@ -1250,12 +1292,35 @@ export default function TeacherTemplateEditor() {
                                                                 if (next !== b.props.targetLevel) return null
                                                             }
 
-                                                            const targetLevel = b.props.targetLevel || getNextLevel(student?.level || '')
                                                             const promotions = assignment?.data?.promotions || []
-                                                            let promoData = promotions.find((p: any) => p.to === targetLevel)
-                                                            let promo = promoData ? { ...promoData } : null
+                                                            const blockLevel = getBlockLevel(b)
+                                                            const explicitTarget = b.props.targetLevel as string | undefined
 
-                                                            // Fallback: If no promo record, show predictive info
+                                                            if (b.props.field === 'student') return <div>{student?.firstName} {student?.lastName}</div>
+                                                            if (b.props.field === 'studentFirstName') return <div>{student?.firstName}</div>
+                                                            if (b.props.field === 'studentLastName') return <div>{student?.lastName}</div>
+                                                            if (b.props.field === 'currentLevel') return <div>{student?.level}</div>
+
+                                                            let promo: any = null
+
+                                                            // Strategy 1: Match by explicit target level
+                                                            if (explicitTarget) {
+                                                                promo = promotions.find((p: any) => p.to === explicitTarget)
+                                                            }
+
+                                                            // Strategy 2: Match by block level (from)
+                                                            if (!promo && blockLevel) {
+                                                                promo = promotions.find((p: any) => p.from === blockLevel)
+                                                            }
+
+                                                            // Strategy 3: If only one promotion exists and no specific target/level
+                                                            if (!promo && !explicitTarget && !blockLevel) {
+                                                                if (promotions.length === 1) {
+                                                                    promo = { ...(promotions[0] as any) }
+                                                                }
+                                                            }
+
+                                                            // Strategy 4: Fallback - create prediction based on active year
                                                             if (!promo) {
                                                                 let startYear;
                                                                 if (activeYear && activeYear.name) {
@@ -1271,28 +1336,33 @@ export default function TeacherTemplateEditor() {
                                                                     startYear = month >= 8 ? currentYear : currentYear - 1
                                                                 }
 
-                                                                // Assume end-year context if not specified, or show both
-                                                                const displayYear = `${startYear + 1}/${startYear + 2}`
+                                                                const displayYear = `${startYear}/${startYear + 1}`
+                                                                const baseLevel = blockLevel || student?.level || ''
+                                                                const targetLevel = explicitTarget || getNextLevel(baseLevel) || '?'
 
                                                                 promo = {
                                                                     year: displayYear,
-                                                                    from: student?.level || '',
-                                                                    to: targetLevel || '?',
+                                                                    from: baseLevel,
+                                                                    to: targetLevel,
                                                                     class: student?.className || ''
                                                                 }
                                                             } else {
                                                                 // Enrich existing promo with current data if missing
                                                                 if (!promo.class && student?.className) promo.class = student.className
-                                                                if (!promo.from && student?.level) promo.from = student.level
+                                                                if (!promo.from) {
+                                                                    if (blockLevel) promo.from = blockLevel
+                                                                    else if (student?.level) promo.from = student.level
+                                                                }
                                                             }
 
                                                             if (promo) {
+                                                                const yearLabel = getPromotionYearLabel(promo, blockLevel)
                                                                 if (!b.props.field) {
                                                                     return (
                                                                         <>
                                                                             <div style={{ fontWeight: 'bold', marginBottom: 8 }}>Passage en {promo.to}</div>
                                                                             <div>{student?.firstName} {student?.lastName}</div>
-                                                                            <div style={{ fontSize: (b.props.fontSize || 12) * 0.8, color: '#666', marginTop: 8 }}>Année {promo.year}</div>
+                                                                            <div style={{ fontSize: (b.props.fontSize || 12) * 0.8, color: '#666', marginTop: 8 }}>Année {yearLabel}</div>
                                                                         </>
                                                                     )
                                                                 } else if (b.props.field === 'level') {
@@ -1304,7 +1374,7 @@ export default function TeacherTemplateEditor() {
                                                                 } else if (b.props.field === 'studentLastName') {
                                                                     return <div>{student?.lastName}</div>
                                                                 } else if (b.props.field === 'year') {
-                                                                    return <div>{promo.year}</div>
+                                                                    return <div>{yearLabel}</div>
                                                                 } else if (b.props.field === 'class') {
                                                                     const raw = promo.class || ''
                                                                     const parts = raw.split(/\s*[-\s]\s*/)

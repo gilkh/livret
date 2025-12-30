@@ -4,6 +4,7 @@ import { ClassModel } from '../models/Class'
 import { Student } from '../models/Student'
 import { Enrollment } from '../models/Enrollment'
 import { CsvImportJob } from '../models/CsvImportJob'
+import { SchoolYear } from '../models/SchoolYear'
 import { parse } from 'csv-parse/sync'
 import { checkAndAssignTemplates } from '../utils/templateUtils'
 import { withTransaction } from '../utils/transactionUtils'
@@ -14,6 +15,14 @@ importRouter.post('/students', requireAuth(['ADMIN','SUBADMIN']), async (req, re
   const { csv, schoolYearId, dryRun, mapping } = req.body
   if (!csv || !schoolYearId) return res.status(400).json({ error: 'missing_payload' })
   const records = parse(csv, { columns: true, skip_empty_lines: true, trim: true })
+  
+  // Get the join year from the school year
+  let joinYear = new Date().getFullYear().toString()
+  const schoolYear = await SchoolYear.findById(schoolYearId).lean()
+  if (schoolYear && schoolYear.name) {
+    const match = schoolYear.name.match(/(\d{4})/)
+    if (match) joinYear = match[1]
+  }
   
   // For dry run, just validate without transaction
   if (dryRun) {
@@ -27,8 +36,12 @@ importRouter.post('/students', requireAuth(['ADMIN','SUBADMIN']), async (req, re
         const lastName = col('lastName','LastName')
         const dob = new Date(col('dateOfBirth','DateOfBirth'))
         const className = col('className','ClassName')
-        const key = `${firstName.toLowerCase()}_${lastName.toLowerCase()}_${dob.toISOString().slice(0,10)}`
-        const existing = await Student.findOne({ logicalKey: key })
+        
+        // Check for existing student by name pattern (any year)
+        const baseKeyPattern = `${firstName.toLowerCase()}_${lastName.toLowerCase()}_`
+        const existing = await Student.findOne({ 
+          logicalKey: { $regex: `^${baseKeyPattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}` }
+        })
         
         if (existing) {
           updated += 1
@@ -62,9 +75,13 @@ importRouter.post('/students', requireAuth(['ADMIN','SUBADMIN']), async (req, re
         const className = col('className','ClassName')
         const parentName = col('parentName','ParentName')
         const parentPhone = col('parentPhone','ParentPhone')
-        const key = `${firstName.toLowerCase()}_${lastName.toLowerCase()}_${dob.toISOString().slice(0,10)}`
         
-        const existing = await Student.findOne({ logicalKey: key }).session(session)
+        // Check for existing student by name pattern (any year)
+        const baseKeyPattern = `${firstName.toLowerCase()}_${lastName.toLowerCase()}_`
+        const existing = await Student.findOne({ 
+          logicalKey: { $regex: `^${baseKeyPattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}` }
+        }).session(session)
+        
         let student
         
         if (existing) {
@@ -75,6 +92,17 @@ importRouter.post('/students', requireAuth(['ADMIN','SUBADMIN']), async (req, re
           )
           updated += 1
         } else {
+          // Generate logicalKey as firstName_lastName_yearJoined with suffix for duplicates
+          const baseKey = `${firstName.toLowerCase()}_${lastName.toLowerCase()}_${joinYear}`
+          let key = baseKey
+          let suffix = 1
+          let keyExists = await Student.findOne({ logicalKey: key }).session(session)
+          while (keyExists) {
+            suffix++
+            key = `${baseKey}_${suffix}`
+            keyExists = await Student.findOne({ logicalKey: key }).session(session)
+          }
+          
           const created = await Student.create([{ 
             logicalKey: key, 
             firstName, 

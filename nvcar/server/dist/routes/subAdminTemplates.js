@@ -1449,7 +1449,8 @@ exports.subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', (
                             return !ta.isProfPolyvalent;
                         return langs.some((v) => v === 'en' || v.includes('anglais') || v.includes('english'));
                     }
-                    return ta.isProfPolyvalent;
+                    // Polyvalent: teachers explicitly marked as such OR teachers with no languages (and not explicitly polyvalent)
+                    return ta.isProfPolyvalent || (langs.length === 0 && !ta.isProfPolyvalent);
                 })
                     .map((ta) => String(ta.teacherId));
                 if (responsible.length === 0)
@@ -1517,7 +1518,7 @@ exports.subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', (
         const isResponsibleTeacherFor = (ta, category) => {
             const langs = (ta.languages || []).map((x) => String(x || '').toLowerCase());
             if (category === 'poly')
-                return ta.isProfPolyvalent || langs.length === 0;
+                return ta.isProfPolyvalent || (langs.length === 0 && !ta.isProfPolyvalent);
             if (langs.length === 0)
                 return !ta.isProfPolyvalent;
             if (category === 'ar')

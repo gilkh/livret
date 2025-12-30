@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import api from '../api'
+import { useSchoolYear } from '../context/SchoolYearContext'
 import { 
     BarChart, 
     Bar, 
@@ -235,16 +236,18 @@ export default function SubAdminTeacherProgress() {
     const [detailedClasses, setDetailedClasses] = useState<ClassDetailedProgress[]>([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState('')
+    const { activeYearId } = useSchoolYear()
 
     useEffect(() => {
         const loadData = async () => {
+            if (!activeYearId) return
             try {
                 setLoading(true)
                 if (viewMode === 'summary') {
-                    const res = await api.get('/subadmin-assignments/teacher-progress')
+                    const res = await api.get(`/subadmin-assignments/teacher-progress?schoolYearId=${activeYearId}`)
                     setClasses(res.data)
                 } else {
-                    const res = await api.get('/subadmin-assignments/teacher-progress-detailed')
+                    const res = await api.get(`/subadmin-assignments/teacher-progress-detailed?schoolYearId=${activeYearId}`)
                     setDetailedClasses(res.data)
                 }
             } catch (e: any) {
@@ -255,7 +258,7 @@ export default function SubAdminTeacherProgress() {
             }
         }
         loadData()
-    }, [viewMode])
+    }, [viewMode, activeYearId])
 
     const groupedByLevel = classes.reduce((acc, cls) => {
         if (!acc[cls.level]) acc[cls.level] = []

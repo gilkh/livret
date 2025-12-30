@@ -55,13 +55,24 @@ exports.subAdminAssignmentsRouter.get('/progress', (0, auth_1.requireAuth)(['SUB
         if (studentIds.length === 0) {
             return res.json([]);
         }
-        // Find completed assignments (Carnet Done) for active school year
+        // Find assignments considered completed for active school year.
+        // Some legacy flows may set `status: 'completed'` or `teacherCompletions.completed` without setting `isCompleted`.
         const completedAssignments = await TemplateAssignment_1.TemplateAssignment.find({
             studentId: { $in: studentIds },
-            isCompleted: true,
             $or: [
-                { completionSchoolYearId: String(activeYear._id) },
-                { completionSchoolYearId: { $exists: false }, assignedAt: { $gte: new Date(activeYear.startDate) } }
+                { isCompleted: true },
+                { isCompletedSem1: true },
+                { isCompletedSem2: true },
+                { status: 'completed' },
+                { 'teacherCompletions.completed': true }
+            ],
+            $and: [
+                {
+                    $or: [
+                        { completionSchoolYearId: String(activeYear._id) },
+                        { completionSchoolYearId: { $exists: false }, assignedAt: { $gte: new Date(activeYear.startDate) } }
+                    ]
+                }
             ]
         }).lean();
         const completedStudentIds = new Set(completedAssignments.map(a => a.studentId));
@@ -389,14 +400,21 @@ exports.subAdminAssignmentsRouter.get('/', (0, auth_1.requireAuth)(['ADMIN']), a
 exports.subAdminAssignmentsRouter.get('/teacher-progress-detailed', (0, auth_1.requireAuth)(['SUBADMIN', 'AEFE']), async (req, res) => {
     try {
         const subAdminId = req.user.userId;
+        const { schoolYearId } = req.query;
         // Get assigned levels
         const scope = await RoleScope_1.RoleScope.findOne({ userId: subAdminId }).lean();
         if (!scope || !scope.levels || scope.levels.length === 0) {
             return res.json([]);
         }
         const levels = scope.levels;
-        // Get active school year
-        const activeYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
+        // Get school year - use provided schoolYearId or fall back to active year
+        let activeYear;
+        if (schoolYearId && typeof schoolYearId === 'string') {
+            activeYear = await SchoolYear_1.SchoolYear.findById(schoolYearId).lean();
+        }
+        if (!activeYear) {
+            activeYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
+        }
         if (!activeYear) {
             return res.status(400).json({ error: 'no_active_year' });
         }
@@ -505,24 +523,26 @@ exports.subAdminAssignmentsRouter.get('/teacher-progress-detailed', (0, auth_1.r
                                             .filter((ta) => {
                                             const langs = (ta.languages || []).map((tl) => tl.toLowerCase());
                                             if (isArabic) {
+                                                // Polyvalent teachers with empty languages are NOT responsible for Arabic
                                                 if (langs.length === 0)
                                                     return !ta.isProfPolyvalent;
                                                 return langs.some((v) => v === 'ar' || v === 'lb' || v.includes('arabe') || v.includes('arabic') || v.includes('العربية'));
                                             }
                                             if (isEnglish) {
+                                                // Polyvalent teachers with empty languages are NOT responsible for English
                                                 if (langs.length === 0)
                                                     return !ta.isProfPolyvalent;
                                                 return langs.some((v) => v === 'en' || v === 'uk' || v === 'gb' || v.includes('anglais') || v.includes('english'));
                                             }
                                             // Polyvalent: include teachers who are explicitly polyvalent OR assigned to all languages (empty languages)
-                                            return ta.isProfPolyvalent || langs.length === 0;
+                                            return ta.isProfPolyvalent || (langs.length === 0 && !ta.isProfPolyvalent);
                                         })
-                                            .map((ta) => ta.teacherId);
+                                            .map((ta) => String(ta.teacherId));
                                         if (responsibleTeachers.length === 0) {
                                             const assignedTeacherIds = (assignment.assignedTeachers || []).map((id) => String(id));
                                             responsibleTeachers = assignedTeacherIds;
                                         }
-                                        return responsibleTeachers.some((tid) => teacherCompletions.some((tc) => String(tc.teacherId) === String(tid) && tc.completed));
+                                        return responsibleTeachers.some((tid) => teacherCompletions.some((tc) => String(tc.teacherId) === String(tid) && (tc.completed || tc.completedSem1 || tc.completedSem2)));
                                     };
                                     const completed = isActive || isCategoryCompleted();
                                     if (code === 'ar' || code === 'lb' || lang.includes('arabe') || lang.includes('arabic') || lang.includes('العربية')) {
@@ -577,14 +597,21 @@ exports.subAdminAssignmentsRouter.get('/teacher-progress-detailed', (0, auth_1.r
 exports.subAdminAssignmentsRouter.get('/teacher-progress', (0, auth_1.requireAuth)(['SUBADMIN', 'AEFE']), async (req, res) => {
     try {
         const subAdminId = req.user.userId;
+        const { schoolYearId } = req.query;
         // Get assigned levels
         const scope = await RoleScope_1.RoleScope.findOne({ userId: subAdminId }).lean();
         if (!scope || !scope.levels || scope.levels.length === 0) {
             return res.json([]);
         }
         const levels = scope.levels;
-        // Get active school year
-        const activeYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
+        // Get school year - use provided schoolYearId or fall back to active year
+        let activeYear;
+        if (schoolYearId && typeof schoolYearId === 'string') {
+            activeYear = await SchoolYear_1.SchoolYear.findById(schoolYearId).lean();
+        }
+        if (!activeYear) {
+            activeYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
+        }
         if (!activeYear) {
             return res.status(400).json({ error: 'no_active_year' });
         }
@@ -667,26 +694,27 @@ exports.subAdminAssignmentsRouter.get('/teacher-progress', (0, auth_1.requireAut
                         .filter((ta) => {
                         const langs = (ta.languages || []).map((tl) => tl.toLowerCase());
                         if (isArabic) {
-                            // Empty languages means all special languages are allowed ONLY if not polyvalent
+                            // Polyvalent teachers with empty languages are NOT responsible for Arabic
                             if (langs.length === 0)
                                 return !ta.isProfPolyvalent;
                             return langs.some((v) => v === 'ar' || v === 'lb' || v.includes('arabe') || v.includes('arabic') || v.includes('العربية'));
                         }
                         if (isEnglish) {
+                            // Polyvalent teachers with empty languages are NOT responsible for English
                             if (langs.length === 0)
                                 return !ta.isProfPolyvalent;
                             return langs.some((v) => v === 'en' || v === 'uk' || v === 'gb' || v.includes('anglais') || v.includes('english'));
                         }
                         // Polyvalent: include teachers who are explicitly polyvalent OR assigned to all languages (empty languages)
-                        return ta.isProfPolyvalent || langs.length === 0;
+                        return ta.isProfPolyvalent || (langs.length === 0 && !ta.isProfPolyvalent);
                     })
-                        .map((ta) => ta.teacherId);
+                        .map((ta) => String(ta.teacherId));
                     // Fallback: if none found via class assignments, use assignment-level teachers
                     if (responsibleTeachers.length === 0) {
                         const assignedTeacherIds = (assignment.assignedTeachers || []).map((id) => String(id));
                         responsibleTeachers = assignedTeacherIds;
                     }
-                    return responsibleTeachers.some((tid) => teacherCompletions.some((tc) => String(tc.teacherId) === String(tid) && tc.completed));
+                    return responsibleTeachers.some((tid) => teacherCompletions.some((tc) => String(tc.teacherId) === String(tid) && (tc.completed || tc.completedSem1 || tc.completedSem2)));
                 };
                 template.pages.forEach((page, pageIdx) => {
                     (page.blocks || []).forEach((block, blockIdx) => {
@@ -752,17 +780,19 @@ exports.subAdminAssignmentsRouter.get('/teacher-progress', (0, auth_1.requireAut
                                         const isEnglish = code === 'en' || code === 'uk' || code === 'gb' || l.includes('anglais') || l.includes('english');
                                         const langs = (ta.languages || []).map((tl) => tl.toLowerCase());
                                         if (isArabic) {
+                                            // Polyvalent teachers with empty languages are NOT responsible for Arabic
                                             if (langs.length === 0)
                                                 return !ta.isProfPolyvalent;
                                             return langs.some((v) => v === 'ar' || v === 'lb' || v.includes('arabe') || v.includes('arabic'));
                                         }
                                         if (isEnglish) {
+                                            // Polyvalent teachers with empty languages are NOT responsible for English
                                             if (langs.length === 0)
                                                 return !ta.isProfPolyvalent;
                                             return langs.some((v) => v === 'en' || v === 'uk' || v === 'gb' || v.includes('anglais') || v.includes('english'));
                                         }
-                                        // Default/Polyvalent
-                                        return ta.isProfPolyvalent;
+                                        // Default/Polyvalent: include teachers who are explicitly polyvalent OR assigned to all languages (empty languages)
+                                        return ta.isProfPolyvalent || (langs.length === 0 && !ta.isProfPolyvalent);
                                     })
                                         .map((ta) => teacherMap.get(ta.teacherId)?.displayName || 'Unknown');
                                     categoryStats[lang] = { total: 0, filled: 0, name: lang, teachers: assignedTeachers };
