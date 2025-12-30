@@ -29,10 +29,10 @@ echo   Starting NVCAR Application...
 echo ========================================
 echo.
 
-:: Kill any existing processes on port 4000 (Server)
-echo [1/6] Checking for processes on port 4000...
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr :4000 ^| findstr LISTENING') do (
-    echo       Killing process %%a on port 4000
+:: Kill any existing processes on port 443 (Server HTTPS)
+echo [1/6] Checking for processes on port 443...
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr :443 ^| findstr LISTENING') do (
+    echo       Killing process %%a on port 443
     taskkill /F /PID %%a >nul 2>&1
 )
 
@@ -43,12 +43,7 @@ for /f "tokens=5" %%a in ('netstat -ano ^| findstr :5173 ^| findstr LISTENING') 
     taskkill /F /PID %%a >nul 2>&1
 )
 
-:: Kill any existing processes on port 443 (Client HTTPS)
-echo [3/6] Checking for processes on port 443...
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr :443 ^| findstr LISTENING') do (
-    echo       Killing process %%a on port 443
-    taskkill /F /PID %%a >nul 2>&1
-)
+:: (Port 443 handled above for Server)
 
 echo.
 echo Ports cleared.
@@ -106,7 +101,7 @@ if %ATTEMPT% gtr %MAX_ATTEMPTS% (
 timeout /t 2 /nobreak >nul
 
 :: Check if server is responding using PowerShell
-powershell -NoProfile -Command "try { $null = Invoke-WebRequest -Uri 'https://localhost:4000/settings/public' -UseBasicParsing -TimeoutSec 2 -SkipCertificateCheck; exit 0 } catch { exit 1 }" >nul 2>&1
+powershell -NoProfile -Command "try { $null = Invoke-WebRequest -Uri 'https://localhost:443/settings/public' -UseBasicParsing -TimeoutSec 2 -SkipCertificateCheck; exit 0 } catch { exit 1 }" >nul 2>&1
 if %ERRORLEVEL% equ 0 (
     echo       Server is ready! (took ~%ATTEMPT%x2 seconds)
     goto start_client
@@ -136,7 +131,7 @@ echo ========================================
 echo   Network Access Information
 echo ========================================
 for /f %%i in ('powershell -NoProfile -Command "(Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' }).IPAddress"') do (
-  echo   Server: https://%%i:4000
+  echo   Server: https://%%i:443
   echo   Client: https://%%i
 )
 echo.
