@@ -2,25 +2,37 @@ import { useEffect, useState } from 'react'
 import api, { impersonationApi } from '../api'
 import Modal from '../components/Modal'
 import Toast, { ToastType } from '../components/Toast'
-import { 
-  Mail, 
-  Trash2, 
-  Key, 
-  LogIn, 
-  Calendar, 
-  Shield, 
+import {
+  Mail,
+  Trash2,
+  Key,
+  LogIn,
+  Calendar,
+  Shield,
   Plus,
   Users as UsersIcon,
   Copy,
   MoreVertical,
   Check,
   Search,
-  UserPlus
+  UserPlus,
+  RotateCcw,
+  Archive,
+  UserX
 } from 'lucide-react'
 import './Users.css'
 
-type User = { _id: string; email: string; role: 'ADMIN'|'SUBADMIN'|'TEACHER'|'AEFE'; displayName: string }
-type OutlookUser = { _id: string; email: string; role: 'ADMIN'|'SUBADMIN'|'TEACHER'|'AEFE'; displayName?: string; lastLogin?: string }
+type User = {
+  _id: string;
+  email: string;
+  role: 'ADMIN' | 'SUBADMIN' | 'TEACHER' | 'AEFE';
+  displayName: string;
+  status?: 'active' | 'inactive' | 'deleted';
+  deletedAt?: string;
+  authProvider?: 'local' | 'microsoft';
+  isOutlook?: boolean;
+}
+type OutlookUser = { _id: string; email: string; role: 'ADMIN' | 'SUBADMIN' | 'TEACHER' | 'AEFE'; displayName?: string; lastLogin?: string }
 
 const getInitials = (name: string) => {
   return name
@@ -32,14 +44,14 @@ const getInitials = (name: string) => {
 }
 
 // Helper component for Local User Card
-const UserCard = ({ 
-  user, 
-  roleStyle, 
-  onUpdateName, 
-  onDelete, 
-  onResetPassword, 
-  onImpersonate, 
-  impersonatingId 
+const UserCard = ({
+  user,
+  roleStyle,
+  onUpdateName,
+  onDelete,
+  onResetPassword,
+  onImpersonate,
+  impersonatingId
 }: {
   user: User,
   roleStyle: any,
@@ -85,17 +97,17 @@ const UserCard = ({
   return (
     <div className="user-card">
       <div className="user-card-top" style={{ background: `linear-gradient(135deg, ${roleStyle.bg}, #ffffff)` }}>
-         <div className="user-avatar" style={{ backgroundColor: roleStyle.color }}>
-            {getInitials(name || user.email)}
-         </div>
-         <div className="user-role-badge" style={{ color: roleStyle.color, borderColor: roleStyle.border }}>
-           {user.role}
-         </div>
+        <div className="user-avatar" style={{ backgroundColor: roleStyle.color }}>
+          {getInitials(name || user.email)}
+        </div>
+        <div className="user-role-badge" style={{ color: roleStyle.color, borderColor: roleStyle.border }}>
+          {user.role}
+        </div>
       </div>
-      
+
       <div className="user-card-content">
         <div className="user-identity">
-           <input
+          <input
             className="user-name-input"
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -105,24 +117,24 @@ const UserCard = ({
             title="Cliquez pour modifier"
           />
           <div className="user-email-row" onClick={copyEmail} title="Copier l'email">
-             <Mail size={14} />
-             <span className="user-email-text">{user.email}</span>
-             {copied ? <Check size={14} color="#10B981" /> : <Copy size={14} className="copy-icon" />}
+            <Mail size={14} />
+            <span className="user-email-text">{user.email}</span>
+            {copied ? <Check size={14} color="#10B981" /> : <Copy size={14} className="copy-icon" />}
           </div>
         </div>
 
         <div className="user-actions-area">
           <div className="password-reset-group">
             <Key size={16} className="input-icon" />
-            <input 
+            <input
               className="reset-input"
-              placeholder="Nouveau mot de passe" 
-              type="password" 
-              value={password} 
-              onChange={e => setPassword(e.target.value)} 
+              placeholder="Nouveau mot de passe"
+              type="password"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
             />
             {password && (
-              <button 
+              <button
                 className="btn-icon-action primary"
                 onClick={handleReset}
                 title="Valider le nouveau mot de passe"
@@ -134,7 +146,7 @@ const UserCard = ({
 
           <div className="card-buttons">
             {user.role !== 'ADMIN' && (
-              <button 
+              <button
                 className={`btn-action ${impersonatingId === user._id ? 'active' : ''}`}
                 onClick={() => onImpersonate(user)}
                 disabled={impersonatingId === user._id}
@@ -143,8 +155,8 @@ const UserCard = ({
                 <LogIn size={16} />
               </button>
             )}
-            
-            <button 
+
+            <button
               className="btn-action danger"
               onClick={() => onDelete(user._id)}
               title="Supprimer"
@@ -159,11 +171,11 @@ const UserCard = ({
 }
 
 // Helper component for Outlook User Card
-const OutlookUserCard = ({ 
-  user, 
-  roleStyle, 
-  onUpdateName, 
-  onDelete, 
+const OutlookUserCard = ({
+  user,
+  roleStyle,
+  onUpdateName,
+  onDelete,
   onUpdateRole
 }: {
   user: OutlookUser,
@@ -194,17 +206,17 @@ const OutlookUserCard = ({
   return (
     <div className="user-card outlook-card">
       <div className="user-card-top" style={{ background: `linear-gradient(135deg, #f0f7ff, #ffffff)` }}>
-         <div className="user-avatar" style={{ backgroundColor: '#0078d4' }}>
-            {getInitials(name || user.email)}
-         </div>
-         <div className="microsoft-badge">
-            <img src="https://upload.wikimedia.org/wikipedia/commons/4/44/Microsoft_logo.svg" alt="Microsoft" style={{ width: 16, height: 16 }} />
-         </div>
+        <div className="user-avatar" style={{ backgroundColor: '#0078d4' }}>
+          {getInitials(name || user.email)}
+        </div>
+        <div className="microsoft-badge">
+          <img src="https://upload.wikimedia.org/wikipedia/commons/4/44/Microsoft_logo.svg" alt="Microsoft" style={{ width: 16, height: 16 }} />
+        </div>
       </div>
 
       <div className="user-card-content">
         <div className="user-identity">
-           <input
+          <input
             className="user-name-input"
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -213,38 +225,38 @@ const OutlookUserCard = ({
             placeholder="Nom d'affichage"
           />
           <div className="user-email-row" onClick={copyEmail} title="Copier l'email">
-             <Mail size={14} />
-             <span className="user-email-text">{user.email}</span>
-             {copied ? <Check size={14} color="#10B981" /> : <Copy size={14} className="copy-icon" />}
+            <Mail size={14} />
+            <span className="user-email-text">{user.email}</span>
+            {copied ? <Check size={14} color="#10B981" /> : <Copy size={14} className="copy-icon" />}
           </div>
           {user.lastLogin && (
-             <div className="last-login">
-                <Calendar size={14} />
-                Dernière connexion: {new Date(user.lastLogin).toLocaleDateString('fr-FR')}
-             </div>
+            <div className="last-login">
+              <Calendar size={14} />
+              Dernière connexion: {new Date(user.lastLogin).toLocaleDateString('fr-FR')}
+            </div>
           )}
         </div>
 
         <div className="user-actions-area">
-           <select 
-             className="role-select"
-             value={user.role}
-             onChange={e => onUpdateRole(user._id, e.target.value)}
-             style={{ color: roleStyle.color, borderColor: roleStyle.border }}
-           >
-             <option value="TEACHER">Enseignant</option>
-             <option value="SUBADMIN">Préfet</option>
-             <option value="AEFE">RPP ET DIRECTION</option>
-             <option value="ADMIN">Admin</option>
-           </select>
-           
-           <button 
-              className="btn-action danger" 
-              onClick={() => onDelete(user._id)}
-              title="Supprimer"
-           >
-              <Trash2 size={16} />
-           </button>
+          <select
+            className="role-select"
+            value={user.role}
+            onChange={e => onUpdateRole(user._id, e.target.value)}
+            style={{ color: roleStyle.color, borderColor: roleStyle.border }}
+          >
+            <option value="TEACHER">Enseignant</option>
+            <option value="SUBADMIN">Préfet</option>
+            <option value="AEFE">RPP ET DIRECTION</option>
+            <option value="ADMIN">Admin</option>
+          </select>
+
+          <button
+            className="btn-action danger"
+            onClick={() => onDelete(user._id)}
+            title="Supprimer"
+          >
+            <Trash2 size={16} />
+          </button>
         </div>
       </div>
     </div>
@@ -253,40 +265,41 @@ const OutlookUserCard = ({
 
 export default function Users() {
   const [users, setUsers] = useState<User[]>([])
+  const [deletedUsers, setDeletedUsers] = useState<User[]>([])
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [role, setRole] = useState<'ADMIN'|'SUBADMIN'|'TEACHER'|'AEFE'>('TEACHER')
+  const [role, setRole] = useState<'ADMIN' | 'SUBADMIN' | 'TEACHER' | 'AEFE'>('TEACHER')
   const [displayName, setDisplayName] = useState('')
   const [impersonating, setImpersonating] = useState<string | null>(null)
 
   // Outlook Users state
   const [outlookUsers, setOutlookUsers] = useState<OutlookUser[]>([])
   const [outlookEmail, setOutlookEmail] = useState('')
-  const [outlookRole, setOutlookRole] = useState<'ADMIN'|'SUBADMIN'|'TEACHER'|'AEFE'>('TEACHER')
+  const [outlookRole, setOutlookRole] = useState<'ADMIN' | 'SUBADMIN' | 'TEACHER' | 'AEFE'>('TEACHER')
   const [outlookDisplayName, setOutlookDisplayName] = useState('')
-  const [activeTab, setActiveTab] = useState<'local' | 'microsoft'>('local')
+  const [activeTab, setActiveTab] = useState<'local' | 'microsoft' | 'deleted'>('local')
   const [searchTerm, setSearchTerm] = useState('')
-  const [toast, setToast] = useState<{message: string, type: ToastType} | null>(null)
+  const [toast, setToast] = useState<{ message: string, type: ToastType } | null>(null)
   const [confirmModal, setConfirmModal] = useState<{
-      isOpen: boolean,
-      title: string,
-      content: React.ReactNode,
-      onConfirm: () => void
+    isOpen: boolean,
+    title: string,
+    content: React.ReactNode,
+    onConfirm: () => void
   } | null>(null)
 
   const tripleConfirm = (message: string) => {
-      for (let attempt = 1; attempt <= 3; attempt++) {
-          if (!confirm(`${message}\n\nConfirmation ${attempt}/3`)) return false
-      }
-      return true
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      if (!confirm(`${message}\n\nConfirmation ${attempt}/3`)) return false
+    }
+    return true
   }
 
   const showToast = (message: string, type: ToastType = 'info') => {
-      setToast({ message, type })
+    setToast({ message, type })
   }
 
   const getRoleColor = (role: string) => {
-    switch(role) {
+    switch (role) {
       case 'ADMIN': return { bg: '#fff0f6', color: '#c41d7f', border: '#ffadd2' }
       case 'SUBADMIN': return { bg: '#e6f7ff', color: '#096dd9', border: '#91d5ff' }
       case 'AEFE': return { bg: '#fff7e6', color: '#d46b08', border: '#ffd591' }
@@ -296,7 +309,7 @@ export default function Users() {
   }
 
   const getRoleLabel = (role: string) => {
-    switch(role) {
+    switch (role) {
       case 'ADMIN': return 'Administrateur'
       case 'SUBADMIN': return 'Préfet'
       case 'AEFE': return 'RPP ET DIRECTION'
@@ -305,14 +318,14 @@ export default function Users() {
     }
   }
 
-  const renderRoleSection = (role: 'ADMIN'|'SUBADMIN'|'TEACHER'|'AEFE', userList: (User|OutlookUser)[], isOutlook: boolean) => {
+  const renderRoleSection = (role: 'ADMIN' | 'SUBADMIN' | 'TEACHER' | 'AEFE', userList: (User | OutlookUser)[], isOutlook: boolean) => {
     const term = searchTerm.trim().toLowerCase()
     const baseUsers = userList.filter(u => u.role === role)
     const filteredUsers = term
       ? baseUsers.filter(u => {
-          const name = (u as User).displayName || (u as OutlookUser).displayName || ''
-          return name.toLowerCase().includes(term) || u.email.toLowerCase().includes(term)
-        })
+        const name = (u as User).displayName || (u as OutlookUser).displayName || ''
+        return name.toLowerCase().includes(term) || u.email.toLowerCase().includes(term)
+      })
       : baseUsers
     if (filteredUsers.length === 0) return null
 
@@ -326,7 +339,7 @@ export default function Users() {
             {filteredUsers.length}
           </span>
         </h4>
-        
+
         <div className="users-grid">
           {filteredUsers.map(u => (
             isOutlook ? (
@@ -358,7 +371,23 @@ export default function Users() {
 
   const load = async () => {
     const r = await api.get('/users')
-    setUsers(r.data)
+    // `/users` returns a merged list (local + Outlook whitelist). Local tab should show
+    // only local-password accounts.
+    setUsers(
+      r.data
+        .filter((u: User) => u.status !== 'deleted')
+        .filter((u: User) => !u.isOutlook)
+        .filter((u: User) => (u.authProvider || 'local') !== 'microsoft')
+    )
+  }
+
+  const loadDeletedUsers = async () => {
+    try {
+      const r = await api.get('/users/deleted')
+      setDeletedUsers(r.data)
+    } catch (e) {
+      console.error('Failed to load deleted users:', e)
+    }
   }
 
   const loadOutlookUsers = async () => {
@@ -370,13 +399,15 @@ export default function Users() {
     }
   }
 
-  useEffect(() => { 
+  useEffect(() => {
     load()
     loadOutlookUsers()
+    loadDeletedUsers()
   }, [])
 
   const localCount = users.length
   const outlookCount = outlookUsers.length
+  const deletedCount = deletedUsers.length
 
   const createUser = async () => {
     if (!email || !password) {
@@ -405,20 +436,32 @@ export default function Users() {
 
   const deleteUser = (id: string) => {
     setConfirmModal({
-        isOpen: true,
-        title: 'Confirmer la suppression',
-        content: 'Êtes-vous sûr de vouloir supprimer cet utilisateur ? Cette action est irréversible.',
-        onConfirm: async () => {
-            if (!tripleConfirm('Confirmer la suppression de cet utilisateur')) {
-                setConfirmModal(null)
-                return
-            }
-            await api.delete(`/users/${id}`)
-            await load()
-            setConfirmModal(null)
-            showToast('Utilisateur supprimé', 'success')
+      isOpen: true,
+      title: 'Désactiver l\'utilisateur',
+      content: 'L\'utilisateur sera désactivé et ne pourra plus se connecter. Vous pourrez le réactiver plus tard si nécessaire.',
+      onConfirm: async () => {
+        if (!tripleConfirm('Confirmer la désactivation de cet utilisateur')) {
+          setConfirmModal(null)
+          return
         }
+        await api.delete(`/users/${id}`)
+        await load()
+        await loadDeletedUsers()
+        setConfirmModal(null)
+        showToast('Utilisateur désactivé. Vous pouvez le réactiver dans l\'onglet "Supprimés"', 'success')
+      }
     })
+  }
+
+  const reactivateUser = async (id: string) => {
+    try {
+      await api.post(`/users/${id}/reactivate`)
+      await load()
+      await loadDeletedUsers()
+      showToast('Utilisateur réactivé avec succès', 'success')
+    } catch (e: any) {
+      showToast(e.response?.data?.message || 'Erreur lors de la réactivation', 'error')
+    }
   }
 
   const addOutlookUser = async () => {
@@ -441,23 +484,23 @@ export default function Users() {
 
   const deleteOutlookUser = (id: string) => {
     setConfirmModal({
-        isOpen: true,
-        title: 'Supprimer utilisateur Outlook',
-        content: 'Supprimer cet utilisateur Outlook ?',
-        onConfirm: async () => {
-            if (!tripleConfirm('Confirmer la suppression de cet utilisateur Outlook')) {
-                setConfirmModal(null)
-                return
-            }
-            try {
-                await api.delete(`/outlook-users/${id}`)
-                await loadOutlookUsers()
-                setConfirmModal(null)
-                showToast('Utilisateur supprimé', 'success')
-            } catch (e) {
-                showToast('Erreur lors de la suppression', 'error')
-            }
+      isOpen: true,
+      title: 'Supprimer utilisateur Outlook',
+      content: 'Supprimer cet utilisateur Outlook ?',
+      onConfirm: async () => {
+        if (!tripleConfirm('Confirmer la suppression de cet utilisateur Outlook')) {
+          setConfirmModal(null)
+          return
         }
+        try {
+          await api.delete(`/outlook-users/${id}`)
+          await loadOutlookUsers()
+          setConfirmModal(null)
+          showToast('Utilisateur supprimé', 'success')
+        } catch (e) {
+          showToast('Erreur lors de la suppression', 'error')
+        }
+      }
     })
   }
 
@@ -496,11 +539,11 @@ export default function Users() {
       showToast('Impossible d\'imiter un autre administrateur', 'error')
       return
     }
-    
+
     try {
       setImpersonating(user._id)
       const data = await impersonationApi.start(user._id)
-      
+
       // Determine the URL based on user role
       let targetUrl = '/'
       if (user.role === 'TEACHER') {
@@ -510,17 +553,17 @@ export default function Users() {
       } else if (user.role === 'AEFE') {
         targetUrl = '/aefe/dashboard'
       }
-      
+
       // Open in new tab with the impersonation token
       const newWindow = window.open('about:blank', '_blank')
       if (newWindow) {
         newWindow.sessionStorage.setItem('token', data.token)
         newWindow.sessionStorage.setItem('role', user.role)
         newWindow.sessionStorage.setItem('displayName', user.displayName)
-        
+
         newWindow.location.href = window.location.origin + targetUrl
       }
-      
+
       setImpersonating(null)
     } catch (error) {
       console.error('Failed to impersonate:', error)
@@ -532,20 +575,20 @@ export default function Users() {
   return (
     <div className="users-page">
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
-      <Modal 
-          isOpen={!!confirmModal}
-          onClose={() => setConfirmModal(null)}
-          title={confirmModal?.title || ''}
-          footer={
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-                  <button className="btn secondary" onClick={() => setConfirmModal(null)}>Annuler</button>
-                  <button className="btn" onClick={confirmModal?.onConfirm}>Confirmer</button>
-              </div>
-          }
+      <Modal
+        isOpen={!!confirmModal}
+        onClose={() => setConfirmModal(null)}
+        title={confirmModal?.title || ''}
+        footer={
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+            <button className="btn secondary" onClick={() => setConfirmModal(null)}>Annuler</button>
+            <button className="btn" onClick={confirmModal?.onConfirm}>Confirmer</button>
+          </div>
+        }
       >
-          {confirmModal?.content}
+        {confirmModal?.content}
       </Modal>
-      
+
       <div className="users-header">
         <h2 className="users-title">Gestion des utilisateurs</h2>
         <p className="users-description">Gérez les accès et les rôles des utilisateurs de la plateforme.</p>
@@ -574,7 +617,7 @@ export default function Users() {
       </div>
 
       <div className="tabs-container">
-        <button 
+        <button
           className={`tab-button ${activeTab === 'local' ? 'active' : ''}`}
           onClick={() => setActiveTab('local')}
         >
@@ -582,13 +625,24 @@ export default function Users() {
           Comptes Locaux
           <span className="tab-count">{localCount}</span>
         </button>
-        <button 
+        <button
           className={`tab-button ${activeTab === 'microsoft' ? 'active microsoft' : ''}`}
           onClick={() => setActiveTab('microsoft')}
         >
           <img src="https://upload.wikimedia.org/wikipedia/commons/4/44/Microsoft_logo.svg" alt="Microsoft" style={{ width: 18, height: 18 }} />
           Comptes Microsoft
           <span className="tab-count">{outlookCount}</span>
+        </button>
+        <button
+          className={`tab-button ${activeTab === 'deleted' ? 'active deleted' : ''}`}
+          onClick={() => setActiveTab('deleted')}
+          style={{ marginLeft: 'auto' }}
+        >
+          <UserX size={18} />
+          Supprimés
+          {deletedCount > 0 && (
+            <span className="tab-count" style={{ backgroundColor: '#fee2e2', color: '#dc2626' }}>{deletedCount}</span>
+          )}
         </button>
       </div>
 
@@ -601,33 +655,33 @@ export default function Users() {
               </div>
               <h3 className="add-user-title">Ajouter un utilisateur local</h3>
             </div>
-            
+
             <div className="form-grid">
-                <div className="form-group">
-                    <label className="form-label">Email</label>
-                    <input className="form-input" placeholder="user@school.com" value={email} onChange={e => setEmail(e.target.value)} />
-                </div>
-                <div className="form-group">
-                    <label className="form-label">Mot de passe</label>
-                    <input className="form-input" placeholder="••••••••" type="password" value={password} onChange={e => setPassword(e.target.value)} />
-                </div>
-                <div className="form-group">
-                    <label className="form-label">Nom affiché</label>
-                    <input className="form-input" placeholder="John Doe" value={displayName} onChange={e => setDisplayName(e.target.value)} />
-                </div>
-                <div className="form-group">
-                    <label className="form-label">Rôle</label>
-                    <select className="form-select" value={role} onChange={e => setRole(e.target.value as any)}>
-                      <option value="ADMIN">Admin</option>
-                      <option value="SUBADMIN">Préfet</option>
-                      <option value="AEFE">RPP ET DIRECTION</option>
-                      <option value="TEACHER">Enseignant</option>
-                    </select>
-                </div>
-                <button className="btn-add" onClick={createUser}>
-                  <Plus size={18} />
-                  Créer
-                </button>
+              <div className="form-group">
+                <label className="form-label">Email</label>
+                <input className="form-input" placeholder="user@school.com" value={email} onChange={e => setEmail(e.target.value)} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Mot de passe</label>
+                <input className="form-input" placeholder="••••••••" type="password" value={password} onChange={e => setPassword(e.target.value)} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Nom affiché</label>
+                <input className="form-input" placeholder="John Doe" value={displayName} onChange={e => setDisplayName(e.target.value)} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Rôle</label>
+                <select className="form-select" value={role} onChange={e => setRole(e.target.value as any)}>
+                  <option value="ADMIN">Admin</option>
+                  <option value="SUBADMIN">Préfet</option>
+                  <option value="AEFE">RPP ET DIRECTION</option>
+                  <option value="TEACHER">Enseignant</option>
+                </select>
+              </div>
+              <button className="btn-add" onClick={createUser}>
+                <Plus size={18} />
+                Créer
+              </button>
             </div>
           </div>
 
@@ -640,7 +694,7 @@ export default function Users() {
 
       {activeTab === 'microsoft' && (
         <div className="animate-fade-in">
-           <div className="add-user-card" style={{ background: '#f0f7ff', borderColor: '#bae7ff' }}>
+          <div className="add-user-card" style={{ background: '#f0f7ff', borderColor: '#bae7ff' }}>
             <div className="add-user-header">
               <div style={{ background: 'white', padding: 10, borderRadius: 10 }}>
                 <img src="https://upload.wikimedia.org/wikipedia/commons/4/44/Microsoft_logo.svg" alt="Microsoft" style={{ width: 22, height: 22 }} />
@@ -650,29 +704,29 @@ export default function Users() {
                 <span className="users-description" style={{ fontSize: '0.9rem' }}>Les utilisateurs se connectent avec leur compte Microsoft</span>
               </div>
             </div>
-            
+
             <div className="form-grid">
-                <div className="form-group">
-                    <label className="form-label">Email Outlook</label>
-                    <input className="form-input" placeholder="user@outlook.com" value={outlookEmail} onChange={e => setOutlookEmail(e.target.value)} />
-                </div>
-                <div className="form-group">
-                    <label className="form-label">Nom (Optionnel)</label>
-                    <input className="form-input" placeholder="John Doe" value={outlookDisplayName} onChange={e => setOutlookDisplayName(e.target.value)} />
-                </div>
-                <div className="form-group">
-                    <label className="form-label">Rôle</label>
-                    <select className="form-select" value={outlookRole} onChange={e => setOutlookRole(e.target.value as any)}>
-                      <option value="ADMIN">Admin</option>
-                      <option value="SUBADMIN">Préfet</option>
-                      <option value="AEFE">RPP ET DIRECTION</option>
-                      <option value="TEACHER">Enseignant</option>
-                    </select>
-                </div>
-                <button className="btn-add" onClick={addOutlookUser} style={{ backgroundColor: '#0078d4' }}>
-                  <Plus size={18} />
-                  Autoriser
-                </button>
+              <div className="form-group">
+                <label className="form-label">Email Outlook</label>
+                <input className="form-input" placeholder="user@outlook.com" value={outlookEmail} onChange={e => setOutlookEmail(e.target.value)} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Nom (Optionnel)</label>
+                <input className="form-input" placeholder="John Doe" value={outlookDisplayName} onChange={e => setOutlookDisplayName(e.target.value)} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Rôle</label>
+                <select className="form-select" value={outlookRole} onChange={e => setOutlookRole(e.target.value as any)}>
+                  <option value="ADMIN">Admin</option>
+                  <option value="SUBADMIN">Préfet</option>
+                  <option value="AEFE">RPP ET DIRECTION</option>
+                  <option value="TEACHER">Enseignant</option>
+                </select>
+              </div>
+              <button className="btn-add" onClick={addOutlookUser} style={{ backgroundColor: '#0078d4' }}>
+                <Plus size={18} />
+                Autoriser
+              </button>
             </div>
           </div>
 
@@ -680,6 +734,102 @@ export default function Users() {
           {renderRoleSection('SUBADMIN', outlookUsers as User[], true)}
           {renderRoleSection('AEFE', outlookUsers as User[], true)}
           {renderRoleSection('TEACHER', outlookUsers as User[], true)}
+        </div>
+      )}
+
+      {activeTab === 'deleted' && (
+        <div className="animate-fade-in">
+          <div className="deleted-users-header" style={{
+            background: 'linear-gradient(135deg, #fff5f5, #ffffff)',
+            borderRadius: 12,
+            padding: '20px 24px',
+            marginBottom: 24,
+            border: '1px solid #fecaca',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 16
+          }}>
+            <div style={{
+              background: '#fee2e2',
+              padding: 12,
+              borderRadius: 12,
+              color: '#dc2626'
+            }}>
+              <Archive size={24} />
+            </div>
+            <div>
+              <h3 style={{ margin: 0, color: '#991b1b' }}>Utilisateurs supprimés</h3>
+              <p style={{ margin: '4px 0 0', color: '#b91c1c', fontSize: '0.9rem' }}>
+                Ces comptes ont été désactivés. Vous pouvez les réactiver à tout moment.
+              </p>
+            </div>
+          </div>
+
+          {deletedUsers.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 40, color: '#6b7280' }}>
+              Aucun utilisateur supprimé
+            </div>
+          ) : (
+            <div className="users-grid">
+              {deletedUsers.map(user => {
+                const roleStyle = getRoleColor(user.role)
+                return (
+                  <div key={user._id} className="user-card" style={{ opacity: 0.8, border: '1px solid #fecaca' }}>
+                    <div className="user-card-top" style={{ background: 'linear-gradient(135deg, #fef2f2, #ffffff)' }}>
+                      <div className="user-avatar" style={{ backgroundColor: '#9ca3af' }}>
+                        {getInitials(user.displayName || user.email)}
+                      </div>
+                      <div className="user-role-badge" style={{ color: '#6b7280', borderColor: '#d1d5db' }}>
+                        {user.role}
+                      </div>
+                    </div>
+
+                    <div className="user-card-content">
+                      <div className="user-identity">
+                        <div className="user-name-display" style={{ fontWeight: 600, color: '#374151' }}>
+                          {user.displayName || user.email}
+                        </div>
+                        <div className="user-email-row">
+                          <Mail size={14} />
+                          <span className="user-email-text">{user.email}</span>
+                        </div>
+                        {user.deletedAt && (
+                          <div style={{ fontSize: '0.8rem', color: '#ef4444', marginTop: 8 }}>
+                            <Calendar size={14} style={{ marginRight: 4 }} />
+                            Supprimé le: {new Date(user.deletedAt).toLocaleDateString('fr-FR')}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="user-actions-area" style={{ marginTop: 16 }}>
+                        <button
+                          className="btn-action"
+                          onClick={() => reactivateUser(user._id)}
+                          style={{
+                            background: 'linear-gradient(135deg, #10b981, #059669)',
+                            color: 'white',
+                            border: 'none',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            padding: '8px 16px',
+                            borderRadius: 8,
+                            cursor: 'pointer',
+                            width: '100%',
+                            justifyContent: 'center'
+                          }}
+                          title="Réactiver l'utilisateur"
+                        >
+                          <RotateCcw size={16} />
+                          Réactiver
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </div>
       )}
     </div>

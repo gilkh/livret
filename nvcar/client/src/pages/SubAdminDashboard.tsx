@@ -55,6 +55,7 @@ export default function SubAdminDashboard() {
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState('')
     const [expandedClasses, setExpandedClasses] = useState<Record<string, boolean>>({})
+    const [expandedPromotions, setExpandedPromotions] = useState<Record<string, boolean>>({})
     const [promotionDownloads, setPromotionDownloads] = useState<Record<string, { status: 'idle' | 'preparing' | 'downloading' | 'done' | 'error'; progress: number; error?: string }>>({})
     const [hasSignature, setHasSignature] = useState<boolean | null>(null)
 
@@ -141,6 +142,10 @@ export default function SubAdminDashboard() {
     const toggleClass = (level: string, className: string) => {
         const key = `${level}-${className}`
         setExpandedClasses(prev => ({ ...prev, [key]: !prev[key] }))
+    }
+
+    const togglePromotionGroup = (group: string) => {
+        setExpandedPromotions(prev => ({ ...prev, [group]: !prev[group] }))
     }
 
     const downloadPromotionGroupZip = async (group: string, students: PromotedStudent[]) => {
@@ -440,160 +445,169 @@ export default function SubAdminDashboard() {
                             if (!acc[key]) acc[key] = []
                             acc[key].push(student)
                             return acc
-                        }, {} as Record<string, PromotedStudent[]>)).sort().map(([group, students]) => (
-                            <div key={group} style={{ marginBottom: 20, borderRadius: 14, border: '1px solid #e2e8f0', overflow: 'hidden', background: 'white' }}>
-                                {(() => {
-                                    const s = promotionDownloads[group] || { status: 'idle' as const, progress: 0 }
-                                    const availableCount = students.filter(st => !!st.assignmentId).length
-                                    const totalCount = students.length
-                                    const isBusy = s.status === 'preparing' || s.status === 'downloading'
-                                    const canDownload = availableCount > 0
-                                    const isDisabled = !canDownload || isBusy
+                        }, {} as Record<string, PromotedStudent[]>)).sort().map(([group, students]) => {
+                            const isExpanded = expandedPromotions[group]
+                            return (
+                                <div key={group} style={{ marginBottom: 20, borderRadius: 14, border: '1px solid #e2e8f0', overflow: 'hidden', background: 'white' }}>
+                                    {(() => {
+                                        const s = promotionDownloads[group] || { status: 'idle' as const, progress: 0 }
+                                        const availableCount = students.filter(st => !!st.assignmentId).length
+                                        const totalCount = students.length
+                                        const isBusy = s.status === 'preparing' || s.status === 'downloading'
+                                        const canDownload = availableCount > 0
+                                        const isDisabled = !canDownload || isBusy
 
-                                    let buttonLabel = `Télécharger (${availableCount})`
-                                    if (s.status === 'preparing') buttonLabel = 'Préparation…'
-                                    if (s.status === 'downloading') buttonLabel = s.progress === -1 ? 'Génération…' : `Téléchargement ${s.progress}%`
-                                    if (s.status === 'done') buttonLabel = 'Téléchargé'
-                                    if (s.status === 'error') buttonLabel = 'Réessayer'
+                                        let buttonLabel = `Télécharger (${availableCount})`
+                                        if (s.status === 'preparing') buttonLabel = 'Préparation…'
+                                        if (s.status === 'downloading') buttonLabel = s.progress === -1 ? 'Génération…' : `Téléchargement ${s.progress}%`
+                                        if (s.status === 'done') buttonLabel = 'Téléchargé'
+                                        if (s.status === 'error') buttonLabel = 'Réessayer'
 
-                                    const showStatus = s.status !== 'idle'
-                                    const showProgress = s.status === 'preparing' || s.status === 'downloading'
+                                        const showStatus = s.status !== 'idle'
+                                        const showProgress = s.status === 'preparing' || s.status === 'downloading'
 
-                                    const showSpinner = s.status === 'preparing' || (s.status === 'downloading' && s.progress === -1)
+                                        const showSpinner = s.status === 'preparing' || (s.status === 'downloading' && s.progress === -1)
 
-                                    return (
-                                        <div style={{ padding: '12px 14px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                                            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
-                                                <div style={{ minWidth: 0 }}>
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                                                        <h4 style={{ fontSize: 16, color: '#0f172a', margin: 0, fontWeight: 700 }}>{group}</h4>
-                                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 999, border: '1px solid #e2e8f0', background: '#ffffff', fontSize: 12, color: '#475569', fontWeight: 600 }}>
-                                                            {availableCount}/{totalCount} carnets
-                                                        </span>
-                                                        {!canDownload && (
-                                                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 999, border: '1px solid #fed7aa', background: '#fff7ed', fontSize: 12, color: '#9a3412', fontWeight: 700 }}>
-                                                                Aucun carnet disponible
+                                        return (
+                                            <div style={{ padding: '12px 14px', background: '#f8fafc', borderBottom: isExpanded ? '1px solid #e2e8f0' : 'none' }}>
+                                                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+                                                    <div
+                                                        onClick={() => togglePromotionGroup(group)}
+                                                        style={{ minWidth: 0, cursor: 'pointer', flex: 1 }}
+                                                    >
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                                                            <span style={{ fontSize: 12, color: '#64748b' }}>{isExpanded ? '▼' : '▶'}</span>
+                                                            <h4 style={{ fontSize: 16, color: '#0f172a', margin: 0, fontWeight: 700 }}>{group}</h4>
+                                                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 999, border: '1px solid #e2e8f0', background: '#ffffff', fontSize: 12, color: '#475569', fontWeight: 600 }}>
+                                                                {availableCount}/{totalCount} carnets
                                                             </span>
+                                                            {!canDownload && (
+                                                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 999, border: '1px solid #fed7aa', background: '#fff7ed', fontSize: 12, color: '#9a3412', fontWeight: 700 }}>
+                                                                    Aucun carnet disponible
+                                                                </span>
+                                                            )}
+                                                        </div>
+
+                                                        {showStatus && (
+                                                            <div aria-live="polite" style={{ marginTop: 8, fontSize: 13, color: s.status === 'error' ? '#b91c1c' : '#64748b', display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                                {showSpinner && <span className="spinner" aria-hidden="true" />}
+                                                                {s.status === 'done' && <CheckCircle2 size={16} color="#16a34a" />}
+                                                                {s.status === 'error' && <AlertTriangle size={16} color="#b91c1c" />}
+                                                                {s.status === 'preparing' && 'Préparation de l’archive…'}
+                                                                {s.status === 'downloading' && (s.progress === -1 ? 'Génération des carnets…' : `Téléchargement en cours… ${s.progress}%`)}
+                                                                {s.status === 'done' && 'Téléchargement terminé'}
+                                                                {s.status === 'error' && (s.error || 'Erreur pendant le téléchargement')}
+                                                            </div>
                                                         )}
                                                     </div>
 
-                                                    {showStatus && (
-                                                        <div aria-live="polite" style={{ marginTop: 8, fontSize: 13, color: s.status === 'error' ? '#b91c1c' : '#64748b', display: 'flex', alignItems: 'center', gap: 8 }}>
-                                                            {showSpinner && <span className="spinner" aria-hidden="true" />}
-                                                            {s.status === 'done' && <CheckCircle2 size={16} color="#16a34a" />}
-                                                            {s.status === 'error' && <AlertTriangle size={16} color="#b91c1c" />}
-                                                            {s.status === 'preparing' && 'Préparation de l’archive…'}
-                                                            {s.status === 'downloading' && (s.progress === -1 ? 'Génération des carnets…' : `Téléchargement en cours… ${s.progress}%`)}
-                                                            {s.status === 'done' && 'Téléchargement terminé'}
-                                                            {s.status === 'error' && (s.error || 'Erreur pendant le téléchargement')}
-                                                        </div>
-                                                    )}
-                                                </div>
+                                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
+                                                        <button
+                                                            onClick={() => downloadPromotionGroupZip(group, students)}
+                                                            disabled={isDisabled}
+                                                            className="btn"
+                                                            style={{
+                                                                padding: '10px 12px',
+                                                                fontSize: 13,
+                                                                background: s.status === 'error' ? '#b91c1c' : '#0f172a',
+                                                                color: 'white',
+                                                                borderRadius: 10,
+                                                                border: `1px solid ${s.status === 'error' ? '#b91c1c' : '#0f172a'}`,
+                                                                opacity: isDisabled ? 0.55 : 1,
+                                                                cursor: isDisabled ? 'not-allowed' : 'pointer',
+                                                                whiteSpace: 'nowrap',
+                                                                display: 'inline-flex',
+                                                                alignItems: 'center',
+                                                                gap: 8
+                                                            }}
+                                                        >
+                                                            <Download size={16} />
+                                                            {buttonLabel}
+                                                        </button>
 
-                                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
-                                                    <button
-                                                        onClick={() => downloadPromotionGroupZip(group, students)}
-                                                        disabled={isDisabled}
-                                                        className="btn"
-                                                        style={{
-                                                            padding: '10px 12px',
-                                                            fontSize: 13,
-                                                            background: s.status === 'error' ? '#b91c1c' : '#0f172a',
-                                                            color: 'white',
-                                                            borderRadius: 10,
-                                                            border: `1px solid ${s.status === 'error' ? '#b91c1c' : '#0f172a'}`,
-                                                            opacity: isDisabled ? 0.55 : 1,
-                                                            cursor: isDisabled ? 'not-allowed' : 'pointer',
-                                                            whiteSpace: 'nowrap',
-                                                            display: 'inline-flex',
-                                                            alignItems: 'center',
-                                                            gap: 8
-                                                        }}
-                                                    >
-                                                        <Download size={16} />
-                                                        {buttonLabel}
-                                                    </button>
-
-                                                    {showProgress && (
-                                                        <div style={{ width: 260 }}>
-                                                            {s.progress === -1 ? (
-                                                                <div className="progress-track progress-indeterminate" />
-                                                            ) : (
-                                                                <div className="progress-track">
-                                                                    <div className="progress-fill" style={{ width: `${Math.max(0, Math.min(100, s.progress))}%` }} />
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    )}
+                                                        {showProgress && (
+                                                            <div style={{ width: 260 }}>
+                                                                {s.progress === -1 ? (
+                                                                    <div className="progress-track progress-indeterminate" />
+                                                                ) : (
+                                                                    <div className="progress-track">
+                                                                        <div className="progress-fill" style={{ width: `${Math.max(0, Math.min(100, s.progress))}%` }} />
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        )}
+                                                    </div>
                                                 </div>
                                             </div>
-                                        </div>
-                                    )
-                                })()}
+                                        )
+                                    })()}
 
-                                <div style={{
-                                    background: 'white',
-                                    borderRadius: 0,
-                                    overflow: 'hidden'
-                                }}>
-                                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                                        <thead>
-                                            <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                                                <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 13, color: '#64748b', fontWeight: 600 }}>Élève</th>
-                                                <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 13, color: '#64748b', fontWeight: 600 }}>Date de promotion</th>
-                                                <th style={{ padding: '12px 16px', textAlign: 'right', fontSize: 13, color: '#64748b', fontWeight: 600 }}>Action</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {students.map(student => (
-                                                <tr key={student._id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                                    <td style={{ padding: '12px 16px', fontSize: 14, color: '#1e293b', fontWeight: 500 }}>
-                                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                                            {student.avatarUrl && (
-                                                                <img
-                                                                    src={student.avatarUrl}
-                                                                    alt=""
-                                                                    style={{
-                                                                        width: 24,
-                                                                        height: 24,
-                                                                        borderRadius: '50%',
-                                                                        objectFit: 'cover',
-                                                                        border: '1px solid #e2e8f0'
-                                                                    }}
-                                                                />
-                                                            )}
-                                                            <span>{student.firstName} {student.lastName}</span>
-                                                        </div>
-                                                    </td>
-                                                    <td style={{ padding: '12px 16px', fontSize: 14, color: '#64748b' }}>
-                                                        {new Date(student.date).toLocaleDateString('fr-FR')}
-                                                    </td>
-                                                    <td style={{ padding: '12px 16px', textAlign: 'right' }}>
-                                                        {student.assignmentId && (
-                                                            <Link
-                                                                to={`${routePrefix}/templates/${student.assignmentId}/review`}
-                                                                style={{
-                                                                    display: 'inline-block',
-                                                                    padding: '6px 12px',
-                                                                    background: '#3b82f6',
-                                                                    color: 'white',
-                                                                    borderRadius: 6,
-                                                                    textDecoration: 'none',
-                                                                    fontSize: 13,
-                                                                    fontWeight: 500
-                                                                }}
-                                                            >
-                                                                Voir le carnet
-                                                            </Link>
-                                                        )}
-                                                    </td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
+                                    {isExpanded && (
+                                        <div style={{
+                                            background: 'white',
+                                            borderRadius: 0,
+                                            overflow: 'hidden'
+                                        }}>
+                                            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                                <thead>
+                                                    <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                                                        <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 13, color: '#64748b', fontWeight: 600 }}>Élève</th>
+                                                        <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 13, color: '#64748b', fontWeight: 600 }}>Date de promotion</th>
+                                                        <th style={{ padding: '12px 16px', textAlign: 'right', fontSize: 13, color: '#64748b', fontWeight: 600 }}>Action</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {students.map(student => (
+                                                        <tr key={student._id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                                            <td style={{ padding: '12px 16px', fontSize: 14, color: '#1e293b', fontWeight: 500 }}>
+                                                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                                    {student.avatarUrl && (
+                                                                        <img
+                                                                            src={student.avatarUrl}
+                                                                            alt=""
+                                                                            style={{
+                                                                                width: 24,
+                                                                                height: 24,
+                                                                                borderRadius: '50%',
+                                                                                objectFit: 'cover',
+                                                                                border: '1px solid #e2e8f0'
+                                                                            }}
+                                                                        />
+                                                                    )}
+                                                                    <span>{student.firstName} {student.lastName}</span>
+                                                                </div>
+                                                            </td>
+                                                            <td style={{ padding: '12px 16px', fontSize: 14, color: '#64748b' }}>
+                                                                {new Date(student.date).toLocaleDateString('fr-FR')}
+                                                            </td>
+                                                            <td style={{ padding: '12px 16px', textAlign: 'right' }}>
+                                                                {student.assignmentId && (
+                                                                    <Link
+                                                                        to={`${routePrefix}/templates/${student.assignmentId}/review`}
+                                                                        style={{
+                                                                            display: 'inline-block',
+                                                                            padding: '6px 12px',
+                                                                            background: '#3b82f6',
+                                                                            color: 'white',
+                                                                            borderRadius: 6,
+                                                                            textDecoration: 'none',
+                                                                            fontSize: 13,
+                                                                            fontWeight: 500
+                                                                        }}
+                                                                    >
+                                                                        Voir le carnet
+                                                                    </Link>
+                                                                )}
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    )}
                                 </div>
-                            </div>
-                        ))}
+                            )
+                        })}
                     </div>
                 )}
 
