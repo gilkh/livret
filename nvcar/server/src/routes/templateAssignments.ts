@@ -9,7 +9,7 @@ import { TeacherClassAssignment } from '../models/TeacherClassAssignment'
 import { ClassModel } from '../models/Class'
 import { SchoolYear } from '../models/SchoolYear'
 import { populateSignatures } from '../services/signatureService'
-import { getRolloverUpdate } from '../services/rolloverService'
+import { getRolloverUpdate, archiveYearCompletions } from '../services/rolloverService'
 import { withTransaction } from '../utils/transactionUtils'
 
 export const templateAssignmentsRouter = Router()
@@ -42,7 +42,7 @@ templateAssignmentsRouter.post('/bulk-level', requireAuth(['ADMIN']), async (req
         }
 
         // Find all students in these classes with active enrollments
-        const enrollments = await Enrollment.find({ 
+        const enrollments = await Enrollment.find({
             classId: { $in: classIds },
             status: { $ne: 'archived' }
         }).lean()
@@ -55,7 +55,7 @@ templateAssignmentsRouter.post('/bulk-level', requireAuth(['ADMIN']), async (req
         // Pre-fetch teacher assignments for all classes involved
         const allTeacherAssignments = await TeacherClassAssignment.find({ classId: { $in: classIds } }).lean()
         const teacherMap = new Map<string, string[]>() // classId -> teacherIds[]
-        
+
         for (const ta of allTeacherAssignments) {
             if (!teacherMap.has(ta.classId)) teacherMap.set(ta.classId, [])
             teacherMap.get(ta.classId)?.push(ta.teacherId)
@@ -116,10 +116,10 @@ templateAssignmentsRouter.post('/bulk-level', requireAuth(['ADMIN']), async (req
                     // When force:true we intentionally reset progress/status fields
                     const rolloverUpdate = getRolloverUpdate(String(targetYearId), assignedBy)
                     Object.assign(setFields, rolloverUpdate)
-                    
+
                     // Remove colliding fields from setOnInsert
                     Object.keys(rolloverUpdate).forEach(key => {
-                         delete setOnInsert[key]
+                        delete setOnInsert[key]
                     })
                 }
 
@@ -136,7 +136,7 @@ templateAssignmentsRouter.post('/bulk-level', requireAuth(['ADMIN']), async (req
 
             const chunkSize = 1000
             let totalProcessed = 0
-            
+
             for (let i = 0; i < ops.length; i += chunkSize) {
                 const chunk = ops.slice(i, i + chunkSize)
                 if (!chunk.length) continue
@@ -157,36 +157,44 @@ templateAssignmentsRouter.post('/bulk-level', requireAuth(['ADMIN']), async (req
             }
 
             // If the carnet already exists from a previous year, roll it over to this year
-            // by stamping completionSchoolYearId and resetting year-bound workflow fields.
-            await TemplateAssignment.updateMany(
-                {
-                    templateId,
-                    studentId: { $in: selectedStudentIds },
-                    completionSchoolYearId: { $ne: String(targetYearId) }
-                },
-                {
-                    $set: getRolloverUpdate(String(targetYearId), assignedBy),
-                    $inc: { dataVersion: 1 }
-                },
-                { session }
-            )
-            
+            // by archiving the current year's completions and resetting workflow fields.
+            const existingFromOtherYear = await TemplateAssignment.find({
+                templateId,
+                studentId: { $in: selectedStudentIds },
+                completionSchoolYearId: { $ne: String(targetYearId) }
+            }).session(session).lean()
+
+            for (const existing of existingFromOtherYear) {
+                const fromYearId = String((existing as any).completionSchoolYearId || '')
+                const archiveUpdates = archiveYearCompletions(existing, fromYearId)
+                const rolloverUpdates = getRolloverUpdate(String(targetYearId), assignedBy)
+
+                await TemplateAssignment.updateOne(
+                    { _id: existing._id },
+                    {
+                        $set: { ...rolloverUpdates, ...archiveUpdates },
+                        $inc: { dataVersion: 1 }
+                    },
+                    { session }
+                )
+            }
+
             return { count: ops.length, totalProcessed }
         })
 
         if (!result.success) {
-            return res.status(500).json({ 
-                error: 'bulk_assign_failed', 
+            return res.status(500).json({
+                error: 'bulk_assign_failed',
                 message: result.error,
-                transactionUsed: result.usedTransaction 
+                transactionUsed: result.usedTransaction
             })
         }
 
         const { count } = result.data!
-        res.json({ 
-            count, 
+        res.json({
+            count,
             message: `Assigned template to ${count} students`,
-            transactionUsed: result.usedTransaction 
+            transactionUsed: result.usedTransaction
         })
     } catch (e: any) {
         res.status(500).json({ error: 'bulk_assign_failed', message: e.message })
@@ -198,7 +206,7 @@ templateAssignmentsRouter.delete('/bulk-level/:templateId/:level', requireAuth([
     try {
         const { templateId, level } = req.params
         const { schoolYearId } = req.query
-        
+
         let targetYearId = schoolYearId as string;
         if (!targetYearId) {
             // Find students in this level for active year
@@ -209,7 +217,7 @@ templateAssignmentsRouter.delete('/bulk-level/:templateId/:level', requireAuth([
 
         const classes = await ClassModel.find({ level, schoolYearId: targetYearId }).lean()
         const classIds = classes.map(c => String(c._id))
-        
+
         if (classIds.length === 0) return res.json({ ok: true, count: 0 })
 
         const enrollments = await Enrollment.find({ classId: { $in: classIds } }).lean()
@@ -244,7 +252,7 @@ templateAssignmentsRouter.post('/', requireAuth(['ADMIN']), async (req, res) => 
 
         // Verify all assigned teachers exist and have TEACHER role
         let teachersToAssign = assignedTeachers || []
-        
+
         // If no teachers are explicitly assigned, try to auto-assign teachers from the student's class
         if (!teachersToAssign || teachersToAssign.length === 0) {
             // Find student's enrollment to get their class
@@ -255,7 +263,7 @@ templateAssignmentsRouter.post('/', requireAuth(['ADMIN']), async (req, res) => 
                 teachersToAssign = teacherAssignments.map(ta => ta.teacherId)
             }
         }
-        
+
         // Verify all assigned teachers exist and have TEACHER role
         if (teachersToAssign && Array.isArray(teachersToAssign) && teachersToAssign.length > 0) {
             for (const teacherId of teachersToAssign) {
@@ -273,11 +281,10 @@ templateAssignmentsRouter.post('/', requireAuth(['ADMIN']), async (req, res) => 
             targetYearId = String(activeYear._id)
         }
 
-        const existing = await TemplateAssignment.findOne({ templateId, studentId })
-            .select('completionSchoolYearId')
-            .lean()
+        const existing = await TemplateAssignment.findOne({ templateId, studentId }).lean()
 
-        const yearChanged = !!existing && String((existing as any).completionSchoolYearId || '') !== String(targetYearId)
+        const existingYearId = String((existing as any)?.completionSchoolYearId || '')
+        const yearChanged = !!existing && existingYearId !== String(targetYearId)
 
         // Create or update assignment (respect existing progress unless force:true)
         const forceSingle = !!req.body.force
@@ -308,10 +315,19 @@ templateAssignmentsRouter.post('/', requireAuth(['ADMIN']), async (req, res) => 
         const assignedBy = (req as any).user.userId
 
         if (yearChanged && !forceSingle) {
+            // Archive current year's completions before rollover
+            const archiveUpdates = archiveYearCompletions(existing, existingYearId)
             Object.assign(setFieldsSingle, getRolloverUpdate(String(targetYearId), assignedBy))
+            Object.assign(setFieldsSingle, archiveUpdates)
         }
 
         if (forceSingle) {
+            // Archive current year's completions before force reset
+            if (existingYearId) {
+                const archiveUpdates = archiveYearCompletions(existing, existingYearId)
+                Object.assign(setFieldsSingle, archiveUpdates)
+            }
+
             const rolloverUpdate = getRolloverUpdate(String(targetYearId), assignedBy)
             Object.assign(setFieldsSingle, rolloverUpdate)
 
@@ -414,7 +430,7 @@ templateAssignmentsRouter.patch('/:id/status', requireAuth(['ADMIN', 'SUBADMIN',
         let completedAtSem1 = (assignment as any).completedAtSem1
         let isCompletedSem2 = (assignment as any).isCompletedSem2
         let completedAtSem2 = (assignment as any).completedAtSem2
-        
+
         const now = new Date()
 
         // Special handling for TEACHER role: only update their part
@@ -422,13 +438,13 @@ templateAssignmentsRouter.patch('/:id/status', requireAuth(['ADMIN', 'SUBADMIN',
             // Verify teacher is assigned
             if ((assignment as any).assignedTeachers && (assignment as any).assignedTeachers.includes(user.userId)) {
                 const isMarkingDone = status === 'completed'
-                
+
                 // Update this teacher's completion status
                 teacherCompletions = teacherCompletions.filter((tc: any) => tc.teacherId !== user.userId)
-                
+
                 // Find previous completion entry to preserve other semester data if needed
                 const prevTc = ((assignment as any).teacherCompletions || []).find((tc: any) => tc.teacherId === user.userId)
-                
+
                 const newTc = {
                     teacherId: user.userId,
                     completed: isMarkingDone,
@@ -446,22 +462,22 @@ templateAssignmentsRouter.patch('/:id/status', requireAuth(['ADMIN', 'SUBADMIN',
                     newTc.completedSem2 = isMarkingDone
                     newTc.completedAtSem2 = isMarkingDone ? now : undefined
                 }
-                
+
                 teacherCompletions.push(newTc)
 
                 // Check if ALL assigned teachers are done
                 const assignedTeachers = (assignment as any).assignedTeachers || []
-                
-                const allDone = assignedTeachers.every((tid: string) => 
-                   teacherCompletions.some((tc: any) => tc.teacherId === tid && tc.completed)
+
+                const allDone = assignedTeachers.every((tid: string) =>
+                    teacherCompletions.some((tc: any) => tc.teacherId === tid && tc.completed)
                 )
-                
-                const allDoneSem1 = assignedTeachers.every((tid: string) => 
-                   teacherCompletions.some((tc: any) => tc.teacherId === tid && tc.completedSem1)
+
+                const allDoneSem1 = assignedTeachers.every((tid: string) =>
+                    teacherCompletions.some((tc: any) => tc.teacherId === tid && tc.completedSem1)
                 )
-                
-                const allDoneSem2 = assignedTeachers.every((tid: string) => 
-                   teacherCompletions.some((tc: any) => tc.teacherId === tid && tc.completedSem2)
+
+                const allDoneSem2 = assignedTeachers.every((tid: string) =>
+                    teacherCompletions.some((tc: any) => tc.teacherId === tid && tc.completedSem2)
                 )
 
                 isCompletedSem1 = allDoneSem1
@@ -487,26 +503,26 @@ templateAssignmentsRouter.patch('/:id/status', requireAuth(['ADMIN', 'SUBADMIN',
         } else {
             // Admin override
             if (status === 'completed') {
-                 isCompleted = true
-                 completedAt = now
-                 completedBy = user.userId
-                 if (activeSemester === 1) {
-                     isCompletedSem1 = true
-                     completedAtSem1 = now
-                 } else {
-                     isCompletedSem2 = true
-                     completedAtSem2 = now
-                 }
+                isCompleted = true
+                completedAt = now
+                completedBy = user.userId
+                if (activeSemester === 1) {
+                    isCompletedSem1 = true
+                    completedAtSem1 = now
+                } else {
+                    isCompletedSem2 = true
+                    completedAtSem2 = now
+                }
             } else if (status === 'in_progress' || status === 'draft') {
-                 isCompleted = false
-                 completedAt = null
-                 completedBy = null
+                isCompleted = false
+                completedAt = null
+                completedBy = null
             }
         }
 
         const updated = await TemplateAssignment.findByIdAndUpdate(
             id,
-            { 
+            {
                 status: newStatus,
                 teacherCompletions,
                 isCompleted,
@@ -541,11 +557,11 @@ templateAssignmentsRouter.delete('/:id', requireAuth(['ADMIN']), async (req, res
 templateAssignmentsRouter.get('/', requireAuth(['ADMIN']), async (req, res) => {
     try {
         const { schoolYearId } = req.query
-        
+
         let dateFilter: any = {}
         let studentIds: string[] = []
         let enrollments: any[] = []
-        
+
         if (schoolYearId) {
             // We don't filter by date because assignments might be created before the school year starts (during setup)
             /*
@@ -559,17 +575,17 @@ templateAssignmentsRouter.get('/', requireAuth(['ADMIN']), async (req, res) => {
                 }
             }
             */
-            
+
             enrollments = await Enrollment.find({ schoolYearId }).lean()
             studentIds = enrollments.map(e => e.studentId)
         } else {
-             // Fallback: get all enrollments (might be slow and incorrect for history)
-             enrollments = await Enrollment.find({}).lean()
-             // We don't filter assignments by date if no year specified
+            // Fallback: get all enrollments (might be slow and incorrect for history)
+            enrollments = await Enrollment.find({}).lean()
+            // We don't filter assignments by date if no year specified
         }
 
         const query: any = { ...dateFilter }
-        
+
         // Enforce "Current State Only" rule:
         // If a specific year is requested, we ONLY return assignments that are actively working on that year.
         // Historical data must be fetched from SavedGradebooks.
@@ -587,23 +603,23 @@ templateAssignmentsRouter.get('/', requireAuth(['ADMIN']), async (req, res) => {
         const assignments = await TemplateAssignment.find(query).lean()
         const templateIds = assignments.map(a => a.templateId)
         const assignmentStudentIds = assignments.map(a => a.studentId)
-        
+
         const templates = await GradebookTemplate.find({ _id: { $in: templateIds } }).lean()
         const students = await Student.find({ _id: { $in: assignmentStudentIds } }).lean()
-        
+
         // We already have enrollments for the year if schoolYearId is present.
         // If not, we need to fetch them.
         if (!schoolYearId) {
-             enrollments = await Enrollment.find({ studentId: { $in: assignmentStudentIds } }).lean()
+            enrollments = await Enrollment.find({ studentId: { $in: assignmentStudentIds } }).lean()
         }
-        
+
         const classIds = enrollments.map(e => e.classId).filter(Boolean)
         const classes = await ClassModel.find({ _id: { $in: classIds } }).lean()
-        
+
         const result = assignments.map(a => {
             const template = templates.find(t => String(t._id) === a.templateId)
             const student = students.find(s => String(s._id) === a.studentId)
-            
+
             // Find enrollment for this student
             // If schoolYearId is present, enrollments are already filtered by year.
             // If not, we might pick a random one.

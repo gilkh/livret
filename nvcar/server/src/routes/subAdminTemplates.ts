@@ -23,7 +23,7 @@ import { computeSignaturePeriodId, resolveEndOfYearSignaturePeriod } from '../ut
 import mongoose from 'mongoose'
 import { checkAndAssignTemplates, mergeAssignmentDataIntoTemplate } from '../utils/templateUtils'
 import { withCache, clearCache } from '../utils/cache'
-import { getRolloverUpdate, createAssignmentSnapshot } from '../services/rolloverService'
+import { createAssignmentSnapshot } from '../services/rolloverService'
 import multer from 'multer'
 import path from 'path'
 import fs from 'fs'
@@ -837,13 +837,14 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote', require
                         by: subAdminId
                     }
 
-                    const rolloverUpdate = getRolloverUpdate(nextSchoolYearId, subAdminId)
+                    // Note: Do NOT call getRolloverUpdate here. The teacher progress should remain
+                    // visible for the current year until the admin advances to the next school year.
+                    // Rollover will happen via checkAndAssignTemplates when the school year changes.
 
                     await TemplateAssignment.findByIdAndUpdate(templateAssignmentId,
                         {
                             $push: { 'data.promotions': promotionData },
-                            $inc: { dataVersion: 1 },
-                            $set: rolloverUpdate
+                            $inc: { dataVersion: 1 }
                         },
                         { new: true }
                     )
@@ -919,13 +920,15 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote', require
                         by: subAdminId
                     }
 
-                    const rolloverUpdate = getRolloverUpdate(nextSchoolYearId, subAdminId)
+
+                    // Note: Do NOT call getRolloverUpdate here. The teacher progress should remain
+                    // visible for the current year until the admin advances to the next school year.
+                    // Rollover will happen via checkAndAssignTemplates when the school year changes.
 
                     await TemplateAssignment.findByIdAndUpdate(templateAssignmentId,
                         {
                             $push: { 'data.promotions': promotionData },
-                            $inc: { dataVersion: 1 },
-                            $set: rolloverUpdate
+                            $inc: { dataVersion: 1 }
                         },
                         { new: true, session }
                     )
@@ -1428,6 +1431,7 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
                 schoolYearId: undefined,
                 schoolYearName: resolveSignatureSchoolYearName(sig),
                 level: sig.level,
+                signatureUrl: sig.signatureUrl, // Include stored signature image URL
             })
         })
 

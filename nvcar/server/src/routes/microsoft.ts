@@ -124,6 +124,7 @@ microsoftRouter.post('/callback', async (req, res) => {
             user = await User.create({
                 email: outlookUser.email,
                 passwordHash: 'oauth-managed',
+            authProvider: 'microsoft',
                 role: outlookUser.role,
                 displayName: displayName || outlookUser.displayName || outlookUser.email,
                 tokenVersion: 0

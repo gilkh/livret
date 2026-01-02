@@ -3,6 +3,7 @@ import { requireAuth } from '../auth'
 import { TeacherClassAssignment } from '../models/TeacherClassAssignment'
 import { TemplateAssignment } from '../models/TemplateAssignment'
 import { TemplateChangeLog } from '../models/TemplateChangeLog'
+import { TemplateSignature } from '../models/TemplateSignature'
 import { GradebookTemplate } from '../models/GradebookTemplate'
 import { Student } from '../models/Student'
 import { Enrollment } from '../models/Enrollment'
@@ -59,6 +60,17 @@ const findEnrollmentForStudent = async (studentId: string) => {
         enrollment = await Enrollment.findOne({ studentId }).sort({ _id: -1 }).lean()
     }
     return { enrollment, activeYear }
+}
+
+/**
+ * Check if the assignment has been signed by a subadmin.
+ * Once signed, teachers should not be able to edit or modify the gradebook.
+ */
+const isAssignmentSigned = async (assignmentId: string): Promise<boolean> => {
+    const signature = await TemplateSignature.findOne({
+        templateAssignmentId: assignmentId
+    }).lean()
+    return !!signature
 }
 
 // Teacher: Get classes assigned to logged-in teacher
@@ -180,13 +192,13 @@ teacherTemplatesRouter.get('/template-assignments/:assignmentId', requireAuth(['
                 ; (page?.blocks || []).forEach((block: any, blockIdx: number) => {
                     if (['language_toggle', 'language_toggle_v2'].includes(block?.type)) {
                         const blockId = typeof block?.props?.blockId === 'string' && block.props.blockId.trim() ? block.props.blockId.trim() : null
-                        
+
                         // REQUIRE stable blockId - skip blocks without it
                         if (!blockId) {
                             console.warn(`[teacherTemplates] Block at page ${pageIdx}, index ${blockIdx} has no blockId. Skipping normalization.`)
                             return
                         }
-                        
+
                         const keyStable = `language_toggle_${blockId}`
                         const keyLegacy = `language_toggle_${pageIdx}_${blockIdx}`
 
@@ -231,13 +243,13 @@ teacherTemplatesRouter.get('/template-assignments/:assignmentId', requireAuth(['
 
                     for (let rowIdx = 0; rowIdx < (cells.length || 0); rowIdx++) {
                         const rowId = typeof rowIds?.[rowIdx] === 'string' && rowIds[rowIdx].trim() ? rowIds[rowIdx].trim() : null
-                        
+
                         // REQUIRE stable rowId
                         if (!rowId) {
                             console.warn(`[teacherTemplates] Table row at page ${pageIdx}, block ${blockIdx}, row ${rowIdx} has no rowId. Skipping.`)
                             continue
                         }
-                        
+
                         const keyStable = `table_${blockId}_row_${rowId}`
                         const keyLegacy1 = `table_${pageIdx}_${blockIdx}_row_${rowIdx}`
                         const keyLegacy2 = `table_${blockIdx}_row_${rowIdx}`
@@ -326,7 +338,10 @@ teacherTemplatesRouter.get('/template-assignments/:assignmentId', requireAuth(['
 
         // Determine if teacher can edit
         // Since we enforce class assignment above, if they reach here, they can edit.
-        const canEdit = true
+        // UNLESS the gradebook has been signed by a subadmin
+        const isSigned = await isAssignmentSigned(assignmentId)
+        const canEdit = !isSigned // Teachers cannot edit signed gradebooks
+
         const isProfPolyvalent = (enrollment && enrollment.classId)
             ? (await TeacherClassAssignment.findOne({ teacherId, classId: enrollment.classId }).lean() as any)?.isProfPolyvalent
             : false
@@ -345,6 +360,7 @@ teacherTemplatesRouter.get('/template-assignments/:assignmentId', requireAuth(['
             template: versionedTemplate,
             student: { ...student, level, className },
             canEdit,
+            isSigned,
             allowedLanguages,
             isProfPolyvalent,
             isMyWorkCompleted,
@@ -377,6 +393,11 @@ teacherTemplatesRouter.patch('/template-assignments/:assignmentId/language-toggl
 
         if (!assignment.assignedTeachers.includes(teacherId)) {
             return res.status(403).json({ error: 'not_assigned_to_template' })
+        }
+
+        // Check if the assignment has been signed - teachers cannot edit signed gradebooks
+        if (await isAssignmentSigned(assignmentId)) {
+            return res.status(403).json({ error: 'gradebook_signed', message: 'Cannot edit a signed gradebook' })
         }
 
         // Get the template to verify the block
@@ -445,17 +466,17 @@ teacherTemplatesRouter.patch('/template-assignments/:assignmentId/language-toggl
 
         const currentData = assignment.data || {}
         const blockId = typeof targetBlock?.props?.blockId === 'string' && targetBlock.props.blockId.trim() ? targetBlock.props.blockId.trim() : null
-        
+
         // REQUIRE stable blockId - no fallback to legacy format
         if (!blockId) {
-            return res.status(400).json({ 
-                error: 'block_missing_id', 
+            return res.status(400).json({
+                error: 'block_missing_id',
                 message: 'Block does not have a stable blockId. Please run the migration script to fix template data.',
                 pageIndex: actualPageIndex,
                 blockIndex: actualBlockIndex
             })
         }
-        
+
         const keyStable = `language_toggle_${blockId}`
         // Also check legacy key for reading previous data (for backwards compatibility during migration)
         const keyLegacy = `language_toggle_${actualPageIndex}_${actualBlockIndex}`
@@ -537,6 +558,11 @@ teacherTemplatesRouter.post('/templates/:assignmentId/mark-done', requireAuth(['
 
         if (!assignment.assignedTeachers.includes(teacherId)) {
             return res.status(403).json({ error: 'not_assigned_to_template' })
+        }
+
+        // Check if the assignment has been signed - teachers cannot modify signed gradebooks
+        if (await isAssignmentSigned(assignmentId)) {
+            return res.status(403).json({ error: 'gradebook_signed', message: 'Cannot modify a signed gradebook' })
         }
 
         // Update teacher completion
@@ -632,6 +658,11 @@ teacherTemplatesRouter.post('/templates/:assignmentId/unmark-done', requireAuth(
 
         if (!assignment.assignedTeachers.includes(teacherId)) {
             return res.status(403).json({ error: 'not_assigned_to_template' })
+        }
+
+        // Check if the assignment has been signed - teachers cannot modify signed gradebooks
+        if (await isAssignmentSigned(assignmentId)) {
+            return res.status(403).json({ error: 'gradebook_signed', message: 'Cannot modify a signed gradebook' })
         }
 
         // Update teacher completion
@@ -878,6 +909,11 @@ teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data', require
 
         if (!assignment.assignedTeachers.includes(teacherId)) {
             return res.status(403).json({ error: 'not_assigned_to_template' })
+        }
+
+        // Check if the assignment has been signed - teachers cannot edit signed gradebooks
+        if (await isAssignmentSigned(assignmentId)) {
+            return res.status(403).json({ error: 'gradebook_signed', message: 'Cannot edit a signed gradebook' })
         }
 
         const { enrollment, activeYear } = await findEnrollmentForStudent(assignment.studentId)

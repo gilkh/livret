@@ -18,6 +18,24 @@ const templateAssignmentSchema = new Schema({
         }],
         default: []
     },
+    // Historical teacher completions per school year (never deleted)
+    // Key: schoolYearId, Value: array of teacher completions for that year
+    teacherCompletionsByYear: {
+        type: Schema.Types.Mixed,
+        default: {}
+    },
+    // Historical completion flags per school year (never deleted)
+    // Key: schoolYearId, Value: { isCompleted, isCompletedSem1, isCompletedSem2, completedAt, etc. }
+    completionHistoryByYear: {
+        type: Schema.Types.Mixed,
+        default: {}
+    },
+    // Historical assigned teachers per school year (never deleted)
+    // Key: schoolYearId, Value: array of teacher IDs that were assigned for that year
+    assignedTeachersByYear: {
+        type: Schema.Types.Mixed,
+        default: {}
+    },
     // status is UI-only hint. Business logic must use isCompleted/isCompletedSem1/isSigned etc.
     status: { type: String, enum: ['draft', 'in_progress', 'completed', 'signed'], default: 'draft' },
     assignedAt: { type: Date, default: () => new Date() },

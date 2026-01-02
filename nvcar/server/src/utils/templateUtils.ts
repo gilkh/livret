@@ -91,7 +91,7 @@ export function mergeAssignmentDataIntoTemplate(template: any, assignment: any) 
             }
             continue
           }
-          
+
           const found = blockId ? blocksById.get(blockId) : null
           if (found && ['language_toggle', 'language_toggle_v2'].includes(found.block?.type)) {
             found.block.props = found.block.props || {}
@@ -107,7 +107,7 @@ export function mergeAssignmentDataIntoTemplate(template: any, assignment: any) 
         if (stableMatch) {
           const blockId = String(stableMatch[1] || '').trim()
           const rowId = String(stableMatch[2] || '').trim()
-          
+
           // Skip if it looks like legacy format (blockId is just numbers)
           if (/^\d+_\d+$/.test(blockId) && /^\d+$/.test(rowId)) {
             // This is legacy format - try to migrate it
@@ -130,7 +130,7 @@ export function mergeAssignmentDataIntoTemplate(template: any, assignment: any) 
             }
             continue
           }
-          
+
           const found = blockId ? blocksById.get(blockId) : null
           const block = found?.block
           if (block && block.type === 'table' && block.props?.expandedRows) {
@@ -251,6 +251,14 @@ export async function checkAndAssignTemplates(studentId: string, level: string, 
         const shouldResetForNewYear = completionYearId && completionYearId !== String(schoolYearId)
 
         if (shouldResetForNewYear) {
+          // Import archiveYearCompletions to preserve historical data
+          const { archiveYearCompletions } = await import('../services/rolloverService')
+
+          // Archive current year's completions BEFORE resetting
+          const archiveUpdates = archiveYearCompletions(exists, completionYearId)
+          Object.assign(updates, archiveUpdates)
+
+          // Now reset for the new year
           updates.status = 'draft'
           updates.isCompleted = false
           updates.completedAt = null
@@ -369,13 +377,13 @@ export function ensureStableBlockIds(previousPages: any[] | undefined, nextPages
     const blocks: any[] = Array.isArray(page?.blocks) ? page.blocks : []
     for (const block of blocks) {
       if (!block) continue
-      
+
       // Initialize props if missing
       block.props = block.props || {}
-      
+
       const currentId = block.props.blockId
       const currentIdValid = typeof currentId === 'string' && currentId.trim()
-      
+
       // If block already has a valid blockId, keep it
       if (currentIdValid) continue
 

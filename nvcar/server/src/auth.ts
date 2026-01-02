@@ -24,14 +24,14 @@ export const requireAuth = (roles?: Role[]) => {
     if (!token) return res.status(401).json({ error: 'unauthorized' })
 
     try {
-      const decoded = jwt.verify(token, jwtSecret) as { 
-        userId: string; 
+      const decoded = jwt.verify(token, jwtSecret) as {
+        userId: string;
         role: Role;
         impersonateUserId?: string;
         impersonateRole?: Role;
         tokenVersion?: number;
       }
-      
+
       // If impersonating, use the impersonated user's ID and role for authorization
       // but keep the original admin info for audit trails
       const effectiveUserId = decoded.impersonateUserId || decoded.userId
@@ -45,7 +45,7 @@ export const requireAuth = (roles?: Role[]) => {
         // We still want to reuse the normal admin login to control simulations,
         // so allow a valid ADMIN token even if the user doc isn't present in the sandbox DB.
         if (isSimulationSandbox() && decoded.role === 'ADMIN') {
-          ;(req as any).user = {
+          ; (req as any).user = {
             userId: effectiveUserId,
             role: effectiveRole,
             actualUserId: decoded.userId,
@@ -66,19 +66,28 @@ export const requireAuth = (roles?: Role[]) => {
         return res.status(401).json({ error: 'token_expired' })
       }
 
+      // Check if user account is active
+      const userStatus = (user as any).status || 'active'
+      if (userStatus === 'deleted') {
+        return res.status(401).json({ error: 'account_deleted', message: 'This account has been deleted' })
+      }
+      if (userStatus === 'inactive') {
+        return res.status(401).json({ error: 'account_disabled', message: 'This account has been deactivated' })
+      }
+
       // Update lastActive
       user.lastActive = new Date()
       await user.save()
-      
-      ;(req as any).user = {
-        userId: effectiveUserId,
-        role: effectiveRole,
-        actualUserId: decoded.userId, // Original admin user ID
-        actualRole: decoded.role,     // Original admin role
-        isImpersonating: !!decoded.impersonateUserId,
-        bypassScopes: user.bypassScopes || []
-      }
-      
+
+        ; (req as any).user = {
+          userId: effectiveUserId,
+          role: effectiveRole,
+          actualUserId: decoded.userId, // Original admin user ID
+          actualRole: decoded.role,     // Original admin role
+          isImpersonating: !!decoded.impersonateUserId,
+          bypassScopes: user.bypassScopes || []
+        }
+
       if (roles && !roles.includes(effectiveRole)) return res.status(403).json({ error: 'forbidden' })
       next()
     } catch (e) {
