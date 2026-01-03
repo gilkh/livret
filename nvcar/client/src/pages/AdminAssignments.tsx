@@ -1,9 +1,10 @@
 import { useMemo, useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { Trash2, Check, X, Plus } from 'lucide-react'
+import { Trash2, Check, X, Plus, Users, BookOpen, Shield, Globe, Download, Search, ChevronRight, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react'
 import api from '../api'
 import { useLevels } from '../context/LevelContext'
 import { useSchoolYear } from '../context/SchoolYearContext'
+import './AdminAssignments.css'
 
 type User = { _id: string; email: string; displayName: string; role: string }
 type Class = { _id: string; name: string; level?: string }
@@ -28,6 +29,13 @@ type DeleteAction =
     | { type: 'subadmin-level'; subAdminId: string; level: string; label: string }
     | { type: 'template-level'; templateId: string; level: string; label: string }
 
+const TAB_CONFIG = {
+    teacher: { icon: Users, label: 'Enseignants', color: '#3b82f6', bg: '#eff6ff' },
+    subadmin: { icon: Shield, label: 'Sous-admins', color: '#8b5cf6', bg: '#f5f3ff' },
+    aefe: { icon: Globe, label: 'AEFE', color: '#f59e0b', bg: '#fffbeb' },
+    template: { icon: BookOpen, label: 'Carnets', color: '#10b981', bg: '#ecfdf5' },
+} as const
+
 export default function AdminAssignments() {
     const { levels } = useLevels()
     const { activeYearId, years } = useSchoolYear()
@@ -48,7 +56,6 @@ export default function AdminAssignments() {
     const [selectedLanguages, setSelectedLanguages] = useState<string[]>([])
     const [isProfPolyvalent, setIsProfPolyvalent] = useState(false)
     
-    // Level assignment states
     const [selectedLevelForSubAdmin, setSelectedLevelForSubAdmin] = useState('')
     const [selectedSubAdminForLevel, setSelectedSubAdminForLevel] = useState('')
     
@@ -70,7 +77,6 @@ export default function AdminAssignments() {
     const [deleteAction, setDeleteAction] = useState<DeleteAction | null>(null)
     const [deleteConfirmText, setDeleteConfirmText] = useState('')
 
-    // Import State
     const [showImportModal, setShowImportModal] = useState(false)
     const [importFromYearId, setImportFromYearId] = useState('')
     const [availableImports, setAvailableImports] = useState<ImportableTeacherAssignment[]>([])
@@ -202,7 +208,6 @@ export default function AdminAssignments() {
             const res = await api.get(`/teacher-assignments?schoolYearId=${yearId}`)
             setAvailableImports(res.data)
             setImportFromYearId(yearId)
-            // Select all by default
             const allIndices = new Set<number>(res.data.map((_: ImportableTeacherAssignment, idx: number) => idx))
             setSelectedImportIndices(allIndices)
         } catch (e) {
@@ -211,11 +216,8 @@ export default function AdminAssignments() {
     }
 
     const handleOpenImport = () => {
-        // Find previous year
-        // Sort years by startDate descending
         const sortedYears = [...years].sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime())
         const currentIndex = sortedYears.findIndex(y => y._id === activeYearId)
-        // Default to previous year (currentIndex + 1) if exists, else first available that is not active
         let targetYear = sortedYears[currentIndex + 1]
         if (!targetYear && sortedYears.length > 1) {
             targetYear = sortedYears.find(y => y._id !== activeYearId)!
@@ -361,85 +363,114 @@ export default function AdminAssignments() {
         return importRows.every(r => selectedImportIndices.has(r.idx))
     }, [importRows, selectedImportIndices])
 
-    return (
-        <div className="container">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap', marginBottom: 16 }}>
-                <div>
-                    <h2 className="title" style={{ fontSize: '2rem', marginBottom: 6 }}>Gestion des assignations</h2>
-                    <p className="note" style={{ marginTop: 0 }}>Année scolaire: {activeYearName}</p>
-                    <p className="note" style={{ marginTop: 6 }}>Gérez les assignations des enseignants, carnets et sous-administrateurs</p>
-                </div>
-                <div className="toolbar" style={{ alignItems: 'center', flexWrap: 'wrap' }}>
-                    <Link to="/admin/assignment-list" className="btn secondary">Voir toutes les assignations</Link>
-                    <Link to="/admin" className="btn ghost">Retour</Link>
-                </div>
-            </div>
+    const tabCounts = useMemo(() => ({
+        teacher: teacherAssignments.length,
+        subadmin: subAdminSummary.reduce((acc, s) => acc + s.levels.length, 0),
+        aefe: aefeSummary.reduce((acc, s) => acc + s.levels.length, 0),
+        template: templateSummary.reduce((acc, s) => acc + s.levels.length, 0),
+    }), [teacherAssignments, subAdminSummary, aefeSummary, templateSummary])
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 18 }}>
-                <div className="segmented" role="tablist" aria-label="Sections assignations">
-                    <button type="button" className={`segment ${activeTab === 'teacher' ? 'active' : ''}`} onClick={() => setActiveTab('teacher')}>
-                        Enseignant→Classe ({teacherAssignments.length})
-                    </button>
-                    <button type="button" className={`segment ${activeTab === 'subadmin' ? 'active' : ''}`} onClick={() => setActiveTab('subadmin')}>
-                        Sous-admin→Niveau ({subAdminSummary.reduce((acc, s) => acc + s.levels.length, 0)})
-                    </button>
-                    <button type="button" className={`segment ${activeTab === 'aefe' ? 'active' : ''}`} onClick={() => setActiveTab('aefe')}>
-                        AEFE→Niveau ({aefeSummary.reduce((acc, s) => acc + s.levels.length, 0)})
-                    </button>
-                    <button type="button" className={`segment ${activeTab === 'template' ? 'active' : ''}`} onClick={() => setActiveTab('template')}>
-                        Carnet→Niveau ({templateSummary.reduce((acc, s) => acc + s.levels.length, 0)})
-                    </button>
-                </div>
-                {loading && (
-                    <div className="note" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                        <span className="spinner" /> Chargement…
+    return (
+        <div className="aa-page">
+            {/* Header */}
+            <header className="aa-header">
+                <div className="aa-header-content">
+                    <div className="aa-header-left">
+                        <div className="aa-header-icon">
+                            <Users size={24} />
+                        </div>
+                        <div>
+                            <h1 className="aa-title">Gestion des assignations</h1>
+                            <p className="aa-subtitle">
+                                <span className="aa-year-badge">{activeYearName}</span>
+                                Gérez les assignations des enseignants, carnets et sous-administrateurs
+                            </p>
+                        </div>
                     </div>
-                )}
-            </div>
+                    <div className="aa-header-actions">
+                        <Link to="/admin/assignment-list" className="aa-btn aa-btn-secondary">
+                            <ChevronRight size={16} />
+                            Voir toutes
+                        </Link>
+                        <Link to="/admin" className="aa-btn aa-btn-ghost">
+                            Retour
+                        </Link>
+                    </div>
+                </div>
+            </header>
+
+            {/* Toast Messages */}
+            {message && (
+                <div className={`aa-toast ${message.includes('✓') ? 'aa-toast-success' : 'aa-toast-error'}`}>
+                    {message.includes('✓') ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
+                    <span>{message}</span>
+                </div>
+            )}
 
             {loadError && (
-                <div style={{ padding: '12px 16px', background: '#fff1f0', border: '1px solid #ffa39e', color: '#cf1322', borderRadius: 10, marginBottom: 12 }}>
-                    {loadError}
+                <div className="aa-error-banner">
+                    <AlertCircle size={18} />
+                    <span>{loadError}</span>
+                    <button onClick={loadData} className="aa-btn aa-btn-sm">Réessayer</button>
                 </div>
             )}
 
-            {message && (
-                <div style={{
-                    marginBottom: 12,
-                    padding: '12px 16px',
-                    background: message.includes('✓') ? '#f6ffed' : '#fff1f0',
-                    border: `1px solid ${message.includes('✓') ? '#b7eb8f' : '#ffa39e'}`,
-                    color: message.includes('✓') ? '#389e0d' : '#cf1322',
-                    borderRadius: 10,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8
-                }}>
-                    {message}
-                </div>
-            )}
-
-            {activeTab === 'teacher' && (
-                <div className="card">
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                            <div style={{ background: '#e6f7ff', padding: 8, borderRadius: 10 }}>👨‍🏫</div>
-                            <h3 style={{ margin: 0 }}>Enseignant → Classe</h3>
-                        </div>
-                        <button className="btn ghost" onClick={handleOpenImport} disabled={busyAction !== null || loading}>
-                            📥 Importer N-1
+            {/* Tab Navigation */}
+            <nav className="aa-tabs">
+                {(Object.keys(TAB_CONFIG) as Array<keyof typeof TAB_CONFIG>).map(key => {
+                    const config = TAB_CONFIG[key]
+                    const Icon = config.icon
+                    const isActive = activeTab === key
+                    return (
+                        <button
+                            key={key}
+                            className={`aa-tab ${isActive ? 'aa-tab-active' : ''}`}
+                            onClick={() => setActiveTab(key)}
+                            style={{ '--tab-color': config.color, '--tab-bg': config.bg } as React.CSSProperties}
+                        >
+                            <Icon size={18} />
+                            <span className="aa-tab-label">{config.label}</span>
+                            <span className="aa-tab-count">{tabCounts[key]}</span>
                         </button>
+                    )
+                })}
+                {loading && (
+                    <div className="aa-loading-indicator">
+                        <Loader2 size={16} className="aa-spin" />
+                        <span>Chargement…</span>
                     </div>
+                )}
+            </nav>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-                        <div className="field">
-                            <div className="field-label">Recherche enseignant</div>
-                            <input className="input" value={teacherQuery} onChange={e => setTeacherQuery(e.target.value)} placeholder="Nom ou email…" disabled={loading} />
+            {/* Teacher Tab */}
+            {activeTab === 'teacher' && (
+                <div className="aa-content">
+                    <div className="aa-panel">
+                        <div className="aa-panel-header">
+                            <div className="aa-panel-title">
+                                <Users size={20} style={{ color: '#3b82f6' }} />
+                                <span>Enseignant → Classe</span>
+                            </div>
+                            <button className="aa-btn aa-btn-outline" onClick={handleOpenImport} disabled={busyAction !== null || loading}>
+                                <Download size={16} />
+                                Importer N-1
+                            </button>
                         </div>
-                        <div className="field">
-                            <div className="field-label">Enseignant</div>
+
+                        <div className="aa-search-row">
+                            <div className="aa-search-field">
+                                <Search size={16} className="aa-search-icon" />
+                                <input
+                                    type="text"
+                                    className="aa-input"
+                                    value={teacherQuery}
+                                    onChange={e => setTeacherQuery(e.target.value)}
+                                    placeholder="Rechercher un enseignant…"
+                                    disabled={loading}
+                                />
+                            </div>
                             <select
-                                className="select"
+                                className="aa-select"
                                 value={selectedTeacher}
                                 disabled={loading}
                                 onChange={e => {
@@ -449,94 +480,115 @@ export default function AdminAssignments() {
                                     setCurrentAssignmentsQuery('')
                                 }}
                             >
-                                <option value="">Sélectionner enseignant</option>
+                                <option value="">Sélectionner un enseignant</option>
                                 {filteredTeachers.map(t => (
                                     <option key={t._id} value={t._id}>
                                         {t.displayName} ({t.email})
                                     </option>
                                 ))}
                             </select>
-                            <div className="note">{filteredTeachers.length} enseignant(s)</div>
                         </div>
-                    </div>
 
-                    {selectedTeacher && (
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24, marginTop: 18 }}>
-                            <div style={{ border: '1px solid #f1f5f9', borderRadius: 14, padding: 16, background: '#fafafa' }}>
-                                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
-                                    <h4 style={{ margin: 0, fontSize: '0.95rem', color: '#334155' }}>Nouvelle assignation</h4>
-                                    <div className="note">{selectedClasses.length} sélectionnée(s)</div>
-                                </div>
+                        {!selectedTeacher && (
+                            <div className="aa-empty-state">
+                                <Users size={48} strokeWidth={1} />
+                                <p>Sélectionnez un enseignant pour gérer ses assignations</p>
+                            </div>
+                        )}
 
-                                <div className="field" style={{ marginBottom: 10 }}>
-                                    <div className="field-label">Filtrer les classes</div>
-                                    <input className="input" value={classQuery} onChange={e => setClassQuery(e.target.value)} placeholder="Ex: 5A, GS…" disabled={loading || busyAction !== null} />
-                                </div>
+                        {selectedTeacher && (
+                            <div className="aa-split-view">
+                                {/* New Assignment Panel */}
+                                <div className="aa-split-panel aa-split-panel-new">
+                                    <h4 className="aa-split-title">
+                                        <Plus size={16} />
+                                        Nouvelle assignation
+                                        {selectedClasses.length > 0 && (
+                                            <span className="aa-badge">{selectedClasses.length}</span>
+                                        )}
+                                    </h4>
 
-                                <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, flexWrap: 'wrap' }}>
-                                    <div className="note">{filteredAvailableClasses.length} classe(s) disponible(s)</div>
-                                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                                        <button
-                                            type="button"
-                                            className="btn ghost"
-                                            disabled={filteredAvailableClasses.length === 0 || loading || busyAction !== null}
-                                            onClick={() => setSelectedClasses(Array.from(new Set([...selectedClasses, ...filteredAvailableClasses.map(c => c._id)])))}
-                                        >
-                                            Tout
-                                        </button>
-                                        <button type="button" className="btn ghost" disabled={selectedClasses.length === 0 || loading || busyAction !== null} onClick={() => setSelectedClasses([])}>
-                                            Aucun
-                                        </button>
+                                    <div className="aa-search-field aa-search-field-sm">
+                                        <Search size={14} className="aa-search-icon" />
+                                        <input
+                                            type="text"
+                                            className="aa-input aa-input-sm"
+                                            value={classQuery}
+                                            onChange={e => setClassQuery(e.target.value)}
+                                            placeholder="Filtrer les classes…"
+                                            disabled={loading || busyAction !== null}
+                                        />
                                     </div>
-                                </div>
 
-                                <div style={{ maxHeight: 220, overflowY: 'auto', background: 'white', border: '1px solid #e2e8f0', borderRadius: 12, padding: 6 }}>
-                                    {availableClasses.length === 0 ? (
-                                        <div style={{ padding: 10, color: '#94a3b8', fontSize: '0.9rem' }}>Toutes les classes sont assignées</div>
-                                    ) : filteredAvailableClasses.length === 0 ? (
-                                        <div style={{ padding: 10, color: '#94a3b8', fontSize: '0.9rem' }}>Aucune classe ne correspond</div>
-                                    ) : (
-                                        filteredAvailableClasses.map(c => (
-                                            <label key={c._id} style={{ display: 'flex', alignItems: 'center', padding: '6px 10px', cursor: 'pointer', fontSize: '0.95rem', borderRadius: 10 }}>
-                                                <input
-                                                    type="checkbox"
-                                                    checked={selectedClasses.includes(c._id)}
-                                                    onChange={e => {
-                                                        if (e.target.checked) setSelectedClasses([...selectedClasses, c._id])
-                                                        else setSelectedClasses(selectedClasses.filter(id => id !== c._id))
-                                                    }}
-                                                    style={{ marginRight: 10 }}
-                                                    disabled={busyAction !== null || loading}
-                                                />
-                                                {c.name}
-                                            </label>
-                                        ))
-                                    )}
-                                </div>
-
-                                <div style={{ marginTop: 12 }}>
-                                    <div className="field-label">Langues autorisées</div>
-                                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
-                                        {['ar', 'en'].map(lang => (
+                                    <div className="aa-list-actions">
+                                        <span className="aa-list-count">{filteredAvailableClasses.length} disponible(s)</span>
+                                        <div className="aa-list-btns">
                                             <button
-                                                key={lang}
                                                 type="button"
-                                                className={`chip ${selectedLanguages.includes(lang) ? 'active' : ''}`}
-                                                disabled={isProfPolyvalent || loading || busyAction !== null}
-                                                onClick={() => {
-                                                    if (selectedLanguages.includes(lang)) setSelectedLanguages(selectedLanguages.filter(l => l !== lang))
-                                                    else setSelectedLanguages([...selectedLanguages, lang])
-                                                }}
+                                                className="aa-btn aa-btn-xs"
+                                                disabled={filteredAvailableClasses.length === 0 || loading || busyAction !== null}
+                                                onClick={() => setSelectedClasses(Array.from(new Set([...selectedClasses, ...filteredAvailableClasses.map(c => c._id)])))}
                                             >
-                                                {lang.toUpperCase()}
+                                                Tout
                                             </button>
-                                        ))}
-                                        <span className="note" style={{ alignSelf: 'center' }}>{selectedLanguages.length === 0 ? 'Toutes langues' : ''}</span>
+                                            <button
+                                                type="button"
+                                                className="aa-btn aa-btn-xs"
+                                                disabled={selectedClasses.length === 0 || loading || busyAction !== null}
+                                                onClick={() => setSelectedClasses([])}
+                                            >
+                                                Aucun
+                                            </button>
+                                        </div>
                                     </div>
-                                </div>
 
-                                <div style={{ marginTop: 12 }}>
-                                    <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                                    <div className="aa-checkbox-list">
+                                        {availableClasses.length === 0 ? (
+                                            <div className="aa-list-empty">Toutes les classes sont assignées</div>
+                                        ) : filteredAvailableClasses.length === 0 ? (
+                                            <div className="aa-list-empty">Aucune classe ne correspond</div>
+                                        ) : (
+                                            filteredAvailableClasses.map(c => (
+                                                <label key={c._id} className={`aa-checkbox-item ${selectedClasses.includes(c._id) ? 'aa-checkbox-item-selected' : ''}`}>
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={selectedClasses.includes(c._id)}
+                                                        onChange={e => {
+                                                            if (e.target.checked) setSelectedClasses([...selectedClasses, c._id])
+                                                            else setSelectedClasses(selectedClasses.filter(id => id !== c._id))
+                                                        }}
+                                                        disabled={busyAction !== null || loading}
+                                                    />
+                                                    <span>{c.name}</span>
+                                                </label>
+                                            ))
+                                        )}
+                                    </div>
+
+                                    <div className="aa-options-section">
+                                        <label className="aa-option-label">Langues autorisées</label>
+                                        <div className="aa-lang-chips">
+                                            {['ar', 'en'].map(lang => (
+                                                <button
+                                                    key={lang}
+                                                    type="button"
+                                                    className={`aa-lang-chip ${selectedLanguages.includes(lang) ? 'aa-lang-chip-active' : ''}`}
+                                                    disabled={isProfPolyvalent || loading || busyAction !== null}
+                                                    onClick={() => {
+                                                        if (selectedLanguages.includes(lang)) setSelectedLanguages(selectedLanguages.filter(l => l !== lang))
+                                                        else setSelectedLanguages([...selectedLanguages, lang])
+                                                    }}
+                                                >
+                                                    {lang.toUpperCase()}
+                                                </button>
+                                            ))}
+                                            {selectedLanguages.length === 0 && !isProfPolyvalent && (
+                                                <span className="aa-lang-hint">Toutes langues</span>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    <label className="aa-toggle">
                                         <input
                                             type="checkbox"
                                             checked={isProfPolyvalent}
@@ -547,54 +599,61 @@ export default function AdminAssignments() {
                                             }}
                                             disabled={loading || busyAction !== null}
                                         />
-                                        <span style={{ fontSize: '0.95rem' }}>Prof Polyvalent</span>
+                                        <span className="aa-toggle-slider"></span>
+                                        <span className="aa-toggle-label">Prof Polyvalent</span>
                                     </label>
+
+                                    <button
+                                        className="aa-btn aa-btn-primary aa-btn-full"
+                                        onClick={assignTeacherToClass}
+                                        disabled={selectedClasses.length === 0 || loading || busyAction !== null}
+                                    >
+                                        {busyAction === 'assign-teacher' ? <Loader2 size={16} className="aa-spin" /> : <Plus size={16} />}
+                                        Assigner {selectedClasses.length > 0 ? `(${selectedClasses.length})` : ''}
+                                    </button>
                                 </div>
 
-                                <button
-                                    className="btn"
-                                    onClick={assignTeacherToClass}
-                                    disabled={selectedClasses.length === 0 || loading || busyAction !== null}
-                                    style={{ marginTop: 16, width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}
-                                >
-                                    {busyAction === 'assign-teacher' ? <span className="spinner" /> : <Plus size={16} />}
-                                    Assigner {selectedClasses.length > 0 ? `(${selectedClasses.length})` : ''}
-                                </button>
-                            </div>
+                                {/* Current Assignments Panel */}
+                                <div className="aa-split-panel aa-split-panel-current">
+                                    <h4 className="aa-split-title">
+                                        <Check size={16} />
+                                        Assignations actuelles
+                                        <span className="aa-badge aa-badge-muted">{currentTeacherAssignmentsAll.length}</span>
+                                    </h4>
 
-                            <div style={{ border: '1px solid #f1f5f9', borderRadius: 14, padding: 16, background: 'white' }}>
-                                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
-                                    <h4 style={{ margin: 0, fontSize: '0.95rem', color: '#334155' }}>Assignations actuelles</h4>
-                                    <div className="note">{currentTeacherAssignmentsAll.length} total</div>
-                                </div>
+                                    <div className="aa-search-field aa-search-field-sm">
+                                        <Search size={14} className="aa-search-icon" />
+                                        <input
+                                            type="text"
+                                            className="aa-input aa-input-sm"
+                                            value={currentAssignmentsQuery}
+                                            onChange={e => setCurrentAssignmentsQuery(e.target.value)}
+                                            placeholder="Filtrer…"
+                                            disabled={loading}
+                                        />
+                                    </div>
 
-                                <div className="field" style={{ marginBottom: 10 }}>
-                                    <div className="field-label">Filtrer</div>
-                                    <input className="input" value={currentAssignmentsQuery} onChange={e => setCurrentAssignmentsQuery(e.target.value)} placeholder="Nom de classe…" disabled={loading} />
-                                </div>
-
-                                <div style={{ maxHeight: 420, overflowY: 'auto' }}>
-                                    {currentTeacherAssignments.length === 0 ? (
-                                        <div className="note">Aucune assignation</div>
-                                    ) : (
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                                            {currentTeacherAssignments.map(ta => (
-                                                <div key={ta._id} style={{ padding: 12, border: '1px solid #e2e8f0', borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-                                                    <div style={{ minWidth: 0 }}>
-                                                        <div style={{ fontWeight: 600, color: '#0f172a' }}>{ta.className}</div>
-                                                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
+                                    <div className="aa-assignment-list">
+                                        {currentTeacherAssignments.length === 0 ? (
+                                            <div className="aa-list-empty">Aucune assignation</div>
+                                        ) : (
+                                            currentTeacherAssignments.map(ta => (
+                                                <div key={ta._id} className="aa-assignment-card">
+                                                    <div className="aa-assignment-info">
+                                                        <span className="aa-assignment-name">{ta.className}</span>
+                                                        <div className="aa-assignment-meta">
                                                             {ta.isProfPolyvalent ? (
-                                                                <span className="chip">Polyvalent</span>
+                                                                <span className="aa-tag aa-tag-purple">Polyvalent</span>
                                                             ) : ta.languages && ta.languages.length > 0 ? (
-                                                                <span className="chip">{ta.languages.join(', ').toUpperCase()}</span>
+                                                                <span className="aa-tag">{ta.languages.join(', ').toUpperCase()}</span>
                                                             ) : (
-                                                                <span className="note">Toutes langues</span>
+                                                                <span className="aa-tag aa-tag-muted">Toutes langues</span>
                                                             )}
                                                         </div>
                                                     </div>
                                                     <button
                                                         type="button"
-                                                        className="icon-btn danger"
+                                                        className="aa-btn-icon aa-btn-icon-danger"
                                                         onClick={() => requestRemoveTeacherAssignment(ta._id, `${ta.className ?? 'classe'}`)}
                                                         title="Supprimer"
                                                         disabled={busyAction !== null || loading}
@@ -602,188 +661,206 @@ export default function AdminAssignments() {
                                                         <Trash2 size={16} />
                                                     </button>
                                                 </div>
-                                            ))}
-                                        </div>
-                                    )}
+                                            ))
+                                        )}
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                    )}
+                        )}
+                    </div>
                 </div>
             )}
 
+            {/* SubAdmin Tab */}
             {activeTab === 'subadmin' && (
-                <div className="card">
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-                        <div style={{ background: '#fff0f6', padding: 8, borderRadius: 10 }}>👔</div>
-                        <h3 style={{ margin: 0 }}>Sous-admin → Niveau</h3>
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, alignItems: 'end' }}>
-                        <div className="field">
-                            <div className="field-label">Sous-administrateur</div>
-                            <select className="select" value={selectedSubAdminForLevel} onChange={e => setSelectedSubAdminForLevel(e.target.value)} disabled={loading || busyAction !== null}>
-                                <option value="">Sélectionner sous-admin</option>
-                                {subAdmins.map(s => <option key={s._id} value={s._id}>{s.displayName} ({s.email})</option>)}
-                            </select>
+                <div className="aa-content">
+                    <div className="aa-panel">
+                        <div className="aa-panel-header">
+                            <div className="aa-panel-title">
+                                <Shield size={20} style={{ color: '#8b5cf6' }} />
+                                <span>Sous-admin → Niveau</span>
+                            </div>
                         </div>
-                        <div className="field">
-                            <div className="field-label">Niveau</div>
-                            <select className="select" value={selectedLevelForSubAdmin} onChange={e => setSelectedLevelForSubAdmin(e.target.value)} disabled={loading || busyAction !== null}>
-                                <option value="">Sélectionner niveau</option>
-                                {levels.map(l => <option key={l._id} value={l.name}>{l.name}</option>)}
-                            </select>
-                        </div>
-                    </div>
 
-                    <button className="btn" onClick={assignSubAdminToLevel} disabled={!selectedSubAdminForLevel || !selectedLevelForSubAdmin || loading || busyAction !== null} style={{ marginTop: 12, display: 'inline-flex', alignItems: 'center', gap: 10 }}>
-                        {busyAction === 'assign-subadmin-level' ? <span className="spinner" /> : null}
-                        Assigner à tous les enseignants
-                    </button>
-
-                    <div style={{ marginTop: 18 }}>
-                        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-                            <div style={{ fontWeight: 600, color: '#0f172a' }}>Déjà assigné</div>
-                            <div className="note">{subAdminSummary.reduce((acc, s) => acc + s.levels.length, 0)} niveau(x)</div>
+                        <div className="aa-form-row">
+                            <div className="aa-form-group">
+                                <label className="aa-label">Sous-administrateur</label>
+                                <select className="aa-select" value={selectedSubAdminForLevel} onChange={e => setSelectedSubAdminForLevel(e.target.value)} disabled={loading || busyAction !== null}>
+                                    <option value="">Sélectionner sous-admin</option>
+                                    {subAdmins.map(s => <option key={s._id} value={s._id}>{s.displayName} ({s.email})</option>)}
+                                </select>
+                            </div>
+                            <div className="aa-form-group">
+                                <label className="aa-label">Niveau</label>
+                                <select className="aa-select" value={selectedLevelForSubAdmin} onChange={e => setSelectedLevelForSubAdmin(e.target.value)} disabled={loading || busyAction !== null}>
+                                    <option value="">Sélectionner niveau</option>
+                                    {levels.map(l => <option key={l._id} value={l.name}>{l.name}</option>)}
+                                </select>
+                            </div>
+                            <button
+                                className="aa-btn aa-btn-primary"
+                                onClick={assignSubAdminToLevel}
+                                disabled={!selectedSubAdminForLevel || !selectedLevelForSubAdmin || loading || busyAction !== null}
+                            >
+                                {busyAction === 'assign-subadmin-level' ? <Loader2 size={16} className="aa-spin" /> : <Plus size={16} />}
+                                Assigner
+                            </button>
                         </div>
-                        <div style={{ marginTop: 10, maxHeight: 240, overflowY: 'auto', border: '1px solid #f1f5f9', borderRadius: 12, padding: 12, background: '#fafafa' }}>
-                            {subAdminSummary.length === 0 ? (
-                                <div className="note">Aucune assignation</div>
-                            ) : (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                                    {subAdminSummary.map(sa => (
-                                        <div key={sa.subAdminId} style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
-                                            <div style={{ fontWeight: 600, color: '#334155', minWidth: 180 }}>{sa.subAdminName}</div>
-                                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+
+                        <div className="aa-summary-section">
+                            <div className="aa-summary-header">
+                                <span>Assignations existantes</span>
+                                <span className="aa-summary-count">{subAdminSummary.reduce((acc, s) => acc + s.levels.length, 0)} niveau(x)</span>
+                            </div>
+                            <div className="aa-summary-list">
+                                {subAdminSummary.length === 0 ? (
+                                    <div className="aa-list-empty">Aucune assignation</div>
+                                ) : (
+                                    subAdminSummary.map(sa => (
+                                        <div key={sa.subAdminId} className="aa-summary-row">
+                                            <span className="aa-summary-name">{sa.subAdminName}</span>
+                                            <div className="aa-summary-tags">
                                                 {sa.levels.map(lvl => (
-                                                    <span key={lvl} className="chip">
+                                                    <span key={lvl} className="aa-tag aa-tag-removable">
                                                         {lvl}
-                                                        <button type="button" className="icon-btn danger" style={{ padding: 0, borderRadius: 6 }} onClick={() => requestRemoveSubAdminLevelAssignment(sa.subAdminId, lvl, `${sa.subAdminName} → ${lvl}`)} disabled={busyAction !== null || loading}>
+                                                        <button type="button" onClick={() => requestRemoveSubAdminLevelAssignment(sa.subAdminId, lvl, `${sa.subAdminName} → ${lvl}`)} disabled={busyAction !== null || loading}>
                                                             <X size={12} />
                                                         </button>
                                                     </span>
                                                 ))}
                                             </div>
                                         </div>
-                                    ))}
-                                </div>
-                            )}
+                                    ))
+                                )}
+                            </div>
                         </div>
                     </div>
                 </div>
             )}
 
+            {/* AEFE Tab */}
             {activeTab === 'aefe' && (
-                <div className="card">
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-                        <div style={{ background: '#fff7e6', padding: 8, borderRadius: 10 }}>🌍</div>
-                        <h3 style={{ margin: 0 }}>AEFE → Niveau</h3>
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, alignItems: 'end' }}>
-                        <div className="field">
-                            <div className="field-label">Utilisateur AEFE</div>
-                            <select className="select" value={selectedAefeForLevel} onChange={e => setSelectedAefeForLevel(e.target.value)} disabled={loading || busyAction !== null}>
-                                <option value="">Sélectionner AEFE</option>
-                                {aefeUsers.map(s => <option key={s._id} value={s._id}>{s.displayName} ({s.email})</option>)}
-                            </select>
+                <div className="aa-content">
+                    <div className="aa-panel">
+                        <div className="aa-panel-header">
+                            <div className="aa-panel-title">
+                                <Globe size={20} style={{ color: '#f59e0b' }} />
+                                <span>AEFE → Niveau</span>
+                            </div>
                         </div>
-                        <div className="field">
-                            <div className="field-label">Niveau</div>
-                            <select className="select" value={selectedLevelForAefe} onChange={e => setSelectedLevelForAefe(e.target.value)} disabled={loading || busyAction !== null}>
-                                <option value="">Sélectionner niveau</option>
-                                {levels.map(l => <option key={l._id} value={l.name}>{l.name}</option>)}
-                            </select>
-                        </div>
-                    </div>
 
-                    <button className="btn" onClick={assignAefeToLevel} disabled={!selectedAefeForLevel || !selectedLevelForAefe || loading || busyAction !== null} style={{ marginTop: 12, display: 'inline-flex', alignItems: 'center', gap: 10 }}>
-                        {busyAction === 'assign-aefe-level' ? <span className="spinner" /> : null}
-                        Assigner à tous les enseignants
-                    </button>
-
-                    <div style={{ marginTop: 18 }}>
-                        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-                            <div style={{ fontWeight: 600, color: '#0f172a' }}>Déjà assigné</div>
-                            <div className="note">{aefeSummary.reduce((acc, s) => acc + s.levels.length, 0)} niveau(x)</div>
+                        <div className="aa-form-row">
+                            <div className="aa-form-group">
+                                <label className="aa-label">Utilisateur AEFE</label>
+                                <select className="aa-select" value={selectedAefeForLevel} onChange={e => setSelectedAefeForLevel(e.target.value)} disabled={loading || busyAction !== null}>
+                                    <option value="">Sélectionner AEFE</option>
+                                    {aefeUsers.map(s => <option key={s._id} value={s._id}>{s.displayName} ({s.email})</option>)}
+                                </select>
+                            </div>
+                            <div className="aa-form-group">
+                                <label className="aa-label">Niveau</label>
+                                <select className="aa-select" value={selectedLevelForAefe} onChange={e => setSelectedLevelForAefe(e.target.value)} disabled={loading || busyAction !== null}>
+                                    <option value="">Sélectionner niveau</option>
+                                    {levels.map(l => <option key={l._id} value={l.name}>{l.name}</option>)}
+                                </select>
+                            </div>
+                            <button
+                                className="aa-btn aa-btn-primary"
+                                onClick={assignAefeToLevel}
+                                disabled={!selectedAefeForLevel || !selectedLevelForAefe || loading || busyAction !== null}
+                            >
+                                {busyAction === 'assign-aefe-level' ? <Loader2 size={16} className="aa-spin" /> : <Plus size={16} />}
+                                Assigner
+                            </button>
                         </div>
-                        <div style={{ marginTop: 10, maxHeight: 240, overflowY: 'auto', border: '1px solid #f1f5f9', borderRadius: 12, padding: 12, background: '#fafafa' }}>
-                            {aefeSummary.length === 0 ? (
-                                <div className="note">Aucune assignation</div>
-                            ) : (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                                    {aefeSummary.map(sa => (
-                                        <div key={sa.subAdminId} style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
-                                            <div style={{ fontWeight: 600, color: '#334155', minWidth: 180 }}>{sa.subAdminName}</div>
-                                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+
+                        <div className="aa-summary-section">
+                            <div className="aa-summary-header">
+                                <span>Assignations existantes</span>
+                                <span className="aa-summary-count">{aefeSummary.reduce((acc, s) => acc + s.levels.length, 0)} niveau(x)</span>
+                            </div>
+                            <div className="aa-summary-list">
+                                {aefeSummary.length === 0 ? (
+                                    <div className="aa-list-empty">Aucune assignation</div>
+                                ) : (
+                                    aefeSummary.map(sa => (
+                                        <div key={sa.subAdminId} className="aa-summary-row">
+                                            <span className="aa-summary-name">{sa.subAdminName}</span>
+                                            <div className="aa-summary-tags">
                                                 {sa.levels.map(lvl => (
-                                                    <span key={lvl} className="chip">
+                                                    <span key={lvl} className="aa-tag aa-tag-removable">
                                                         {lvl}
-                                                        <button type="button" className="icon-btn danger" style={{ padding: 0, borderRadius: 6 }} onClick={() => requestRemoveSubAdminLevelAssignment(sa.subAdminId, lvl, `${sa.subAdminName} → ${lvl}`)} disabled={busyAction !== null || loading}>
+                                                        <button type="button" onClick={() => requestRemoveSubAdminLevelAssignment(sa.subAdminId, lvl, `${sa.subAdminName} → ${lvl}`)} disabled={busyAction !== null || loading}>
                                                             <X size={12} />
                                                         </button>
                                                     </span>
                                                 ))}
                                             </div>
                                         </div>
-                                    ))}
-                                </div>
-                            )}
+                                    ))
+                                )}
+                            </div>
                         </div>
                     </div>
                 </div>
             )}
 
+            {/* Template Tab */}
             {activeTab === 'template' && (
-                <div className="card">
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-                        <div style={{ background: '#f6ffed', padding: 8, borderRadius: 10 }}>🎓</div>
-                        <h3 style={{ margin: 0 }}>Carnet → Niveau</h3>
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, alignItems: 'end' }}>
-                        <div className="field">
-                            <div className="field-label">Carnet</div>
-                            <select className="select" value={selectedTemplateForLevel} onChange={e => setSelectedTemplateForLevel(e.target.value)} disabled={loading || busyAction !== null}>
-                                <option value="">Sélectionner carnet</option>
-                                {templates.map(t => <option key={t._id} value={t._id}>{t.name}</option>)}
-                            </select>
+                <div className="aa-content">
+                    <div className="aa-panel">
+                        <div className="aa-panel-header">
+                            <div className="aa-panel-title">
+                                <BookOpen size={20} style={{ color: '#10b981' }} />
+                                <span>Carnet → Niveau</span>
+                            </div>
                         </div>
-                        <div className="field">
-                            <div className="field-label">Niveau</div>
-                            <select className="select" value={selectedLevelForTemplate} onChange={e => setSelectedLevelForTemplate(e.target.value)} disabled={loading || busyAction !== null}>
-                                <option value="">Sélectionner niveau</option>
-                                {levels.map(l => <option key={l._id} value={l.name}>{l.name}</option>)}
-                            </select>
-                        </div>
-                    </div>
 
-                    <button className="btn" onClick={assignTemplateToLevel} disabled={!selectedTemplateForLevel || !selectedLevelForTemplate || loading || busyAction !== null} style={{ marginTop: 12, display: 'inline-flex', alignItems: 'center', gap: 10 }}>
-                        {busyAction === 'assign-template-level' ? <span className="spinner" /> : null}
-                        Assigner à tous les élèves
-                    </button>
-
-                    <div style={{ marginTop: 18 }}>
-                        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-                            <div style={{ fontWeight: 600, color: '#0f172a' }}>Déjà assigné</div>
-                            <div className="note">{templateSummary.reduce((acc, s) => acc + s.levels.length, 0)} niveau(x)</div>
+                        <div className="aa-form-row">
+                            <div className="aa-form-group">
+                                <label className="aa-label">Carnet</label>
+                                <select className="aa-select" value={selectedTemplateForLevel} onChange={e => setSelectedTemplateForLevel(e.target.value)} disabled={loading || busyAction !== null}>
+                                    <option value="">Sélectionner carnet</option>
+                                    {templates.map(t => <option key={t._id} value={t._id}>{t.name}</option>)}
+                                </select>
+                            </div>
+                            <div className="aa-form-group">
+                                <label className="aa-label">Niveau</label>
+                                <select className="aa-select" value={selectedLevelForTemplate} onChange={e => setSelectedLevelForTemplate(e.target.value)} disabled={loading || busyAction !== null}>
+                                    <option value="">Sélectionner niveau</option>
+                                    {levels.map(l => <option key={l._id} value={l.name}>{l.name}</option>)}
+                                </select>
+                            </div>
+                            <button
+                                className="aa-btn aa-btn-primary"
+                                onClick={assignTemplateToLevel}
+                                disabled={!selectedTemplateForLevel || !selectedLevelForTemplate || loading || busyAction !== null}
+                            >
+                                {busyAction === 'assign-template-level' ? <Loader2 size={16} className="aa-spin" /> : <Plus size={16} />}
+                                Assigner
+                            </button>
                         </div>
-                        <div style={{ marginTop: 10, maxHeight: 260, overflowY: 'auto', border: '1px solid #f1f5f9', borderRadius: 12, padding: 12, background: '#fafafa' }}>
-                            {templateSummary.length === 0 ? (
-                                <div className="note">Aucune assignation</div>
-                            ) : (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                                    {templateSummary.map(t => (
-                                        <div key={t.name} style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
-                                            <div style={{ fontWeight: 600, color: '#334155', minWidth: 220 }}>{t.name}</div>
-                                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+
+                        <div className="aa-summary-section">
+                            <div className="aa-summary-header">
+                                <span>Assignations existantes</span>
+                                <span className="aa-summary-count">{templateSummary.reduce((acc, s) => acc + s.levels.length, 0)} niveau(x)</span>
+                            </div>
+                            <div className="aa-summary-list">
+                                {templateSummary.length === 0 ? (
+                                    <div className="aa-list-empty">Aucune assignation</div>
+                                ) : (
+                                    templateSummary.map(t => (
+                                        <div key={t.name} className="aa-summary-row">
+                                            <span className="aa-summary-name">{t.name}</span>
+                                            <div className="aa-summary-tags">
                                                 {t.levels.length === 0 ? (
-                                                    <span className="note">Aucun niveau</span>
+                                                    <span className="aa-tag aa-tag-muted">Aucun niveau</span>
                                                 ) : (
                                                     t.levels.map(lvl => (
-                                                        <span key={lvl} className="chip">
+                                                        <span key={lvl} className="aa-tag aa-tag-removable">
                                                             {lvl}
-                                                            <button type="button" className="icon-btn danger" style={{ padding: 0, borderRadius: 6 }} onClick={() => requestRemoveTemplateLevelAssignment(t.templateId, lvl, `${t.name} → ${lvl}`)} disabled={busyAction !== null || loading}>
+                                                            <button type="button" onClick={() => requestRemoveTemplateLevelAssignment(t.templateId, lvl, `${t.name} → ${lvl}`)} disabled={busyAction !== null || loading}>
                                                                 <X size={12} />
                                                             </button>
                                                         </span>
@@ -791,28 +868,31 @@ export default function AdminAssignments() {
                                                 )}
                                             </div>
                                         </div>
-                                    ))}
-                                </div>
-                            )}
+                                    ))
+                                )}
+                            </div>
                         </div>
                     </div>
                 </div>
             )}
 
+            {/* Import Modal */}
             {showImportModal && (
-                <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="Importer les assignations">
-                    <div className="modal">
-                        <div className="modal-header">
-                            <h3 className="modal-title">Importer les assignations</h3>
-                            <button type="button" className="icon-btn" onClick={() => setShowImportModal(false)}><X size={20} /></button>
+                <div className="aa-modal-overlay" onClick={() => setShowImportModal(false)}>
+                    <div className="aa-modal" onClick={e => e.stopPropagation()}>
+                        <div className="aa-modal-header">
+                            <h3>Importer les assignations</h3>
+                            <button type="button" className="aa-btn-icon" onClick={() => setShowImportModal(false)}>
+                                <X size={20} />
+                            </button>
                         </div>
 
-                        <div className="modal-body">
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
-                                <div className="field">
-                                    <div className="field-label">Depuis l'année scolaire</div>
+                        <div className="aa-modal-body">
+                            <div className="aa-form-row">
+                                <div className="aa-form-group">
+                                    <label className="aa-label">Depuis l'année scolaire</label>
                                     <select
-                                        className="select"
+                                        className="aa-select"
                                         value={importFromYearId}
                                         onChange={e => fetchImportableAssignments(e.target.value)}
                                         disabled={busyAction !== null}
@@ -822,18 +902,21 @@ export default function AdminAssignments() {
                                         ))}
                                     </select>
                                 </div>
-                                <div className="field">
-                                    <div className="field-label">Rechercher</div>
-                                    <input className="input" value={importQuery} onChange={e => setImportQuery(e.target.value)} placeholder="Enseignant, classe, langues…" />
+                                <div className="aa-form-group">
+                                    <label className="aa-label">Rechercher</label>
+                                    <div className="aa-search-field">
+                                        <Search size={14} className="aa-search-icon" />
+                                        <input className="aa-input" value={importQuery} onChange={e => setImportQuery(e.target.value)} placeholder="Enseignant, classe…" />
+                                    </div>
                                 </div>
                             </div>
 
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
-                                <div className="note">{selectedImportIndices.size} sélectionnée(s)</div>
-                                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                            <div className="aa-list-actions">
+                                <span className="aa-list-count">{selectedImportIndices.size} sélectionnée(s)</span>
+                                <div className="aa-list-btns">
                                     <button
                                         type="button"
-                                        className="btn ghost"
+                                        className="aa-btn aa-btn-xs"
                                         disabled={importRows.length === 0 || busyAction !== null}
                                         onClick={() => {
                                             const next = new Set(selectedImportIndices)
@@ -841,11 +924,11 @@ export default function AdminAssignments() {
                                             setSelectedImportIndices(next)
                                         }}
                                     >
-                                        Tout (visible)
+                                        Tout
                                     </button>
                                     <button
                                         type="button"
-                                        className="btn ghost"
+                                        className="aa-btn aa-btn-xs"
                                         disabled={selectedImportIndices.size === 0 || busyAction !== null}
                                         onClick={() => {
                                             const next = new Set(selectedImportIndices)
@@ -853,16 +936,16 @@ export default function AdminAssignments() {
                                             setSelectedImportIndices(next)
                                         }}
                                     >
-                                        Aucun (visible)
+                                        Aucun
                                     </button>
                                 </div>
                             </div>
 
-                            <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, overflow: 'hidden' }}>
-                                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                            <div className="aa-import-table-wrapper">
+                                <table className="aa-import-table">
                                     <thead>
-                                        <tr style={{ background: '#f8fafc', textAlign: 'left' }}>
-                                            <th style={{ padding: 10, width: 36 }}>
+                                        <tr>
+                                            <th style={{ width: 40 }}>
                                                 <input
                                                     type="checkbox"
                                                     checked={allVisibleImportsSelected}
@@ -880,17 +963,17 @@ export default function AdminAssignments() {
                                                     }}
                                                 />
                                             </th>
-                                            <th style={{ padding: 10 }}>Enseignant</th>
-                                            <th style={{ padding: 10 }}>Classe</th>
-                                            <th style={{ padding: 10 }}>Langues</th>
+                                            <th>Enseignant</th>
+                                            <th>Classe</th>
+                                            <th>Langues</th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         {importRows.length === 0 ? (
-                                            <tr><td colSpan={4} style={{ padding: 16, textAlign: 'center', color: '#94a3b8' }}>Aucune assignation trouvée</td></tr>
+                                            <tr><td colSpan={4} className="aa-table-empty">Aucune assignation trouvée</td></tr>
                                         ) : importRows.map(({ ta, idx }) => (
-                                            <tr key={idx} style={{ borderTop: '1px solid #f1f5f9' }}>
-                                                <td style={{ padding: 10 }}>
+                                            <tr key={idx} className={selectedImportIndices.has(idx) ? 'aa-row-selected' : ''}>
+                                                <td>
                                                     <input
                                                         type="checkbox"
                                                         checked={selectedImportIndices.has(idx)}
@@ -903,15 +986,15 @@ export default function AdminAssignments() {
                                                         }}
                                                     />
                                                 </td>
-                                                <td style={{ padding: 10 }}>{ta.teacherName}</td>
-                                                <td style={{ padding: 10 }}>{ta.className}</td>
-                                                <td style={{ padding: 10 }}>
+                                                <td>{ta.teacherName}</td>
+                                                <td>{ta.className}</td>
+                                                <td>
                                                     {ta.isProfPolyvalent ? (
-                                                        <span className="chip">Polyvalent</span>
+                                                        <span className="aa-tag aa-tag-purple">Polyvalent</span>
                                                     ) : (ta.languages && ta.languages.length > 0) ? (
-                                                        <span className="chip">{ta.languages.join(', ').toUpperCase()}</span>
+                                                        <span className="aa-tag">{ta.languages.join(', ').toUpperCase()}</span>
                                                     ) : (
-                                                        <span className="note">Toutes langues</span>
+                                                        <span className="aa-tag aa-tag-muted">Toutes</span>
                                                     )}
                                                 </td>
                                             </tr>
@@ -921,10 +1004,10 @@ export default function AdminAssignments() {
                             </div>
                         </div>
 
-                        <div className="modal-footer">
-                            <button className="btn ghost" onClick={() => setShowImportModal(false)} disabled={busyAction !== null}>Annuler</button>
-                            <button className="btn" onClick={executeImport} disabled={selectedImportIndices.size === 0 || busyAction !== null}>
-                                {busyAction === 'import' ? <span className="spinner" /> : <Check size={16} />}
+                        <div className="aa-modal-footer">
+                            <button className="aa-btn aa-btn-ghost" onClick={() => setShowImportModal(false)} disabled={busyAction !== null}>Annuler</button>
+                            <button className="aa-btn aa-btn-primary" onClick={executeImport} disabled={selectedImportIndices.size === 0 || busyAction !== null}>
+                                {busyAction === 'import' ? <Loader2 size={16} className="aa-spin" /> : <Check size={16} />}
                                 Importer ({selectedImportIndices.size})
                             </button>
                         </div>
@@ -932,22 +1015,36 @@ export default function AdminAssignments() {
                 </div>
             )}
 
+            {/* Delete Confirmation Modal */}
             {deleteAction && (
-                <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="Confirmer la suppression">
-                    <div className="modal" style={{ width: 'min(560px, 100%)' }}>
-                        <div className="modal-header">
-                            <h3 className="modal-title">Supprimer l'assignation</h3>
-                            <button type="button" className="icon-btn" onClick={() => { setDeleteAction(null); setDeleteConfirmText('') }}><X size={20} /></button>
+                <div className="aa-modal-overlay" onClick={() => { setDeleteAction(null); setDeleteConfirmText('') }}>
+                    <div className="aa-modal aa-modal-sm" onClick={e => e.stopPropagation()}>
+                        <div className="aa-modal-header aa-modal-header-danger">
+                            <h3>Supprimer l'assignation</h3>
+                            <button type="button" className="aa-btn-icon" onClick={() => { setDeleteAction(null); setDeleteConfirmText('') }}>
+                                <X size={20} />
+                            </button>
                         </div>
-                        <div className="modal-body">
-                            <div style={{ color: '#0f172a', fontWeight: 600, marginBottom: 6 }}>{deleteAction.label}</div>
-                            <div className="note" style={{ marginBottom: 12 }}>Tapez SUPPRIMER pour confirmer.</div>
-                            <input className="input" value={deleteConfirmText} onChange={e => setDeleteConfirmText(e.target.value)} placeholder="SUPPRIMER" />
+                        <div className="aa-modal-body">
+                            <div className="aa-delete-warning">
+                                <AlertCircle size={24} />
+                                <div>
+                                    <p className="aa-delete-label">{deleteAction.label}</p>
+                                    <p className="aa-delete-hint">Tapez <strong>SUPPRIMER</strong> pour confirmer</p>
+                                </div>
+                            </div>
+                            <input
+                                className="aa-input"
+                                value={deleteConfirmText}
+                                onChange={e => setDeleteConfirmText(e.target.value)}
+                                placeholder="SUPPRIMER"
+                                autoFocus
+                            />
                         </div>
-                        <div className="modal-footer">
-                            <button className="btn ghost" onClick={() => { setDeleteAction(null); setDeleteConfirmText('') }} disabled={busyAction !== null}>Annuler</button>
-                            <button className="btn danger" onClick={performDelete} disabled={deleteConfirmText.trim().toUpperCase() !== 'SUPPRIMER' || busyAction !== null}>
-                                {busyAction === 'delete' ? <span className="spinner" /> : null}
+                        <div className="aa-modal-footer">
+                            <button className="aa-btn aa-btn-ghost" onClick={() => { setDeleteAction(null); setDeleteConfirmText('') }} disabled={busyAction !== null}>Annuler</button>
+                            <button className="aa-btn aa-btn-danger" onClick={performDelete} disabled={deleteConfirmText.trim().toUpperCase() !== 'SUPPRIMER' || busyAction !== null}>
+                                {busyAction === 'delete' ? <Loader2 size={16} className="aa-spin" /> : <Trash2 size={16} />}
                                 Supprimer
                             </button>
                         </div>

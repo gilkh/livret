@@ -10,6 +10,7 @@ import JSZip from 'jszip'
 import { User } from '../models/User'
 import * as bcrypt from 'bcryptjs'
 import { Level } from '../models/Level'
+import { logAudit } from '../utils/auditLogger'
 
 export const backupRouter = Router()
 
@@ -53,25 +54,38 @@ backupRouter.post('/create', requireAuth(['ADMIN']), async (req, res) => {
 
   try {
     fs.mkdirSync(tempDir, { recursive: true })
-    
+
     const models = mongoose.modelNames()
     for (const modelName of models) {
       const Model = mongoose.model(modelName)
       const docs = await Model.find({}).lean()
       fs.writeFileSync(
-        path.join(tempDir, `${modelName}.json`), 
+        path.join(tempDir, `${modelName}.json`),
         JSON.stringify(docs, null, 2)
       )
     }
 
     const output = fs.createWriteStream(archivePath)
     const archive = archiver('zip', { zlib: { level: 9 } })
+    const adminId = (req as any).user?.userId
 
-    output.on('close', () => {
-      try { fs.rmSync(tempDir, { recursive: true, force: true }) } catch(e) {}
+    output.on('close', async () => {
+      try { fs.rmSync(tempDir, { recursive: true, force: true }) } catch (e) { }
+
+      // Log the backup creation
+      await logAudit({
+        userId: adminId,
+        action: 'CREATE_BACKUP',
+        details: {
+          filename: fileName,
+          modelsBackedUp: models.length
+        },
+        req
+      })
+
       res.json({ success: true, filename: fileName })
     })
-    
+
     archive.on('error', (err) => {
       throw err
     })
@@ -83,7 +97,7 @@ backupRouter.post('/create', requireAuth(['ADMIN']), async (req, res) => {
   } catch (e) {
     console.error(e)
     res.status(500).json({ error: 'Backup creation failed' })
-    try { fs.rmSync(tempDir, { recursive: true, force: true }) } catch(e) {}
+    try { fs.rmSync(tempDir, { recursive: true, force: true }) } catch (e) { }
   }
 })
 
@@ -100,7 +114,7 @@ backupRouter.post('/restore/:filename', requireAuth(['ADMIN']), async (req, res)
     const fileContent = fs.readFileSync(filePath)
     const jszip = new JSZip()
     const zipContents = await jszip.loadAsync(fileContent)
-    
+
     // Clear current DB
     await clearDatabase()
 
@@ -112,12 +126,24 @@ backupRouter.post('/restore/:filename', requireAuth(['ADMIN']), async (req, res)
         const content = await file.async('string')
         const docs = JSON.parse(content)
         if (docs.length > 0) {
-           const Model = mongoose.model(modelName)
-           await Model.insertMany(docs)
+          const Model = mongoose.model(modelName)
+          await Model.insertMany(docs)
         }
       }
     }
-    
+
+    // Log the restore
+    const adminId = (req as any).user?.userId
+    await logAudit({
+      userId: adminId,
+      action: 'RESTORE_BACKUP',
+      details: {
+        filename,
+        modelsRestored: models.length
+      },
+      req
+    })
+
     res.json({ success: true })
 
   } catch (e) {
@@ -131,15 +157,15 @@ backupRouter.post('/empty', requireAuth(['ADMIN']), async (req, res) => {
   try {
     // Preserve ALL admin users
     const adminUsers = await User.find({ role: 'ADMIN' }).lean()
-    
+
     await clearDatabase()
-    
+
     // Restore admins
     if (adminUsers.length > 0) {
-        await User.insertMany(adminUsers)
+      await User.insertMany(adminUsers)
     } else {
-        const hash = await bcrypt.hash('admin', 10)
-        await User.create({ email: 'admin', passwordHash: hash, role: 'ADMIN', displayName: 'Admin' })
+      const hash = await bcrypt.hash('admin', 10)
+      await User.create({ email: 'admin', passwordHash: hash, role: 'ADMIN', displayName: 'Admin' })
     }
 
     // Re-seed default levels
@@ -148,6 +174,20 @@ backupRouter.post('/empty', requireAuth(['ADMIN']), async (req, res) => {
       { name: 'MS', order: 2 },
       { name: 'GS', order: 3 },
     ])
+
+    // Log the database empty operation
+    const adminId = (req as any).user?.userId
+    if (adminId) {
+      await logAudit({
+        userId: adminId,
+        action: 'EMPTY_DATABASE',
+        details: {
+          adminsPreserved: adminUsers.length,
+          levelsReseeded: true
+        },
+        req
+      })
+    }
 
     res.json({ success: true })
   } catch (e) {
@@ -160,12 +200,12 @@ backupRouter.post('/empty', requireAuth(['ADMIN']), async (req, res) => {
 backupRouter.delete('/:filename', requireAuth(['ADMIN']), async (req, res) => {
   const { filename } = req.params
   const filePath = path.join(BACKUP_DIR, filename)
-  
+
   if (fs.existsSync(filePath)) {
     try {
       fs.unlinkSync(filePath)
       res.json({ success: true })
-    } catch(e) {
+    } catch (e) {
       res.status(500).json({ error: 'Delete failed' })
     }
   } else {
@@ -186,13 +226,13 @@ backupRouter.get('/full', requireAuth(['ADMIN']), async (req, res) => {
     // 1. Dump Database
     const dbDir = path.join(tempDir, 'db')
     fs.mkdirSync(dbDir)
-    
+
     const models = mongoose.modelNames()
     for (const modelName of models) {
       const Model = mongoose.model(modelName)
       const docs = await Model.find({}).lean()
       fs.writeFileSync(
-        path.join(dbDir, `${modelName}.json`), 
+        path.join(dbDir, `${modelName}.json`),
         JSON.stringify(docs, null, 2)
       )
     }
@@ -254,9 +294,9 @@ pause
     // Add Server (excluding node_modules, dist, .git)
     // We include public/uploads to ensure full restoration
     archive.directory(serverDir, 'server', (entry: any) => {
-      if (entry.name.includes('node_modules') || 
-          entry.name.includes('dist') || 
-          entry.name.includes('.git')) {
+      if (entry.name.includes('node_modules') ||
+        entry.name.includes('dist') ||
+        entry.name.includes('.git')) {
         return false
       }
       return entry
@@ -264,19 +304,19 @@ pause
 
     // Add Client (excluding node_modules, dist, .git)
     archive.directory(clientDir, 'client', (entry: any) => {
-      if (entry.name.includes('node_modules') || 
-          entry.name.includes('dist') || 
-          entry.name.includes('build') ||
-          entry.name.includes('.git')) {
+      if (entry.name.includes('node_modules') ||
+        entry.name.includes('dist') ||
+        entry.name.includes('build') ||
+        entry.name.includes('.git')) {
         return false
       }
       return entry
     })
-    
+
     // Add root files (like start_app.bat)
     const rootFiles = fs.readdirSync(rootDir).filter(f => fs.statSync(path.join(rootDir, f)).isFile())
     rootFiles.forEach(f => {
-        archive.file(path.join(rootDir, f), { name: f })
+      archive.file(path.join(rootDir, f), { name: f })
     })
 
     await archive.finalize()
@@ -284,13 +324,13 @@ pause
   } catch (err) {
     console.error('Backup error:', err)
     if (!res.headersSent) {
-        res.status(500).json({ error: 'Backup failed' })
+      res.status(500).json({ error: 'Backup failed' })
     }
     // Cleanup on error
     try {
       if (fs.existsSync(tempDir)) {
         fs.rmSync(tempDir, { recursive: true, force: true })
       }
-    } catch (e) {}
+    } catch (e) { }
   }
 })

@@ -246,6 +246,8 @@ export default function TemplateBuilder() {
           successMsg = `Export mis à jour (écrasé) : ${response.data.fileName}`
         }
         setSaveStatus(successMsg)
+        // Refresh exported list so users can immediately see/download
+        try { await loadExported() } catch (e) { /* ignore */ }
       } else {
         console.error('Export failed response:', response)
         throw new Error(response.data?.message || 'Export failed')
@@ -345,6 +347,12 @@ export default function TemplateBuilder() {
   const [showPropagationModal, setShowPropagationModal] = useState(false)
   const [showHistoryModal, setShowHistoryModal] = useState(false)
   const [pendingSave, setPendingSave] = useState(false)
+
+  // Exported packages modal
+  const [showExportModal, setShowExportModal] = useState(false)
+  const [exportedList, setExportedList] = useState<{ fileName: string, size?: number, mtime?: string, exportedBy?: string, exportedByName?: string }[]>([])
+  const [exportedLoading, setExportedLoading] = useState(false)
+  const [exportedDeleting, setExportedDeleting] = useState<string | null>(null)
 
   // Custom dropdown state
   const [openDropdown, setOpenDropdown] = useState<string | null>(null)
@@ -1024,6 +1032,40 @@ export default function TemplateBuilder() {
   useEffect(() => { if (yearId) { loadClasses(yearId); setClassId(''); setStudents([]); setStudentId('') } }, [yearId])
   useEffect(() => { if (classId) { loadStudents(classId); setStudentId('') } }, [classId])
 
+  const formatBytes = (bytes?: number) => {
+    if (!bytes || bytes <= 0) return '—'
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
+    const i = Math.floor(Math.log(bytes) / Math.log(1024))
+    return `${(bytes / Math.pow(1024, i)).toFixed(i ? 1 : 0)} ${sizes[i]}`
+  }
+  const relativeTime = (iso?: string) => {
+    if (!iso) return ''
+    const d = new Date(iso)
+    const diff = Date.now() - d.getTime()
+    const sec = Math.floor(diff / 1000)
+    if (sec < 60) return `${sec}s`
+    const min = Math.floor(sec / 60)
+    if (min < 60) return `${min}m`
+    const hr = Math.floor(min / 60)
+    if (hr < 24) return `${hr}h`
+    const days = Math.floor(hr / 24)
+    return `${days}d`
+  }
+
+  const loadExported = async () => {
+    try {
+      setExportedLoading(true)
+      setError('')
+      const r = await api.get('/templates/exports')
+      setExportedList(r.data)
+    } catch (e) {
+      console.error(e)
+      setError('Impossible de charger les exports')
+    } finally {
+      setExportedLoading(false)
+    }
+  }
+
   // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = () => setOpenDropdown(null)
@@ -1060,6 +1102,24 @@ export default function TemplateBuilder() {
               >
                 📥 Importer
               </button>
+
+              <button
+                className="btn"
+                onClick={async () => { setError(''); await loadExported(); setShowExportModal(true) }}
+                style={{
+                  background: 'rgba(255,255,255,0.12)',
+                  color: '#fff',
+                  padding: '14px 22px',
+                  fontSize: 16,
+                  fontWeight: 600,
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+                  border: '1px solid rgba(255,255,255,0.18)',
+                  marginRight: 12
+                }}
+              >
+                📁 Exportés
+              </button>
+
               <button
                 className="btn"
                 onClick={() => setShowCreateModal(true)}
@@ -1347,6 +1407,254 @@ export default function TemplateBuilder() {
                   style={{ padding: '12px 28px', fontSize: 15, fontWeight: 600 }}
                 >
                   Créer
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showExportModal && (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.6)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            backdropFilter: 'blur(4px)'
+          }}>
+            <div
+              className="card"
+              style={{
+                width: 1000,
+                maxWidth: '95vw',
+                maxHeight: '85vh',
+                display: 'flex',
+                flexDirection: 'column',
+                boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+                border: 'none',
+                animation: 'slideUp 0.3s ease-out',
+                overflow: 'hidden',
+                borderRadius: 16
+              }}
+            >
+              <div style={{
+                padding: '24px 32px',
+                borderBottom: '1px solid #f0f0f0',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                background: '#fff'
+              }}>
+                <div>
+                   <h3 style={{ margin: 0, fontSize: 24, fontWeight: 700, color: '#1a202c' }}>
+                    📁 Exports disponibles
+                  </h3>
+                  <p style={{ margin: '4px 0 0', color: '#718096', fontSize: 14 }}>
+                    Gérez vos fichiers exportés
+                  </p>
+                </div>
+                <button 
+                  className="btn secondary" 
+                  onClick={() => setShowExportModal(false)}
+                  style={{ borderRadius: '50%', width: 36, height: 36, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', background: '#f7fafc', color: '#a0aec0', cursor: 'pointer', fontSize: 18 }}
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div style={{ padding: '16px 32px', background: '#f8fafc', borderBottom: '1px solid #edf2f7', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                 <div style={{ fontSize: 14, color: '#4a5568', fontWeight: 500 }}>
+                    {exportedList.length} fichier{exportedList.length !== 1 ? 's' : ''} trouvé{exportedList.length !== 1 ? 's' : ''}
+                 </div>
+                 <button 
+                    className="btn secondary" 
+                    onClick={loadExported} 
+                    disabled={exportedLoading} 
+                    style={{ 
+                        padding: '8px 16px', 
+                        fontSize: 13, 
+                        background: '#fff', 
+                        border: '1px solid #e2e8f0', 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: 8,
+                        color: '#4a5568',
+                        cursor: exportedLoading ? 'not-allowed' : 'pointer'
+                    }}
+                >
+                    <span>🔄</span> 
+                    {exportedLoading ? 'Actualisation...' : 'Actualiser'}
+                </button>
+              </div>
+
+              <div style={{ overflowY: 'auto', padding: '0 0', flex: 1, background: '#fff' }}>
+                {exportedLoading && exportedList.length === 0 ? (
+                  <div style={{ padding: 60, textAlign: 'center', color: '#a0aec0' }}>
+                    <div style={{ fontSize: 40, marginBottom: 16 }}>⏳</div>
+                    Chargement des exports...
+                  </div>
+                ) : exportedList.length === 0 ? (
+                   <div style={{ padding: 60, textAlign: 'center', color: '#a0aec0' }}>
+                    <div style={{ fontSize: 40, marginBottom: 16 }}>📭</div>
+                    <div style={{ fontSize: 18, color: '#4a5568', fontWeight: 500, marginBottom: 8 }}>Aucun export trouvé</div>
+                    <p style={{ margin: 0 }}>Les fichiers exportés apparaîtront ici.</p>
+                  </div>
+                ) : (
+                  <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+                    <thead style={{ position: 'sticky', top: 0, background: '#fff', zIndex: 10 }}>
+                        <tr style={{ borderBottom: '2px solid #edf2f7' }}>
+                            <th style={{ width: '45%', textAlign: 'left', padding: '12px 20px', fontSize: 12, fontWeight: 600, color: '#a0aec0', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Nom du fichier</th>
+                            <th style={{ width: '20%', textAlign: 'left', padding: '12px 20px', fontSize: 12, fontWeight: 600, color: '#a0aec0', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Exporté par</th>
+                            <th style={{ width: '15%', textAlign: 'left', padding: '12px 20px', fontSize: 12, fontWeight: 600, color: '#a0aec0', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Date</th>
+                            <th style={{ width: '10%', textAlign: 'right', padding: '12px 20px', fontSize: 12, fontWeight: 600, color: '#a0aec0', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Taille</th>
+                            <th style={{ width: '10%', textAlign: 'right', padding: '12px 20px', fontSize: 12, fontWeight: 600, color: '#a0aec0', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                      {exportedList.map((f, i) => (
+                        <tr 
+                            key={f.fileName} 
+                            style={{ 
+                                borderBottom: '1px solid #edf2f7', 
+                                transition: 'background 0.1s',
+                                background: i % 2 === 0 ? '#fff' : '#fafafa'
+                            }}
+                            onMouseEnter={e => e.currentTarget.style.background = '#f0f4ff'}
+                            onMouseLeave={e => e.currentTarget.style.background = i % 2 === 0 ? '#fff' : '#fafafa'}
+                        >
+                          <td style={{ padding: '12px 20px', verticalAlign: 'middle' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 12, overflow: 'hidden' }}>
+                                <div style={{ 
+                                    flexShrink: 0,
+                                    width: 36, height: 36, 
+                                    background: f.fileName.endsWith('.zip') ? '#ebf8ff' : '#fff5f5', 
+                                    color: f.fileName.endsWith('.zip') ? '#3182ce' : '#e53e3e',
+                                    borderRadius: 8, 
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    fontSize: 18
+                                }}>
+                                    {f.fileName.endsWith('.zip') ? '📦' : '📄'}
+                                </div>
+                                <div style={{ minWidth: 0, flex: 1 }}>
+                                    <div title={f.fileName} style={{ fontWeight: 600, color: '#2d3748', marginBottom: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.fileName}</div>
+                                     {f.mtime && ( (Date.now() - new Date(f.mtime).getTime()) < (24*60*60*1000)) && (
+                                        <span style={{ fontSize: 10, background: '#48bb78', color: '#fff', padding: '2px 6px', borderRadius: 4, fontWeight: 700, textTransform: 'uppercase' }}>Nouveau</span>
+                                      )}
+                                </div>
+                            </div>
+                          </td>
+                          <td style={{ padding: '12px 20px', verticalAlign: 'middle', color: '#4a5568', fontSize: 13 }}>
+                            {f.exportedByName ? (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <div style={{ width: 24, height: 24, borderRadius: '50%', background: '#cbd5e0', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 10, fontWeight: 700 }}>
+                                        {f.exportedByName.charAt(0).toUpperCase()}
+                                    </div>
+                                    <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.exportedByName}</span>
+                                </div>
+                            ) : (
+                                <span style={{ color: '#a0aec0', fontStyle: 'italic' }}>—</span>
+                            )}
+                          </td>
+                          <td style={{ padding: '12px 20px', color: '#718096', fontSize: 13, verticalAlign: 'middle' }}>
+                            {f.mtime ? (
+                                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                    <span style={{ fontWeight: 500, color: '#4a5568' }}>{new Date(f.mtime).toLocaleDateString()}</span>
+                                    <span style={{ fontSize: 11 }}>{new Date(f.mtime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                                </div>
+                            ) : '—'}
+                          </td>
+                          <td style={{ padding: '12px 20px', textAlign: 'right', color: '#4a5568', fontSize: 13, fontFamily: 'monospace', verticalAlign: 'middle' }}>
+                            {formatBytes(f.size)}
+                          </td>
+                          <td style={{ padding: '12px 20px', textAlign: 'right', verticalAlign: 'middle' }}>
+                            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
+                                <button 
+                                    className="btn" 
+                                    title="Télécharger"
+                                    onClick={async () => {
+                                      try {
+                                        const resp = await api.get(`/templates/exports/${encodeURIComponent(f.fileName)}`, { responseType: 'blob' })
+                                        const blob = new Blob([resp.data], { type: 'application/zip' })
+                                        const url = URL.createObjectURL(blob)
+                                        const a = document.createElement('a')
+                                        a.href = url
+                                        a.download = f.fileName
+                                        document.body.appendChild(a)
+                                        a.click()
+                                        a.remove()
+                                        URL.revokeObjectURL(url)
+                                        setSaveStatus('Téléchargement terminé')
+                                        setTimeout(() => setSaveStatus(''), 3000)
+                                      } catch (e) { setError('Échec du téléchargement') }
+                                    }}
+                                    style={{ 
+                                        padding: '6px 10px', 
+                                        borderRadius: 6, 
+                                        background: '#ebf8ff', 
+                                        color: '#3182ce', 
+                                        border: '1px solid #bee3f8',
+                                        cursor: 'pointer'
+                                    }}
+                                >
+                                    ⬇️
+                                </button>
+                                <button 
+                                    className="btn" 
+                                    title="Supprimer"
+                                    onClick={async () => {
+                                      if (!confirm(`Supprimer ${f.fileName} ?`)) return
+                                      try {
+                                        setExportedDeleting(f.fileName)
+                                        await api.delete(`/templates/exports/${encodeURIComponent(f.fileName)}`)
+                                        await loadExported()
+                                        setSaveStatus('Export supprimé')
+                                        setTimeout(() => setSaveStatus(''), 3000)
+                                      } catch (e) { setError('Échec de la suppression') }
+                                      finally { setExportedDeleting(null) }
+                                    }} 
+                                    disabled={exportedDeleting===f.fileName}
+                                    style={{ 
+                                        padding: '6px 10px', 
+                                        borderRadius: 6, 
+                                        background: '#fff5f5', 
+                                        color: '#e53e3e', 
+                                        border: '1px solid #fed7d7',
+                                        cursor: exportedDeleting===f.fileName ? 'wait' : 'pointer',
+                                        opacity: exportedDeleting===f.fileName ? 0.7 : 1
+                                    }}
+                                >
+                                    🗑️
+                                </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+              
+               <div style={{ padding: '16px 32px', borderTop: '1px solid #edf2f7', background: '#f8fafc', display: 'flex', justifyContent: 'flex-end' }}>
+                <button 
+                    className="btn secondary" 
+                    onClick={() => setShowExportModal(false)}
+                    style={{
+                        padding: '10px 24px',
+                        background: '#fff',
+                        border: '1px solid #cbd5e0',
+                        color: '#4a5568',
+                        fontWeight: 600,
+                        borderRadius: 8,
+                        boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                        cursor: 'pointer'
+                    }}
+                >
+                    Fermer
                 </button>
               </div>
             </div>

@@ -10,6 +10,7 @@ import { PptxImporter } from '../utils/pptxImporter'
 import { ensureStableBlockIds, ensureStableExpandedTableRowIds } from '../utils/templateUtils'
 import { withCache, clearCache } from '../utils/cache'
 
+import { User } from '../models/User'
 import fs from 'fs'
 
 export const templatesRouter = Router()
@@ -187,6 +188,17 @@ templatesRouter.get('/:id/export-package', requireAuth(['ADMIN', 'SUBADMIN']), a
 
     const output = fs.createWriteStream(filePath)
 
+    // Save metadata
+    const userId = (req as any).user.userId
+    const user = await User.findById(userId).lean()
+    const metadata = {
+      exportedBy: userId,
+      exportedByName: user?.displayName || 'Unknown',
+      timestamp: new Date().toISOString()
+    }
+    const metaPath = filePath + '.json'
+    fs.writeFileSync(metaPath, JSON.stringify(metadata, null, 2))
+
     await new Promise<void>((resolve, reject) => {
       output.on('close', () => resolve())
       output.on('error', reject)
@@ -228,6 +240,69 @@ pause
   } catch (e: any) {
     console.error('Export error:', e)
     res.status(500).json({ error: 'export_failed', message: e.message })
+  }
+})
+
+// List exported packages in ../temps
+templatesRouter.get('/exports', requireAuth(['ADMIN', 'SUBADMIN']), async (req, res) => {
+  try {
+    const targetDir = path.join(process.cwd(), '../temps')
+    if (!fs.existsSync(targetDir)) return res.json([])
+    const files = fs.readdirSync(targetDir).filter(f => f.endsWith('.zip'))
+    const list = files.map(f => {
+      const p = path.join(targetDir, f)
+      const stat = fs.statSync(p)
+      
+      let metadata = {}
+      try {
+        const metaPath = p + '.json'
+        if (fs.existsSync(metaPath)) {
+          metadata = JSON.parse(fs.readFileSync(metaPath, 'utf8'))
+        }
+      } catch (e) { /* ignore */ }
+
+      return { fileName: f, size: stat.size, mtime: stat.mtime.toISOString(), ...metadata }
+    }).sort((a, b) => (new Date(b.mtime).getTime() - new Date(a.mtime).getTime()))
+    res.json(list)
+  } catch (e: any) {
+    console.error('List exports error:', e)
+    res.status(500).json({ error: 'list_exports_failed', message: e.message })
+  }
+})
+
+// Download an exported package
+templatesRouter.get('/exports/:fileName', requireAuth(['ADMIN', 'SUBADMIN']), async (req, res) => {
+  try {
+    const { fileName } = req.params
+    const targetDir = path.join(process.cwd(), '../temps')
+    const filePath = path.join(targetDir, fileName)
+    if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'not_found' })
+    res.download(filePath, fileName)
+  } catch (e: any) {
+    console.error('Download export error:', e)
+    res.status(500).json({ error: 'download_failed', message: e.message })
+  }
+})
+
+// Delete an exported package
+templatesRouter.delete('/exports/:fileName', requireAuth(['ADMIN', 'SUBADMIN']), async (req, res) => {
+  try {
+    const { fileName } = req.params
+    const targetDir = path.join(process.cwd(), '../temps')
+    const filePath = path.join(targetDir, fileName)
+    if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'not_found' })
+    fs.unlinkSync(filePath)
+    
+    // Delete metadata if exists
+    const metaPath = filePath + '.json'
+    if (fs.existsSync(metaPath)) {
+      fs.unlinkSync(metaPath)
+    }
+
+    res.json({ success: true })
+  } catch (e: any) {
+    console.error('Delete export error:', e)
+    res.status(500).json({ error: 'delete_failed', message: e.message })
   }
 })
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import api, { impersonationApi } from '../api'
 import Modal from '../components/Modal'
 import Toast, { ToastType } from '../components/Toast'
@@ -12,13 +12,14 @@ import {
   Plus,
   Users as UsersIcon,
   Copy,
-  MoreVertical,
   Check,
-  Search,
   UserPlus,
   RotateCcw,
   Archive,
-  UserX
+  UserX,
+  Sparkles,
+  Filter,
+  RefreshCw
 } from 'lucide-react'
 import './Users.css'
 
@@ -64,6 +65,7 @@ const UserCard = ({
   const [name, setName] = useState(user.displayName || '')
   const [password, setPassword] = useState('')
   const [copied, setCopied] = useState(false)
+  const [isEditing, setIsEditing] = useState(false)
 
   // Sync local state with prop when prop changes (e.g. after reload)
   useEffect(() => {
@@ -71,6 +73,7 @@ const UserCard = ({
   }, [user.displayName])
 
   const handleBlur = () => {
+    setIsEditing(false)
     if (name !== (user.displayName || '')) {
       onUpdateName(user._id, name)
     }
@@ -78,6 +81,10 @@ const UserCard = ({
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
+      e.currentTarget.blur()
+    }
+    if (e.key === 'Escape') {
+      setName(user.displayName || '')
       e.currentTarget.blur()
     }
   }
@@ -111,12 +118,15 @@ const UserCard = ({
             className="user-name-input"
             value={name}
             onChange={(e) => setName(e.target.value)}
+            onFocus={() => setIsEditing(true)}
             onBlur={handleBlur}
             onKeyDown={handleKeyDown}
-            placeholder="Nom d'affichage"
-            title="Cliquez pour modifier"
+            placeholder="Cliquez pour ajouter un nom"
+            title="Cliquez pour modifier le nom"
+            aria-label="Nom d'affichage"
+            style={isEditing ? { borderBottomColor: '#8b5cf6' } : undefined}
           />
-          <div className="user-email-row" onClick={copyEmail} title="Copier l'email">
+          <div className="user-email-row" onClick={copyEmail} title="Cliquer pour copier l'email" role="button" tabIndex={0}>
             <Mail size={14} />
             <span className="user-email-text">{user.email}</span>
             {copied ? <Check size={14} color="#10B981" /> : <Copy size={14} className="copy-icon" />}
@@ -132,12 +142,15 @@ const UserCard = ({
               type="password"
               value={password}
               onChange={e => setPassword(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleReset()}
+              aria-label="Nouveau mot de passe"
             />
             {password && (
               <button
                 className="btn-icon-action primary"
                 onClick={handleReset}
                 title="Valider le nouveau mot de passe"
+                aria-label="Confirmer le changement de mot de passe"
               >
                 <Check size={14} />
               </button>
@@ -150,7 +163,8 @@ const UserCard = ({
                 className={`btn-action ${impersonatingId === user._id ? 'active' : ''}`}
                 onClick={() => onImpersonate(user)}
                 disabled={impersonatingId === user._id}
-                title="Se connecter en tant que..."
+                title="Se connecter en tant que cet utilisateur"
+                aria-label="Imiter cet utilisateur"
               >
                 <LogIn size={16} />
               </button>
@@ -159,7 +173,8 @@ const UserCard = ({
             <button
               className="btn-action danger"
               onClick={() => onDelete(user._id)}
-              title="Supprimer"
+              title="Désactiver cet utilisateur"
+              aria-label="Désactiver l'utilisateur"
             >
               <Trash2 size={16} />
             </button>
@@ -186,12 +201,14 @@ const OutlookUserCard = ({
 }) => {
   const [name, setName] = useState(user.displayName || '')
   const [copied, setCopied] = useState(false)
+  const [isEditing, setIsEditing] = useState(false)
 
   useEffect(() => {
     setName(user.displayName || '')
   }, [user.displayName])
 
   const handleBlur = () => {
+    setIsEditing(false)
     if (name !== (user.displayName || '')) {
       onUpdateName(user._id, name)
     }
@@ -205,12 +222,12 @@ const OutlookUserCard = ({
 
   return (
     <div className="user-card outlook-card">
-      <div className="user-card-top" style={{ background: `linear-gradient(135deg, #f0f7ff, #ffffff)` }}>
+      <div className="user-card-top">
         <div className="user-avatar" style={{ backgroundColor: '#0078d4' }}>
           {getInitials(name || user.email)}
         </div>
         <div className="microsoft-badge">
-          <img src="https://upload.wikimedia.org/wikipedia/commons/4/44/Microsoft_logo.svg" alt="Microsoft" style={{ width: 16, height: 16 }} />
+          <img src="https://upload.wikimedia.org/wikipedia/commons/4/44/Microsoft_logo.svg" alt="" style={{ width: 18, height: 18 }} />
         </div>
       </div>
 
@@ -220,11 +237,20 @@ const OutlookUserCard = ({
             className="user-name-input"
             value={name}
             onChange={(e) => setName(e.target.value)}
+            onFocus={() => setIsEditing(true)}
             onBlur={handleBlur}
-            onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
-            placeholder="Nom d'affichage"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') e.currentTarget.blur()
+              if (e.key === 'Escape') {
+                setName(user.displayName || '')
+                e.currentTarget.blur()
+              }
+            }}
+            placeholder="Cliquez pour ajouter un nom"
+            aria-label="Nom d'affichage"
+            style={isEditing ? { borderBottomColor: '#0078d4' } : undefined}
           />
-          <div className="user-email-row" onClick={copyEmail} title="Copier l'email">
+          <div className="user-email-row" onClick={copyEmail} title="Cliquer pour copier l'email" role="button" tabIndex={0}>
             <Mail size={14} />
             <span className="user-email-text">{user.email}</span>
             {copied ? <Check size={14} color="#10B981" /> : <Copy size={14} className="copy-icon" />}
@@ -243,17 +269,19 @@ const OutlookUserCard = ({
             value={user.role}
             onChange={e => onUpdateRole(user._id, e.target.value)}
             style={{ color: roleStyle.color, borderColor: roleStyle.border }}
+            aria-label="Changer le rôle"
           >
-            <option value="TEACHER">Enseignant</option>
-            <option value="SUBADMIN">Préfet</option>
-            <option value="AEFE">RPP ET DIRECTION</option>
-            <option value="ADMIN">Admin</option>
+            <option value="TEACHER">👨‍🏫 Enseignant</option>
+            <option value="SUBADMIN">📋 Préfet</option>
+            <option value="AEFE">🏛️ RPP et Direction</option>
+            <option value="ADMIN">⚡ Admin</option>
           </select>
 
           <button
             className="btn-action danger"
             onClick={() => onDelete(user._id)}
-            title="Supprimer"
+            title="Supprimer cet utilisateur"
+            aria-label="Supprimer l'utilisateur"
           >
             <Trash2 size={16} />
           </button>
@@ -590,8 +618,13 @@ export default function Users() {
       </Modal>
 
       <div className="users-header">
-        <h2 className="users-title">Gestion des utilisateurs</h2>
-        <p className="users-description">Gérez les accès et les rôles des utilisateurs de la plateforme.</p>
+        <h2 className="users-title">
+          <Sparkles size={28} style={{ display: 'inline', marginRight: 12, verticalAlign: 'middle' }} />
+          Gestion des utilisateurs
+        </h2>
+        <p className="users-description">
+          Gérez les accès, les rôles et les permissions de tous les utilisateurs de la plateforme en toute simplicité.
+        </p>
       </div>
 
       <div className="users-toolbar">
@@ -599,20 +632,27 @@ export default function Users() {
           <input
             className="search-input"
             type="text"
-            placeholder="Rechercher par nom ou email..."
+            placeholder="Rechercher un utilisateur..."
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
+            aria-label="Rechercher par nom ou email"
           />
         </div>
         <div className="users-stats">
-          <span className="users-stat-chip">
-            <UserPlus size={16} />
-            Locaux: {localCount}
+          <span className="users-stat-chip" title="Comptes avec mot de passe local">
+            <UsersIcon size={16} />
+            {localCount} locaux
           </span>
-          <span className="users-stat-chip">
-            <img src="https://upload.wikimedia.org/wikipedia/commons/4/44/Microsoft_logo.svg" alt="Microsoft" style={{ width: 16, height: 16 }} />
-            Microsoft: {outlookCount}
+          <span className="users-stat-chip" title="Comptes Microsoft/Outlook">
+            <img src="https://upload.wikimedia.org/wikipedia/commons/4/44/Microsoft_logo.svg" alt="" style={{ width: 16, height: 16 }} />
+            {outlookCount} Microsoft
           </span>
+          {deletedCount > 0 && (
+            <span className="users-stat-chip" style={{ background: '#fef2f2', borderColor: '#fecaca', color: '#dc2626' }} title="Comptes désactivés">
+              <UserX size={16} />
+              {deletedCount} supprimés
+            </span>
+          )}
         </div>
       </div>
 
@@ -650,37 +690,60 @@ export default function Users() {
         <div className="animate-fade-in">
           <div className="add-user-card">
             <div className="add-user-header">
-              <div style={{ background: '#e3f2fd', padding: 10, borderRadius: 10, color: '#1976d2' }}>
-                <UserPlus size={22} />
+              <div style={{ background: 'linear-gradient(135deg, #e0e7ff, #c7d2fe)', padding: 12, borderRadius: 14, color: '#4f46e5' }}>
+                <UserPlus size={24} />
               </div>
-              <h3 className="add-user-title">Ajouter un utilisateur local</h3>
+              <div>
+                <h3 className="add-user-title">Nouvel utilisateur local</h3>
+                <span style={{ fontSize: '0.875rem', color: '#64748b' }}>Créez un compte avec email et mot de passe</span>
+              </div>
             </div>
 
             <div className="form-grid">
               <div className="form-group">
                 <label className="form-label">Email</label>
-                <input className="form-input" placeholder="user@school.com" value={email} onChange={e => setEmail(e.target.value)} />
+                <input 
+                  className="form-input" 
+                  placeholder="utilisateur@ecole.com" 
+                  value={email} 
+                  onChange={e => setEmail(e.target.value)}
+                  type="email"
+                  autoComplete="email"
+                />
               </div>
               <div className="form-group">
                 <label className="form-label">Mot de passe</label>
-                <input className="form-input" placeholder="••••••••" type="password" value={password} onChange={e => setPassword(e.target.value)} />
+                <input 
+                  className="form-input" 
+                  placeholder="••••••••" 
+                  type="password" 
+                  value={password} 
+                  onChange={e => setPassword(e.target.value)}
+                  autoComplete="new-password"
+                />
               </div>
               <div className="form-group">
                 <label className="form-label">Nom affiché</label>
-                <input className="form-input" placeholder="John Doe" value={displayName} onChange={e => setDisplayName(e.target.value)} />
+                <input 
+                  className="form-input" 
+                  placeholder="Jean Dupont" 
+                  value={displayName} 
+                  onChange={e => setDisplayName(e.target.value)}
+                  autoComplete="name"
+                />
               </div>
               <div className="form-group">
                 <label className="form-label">Rôle</label>
                 <select className="form-select" value={role} onChange={e => setRole(e.target.value as any)}>
-                  <option value="ADMIN">Admin</option>
-                  <option value="SUBADMIN">Préfet</option>
-                  <option value="AEFE">RPP ET DIRECTION</option>
-                  <option value="TEACHER">Enseignant</option>
+                  <option value="TEACHER">👨‍🏫 Enseignant</option>
+                  <option value="SUBADMIN">📋 Préfet</option>
+                  <option value="AEFE">🏛️ RPP et Direction</option>
+                  <option value="ADMIN">⚡ Administrateur</option>
                 </select>
               </div>
               <button className="btn-add" onClick={createUser}>
                 <Plus size={18} />
-                Créer
+                Créer le compte
               </button>
             </div>
           </div>
@@ -694,36 +757,47 @@ export default function Users() {
 
       {activeTab === 'microsoft' && (
         <div className="animate-fade-in">
-          <div className="add-user-card" style={{ background: '#f0f7ff', borderColor: '#bae7ff' }}>
+          <div className="add-user-card" style={{ background: 'linear-gradient(135deg, #f0f9ff, #ffffff)', borderColor: '#bae6fd' }}>
             <div className="add-user-header">
-              <div style={{ background: 'white', padding: 10, borderRadius: 10 }}>
-                <img src="https://upload.wikimedia.org/wikipedia/commons/4/44/Microsoft_logo.svg" alt="Microsoft" style={{ width: 22, height: 22 }} />
+              <div style={{ background: 'white', padding: 12, borderRadius: 14, boxShadow: '0 2px 8px rgba(0,120,212,0.15)' }}>
+                <img src="https://upload.wikimedia.org/wikipedia/commons/4/44/Microsoft_logo.svg" alt="" style={{ width: 24, height: 24 }} />
               </div>
               <div>
-                <h3 className="add-user-title">Ajouter un utilisateur Outlook</h3>
-                <span className="users-description" style={{ fontSize: '0.9rem' }}>Les utilisateurs se connectent avec leur compte Microsoft</span>
+                <h3 className="add-user-title">Autoriser un compte Microsoft</h3>
+                <span style={{ fontSize: '0.875rem', color: '#64748b' }}>L'utilisateur se connectera avec son compte Outlook/Microsoft</span>
               </div>
             </div>
 
             <div className="form-grid">
               <div className="form-group">
-                <label className="form-label">Email Outlook</label>
-                <input className="form-input" placeholder="user@outlook.com" value={outlookEmail} onChange={e => setOutlookEmail(e.target.value)} />
+                <label className="form-label">Email Microsoft</label>
+                <input 
+                  className="form-input" 
+                  placeholder="utilisateur@outlook.com" 
+                  value={outlookEmail} 
+                  onChange={e => setOutlookEmail(e.target.value)}
+                  type="email"
+                />
               </div>
               <div className="form-group">
-                <label className="form-label">Nom (Optionnel)</label>
-                <input className="form-input" placeholder="John Doe" value={outlookDisplayName} onChange={e => setOutlookDisplayName(e.target.value)} />
+                <label className="form-label">Nom (optionnel)</label>
+                <input 
+                  className="form-input" 
+                  placeholder="Jean Dupont" 
+                  value={outlookDisplayName} 
+                  onChange={e => setOutlookDisplayName(e.target.value)}
+                />
               </div>
               <div className="form-group">
                 <label className="form-label">Rôle</label>
                 <select className="form-select" value={outlookRole} onChange={e => setOutlookRole(e.target.value as any)}>
-                  <option value="ADMIN">Admin</option>
-                  <option value="SUBADMIN">Préfet</option>
-                  <option value="AEFE">RPP ET DIRECTION</option>
-                  <option value="TEACHER">Enseignant</option>
+                  <option value="TEACHER">👨‍🏫 Enseignant</option>
+                  <option value="SUBADMIN">📋 Préfet</option>
+                  <option value="AEFE">🏛️ RPP et Direction</option>
+                  <option value="ADMIN">⚡ Administrateur</option>
                 </select>
               </div>
-              <button className="btn-add" onClick={addOutlookUser} style={{ backgroundColor: '#0078d4' }}>
+              <button className="btn-add" onClick={addOutlookUser} style={{ background: 'linear-gradient(135deg, #0078d4, #00a4ef)' }}>
                 <Plus size={18} />
                 Autoriser
               </button>
@@ -739,42 +813,36 @@ export default function Users() {
 
       {activeTab === 'deleted' && (
         <div className="animate-fade-in">
-          <div className="deleted-users-header" style={{
-            background: 'linear-gradient(135deg, #fff5f5, #ffffff)',
-            borderRadius: 12,
-            padding: '20px 24px',
-            marginBottom: 24,
-            border: '1px solid #fecaca',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 16
-          }}>
+          <div className="deleted-users-header">
             <div style={{
               background: '#fee2e2',
-              padding: 12,
-              borderRadius: 12,
+              padding: 14,
+              borderRadius: 14,
               color: '#dc2626'
             }}>
-              <Archive size={24} />
+              <Archive size={26} />
             </div>
             <div>
-              <h3 style={{ margin: 0, color: '#991b1b' }}>Utilisateurs supprimés</h3>
-              <p style={{ margin: '4px 0 0', color: '#b91c1c', fontSize: '0.9rem' }}>
-                Ces comptes ont été désactivés. Vous pouvez les réactiver à tout moment.
+              <h3>Utilisateurs désactivés</h3>
+              <p>
+                Ces comptes ont été désactivés et ne peuvent plus se connecter. Vous pouvez les réactiver à tout moment.
               </p>
             </div>
           </div>
 
           {deletedUsers.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: 40, color: '#6b7280' }}>
-              Aucun utilisateur supprimé
+            <div className="empty-state">
+              <div className="empty-state-icon">
+                <UserX size={32} />
+              </div>
+              <p className="empty-state-text">Aucun utilisateur désactivé</p>
             </div>
           ) : (
             <div className="users-grid">
               {deletedUsers.map(user => {
                 const roleStyle = getRoleColor(user.role)
                 return (
-                  <div key={user._id} className="user-card" style={{ opacity: 0.8, border: '1px solid #fecaca' }}>
+                  <div key={user._id} className="user-card" style={{ opacity: 0.85, borderColor: '#fecaca' }}>
                     <div className="user-card-top" style={{ background: 'linear-gradient(135deg, #fef2f2, #ffffff)' }}>
                       <div className="user-avatar" style={{ backgroundColor: '#9ca3af' }}>
                         {getInitials(user.displayName || user.email)}
@@ -786,17 +854,28 @@ export default function Users() {
 
                     <div className="user-card-content">
                       <div className="user-identity">
-                        <div className="user-name-display" style={{ fontWeight: 600, color: '#374151' }}>
+                        <div style={{ fontWeight: 700, color: '#374151', fontSize: '1.1rem', marginBottom: 4 }}>
                           {user.displayName || user.email}
                         </div>
-                        <div className="user-email-row">
+                        <div className="user-email-row" style={{ cursor: 'default' }}>
                           <Mail size={14} />
                           <span className="user-email-text">{user.email}</span>
                         </div>
                         {user.deletedAt && (
-                          <div style={{ fontSize: '0.8rem', color: '#ef4444', marginTop: 8 }}>
-                            <Calendar size={14} style={{ marginRight: 4 }} />
-                            Supprimé le: {new Date(user.deletedAt).toLocaleDateString('fr-FR')}
+                          <div style={{ 
+                            fontSize: '0.8rem', 
+                            color: '#ef4444', 
+                            marginTop: 12,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            padding: '6px 10px',
+                            background: '#fef2f2',
+                            borderRadius: 8,
+                            width: 'fit-content'
+                          }}>
+                            <Calendar size={14} />
+                            Désactivé le {new Date(user.deletedAt).toLocaleDateString('fr-FR')}
                           </div>
                         )}
                       </div>
@@ -812,16 +891,19 @@ export default function Users() {
                             display: 'flex',
                             alignItems: 'center',
                             gap: 8,
-                            padding: '8px 16px',
-                            borderRadius: 8,
+                            padding: '10px 20px',
+                            borderRadius: 10,
                             cursor: 'pointer',
                             width: '100%',
-                            justifyContent: 'center'
+                            justifyContent: 'center',
+                            fontWeight: 600,
+                            fontSize: '0.9rem',
+                            boxShadow: '0 4px 12px rgba(16, 185, 129, 0.25)'
                           }}
                           title="Réactiver l'utilisateur"
                         >
                           <RotateCcw size={16} />
-                          Réactiver
+                          Réactiver le compte
                         </button>
                       </div>
                     </div>
