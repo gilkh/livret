@@ -1,5 +1,20 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useCallback } from 'react'
+import {
+    Shield,
+    Globe,
+    Building,
+    GraduationCap,
+    User,
+    X,
+    Plus,
+    Info,
+    Check,
+    AlertTriangle,
+    Loader2,
+    Users
+} from 'lucide-react'
 import api from '../api'
+import './AdminPermissions.css'
 
 type BypassScope = {
     type: 'ALL' | 'LEVEL' | 'CLASS' | 'STUDENT'
@@ -13,25 +28,91 @@ type SubAdmin = {
     bypassScopes: BypassScope[]
 }
 
-// Helper component for each SubAdmin card to manage its own form state
-const SubAdminCard = ({ 
-    user, 
-    levels, 
-    classes, 
-    students, 
-    onAddScope, 
-    onRemoveScope 
-}: { 
-    user: SubAdmin, 
-    levels: any[], 
-    classes: any[], 
-    students: any[], 
-    onAddScope: (userId: string, scope: BypassScope) => void,
-    onRemoveScope: (userId: string, index: number) => void
+type ClassInfo = {
+    _id: string
+    name: string
+    level: string
+}
+
+type StudentInfo = {
+    _id: string
+    firstName: string
+    lastName: string
+    classId: string
+}
+
+type LevelInfo = {
+    _id: string
+    name: string
+}
+
+// Toast component
+const Toast = ({ message, type, onClose }: { message: string; type: 'success' | 'error'; onClose: () => void }) => {
+    useEffect(() => {
+        const timer = setTimeout(onClose, 3000)
+        return () => clearTimeout(timer)
+    }, [onClose])
+
+    return (
+        <div className={`permissions-toast ${type}`}>
+            {type === 'success' ? <Check size={18} /> : <AlertTriangle size={18} />}
+            <span>{message}</span>
+        </div>
+    )
+}
+
+// Permission badge component
+const PermissionBadge = ({
+    scope,
+    label,
+    onRemove
+}: {
+    scope: BypassScope;
+    label: string;
+    onRemove: () => void
+}) => {
+    const icons: Record<string, JSX.Element> = {
+        ALL: <Globe size={12} />,
+        LEVEL: <GraduationCap size={12} />,
+        CLASS: <Building size={12} />,
+        STUDENT: <User size={12} />
+    }
+
+    return (
+        <div className={`permission-badge type-${scope.type}`}>
+            <span className="permission-badge-icon">{icons[scope.type]}</span>
+            <span>{label}</span>
+            <button
+                className="permission-badge-remove"
+                onClick={onRemove}
+                title="Supprimer cette permission"
+            >
+                <X size={12} />
+            </button>
+        </div>
+    )
+}
+
+// Subadmin card component
+const SubAdminCard = ({
+    user,
+    levels,
+    classes,
+    students,
+    onAddScope,
+    onRemoveScope
+}: {
+    user: SubAdmin
+    levels: LevelInfo[]
+    classes: ClassInfo[]
+    students: StudentInfo[]
+    onAddScope: (userId: string, scope: BypassScope) => Promise<boolean>
+    onRemoveScope: (userId: string, index: number) => Promise<boolean>
 }) => {
     const [selectedLevel, setSelectedLevel] = useState<string>('')
     const [selectedClass, setSelectedClass] = useState<string>('')
     const [selectedStudent, setSelectedStudent] = useState<string>('')
+    const [isAdding, setIsAdding] = useState(false)
 
     // Reset downstream selections when upstream changes
     useEffect(() => { setSelectedClass(''); setSelectedStudent('') }, [selectedLevel])
@@ -48,158 +129,204 @@ const SubAdminCard = ({
         return students.filter(s => s.classId === selectedClass)
     }, [students, selectedClass])
 
-    const handleAdd = () => {
+    const handleAdd = async () => {
+        setIsAdding(true)
+        let scope: BypassScope | null = null
+
         if (selectedStudent) {
-            onAddScope(user._id, { type: 'STUDENT', value: selectedStudent })
+            scope = { type: 'STUDENT', value: selectedStudent }
         } else if (selectedClass) {
-            onAddScope(user._id, { type: 'CLASS', value: selectedClass })
+            scope = { type: 'CLASS', value: selectedClass }
         } else if (selectedLevel) {
-            onAddScope(user._id, { type: 'LEVEL', value: selectedLevel })
+            scope = { type: 'LEVEL', value: selectedLevel }
         }
-        // Reset after add
-        setSelectedLevel('')
+
+        if (scope) {
+            const success = await onAddScope(user._id, scope)
+            if (success) {
+                setSelectedLevel('')
+                setSelectedClass('')
+                setSelectedStudent('')
+            }
+        }
+        setIsAdding(false)
     }
 
-    const handleAddGlobal = () => {
-        onAddScope(user._id, { type: 'ALL' })
+    const handleAddGlobal = async () => {
+        setIsAdding(true)
+        await onAddScope(user._id, { type: 'ALL' })
+        setIsAdding(false)
     }
 
     const getButtonText = () => {
-        if (selectedStudent) return "Autoriser cet Élève"
-        if (selectedClass) return "Autoriser cette Classe"
-        if (selectedLevel) return "Autoriser ce Niveau"
-        return "Sélectionner..."
+        if (selectedStudent) {
+            const s = students.find(st => st._id === selectedStudent)
+            return s ? `Autoriser ${s.firstName} ${s.lastName}` : "Autoriser l'élève"
+        }
+        if (selectedClass) {
+            const c = classes.find(cl => cl._id === selectedClass)
+            return c ? `Autoriser ${c.name}` : "Autoriser la classe"
+        }
+        if (selectedLevel) return `Autoriser tout ${selectedLevel}`
+        return "Sélectionnez d'abord..."
     }
 
     const getScopeLabel = (scope: BypassScope) => {
-        if (scope.type === 'ALL') return 'TOUT (Global)'
-        if (scope.type === 'LEVEL') return `Niveau: ${scope.value}`
+        if (scope.type === 'ALL') return 'Accès Global'
+        if (scope.type === 'LEVEL') return `Niveau ${scope.value}`
         if (scope.type === 'CLASS') {
-            const c = classes.find(c => c._id === scope.value)
-            return `Classe: ${c ? c.name : scope.value}`
+            const c = classes.find(cl => cl._id === scope.value)
+            return c ? c.name : `Classe ${scope.value?.slice(-6)}`
         }
         if (scope.type === 'STUDENT') {
-            const s = students.find(s => s._id === scope.value)
-            return `Élève: ${s ? `${s.firstName} ${s.lastName}` : scope.value}`
+            const s = students.find(st => st._id === scope.value)
+            return s ? `${s.firstName} ${s.lastName}` : `Élève ${scope.value?.slice(-6)}`
         }
         return `${scope.type}: ${scope.value}`
     }
 
+    const hasGlobalAccess = user.bypassScopes?.some(s => s.type === 'ALL')
+    const initials = (user.displayName || user.email || '??')
+        .split(' ')
+        .map(w => w[0])
+        .slice(0, 2)
+        .join('')
+        .toUpperCase()
+
     return (
-        <div className="card" style={{ padding: 24, borderRadius: 12, boxShadow: '0 2px 8px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
-                <div>
-                    <h3 style={{ margin: '0 0 4px 0', fontSize: 18, fontWeight: 600, color: '#1e293b' }}>{user.displayName}</h3>
-                    <div style={{ color: '#64748b', fontSize: 14 }}>{user.email}</div>
+        <div className="subadmin-card">
+            {/* Header */}
+            <div className="subadmin-card-header">
+                <div className="subadmin-info">
+                    <div className="subadmin-avatar">{initials}</div>
+                    <div className="subadmin-details">
+                        <h3>{user.displayName || 'Sans nom'}</h3>
+                        <span>{user.email}</span>
+                    </div>
                 </div>
-                <button 
+                <button
+                    className={`global-access-btn ${hasGlobalAccess ? 'active' : 'inactive'}`}
                     onClick={handleAddGlobal}
-                    disabled={user.bypassScopes?.some(s => s.type === 'ALL')}
-                    className="btn"
-                    style={{ 
-                        background: user.bypassScopes?.some(s => s.type === 'ALL') ? '#e2e8f0' : '#3b82f6',
-                        color: user.bypassScopes?.some(s => s.type === 'ALL') ? '#94a3b8' : 'white',
-                        fontSize: 13,
-                        padding: '6px 12px'
-                    }}
+                    disabled={hasGlobalAccess || isAdding}
                 >
-                    {user.bypassScopes?.some(s => s.type === 'ALL') ? 'Accès Global Actif' : '+ Accès Global'}
+                    {hasGlobalAccess ? (
+                        <>
+                            <Check size={16} />
+                            Accès Global Actif
+                        </>
+                    ) : (
+                        <>
+                            <Globe size={16} />
+                            Accorder Accès Global
+                        </>
+                    )}
                 </button>
             </div>
 
-            {/* Active Permissions List */}
-            <div style={{ marginBottom: 24 }}>
-                <h4 style={{ margin: '0 0 12px 0', fontSize: 13, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#94a3b8' }}>Permissions Actives</h4>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                    {(!user.bypassScopes || user.bypassScopes.length === 0) && (
-                        <span style={{ fontSize: 14, color: '#cbd5e1', fontStyle: 'italic' }}>Aucune permission spécifique.</span>
-                    )}
-                    {user.bypassScopes?.map((scope, idx) => (
-                        <div key={idx} style={{ 
-                            background: '#eff6ff', 
-                            border: '1px solid #bfdbfe', 
-                            padding: '6px 12px', 
-                            borderRadius: 20,
-                            fontSize: 14,
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 8,
-                            color: '#1e40af'
-                        }}>
-                            <span style={{ fontWeight: 500 }}>{getScopeLabel(scope)}</span>
-                            <button 
-                                onClick={() => onRemoveScope(user._id, idx)}
-                                style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#ef4444', padding: 0, display: 'flex', alignItems: 'center' }}
-                                title="Supprimer"
-                            >
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-                            </button>
+            {/* Body */}
+            <div className="subadmin-card-body">
+                {/* Active Permissions */}
+                <div className="active-permissions">
+                    <p className="section-label">
+                        <Shield size={14} />
+                        Permissions Actives
+                        <span className="count">{user.bypassScopes?.length || 0}</span>
+                    </p>
+
+                    {(!user.bypassScopes || user.bypassScopes.length === 0) ? (
+                        <p className="permissions-empty-state">
+                            Aucune permission spéciale — ce préfet ne peut signer que les carnets dont l'enseignant a marqué "terminé"
+                        </p>
+                    ) : (
+                        <div className="permissions-list">
+                            {user.bypassScopes.map((scope, idx) => (
+                                <PermissionBadge
+                                    key={`${scope.type}-${scope.value || idx}`}
+                                    scope={scope}
+                                    label={getScopeLabel(scope)}
+                                    onRemove={() => onRemoveScope(user._id, idx)}
+                                />
+                            ))}
                         </div>
-                    ))}
+                    )}
                 </div>
-            </div>
 
-            {/* Add New Permission Form */}
-            <div style={{ background: '#f8fafc', padding: 16, borderRadius: 8, border: '1px solid #f1f5f9' }}>
-                <h4 style={{ margin: '0 0 12px 0', fontSize: 14, fontWeight: 600, color: '#475569' }}>Ajouter une permission spécifique</h4>
-                
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, alignItems: 'end' }}>
-                    {/* Level Select */}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                        <label style={{ fontSize: 12, color: '#64748b', fontWeight: 500 }}>1. Niveau</label>
-                        <select 
-                            value={selectedLevel} 
-                            onChange={e => setSelectedLevel(e.target.value)}
-                            style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 14, width: '100%' }}
+                {/* Add Permission Form */}
+                <div className="add-permission-form">
+                    <p className="add-permission-form-title">
+                        <Plus size={16} />
+                        Ajouter une exception (bypass)
+                    </p>
+
+                    <div className="form-row">
+                        <div className="form-field">
+                            <label>
+                                <span className="step">1</span>
+                                Niveau
+                            </label>
+                            <select
+                                value={selectedLevel}
+                                onChange={e => setSelectedLevel(e.target.value)}
+                                disabled={isAdding}
+                            >
+                                <option value="">-- Sélectionner --</option>
+                                {levels.map(l => (
+                                    <option key={l._id} value={l.name}>{l.name}</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <div className="form-field">
+                            <label>
+                                <span className="step">2</span>
+                                Classe (optionnel)
+                            </label>
+                            <select
+                                value={selectedClass}
+                                onChange={e => setSelectedClass(e.target.value)}
+                                disabled={!selectedLevel || isAdding}
+                            >
+                                <option value="">-- Tout le niveau --</option>
+                                {filteredClasses.map(c => (
+                                    <option key={c._id} value={c._id}>{c.name}</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <div className="form-field">
+                            <label>
+                                <span className="step">3</span>
+                                Élève (optionnel)
+                            </label>
+                            <select
+                                value={selectedStudent}
+                                onChange={e => setSelectedStudent(e.target.value)}
+                                disabled={!selectedClass || isAdding}
+                            >
+                                <option value="">-- Toute la classe --</option>
+                                {filteredStudents.map(s => (
+                                    <option key={s._id} value={s._id}>
+                                        {s.firstName} {s.lastName}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <button
+                            className={`add-permission-btn ${selectedLevel ? 'enabled' : 'disabled'}`}
+                            onClick={handleAdd}
+                            disabled={!selectedLevel || isAdding}
                         >
-                            <option value="">-- Choisir --</option>
-                            {levels.map(l => <option key={l._id} value={l.name}>{l.name}</option>)}
-                        </select>
+                            {isAdding ? (
+                                <Loader2 size={16} className="spinner" />
+                            ) : (
+                                <>
+                                    <Plus size={16} />
+                                    {getButtonText()}
+                                </>
+                            )}
+                        </button>
                     </div>
-
-                    {/* Class Select */}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                        <label style={{ fontSize: 12, color: '#64748b', fontWeight: 500 }}>2. Classe (Optionnel)</label>
-                        <select 
-                            value={selectedClass} 
-                            onChange={e => setSelectedClass(e.target.value)}
-                            disabled={!selectedLevel}
-                            style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 14, width: '100%', opacity: !selectedLevel ? 0.5 : 1 }}
-                        >
-                            <option value="">-- Tout le niveau --</option>
-                            {filteredClasses.map(c => <option key={c._id} value={c._id}>{c.name}</option>)}
-                        </select>
-                    </div>
-
-                    {/* Student Select */}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                        <label style={{ fontSize: 12, color: '#64748b', fontWeight: 500 }}>3. Élève (Optionnel)</label>
-                        <select 
-                            value={selectedStudent} 
-                            onChange={e => setSelectedStudent(e.target.value)}
-                            disabled={!selectedClass}
-                            style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 14, width: '100%', opacity: !selectedClass ? 0.5 : 1 }}
-                        >
-                            <option value="">-- Toute la classe --</option>
-                            {filteredStudents.map(s => <option key={s._id} value={s._id}>{s.firstName} {s.lastName}</option>)}
-                        </select>
-                    </div>
-
-                    {/* Add Button */}
-                    <button 
-                        className="btn" 
-                        onClick={handleAdd}
-                        disabled={!selectedLevel}
-                        style={{ 
-                            height: 38, 
-                            background: !selectedLevel ? '#cbd5e1' : '#10b981',
-                            cursor: !selectedLevel ? 'not-allowed' : 'pointer',
-                            color: 'white',
-                            fontWeight: 500
-                        }}
-                    >
-                        {getButtonText()}
-                    </button>
                 </div>
             </div>
         </div>
@@ -210,11 +337,12 @@ const SubAdminCard = ({
 export default function AdminPermissions() {
     const [subadmins, setSubadmins] = useState<SubAdmin[]>([])
     const [loading, setLoading] = useState(true)
+    const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
 
     // Options for dropdowns
-    const [levels, setLevels] = useState<any[]>([])
-    const [classes, setClasses] = useState<any[]>([])
-    const [students, setStudents] = useState<any[]>([])
+    const [levels, setLevels] = useState<LevelInfo[]>([])
+    const [classes, setClasses] = useState<ClassInfo[]>([])
+    const [students, setStudents] = useState<StudentInfo[]>([])
 
     const loadData = async () => {
         try {
@@ -223,6 +351,7 @@ export default function AdminPermissions() {
             setSubadmins(res.data)
         } catch (e) {
             console.error(e)
+            setToast({ message: 'Erreur lors du chargement des préfets', type: 'error' })
         } finally {
             setLoading(false)
         }
@@ -235,7 +364,7 @@ export default function AdminPermissions() {
                 api.get('/school-years')
             ])
             setLevels(resLevels.data)
-            
+
             const activeYear = resYears.data.find((y: any) => y.active)
             if (activeYear) {
                 const [resClasses, resStudents] = await Promise.all([
@@ -255,67 +384,141 @@ export default function AdminPermissions() {
         loadOptions()
     }, [])
 
-    const addScope = async (userId: string, scope: BypassScope) => {
+    const addScope = useCallback(async (userId: string, scope: BypassScope): Promise<boolean> => {
         const user = subadmins.find(u => u._id === userId)
-        if (!user) return
+        if (!user) return false
+
+        // Check for duplicates
+        const isDuplicate = user.bypassScopes?.some(s =>
+            s.type === scope.type && s.value === scope.value
+        )
+        if (isDuplicate) {
+            setToast({ message: 'Cette permission existe déjà', type: 'error' })
+            return false
+        }
 
         const updatedScopes = [...(user.bypassScopes || []), scope]
-        
+
         try {
             await api.post('/admin-extras/permissions', { userId, bypassScopes: updatedScopes })
             setSubadmins(prev => prev.map(u => u._id === userId ? { ...u, bypassScopes: updatedScopes } : u))
+
+            const typeLabels: Record<string, string> = {
+                ALL: 'Accès global',
+                LEVEL: 'Niveau',
+                CLASS: 'Classe',
+                STUDENT: 'Élève'
+            }
+            setToast({ message: `${typeLabels[scope.type]} ajouté avec succès`, type: 'success' })
+            return true
         } catch (e) {
-            alert('Erreur lors de la mise à jour')
+            setToast({ message: 'Erreur lors de la mise à jour', type: 'error' })
+            return false
         }
-    }
+    }, [subadmins])
 
-    const removeScope = async (userId: string, index: number) => {
+    const removeScope = useCallback(async (userId: string, index: number): Promise<boolean> => {
         const user = subadmins.find(u => u._id === userId)
-        if (!user) return
+        if (!user) return false
 
+        const removedScope = user.bypassScopes?.[index]
         const updatedScopes = [...(user.bypassScopes || [])]
         updatedScopes.splice(index, 1)
 
         try {
             await api.post('/admin-extras/permissions', { userId, bypassScopes: updatedScopes })
             setSubadmins(prev => prev.map(u => u._id === userId ? { ...u, bypassScopes: updatedScopes } : u))
+
+            const typeLabels: Record<string, string> = {
+                ALL: 'Accès global',
+                LEVEL: 'Niveau',
+                CLASS: 'Classe',
+                STUDENT: 'Élève'
+            }
+            setToast({ message: `${typeLabels[removedScope?.type || 'ALL']} supprimé`, type: 'success' })
+            return true
         } catch (e) {
-            alert('Erreur lors de la mise à jour')
+            setToast({ message: 'Erreur lors de la suppression', type: 'error' })
+            return false
         }
-    }
+    }, [subadmins])
 
     return (
-        <div className="container" style={{ maxWidth: 1000, margin: '0 auto', padding: '20px' }}>
-            <div style={{ marginBottom: 32 }}>
-                <h2 className="title" style={{ fontSize: 20, marginBottom: 8 }}>Permissions Préfets (Signatures)</h2>
-                <p className="note" style={{ fontSize: 16, color: '#64748b' }}>
-                    Configurez les exceptions aux règles de signature pour les préfets.
-                    <br/>
-                    Vous pouvez accorder des permissions globales, par niveau, par classe ou par élève.
-                </p>
+        <div className="admin-permissions">
+            {/* Header */}
+            <header className="permissions-header">
+                <div className="permissions-header-content">
+                    <h1 className="permissions-title">
+                        <Shield size={28} />
+                        Permissions de Signature
+                    </h1>
+                    <p className="permissions-subtitle">
+                        Configurez les exceptions aux règles de signature pour les préfets. Ces permissions permettent de signer des carnets même si l'enseignant n'a pas encore marqué son travail comme terminé.
+                    </p>
+                </div>
+            </header>
+
+            {/* Info Banner */}
+            <div className="permissions-info-banner">
+                <div className="permissions-info-banner-icon">
+                    <Info size={20} />
+                </div>
+                <div className="permissions-info-banner-content">
+                    <h3>Comment ça fonctionne ?</h3>
+                    <p>
+                        Par défaut, un préfet ne peut signer un carnet que si <strong>tous les enseignants concernés</strong> ont marqué leur partie comme "terminée".
+                        Ces permissions créent des <strong>exceptions (bypass)</strong> à cette règle.
+                    </p>
+                    <ul>
+                        <li><strong>Accès Global :</strong> Peut signer n'importe quel carnet sans restriction</li>
+                        <li><strong>Par Niveau :</strong> Peut signer les carnets du niveau spécifié (ex: tous les GS)</li>
+                        <li><strong>Par Classe :</strong> Peut signer les carnets d'une classe spécifique</li>
+                        <li><strong>Par Élève :</strong> Peut signer le carnet d'un élève spécifique</li>
+                    </ul>
+                </div>
             </div>
 
-            {loading ? <p>Chargement...</p> : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-                    {subadmins.map(u => (
-                        <SubAdminCard 
-                            key={u._id} 
-                            user={u} 
-                            levels={levels} 
-                            classes={classes} 
+            {/* Content */}
+            {loading ? (
+                <div className="permissions-loading">
+                    <div className="permissions-spinner" />
+                    <span>Chargement des préfets...</span>
+                </div>
+            ) : subadmins.length === 0 ? (
+                <div className="permissions-empty">
+                    <div className="permissions-empty-icon">
+                        <Users size={32} />
+                    </div>
+                    <h3>Aucun préfet trouvé</h3>
+                    <p>
+                        Il n'y a pas encore de sous-administrateurs (préfets) dans le système.
+                        Ajoutez-en depuis la page Utilisateurs.
+                    </p>
+                </div>
+            ) : (
+                <div className="permissions-grid">
+                    {subadmins.map(user => (
+                        <SubAdminCard
+                            key={user._id}
+                            user={user}
+                            levels={levels}
+                            classes={classes}
                             students={students}
                             onAddScope={addScope}
                             onRemoveScope={removeScope}
                         />
                     ))}
-                    {subadmins.length === 0 && (
-                        <div style={{ textAlign: 'center', padding: 40, background: '#f8fafc', borderRadius: 12, color: '#64748b' }}>
-                            Aucun Préfet trouvé.
-                        </div>
-                    )}
                 </div>
+            )}
+
+            {/* Toast */}
+            {toast && (
+                <Toast
+                    message={toast.message}
+                    type={toast.type}
+                    onClose={() => setToast(null)}
+                />
             )}
         </div>
     )
 }
-
