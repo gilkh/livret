@@ -252,7 +252,7 @@ templatesRouter.get('/exports', requireAuth(['ADMIN', 'SUBADMIN']), async (req, 
     const list = files.map(f => {
       const p = path.join(targetDir, f)
       const stat = fs.statSync(p)
-      
+
       let metadata = {}
       try {
         const metaPath = p + '.json'
@@ -292,7 +292,7 @@ templatesRouter.delete('/exports/:fileName', requireAuth(['ADMIN', 'SUBADMIN']),
     const filePath = path.join(targetDir, fileName)
     if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'not_found' })
     fs.unlinkSync(filePath)
-    
+
     // Delete metadata if exists
     const metaPath = filePath + '.json'
     if (fs.existsSync(metaPath)) {

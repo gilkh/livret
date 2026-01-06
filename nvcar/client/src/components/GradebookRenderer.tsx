@@ -684,7 +684,7 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                             const expandedRows = b.props.expandedRows || false
                                             const expandedRowHeight = b.props.expandedRowHeight || 34
                                             const expandedDividerWidth = b.props.expandedDividerWidth || 0.5
-                                            const expandedDividerColor = b.props.expandedDividerColor || 'rgba(255, 255, 255, 0.5)'
+                                            const expandedDividerColor = b.props.expandedDividerColor || 'rgba(255, 255, 255, 0.2)'
                                             const gapRow = b.props.rowGap || 0
                                             const defaultLangs = [
                                                 { code: 'lb', label: 'Lebanese', emoji: '🇱🇧', active: false },

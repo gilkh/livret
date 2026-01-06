@@ -18,6 +18,72 @@ type StudentDoc = { _id: string; firstName: string; lastName: string; level?: st
 
 const pageWidth = 800
 const pageHeight = 1120
+const EXPANDED_TABLE_DESIGNS_STORAGE_KEY = 'livret:expanded-table-designs:v1'
+
+type ExpandedTableDesignStyle = {
+  rowGap: number
+  colGap: number
+  borderRadius: number
+  fontSize: number
+  textColor: string
+  borderColor: string
+  borderWidth: number
+  expandedRowHeight: number
+  expandedToggleStyle: string
+  expandedDividerWidth: number
+  expandedDividerColor: string
+  expandedTopGap: number
+}
+
+type ExpandedTableDesignPreset = {
+  id: string
+  name: string
+  style: ExpandedTableDesignStyle
+}
+
+const DEFAULT_DIVIDER_COLOR = 'rgba(255, 255, 255, 0.2)'
+
+const normalizeExpandedTableDesignStyle = (style: any): ExpandedTableDesignStyle => {
+  const s = style && typeof style === 'object' ? style : {}
+  return {
+    rowGap: Number(s.rowGap || 0),
+    colGap: Number(s.colGap || 0),
+    borderRadius: Number(s.borderRadius || 0),
+    fontSize: Number(s.fontSize || 12),
+    textColor: String(s.textColor || '#000000'),
+    borderColor: String(s.borderColor || '#000000'),
+    borderWidth: Number(s.borderWidth ?? 1),
+    expandedRowHeight: Number(s.expandedRowHeight || 34),
+    expandedToggleStyle: String(s.expandedToggleStyle || 'v2'),
+    expandedDividerWidth: Number(s.expandedDividerWidth || 0.5),
+    expandedDividerColor: String(s.expandedDividerColor || DEFAULT_DIVIDER_COLOR),
+    expandedTopGap: Number(s.expandedTopGap || 0)
+  }
+}
+
+const inferTableBorderStyle = (props: any): { color: string; width: number; found: boolean } => {
+  const cells = props?.cells
+  if (!Array.isArray(cells)) return { color: '#000000', width: 1, found: false }
+  for (const row of cells) {
+    if (!Array.isArray(row)) continue
+    for (const cell of row) {
+      const borders = cell?.borders
+      if (!borders || typeof borders !== 'object') continue
+      for (const side of ['l', 'r', 't', 'b'] as const) {
+        const b = borders?.[side]
+        if (b && typeof b === 'object' && ('width' in b || 'color' in b)) {
+          // Found a border definition - return it even if width is 0
+          return { 
+            color: String(b?.color || '#000000'), 
+            width: Number(b?.width ?? 0),
+            found: true 
+          }
+        }
+      }
+    }
+  }
+  return { color: '#000000', width: 1, found: false }
+}
 
 export default function TemplateBuilder() {
   const navigate = useNavigate()
@@ -42,6 +108,9 @@ export default function TemplateBuilder() {
   const [selectedCell, setSelectedCell] = useState<{ ri: number; ci: number } | null>(null)
   const [globalBorderColor, setGlobalBorderColor] = useState('#000000')
   const [globalBorderWidth, setGlobalBorderWidth] = useState(1)
+  const [expandedTableDesignPresets, setExpandedTableDesignPresets] = useState<ExpandedTableDesignPreset[]>([])
+  const [selectedExpandedTableDesignId, setSelectedExpandedTableDesignId] = useState<string>('')
+  const [newExpandedTableDesignName, setNewExpandedTableDesignName] = useState('')
   const [list, setList] = useState<Template[]>([])
   const [saveStatus, setSaveStatus] = useState('')
   const [continuousScroll, setContinuousScroll] = useState(true)
@@ -50,11 +119,50 @@ export default function TemplateBuilder() {
   const [deleteConfirmations, setDeleteConfirmations] = useState<{ [id: string]: number }>({})
   const [activeGuides, setActiveGuides] = useState<{ type: 'x' | 'y', pos: number }[]>([])
   const [clipboard, setClipboard] = useState<Block[] | null>(null)
+  const dragJustOccurred = useRef(false) // Track if a drag just happened to prevent click handler
 
   // Undo/Redo History State
   const [history, setHistory] = useState<Template[]>([])
   const [historyIndex, setHistoryIndex] = useState(-1)
   const isUndoRedoAction = useRef(false)
+  const lastSelectedBlockIdRef = useRef<string>('')
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(EXPANDED_TABLE_DESIGNS_STORAGE_KEY)
+      if (!raw) return
+      const parsed = JSON.parse(raw)
+      if (Array.isArray(parsed)) {
+        const normalized = parsed
+          .filter((x: any) => x && typeof x === 'object')
+          .map((x: any) => ({
+            id: String(x.id || ''),
+            name: String(x.name || ''),
+            style: normalizeExpandedTableDesignStyle(x.style)
+          }))
+          .filter((x: ExpandedTableDesignPreset) => x.id && x.name && x.style)
+        setExpandedTableDesignPresets(normalized)
+        if (!selectedExpandedTableDesignId && normalized[0]?.id) setSelectedExpandedTableDesignId(normalized[0].id)
+      }
+    } catch { }
+  }, [])
+
+  useEffect(() => {
+    if (selectedIndex == null) {
+      lastSelectedBlockIdRef.current = ''
+      return
+    }
+    const block = tpl.pages?.[selectedPage]?.blocks?.[selectedIndex]
+    if (!block) return
+    const rawId = block?.props?.blockId ? String(block.props.blockId) : `${selectedPage}:${selectedIndex}`
+    if (rawId === lastSelectedBlockIdRef.current) return
+    lastSelectedBlockIdRef.current = rawId
+    if (block.type === 'table') {
+      const inferred = inferTableBorderStyle(block.props)
+      setGlobalBorderColor(inferred.color)
+      setGlobalBorderWidth(inferred.width)
+    }
+  }, [selectedIndex, selectedPage, tpl])
 
   // Save state to history before making changes
   const saveHistory = () => {
@@ -186,12 +294,21 @@ export default function TemplateBuilder() {
 
   const socket = useSocket()
   const isRemoteUpdate = useRef(false)
+  const isLocalEditPending = useRef(false) // Track when we have pending local edits
 
   const normalizeTemplateNumbers = (t: Template): Template => {
     const pages = (t.pages || []).map(p => ({
       ...p,
       blocks: (p.blocks || []).map((raw: any) => {
         const b = raw ? { ...raw, props: raw.props ?? {} } : { type: 'unknown', props: {} }
+
+        // Ensure every block has a unique blockId for stable React keys
+        if (!b.props.blockId) {
+          b.props.blockId = (window.crypto as any).randomUUID
+            ? (window.crypto as any).randomUUID()
+            : Math.random().toString(36).substring(2, 11)
+        }
+
         if (b.type === 'table') {
           const parseNum = (v: any) => {
             const n = typeof v === 'number' ? v : parseFloat(String(v || '0'))
@@ -267,6 +384,10 @@ export default function TemplateBuilder() {
       socket.emit('join-template', tpl._id)
 
       const handleUpdate = (newTpl: any) => {
+        // Don't overwrite local edits that haven't been synced yet
+        if (isLocalEditPending.current) {
+          return
+        }
         isRemoteUpdate.current = true
         setTpl(normalizeTemplateNumbers(newTpl))
       }
@@ -287,11 +408,19 @@ export default function TemplateBuilder() {
         return
       }
 
+      // Mark that we have a local edit pending
+      isLocalEditPending.current = true
+
       const timer = setTimeout(() => {
         socket.emit('update-template', { templateId: tpl._id, template: tpl })
+        // After emitting, allow remote updates again
+        isLocalEditPending.current = false
       }, 500)
 
-      return () => clearTimeout(timer)
+      return () => {
+        clearTimeout(timer)
+        // If timer was cancelled, we still might have pending edits - keep the flag
+      }
     }
   }, [tpl, viewMode, socket])
 
@@ -528,6 +657,114 @@ export default function TemplateBuilder() {
     updateTpl({ ...tpl, pages })
   }
 
+  const persistExpandedTableDesignPresets = (next: ExpandedTableDesignPreset[]) => {
+    setExpandedTableDesignPresets(next)
+    try {
+      localStorage.setItem(EXPANDED_TABLE_DESIGNS_STORAGE_KEY, JSON.stringify(next))
+    } catch { }
+  }
+
+  const buildExpandedTableDesignFromTableProps = (props: any, options?: { globalBorderColor?: string; globalBorderWidth?: number }): ExpandedTableDesignStyle => {
+    const cells = props?.cells || []
+    const firstCell = cells?.[0]?.[0] || {}
+    const inferredBorder = inferTableBorderStyle(props)
+
+    const rowGap = Number(props?.rowGap || 0)
+    const colGap = Number(props?.colGap || 0)
+    const borderRadius = Number(props?.borderRadius || 0)
+    const fontSize = Number(firstCell?.fontSize || 12)
+    const textColor = String(firstCell?.color || '#000000')
+    const borderColor = String(options?.globalBorderColor || inferredBorder.color || '#000000')
+    const borderWidth = Number(options?.globalBorderWidth ?? inferredBorder.width ?? 1)
+    const expandedRowHeight = Number(props?.expandedRowHeight || 34)
+    const expandedToggleStyle = String(props?.expandedToggleStyle || 'v2')
+    const expandedDividerWidth = Number(props?.expandedDividerWidth || 0.5)
+    const expandedDividerColor = String((props?.expandedDividerColor ?? '').toString().trim() || DEFAULT_DIVIDER_COLOR)
+    const expandedTopGap = Number(props?.expandedTopGap || 0)
+
+    return {
+      rowGap,
+      colGap,
+      borderRadius,
+      fontSize,
+      textColor,
+      borderColor,
+      borderWidth,
+      expandedRowHeight,
+      expandedToggleStyle,
+      expandedDividerWidth,
+      expandedDividerColor,
+      expandedTopGap
+    }
+  }
+
+  const applyExpandedTableDesignToSelectedTable = (style: ExpandedTableDesignStyle) => {
+    const normalized = normalizeExpandedTableDesignStyle(style)
+    setGlobalBorderColor(normalized.borderColor)
+    setGlobalBorderWidth(normalized.borderWidth)
+    updateSelectedTable(p => {
+      const nextProps: any = {
+        ...p,
+        expandedRows: true,
+        rowGap: normalized.rowGap,
+        colGap: normalized.colGap,
+        borderRadius: normalized.borderRadius,
+        expandedRowHeight: normalized.expandedRowHeight,
+        expandedToggleStyle: normalized.expandedToggleStyle,
+        expandedDividerWidth: normalized.expandedDividerWidth,
+        expandedDividerColor: normalized.expandedDividerColor,
+        expandedTopGap: normalized.expandedTopGap
+      }
+
+      if (Array.isArray(p.cells)) {
+        nextProps.cells = (p.cells || []).map((row: any[]) =>
+          (row || []).map((cell: any) => {
+            const prevBorders = cell?.borders || {}
+            return {
+              ...cell,
+              fontSize: normalized.fontSize,
+              color: normalized.textColor,
+              borders: {
+                ...prevBorders,
+                l: { ...(prevBorders.l || {}), color: normalized.borderColor, width: normalized.borderWidth },
+                r: { ...(prevBorders.r || {}), color: normalized.borderColor, width: normalized.borderWidth },
+                t: { ...(prevBorders.t || {}), color: normalized.borderColor, width: normalized.borderWidth },
+                b: { ...(prevBorders.b || {}), color: normalized.borderColor, width: normalized.borderWidth }
+              }
+            }
+          })
+        )
+      }
+
+      return nextProps
+    })
+  }
+
+  const saveCurrentExpandedTableDesign = () => {
+    if (selectedIndex == null) return
+    const name = newExpandedTableDesignName.trim()
+    if (!name) return
+    const block = tpl.pages[selectedPage]?.blocks?.[selectedIndex]
+    if (!block || block.type !== 'table') return
+
+    // Always infer border style directly from the current table cells
+    const currentInferred = inferTableBorderStyle(block.props)
+    const style = buildExpandedTableDesignFromTableProps(block.props, { 
+      globalBorderColor: currentInferred.color, 
+      globalBorderWidth: currentInferred.width 
+    })
+    const existing = expandedTableDesignPresets.find(p => p.name.toLowerCase() === name.toLowerCase())
+    const id = existing?.id || ((window.crypto as any).randomUUID ? (window.crypto as any).randomUUID() : Math.random().toString(36).substring(2, 11))
+    const next = [
+      ...expandedTableDesignPresets.filter(p => p.id !== id),
+      { id, name, style }
+    ].sort((a, b) => a.name.localeCompare(b.name))
+
+    persistExpandedTableDesignPresets(next)
+    setSelectedExpandedTableDesignId(id)
+    setNewExpandedTableDesignName('')
+  }
+
   const copySelection = () => {
     if (selectedIndex === null && selectedIndices.length === 0) return
 
@@ -595,21 +832,24 @@ export default function TemplateBuilder() {
   }
 
   const onDrag = (e: React.MouseEvent, pageIndex: number, idx: number) => {
+    e.preventDefault() // Prevent text selection during drag
     const startX = e.clientX
     const startY = e.clientY
 
     // Determine which blocks are moving
     const movingIndices = new Set<number>()
-    const isMultiSelect = selectedIndices.includes(idx) || selectedIndex === idx
+    const isPartOfSelection = selectedIndices.includes(idx) || selectedIndex === idx
 
-    if (isMultiSelect) {
+    if (isPartOfSelection) {
+      // Moving already selected blocks
       selectedIndices.forEach(i => movingIndices.add(i))
       if (selectedIndex !== null) movingIndices.add(selectedIndex)
     } else {
+      // Clicked on unselected block - only move this one
       movingIndices.add(idx)
     }
 
-    // Capture initial positions
+    // Capture initial positions for all blocks that will move
     const initialPositions = new Map<number, { x: number, y: number }>()
     movingIndices.forEach(i => {
       const b = tpl.pages[pageIndex].blocks[i]
@@ -633,200 +873,72 @@ export default function TemplateBuilder() {
       }))
 
     let hasMoved = false
+    let isDragging = false
+    const DRAG_THRESHOLD = 3 // Minimum pixels to move before considering it a drag
+    let finalTpl = tpl
 
-    const onMove = (ev: MouseEvent) => {
-      hasMoved = true
+    const onMoveWithCapture = (ev: MouseEvent) => {
       const dx = ev.clientX - startX
       const dy = ev.clientY - startY
+
+      // Check if we've moved past the threshold to start dragging
+      if (!isDragging) {
+        if (Math.abs(dx) < DRAG_THRESHOLD && Math.abs(dy) < DRAG_THRESHOLD) {
+          return // Don't start drag yet
+        }
+        isDragging = true
+      }
+
+      hasMoved = true
       const pages = [...tpl.pages]
       const page = { ...pages[pageIndex] }
       const blocks = [...page.blocks]
 
-      let proposedX = Math.max(0, Math.min(pageWidth - 20, baseX + dx))
-      let proposedY = Math.max(0, Math.min(pageHeight - 20, baseY + dy))
-
-      let nx = proposedX
-      let ny = proposedY
+      let nx = Math.max(0, Math.min(pageWidth - 20, baseX + dx))
+      let ny = Math.max(0, Math.min(pageHeight - 20, baseY + dy))
 
       // Smart Guides Logic
       const threshold = 5
       const guides: { type: 'x' | 'y', pos: number }[] = []
-
-      // Snap X
       let snappedX = false
       const cx = nx + blockW / 2
-
       for (const ob of otherBlocks) {
         const ocx = ob.x + ob.w / 2
-
-        // Left align
         if (Math.abs(nx - ob.x) < threshold) { nx = ob.x; guides.push({ type: 'x', pos: ob.x }); snappedX = true }
-        // Right align
         else if (Math.abs((nx + blockW) - (ob.x + ob.w)) < threshold) { nx = (ob.x + ob.w) - blockW; guides.push({ type: 'x', pos: ob.x + ob.w }); snappedX = true }
-        // Left to Right
         else if (Math.abs(nx - (ob.x + ob.w)) < threshold) { nx = ob.x + ob.w; guides.push({ type: 'x', pos: ob.x + ob.w }); snappedX = true }
-        // Right to Left
         else if (Math.abs((nx + blockW) - ob.x) < threshold) { nx = ob.x - blockW; guides.push({ type: 'x', pos: ob.x }); snappedX = true }
-        // Center X
         else if (Math.abs(cx - ocx) < threshold) { nx = ocx - blockW / 2; guides.push({ type: 'x', pos: ocx }); snappedX = true }
-
         if (snappedX) break
       }
-
-      // Snap Y
       let snappedY = false
       const cy = ny + blockH / 2
-
       for (const ob of otherBlocks) {
         const ocy = ob.y + ob.h / 2
-
-        // Top align
         if (Math.abs(ny - ob.y) < threshold) { ny = ob.y; guides.push({ type: 'y', pos: ob.y }); snappedY = true }
-        // Bottom align
         else if (Math.abs((ny + blockH) - (ob.y + ob.h)) < threshold) { ny = (ob.y + ob.h) - blockH; guides.push({ type: 'y', pos: ob.y + ob.h }); snappedY = true }
-        // Top to Bottom
         else if (Math.abs(ny - (ob.y + ob.h)) < threshold) { ny = ob.y + ob.h; guides.push({ type: 'y', pos: ob.y + ob.h }); snappedY = true }
-        // Bottom to Top
         else if (Math.abs((ny + blockH) - ob.y) < threshold) { ny = ob.y - blockH; guides.push({ type: 'y', pos: ob.y }); snappedY = true }
-        // Center Y
         else if (Math.abs(cy - ocy) < threshold) { ny = ocy - blockH / 2; guides.push({ type: 'y', pos: ocy }); snappedY = true }
-
         if (snappedY) break
       }
-
       setActiveGuides(guides)
 
       const sx = snap && !snappedX ? Math.round(nx / 10) * 10 : nx
       const sy = snap && !snappedY ? Math.round(ny / 10) * 10 : ny
 
+      // Calculate the delta from the main block's base position
       const finalDx = sx - baseX
       const finalDy = sy - baseY
 
+      // Move ALL blocks in the selection together
       movingIndices.forEach(i => {
         const init = initialPositions.get(i)!
         blocks[i] = { ...blocks[i], props: { ...blocks[i].props, x: init.x + finalDx, y: init.y + finalDy } }
       })
 
       pages[pageIndex] = { ...page, blocks }
-      // Use setTpl here to avoid history spam, we save on Up
-      setTpl({ ...tpl, pages })
-    }
-    const onUp = () => {
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
-      setActiveGuides([])
-      if (hasMoved) {
-        // Manually push the *previous* state to history before confirming the move?
-        // No, updateTpl pushes the *new* state to history.
-        // But wait, updateTpl pushes newTpl to history.
-        // So if we just called setTpl during drag, history wasn't updated.
-        // Now we need to update history with the final state.
-        // BUT, we need to push the state BEFORE drag to history first?
-        // My updateTpl implementation: pushes `newTpl` to history.
-        // This means `history` contains [state1, state2, state3].
-        // If I am at state3, and I drag, I want state3 to be in history, and new state4 to be current.
-
-        // Current logic:
-        // updateTpl(newTpl):
-        //   history.push(newTpl) -> history = [s1, s2, s3, s4]
-        //   setTpl(newTpl) -> tpl = s4
-
-        // But during drag, I called setTpl(s4_draft) repeatedly without history.
-        // So tpl IS s4_draft.
-        // If I call updateTpl(tpl) now:
-        //   history.push(tpl) -> history = [s1, s2, s3, s4]
-        //   setTpl(tpl)
-
-        // Correct? Yes.
-        // But wait, `history` currently has [s1, s2, s3].
-        // tpl is s4.
-        // If I call updateTpl(tpl), it pushes s4.
-        // So if I undo, I go to s3.
-        // s3 is the state before drag? Yes, because we haven't pushed anything since s3.
-        // So this is correct.
-
-        // One catch: My `updateTpl` implementation pushes `newTpl` to history.
-        // So history becomes [s1, s2, s3, s4].
-        // Undo -> index at s3. tpl = s3. Correct.
-
-        // Wait, if I am at s3. tpl is s3.
-        // Drag starts. tpl becomes s3_modified.
-        // Drag ends. I call updateTpl(s3_modified).
-        // history becomes [s1, s2, s3, s3_modified].
-        // Undo -> index at s3. tpl = s3.
-        // Correct.
-
-        // HOWEVER, I need to pass the *final* tpl from the closure?
-        // No, `tpl` in `onUp` refers to the `tpl` when `onDrag` started (closure).
-        // So `tpl` inside `onUp` is the OLD tpl.
-        // `setTpl` updates the state but `onUp` doesn't see it?
-        // `onDrag` closes over `tpl`.
-        // Inside `onMove`, we calculate `pages` based on `tpl` (closure) + `dx/dy`.
-        // So `pages` in `onMove` is correct relative to start.
-
-        // We need to capture the final pages in `onUp`.
-        // But `onMove` variables are local to `onMove`.
-        // We can use a mutable ref or variable in outer scope of `onDrag`.
-      }
-    }
-
-    // We need to track the latest calculated state to save it on Up
-    // Since we can't easily access the result of onMove from onUp without shared var
-    // Re-implementing logic slightly
-
-    // ... Actually, I can just use `setTpl` with a callback in `onMove`?
-    // No, `onMove` has the `nx, ny`.
-    // Let's use a ref or variable.
-
-    // Better:
-    // Just re-calculate final position in onUp? No, mouse position might be different.
-
-    // Let's use a temp variable in onDrag scope.
-    let finalTpl = tpl
-
-    const onMoveWithCapture = (ev: MouseEvent) => {
-      const dx = ev.clientX - startX
-      const dy = ev.clientY - startY
-      const pages = [...tpl.pages]
-      const page = { ...pages[pageIndex] }
-      const blocks = [...page.blocks]
-      let nx = Math.max(0, Math.min(pageWidth - 20, baseX + dx))
-      let ny = Math.max(0, Math.min(pageHeight - 20, baseY + dy))
-
-      // Smart Guides (Copy-paste logic from above or refactor? Copying for safety/speed within tool)
-      const threshold = 5
-      const guides: { type: 'x' | 'y', pos: number }[] = []
-      let snappedX = false
-      const cx = nx + blockW / 2
-      for (const ob of otherBlocks) {
-        const ocx = ob.x + ob.w / 2
-        if (Math.abs(nx - ob.x) < threshold) { nx = ob.x; guides.push({ type: 'x', pos: ob.x }); snappedX = true }
-        else if (Math.abs((nx + blockW) - (ob.x + ob.w)) < threshold) { nx = (ob.x + ob.w) - blockW; guides.push({ type: 'x', pos: ob.x + ob.w }); snappedX = true }
-        else if (Math.abs(nx - (ob.x + ob.w)) < threshold) { nx = ob.x + ob.w; guides.push({ type: 'x', pos: ob.x + ob.w }); snappedX = true }
-        else if (Math.abs((nx + blockW) - ob.x) < threshold) { nx = ob.x - blockW; guides.push({ type: 'x', pos: ob.x }); snappedX = true }
-        else if (Math.abs(cx - ocx) < threshold) { nx = ocx - blockW / 2; guides.push({ type: 'x', pos: ocx }); snappedX = true }
-        if (snappedX) break
-      }
-      let snappedY = false
-      const cy = ny + blockH / 2
-      for (const ob of otherBlocks) {
-        const ocy = ob.y + ob.h / 2
-        if (Math.abs(ny - ob.y) < threshold) { ny = ob.y; guides.push({ type: 'y', pos: ob.y }); snappedY = true }
-        else if (Math.abs((ny + blockH) - (ob.y + ob.h)) < threshold) { ny = (ob.y + ob.h) - blockH; guides.push({ type: 'y', pos: ob.y + ob.h }); snappedY = true }
-        else if (Math.abs(ny - (ob.y + ob.h)) < threshold) { ny = ob.y + ob.h; guides.push({ type: 'y', pos: ob.y + ob.h }); snappedY = true }
-        else if (Math.abs((ny + blockH) - ob.y) < threshold) { ny = ob.y - blockH; guides.push({ type: 'y', pos: ob.y }); snappedY = true }
-        else if (Math.abs(cy - ocy) < threshold) { ny = ocy - blockH / 2; guides.push({ type: 'y', pos: ocy }); snappedY = true }
-        if (snappedY) break
-      }
-      setActiveGuides(guides)
-
-      const sx = snap && !snappedX ? Math.round(nx / 10) * 10 : nx
-      const sy = snap && !snappedY ? Math.round(ny / 10) * 10 : ny
-
-      blocks[idx] = { ...blocks[idx], props: { ...blocks[idx].props, x: sx, y: sy } }
-      pages[pageIndex] = { ...page, blocks }
       finalTpl = { ...tpl, pages }
-      hasMoved = true
       setTpl(finalTpl)
     }
 
@@ -834,8 +946,14 @@ export default function TemplateBuilder() {
       window.removeEventListener('mousemove', onMoveWithCapture)
       window.removeEventListener('mouseup', onUpWithCapture)
       setActiveGuides([])
+
       if (hasMoved) {
+        // Save to history after drag completes
         updateTpl(finalTpl)
+        // Mark that dragging just occurred to prevent click handler from modifying selection
+        dragJustOccurred.current = true
+        // Reset the flag after a short delay (after click event fires)
+        setTimeout(() => { dragJustOccurred.current = false }, 0)
       }
     }
 
@@ -1451,15 +1569,15 @@ export default function TemplateBuilder() {
                 background: '#fff'
               }}>
                 <div>
-                   <h3 style={{ margin: 0, fontSize: 24, fontWeight: 700, color: '#1a202c' }}>
+                  <h3 style={{ margin: 0, fontSize: 24, fontWeight: 700, color: '#1a202c' }}>
                     📁 Exports disponibles
                   </h3>
                   <p style={{ margin: '4px 0 0', color: '#718096', fontSize: 14 }}>
                     Gérez vos fichiers exportés
                   </p>
                 </div>
-                <button 
-                  className="btn secondary" 
+                <button
+                  className="btn secondary"
                   onClick={() => setShowExportModal(false)}
                   style={{ borderRadius: '50%', width: 36, height: 36, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', background: '#f7fafc', color: '#a0aec0', cursor: 'pointer', fontSize: 18 }}
                 >
@@ -1468,27 +1586,27 @@ export default function TemplateBuilder() {
               </div>
 
               <div style={{ padding: '16px 32px', background: '#f8fafc', borderBottom: '1px solid #edf2f7', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                 <div style={{ fontSize: 14, color: '#4a5568', fontWeight: 500 }}>
-                    {exportedList.length} fichier{exportedList.length !== 1 ? 's' : ''} trouvé{exportedList.length !== 1 ? 's' : ''}
-                 </div>
-                 <button 
-                    className="btn secondary" 
-                    onClick={loadExported} 
-                    disabled={exportedLoading} 
-                    style={{ 
-                        padding: '8px 16px', 
-                        fontSize: 13, 
-                        background: '#fff', 
-                        border: '1px solid #e2e8f0', 
-                        display: 'flex', 
-                        alignItems: 'center', 
-                        gap: 8,
-                        color: '#4a5568',
-                        cursor: exportedLoading ? 'not-allowed' : 'pointer'
-                    }}
+                <div style={{ fontSize: 14, color: '#4a5568', fontWeight: 500 }}>
+                  {exportedList.length} fichier{exportedList.length !== 1 ? 's' : ''} trouvé{exportedList.length !== 1 ? 's' : ''}
+                </div>
+                <button
+                  className="btn secondary"
+                  onClick={loadExported}
+                  disabled={exportedLoading}
+                  style={{
+                    padding: '8px 16px',
+                    fontSize: 13,
+                    background: '#fff',
+                    border: '1px solid #e2e8f0',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    color: '#4a5568',
+                    cursor: exportedLoading ? 'not-allowed' : 'pointer'
+                  }}
                 >
-                    <span>🔄</span> 
-                    {exportedLoading ? 'Actualisation...' : 'Actualiser'}
+                  <span>🔄</span>
+                  {exportedLoading ? 'Actualisation...' : 'Actualiser'}
                 </button>
               </div>
 
@@ -1499,7 +1617,7 @@ export default function TemplateBuilder() {
                     Chargement des exports...
                   </div>
                 ) : exportedList.length === 0 ? (
-                   <div style={{ padding: 60, textAlign: 'center', color: '#a0aec0' }}>
+                  <div style={{ padding: 60, textAlign: 'center', color: '#a0aec0' }}>
                     <div style={{ fontSize: 40, marginBottom: 16 }}>📭</div>
                     <div style={{ fontSize: 18, color: '#4a5568', fontWeight: 500, marginBottom: 8 }}>Aucun export trouvé</div>
                     <p style={{ margin: 0 }}>Les fichiers exportés apparaîtront ici.</p>
@@ -1507,65 +1625,65 @@ export default function TemplateBuilder() {
                 ) : (
                   <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
                     <thead style={{ position: 'sticky', top: 0, background: '#fff', zIndex: 10 }}>
-                        <tr style={{ borderBottom: '2px solid #edf2f7' }}>
-                            <th style={{ width: '45%', textAlign: 'left', padding: '12px 20px', fontSize: 12, fontWeight: 600, color: '#a0aec0', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Nom du fichier</th>
-                            <th style={{ width: '20%', textAlign: 'left', padding: '12px 20px', fontSize: 12, fontWeight: 600, color: '#a0aec0', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Exporté par</th>
-                            <th style={{ width: '15%', textAlign: 'left', padding: '12px 20px', fontSize: 12, fontWeight: 600, color: '#a0aec0', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Date</th>
-                            <th style={{ width: '10%', textAlign: 'right', padding: '12px 20px', fontSize: 12, fontWeight: 600, color: '#a0aec0', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Taille</th>
-                            <th style={{ width: '10%', textAlign: 'right', padding: '12px 20px', fontSize: 12, fontWeight: 600, color: '#a0aec0', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Actions</th>
-                        </tr>
+                      <tr style={{ borderBottom: '2px solid #edf2f7' }}>
+                        <th style={{ width: '45%', textAlign: 'left', padding: '12px 20px', fontSize: 12, fontWeight: 600, color: '#a0aec0', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Nom du fichier</th>
+                        <th style={{ width: '20%', textAlign: 'left', padding: '12px 20px', fontSize: 12, fontWeight: 600, color: '#a0aec0', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Exporté par</th>
+                        <th style={{ width: '15%', textAlign: 'left', padding: '12px 20px', fontSize: 12, fontWeight: 600, color: '#a0aec0', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Date</th>
+                        <th style={{ width: '10%', textAlign: 'right', padding: '12px 20px', fontSize: 12, fontWeight: 600, color: '#a0aec0', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Taille</th>
+                        <th style={{ width: '10%', textAlign: 'right', padding: '12px 20px', fontSize: 12, fontWeight: 600, color: '#a0aec0', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Actions</th>
+                      </tr>
                     </thead>
                     <tbody>
                       {exportedList.map((f, i) => (
-                        <tr 
-                            key={f.fileName} 
-                            style={{ 
-                                borderBottom: '1px solid #edf2f7', 
-                                transition: 'background 0.1s',
-                                background: i % 2 === 0 ? '#fff' : '#fafafa'
-                            }}
-                            onMouseEnter={e => e.currentTarget.style.background = '#f0f4ff'}
-                            onMouseLeave={e => e.currentTarget.style.background = i % 2 === 0 ? '#fff' : '#fafafa'}
+                        <tr
+                          key={f.fileName}
+                          style={{
+                            borderBottom: '1px solid #edf2f7',
+                            transition: 'background 0.1s',
+                            background: i % 2 === 0 ? '#fff' : '#fafafa'
+                          }}
+                          onMouseEnter={e => e.currentTarget.style.background = '#f0f4ff'}
+                          onMouseLeave={e => e.currentTarget.style.background = i % 2 === 0 ? '#fff' : '#fafafa'}
                         >
                           <td style={{ padding: '12px 20px', verticalAlign: 'middle' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 12, overflow: 'hidden' }}>
-                                <div style={{ 
-                                    flexShrink: 0,
-                                    width: 36, height: 36, 
-                                    background: f.fileName.endsWith('.zip') ? '#ebf8ff' : '#fff5f5', 
-                                    color: f.fileName.endsWith('.zip') ? '#3182ce' : '#e53e3e',
-                                    borderRadius: 8, 
-                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                    fontSize: 18
-                                }}>
-                                    {f.fileName.endsWith('.zip') ? '📦' : '📄'}
-                                </div>
-                                <div style={{ minWidth: 0, flex: 1 }}>
-                                    <div title={f.fileName} style={{ fontWeight: 600, color: '#2d3748', marginBottom: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.fileName}</div>
-                                     {f.mtime && ( (Date.now() - new Date(f.mtime).getTime()) < (24*60*60*1000)) && (
-                                        <span style={{ fontSize: 10, background: '#48bb78', color: '#fff', padding: '2px 6px', borderRadius: 4, fontWeight: 700, textTransform: 'uppercase' }}>Nouveau</span>
-                                      )}
-                                </div>
+                              <div style={{
+                                flexShrink: 0,
+                                width: 36, height: 36,
+                                background: f.fileName.endsWith('.zip') ? '#ebf8ff' : '#fff5f5',
+                                color: f.fileName.endsWith('.zip') ? '#3182ce' : '#e53e3e',
+                                borderRadius: 8,
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                fontSize: 18
+                              }}>
+                                {f.fileName.endsWith('.zip') ? '📦' : '📄'}
+                              </div>
+                              <div style={{ minWidth: 0, flex: 1 }}>
+                                <div title={f.fileName} style={{ fontWeight: 600, color: '#2d3748', marginBottom: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.fileName}</div>
+                                {f.mtime && ((Date.now() - new Date(f.mtime).getTime()) < (24 * 60 * 60 * 1000)) && (
+                                  <span style={{ fontSize: 10, background: '#48bb78', color: '#fff', padding: '2px 6px', borderRadius: 4, fontWeight: 700, textTransform: 'uppercase' }}>Nouveau</span>
+                                )}
+                              </div>
                             </div>
                           </td>
                           <td style={{ padding: '12px 20px', verticalAlign: 'middle', color: '#4a5568', fontSize: 13 }}>
                             {f.exportedByName ? (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                    <div style={{ width: 24, height: 24, borderRadius: '50%', background: '#cbd5e0', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 10, fontWeight: 700 }}>
-                                        {f.exportedByName.charAt(0).toUpperCase()}
-                                    </div>
-                                    <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.exportedByName}</span>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <div style={{ width: 24, height: 24, borderRadius: '50%', background: '#cbd5e0', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 10, fontWeight: 700 }}>
+                                  {f.exportedByName.charAt(0).toUpperCase()}
                                 </div>
+                                <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.exportedByName}</span>
+                              </div>
                             ) : (
-                                <span style={{ color: '#a0aec0', fontStyle: 'italic' }}>—</span>
+                              <span style={{ color: '#a0aec0', fontStyle: 'italic' }}>—</span>
                             )}
                           </td>
                           <td style={{ padding: '12px 20px', color: '#718096', fontSize: 13, verticalAlign: 'middle' }}>
                             {f.mtime ? (
-                                <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                    <span style={{ fontWeight: 500, color: '#4a5568' }}>{new Date(f.mtime).toLocaleDateString()}</span>
-                                    <span style={{ fontSize: 11 }}>{new Date(f.mtime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
-                                </div>
+                              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                <span style={{ fontWeight: 500, color: '#4a5568' }}>{new Date(f.mtime).toLocaleDateString()}</span>
+                                <span style={{ fontSize: 11 }}>{new Date(f.mtime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                              </div>
                             ) : '—'}
                           </td>
                           <td style={{ padding: '12px 20px', textAlign: 'right', color: '#4a5568', fontSize: 13, fontFamily: 'monospace', verticalAlign: 'middle' }}>
@@ -1573,63 +1691,63 @@ export default function TemplateBuilder() {
                           </td>
                           <td style={{ padding: '12px 20px', textAlign: 'right', verticalAlign: 'middle' }}>
                             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
-                                <button 
-                                    className="btn" 
-                                    title="Télécharger"
-                                    onClick={async () => {
-                                      try {
-                                        const resp = await api.get(`/templates/exports/${encodeURIComponent(f.fileName)}`, { responseType: 'blob' })
-                                        const blob = new Blob([resp.data], { type: 'application/zip' })
-                                        const url = URL.createObjectURL(blob)
-                                        const a = document.createElement('a')
-                                        a.href = url
-                                        a.download = f.fileName
-                                        document.body.appendChild(a)
-                                        a.click()
-                                        a.remove()
-                                        URL.revokeObjectURL(url)
-                                        setSaveStatus('Téléchargement terminé')
-                                        setTimeout(() => setSaveStatus(''), 3000)
-                                      } catch (e) { setError('Échec du téléchargement') }
-                                    }}
-                                    style={{ 
-                                        padding: '6px 10px', 
-                                        borderRadius: 6, 
-                                        background: '#ebf8ff', 
-                                        color: '#3182ce', 
-                                        border: '1px solid #bee3f8',
-                                        cursor: 'pointer'
-                                    }}
-                                >
-                                    ⬇️
-                                </button>
-                                <button 
-                                    className="btn" 
-                                    title="Supprimer"
-                                    onClick={async () => {
-                                      if (!confirm(`Supprimer ${f.fileName} ?`)) return
-                                      try {
-                                        setExportedDeleting(f.fileName)
-                                        await api.delete(`/templates/exports/${encodeURIComponent(f.fileName)}`)
-                                        await loadExported()
-                                        setSaveStatus('Export supprimé')
-                                        setTimeout(() => setSaveStatus(''), 3000)
-                                      } catch (e) { setError('Échec de la suppression') }
-                                      finally { setExportedDeleting(null) }
-                                    }} 
-                                    disabled={exportedDeleting===f.fileName}
-                                    style={{ 
-                                        padding: '6px 10px', 
-                                        borderRadius: 6, 
-                                        background: '#fff5f5', 
-                                        color: '#e53e3e', 
-                                        border: '1px solid #fed7d7',
-                                        cursor: exportedDeleting===f.fileName ? 'wait' : 'pointer',
-                                        opacity: exportedDeleting===f.fileName ? 0.7 : 1
-                                    }}
-                                >
-                                    🗑️
-                                </button>
+                              <button
+                                className="btn"
+                                title="Télécharger"
+                                onClick={async () => {
+                                  try {
+                                    const resp = await api.get(`/templates/exports/${encodeURIComponent(f.fileName)}`, { responseType: 'blob' })
+                                    const blob = new Blob([resp.data], { type: 'application/zip' })
+                                    const url = URL.createObjectURL(blob)
+                                    const a = document.createElement('a')
+                                    a.href = url
+                                    a.download = f.fileName
+                                    document.body.appendChild(a)
+                                    a.click()
+                                    a.remove()
+                                    URL.revokeObjectURL(url)
+                                    setSaveStatus('Téléchargement terminé')
+                                    setTimeout(() => setSaveStatus(''), 3000)
+                                  } catch (e) { setError('Échec du téléchargement') }
+                                }}
+                                style={{
+                                  padding: '6px 10px',
+                                  borderRadius: 6,
+                                  background: '#ebf8ff',
+                                  color: '#3182ce',
+                                  border: '1px solid #bee3f8',
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                ⬇️
+                              </button>
+                              <button
+                                className="btn"
+                                title="Supprimer"
+                                onClick={async () => {
+                                  if (!confirm(`Supprimer ${f.fileName} ?`)) return
+                                  try {
+                                    setExportedDeleting(f.fileName)
+                                    await api.delete(`/templates/exports/${encodeURIComponent(f.fileName)}`)
+                                    await loadExported()
+                                    setSaveStatus('Export supprimé')
+                                    setTimeout(() => setSaveStatus(''), 3000)
+                                  } catch (e) { setError('Échec de la suppression') }
+                                  finally { setExportedDeleting(null) }
+                                }}
+                                disabled={exportedDeleting === f.fileName}
+                                style={{
+                                  padding: '6px 10px',
+                                  borderRadius: 6,
+                                  background: '#fff5f5',
+                                  color: '#e53e3e',
+                                  border: '1px solid #fed7d7',
+                                  cursor: exportedDeleting === f.fileName ? 'wait' : 'pointer',
+                                  opacity: exportedDeleting === f.fileName ? 0.7 : 1
+                                }}
+                              >
+                                🗑️
+                              </button>
                             </div>
                           </td>
                         </tr>
@@ -1638,23 +1756,23 @@ export default function TemplateBuilder() {
                   </table>
                 )}
               </div>
-              
-               <div style={{ padding: '16px 32px', borderTop: '1px solid #edf2f7', background: '#f8fafc', display: 'flex', justifyContent: 'flex-end' }}>
-                <button 
-                    className="btn secondary" 
-                    onClick={() => setShowExportModal(false)}
-                    style={{
-                        padding: '10px 24px',
-                        background: '#fff',
-                        border: '1px solid #cbd5e0',
-                        color: '#4a5568',
-                        fontWeight: 600,
-                        borderRadius: 8,
-                        boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
-                        cursor: 'pointer'
-                    }}
+
+              <div style={{ padding: '16px 32px', borderTop: '1px solid #edf2f7', background: '#f8fafc', display: 'flex', justifyContent: 'flex-end' }}>
+                <button
+                  className="btn secondary"
+                  onClick={() => setShowExportModal(false)}
+                  style={{
+                    padding: '10px 24px',
+                    background: '#fff',
+                    border: '1px solid #cbd5e0',
+                    color: '#4a5568',
+                    fontWeight: 600,
+                    borderRadius: 8,
+                    boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                    cursor: 'pointer'
+                  }}
                 >
-                    Fermer
+                  Fermer
                 </button>
               </div>
             </div>
@@ -2449,7 +2567,7 @@ export default function TemplateBuilder() {
                       const isSelected = (selectedIndex === idx || selectedIndices.includes(idx)) && selectedPage === pageIndex
                       return (
                         <div
-                          key={idx}
+                          key={b.props.blockId || `block-${pageIndex}-${idx}`}
                           style={{
                             position: 'absolute',
                             left: b.props.x || 0,
@@ -2466,6 +2584,12 @@ export default function TemplateBuilder() {
                           onMouseDown={(e) => onDrag(e, pageIndex, idx)}
                           onClick={(e) => {
                             e.stopPropagation();
+
+                            // Skip selection logic if we just finished dragging
+                            if (dragJustOccurred.current) {
+                              return
+                            }
+
                             setSelectedPage(pageIndex);
 
                             if (e.shiftKey || e.ctrlKey || e.metaKey) {
@@ -2888,7 +3012,7 @@ export default function TemplateBuilder() {
                               const expandedRows = b.props.expandedRows || false
                               const expandedRowHeight = parseNum(b.props.expandedRowHeight || 34)
                               const expandedDividerWidth = parseNum(b.props.expandedDividerWidth || 0.5)
-                              const expandedDividerColor = b.props.expandedDividerColor || 'rgba(255, 255, 255, 0.2)'
+                              const expandedDividerColor = b.props.expandedDividerColor || DEFAULT_DIVIDER_COLOR
                               const expandedPadding = 4
                               const expandedTopGap = 6
                               const expandedLanguages = b.props.expandedLanguages || [
@@ -3708,6 +3832,61 @@ export default function TemplateBuilder() {
                   )}
                   {tpl.pages[selectedPage].blocks[selectedIndex].type === 'table' && (
                     <div style={{ display: 'grid', gap: 8 }}>
+                      {tpl.pages[selectedPage].blocks[selectedIndex].props.expandedRows && (
+                        <div style={{ padding: '12px', background: '#f8f9fa', borderRadius: 8, marginBottom: 4 }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: '#6c757d', marginBottom: 8, textTransform: 'uppercase' }}>
+                            Designs (Table Expand)
+                          </div>
+                          <div style={{ display: 'grid', gap: 8 }}>
+                            <div>
+                              <label style={{ fontSize: 11, display: 'block', marginBottom: 4, fontWeight: 600, color: '#6c757d' }}>Design sauvegardé</label>
+                              <div style={{ display: 'flex', gap: 8 }}>
+                                <select
+                                  value={selectedExpandedTableDesignId}
+                                  onChange={e => setSelectedExpandedTableDesignId(e.target.value)}
+                                  style={{ flex: 1, padding: '8px 10px', borderRadius: 6, border: '2px solid #e9ecef', fontSize: 13 }}
+                                >
+                                  <option value="">—</option>
+                                  {expandedTableDesignPresets.map(p => (
+                                    <option key={p.id} value={p.id}>{p.name}</option>
+                                  ))}
+                                </select>
+                                <button
+                                  className="btn secondary"
+                                  disabled={!selectedExpandedTableDesignId}
+                                  style={{ fontSize: 12, padding: '8px 10px' }}
+                                  onClick={() => {
+                                    const preset = expandedTableDesignPresets.find(p => p.id === selectedExpandedTableDesignId)
+                                    if (preset) applyExpandedTableDesignToSelectedTable(preset.style)
+                                  }}
+                                >
+                                  Appliquer
+                                </button>
+                              </div>
+                            </div>
+
+                            <div>
+                              <label style={{ fontSize: 11, display: 'block', marginBottom: 4, fontWeight: 600, color: '#6c757d' }}>Sauvegarder le design actuel</label>
+                              <div style={{ display: 'flex', gap: 8 }}>
+                                <input
+                                  value={newExpandedTableDesignName}
+                                  onChange={e => setNewExpandedTableDesignName(e.target.value)}
+                                  placeholder="Nom du design"
+                                  style={{ flex: 1, padding: '8px 10px', borderRadius: 6, border: '2px solid #e9ecef', fontSize: 13 }}
+                                />
+                                <button
+                                  className="btn secondary"
+                                  disabled={!newExpandedTableDesignName.trim()}
+                                  style={{ fontSize: 12, padding: '8px 10px' }}
+                                  onClick={saveCurrentExpandedTableDesign}
+                                >
+                                  Sauvegarder
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                       <div style={{ padding: '12px', background: '#f8f9fa', borderRadius: 8, marginBottom: 4 }}>
                         <div style={{ fontSize: 11, fontWeight: 700, color: '#6c757d', marginBottom: 8, textTransform: 'uppercase' }}>
                           Style Global
@@ -3832,13 +4011,18 @@ export default function TemplateBuilder() {
                                   <div style={{ display: 'flex', gap: 4 }}>
                                     <input
                                       type="color"
-                                      value={tpl.pages[selectedPage].blocks[selectedIndex].props.expandedDividerColor || '#ffffff'}
+                                      value={(() => {
+                                        const c = tpl.pages[selectedPage].blocks[selectedIndex].props.expandedDividerColor || ''
+                                        // Color picker only supports hex, convert rgba to hex or use white fallback
+                                        if (c.startsWith('#') && (c.length === 7 || c.length === 4)) return c
+                                        return '#ffffff'
+                                      })()}
                                       onChange={e => updateSelectedTable(p => ({ ...p, expandedDividerColor: e.target.value }))}
                                       style={{ height: 38, width: 40, padding: 0, border: '1px solid #ddd', borderRadius: 4, cursor: 'pointer' }}
                                     />
                                     <input
                                       type="text"
-                                      value={tpl.pages[selectedPage].blocks[selectedIndex].props.expandedDividerColor || 'rgba(255, 255, 255, 0.5)'}
+                                      value={tpl.pages[selectedPage].blocks[selectedIndex].props.expandedDividerColor || DEFAULT_DIVIDER_COLOR}
                                       onChange={e => updateSelectedTable(p => ({ ...p, expandedDividerColor: e.target.value }))}
                                       style={{ flex: 1, padding: 8, borderRadius: 8, border: '1px solid #ddd' }}
                                     />
@@ -4955,24 +5139,28 @@ export default function TemplateBuilder() {
       </div>
 
       {/* Template Propagation Modal */}
-      {showPropagationModal && tpl._id && (
-        <TemplatePropagationModal
-          templateId={tpl._id}
-          templateName={tpl.name}
-          currentVersion={(tpl as any).currentVersion || 1}
-          onClose={() => setShowPropagationModal(false)}
-          onSave={handlePropagationSave}
-        />
-      )}
+      {
+        showPropagationModal && tpl._id && (
+          <TemplatePropagationModal
+            templateId={tpl._id}
+            templateName={tpl.name}
+            currentVersion={(tpl as any).currentVersion || 1}
+            onClose={() => setShowPropagationModal(false)}
+            onSave={handlePropagationSave}
+          />
+        )
+      }
 
       {/* Template History Modal */}
-      {showHistoryModal && tpl._id && (
-        <TemplateHistoryModal
-          templateId={tpl._id}
-          templateName={tpl.name}
-          onClose={() => setShowHistoryModal(false)}
-        />
-      )}
-    </div>
+      {
+        showHistoryModal && tpl._id && (
+          <TemplateHistoryModal
+            templateId={tpl._id}
+            templateName={tpl.name}
+            onClose={() => setShowHistoryModal(false)}
+          />
+        )
+      }
+    </div >
   )
 }
