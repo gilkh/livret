@@ -3949,13 +3949,106 @@ export default function TemplateBuilder() {
                             <input
                               type="checkbox"
                               checked={tpl.pages[selectedPage].blocks[selectedIndex].props.expandedRows || false}
-                              onChange={e => updateSelectedTable(p => ({ ...p, expandedRows: e.target.checked }))}
+                              onChange={e => {
+                                const isExpanding = e.target.checked
+                                const tableBlock = tpl.pages[selectedPage].blocks[selectedIndex]
+                                const tableX = tableBlock.props.x || 0
+                                const tableY = tableBlock.props.y || 0
+                                
+                                if (isExpanding) {
+                                  // Create a Title block 230px above the table
+                                  const blockId = (window.crypto as any).randomUUID ? (window.crypto as any).randomUUID() : Math.random().toString(36).substring(2, 11)
+                                  const titleBlock: Block = {
+                                    type: 'gradebook_pocket',
+                                    props: {
+                                      x: tableX,
+                                      y: Math.max(0, tableY - 230),
+                                      z: (tableBlock.props.z || 0) + 1,
+                                      blockId,
+                                      width: 90,
+                                      number: 'A',
+                                      fontSize: 20,
+                                      linkedTableBlockId: tableBlock.props.blockId
+                                    }
+                                  }
+                                  
+                                  const pages = [...tpl.pages]
+                                  const page = { ...pages[selectedPage] }
+                                  const blocks = [...page.blocks]
+                                  
+                                  // Update table with expandedRows and link to title
+                                  blocks[selectedIndex] = {
+                                    ...blocks[selectedIndex],
+                                    props: { ...blocks[selectedIndex].props, expandedRows: true, titleBlockId: blockId }
+                                  }
+                                  
+                                  // Add the title block
+                                  blocks.push(titleBlock)
+                                  
+                                  pages[selectedPage] = { ...page, blocks }
+                                  updateTpl({ ...tpl, pages })
+                                } else {
+                                  // Remove the linked title block if it exists
+                                  const titleBlockId = tableBlock.props.titleBlockId
+                                  const pages = [...tpl.pages]
+                                  const page = { ...pages[selectedPage] }
+                                  let blocks = [...page.blocks]
+                                  
+                                  // Update table to remove expandedRows
+                                  blocks[selectedIndex] = {
+                                    ...blocks[selectedIndex],
+                                    props: { ...blocks[selectedIndex].props, expandedRows: false, titleBlockId: undefined }
+                                  }
+                                  
+                                  // Remove the title block if it exists
+                                  if (titleBlockId) {
+                                    blocks = blocks.filter(b => b.props.blockId !== titleBlockId)
+                                  }
+                                  
+                                  pages[selectedPage] = { ...page, blocks }
+                                  updateTpl({ ...tpl, pages })
+                                  
+                                  // Adjust selectedIndex if needed (if title was after table)
+                                  const newSelectedIndex = blocks.findIndex(b => b.props.blockId === tableBlock.props.blockId)
+                                  if (newSelectedIndex !== selectedIndex) {
+                                    setSelectedIndex(newSelectedIndex)
+                                  }
+                                }
+                              }}
                               style={{ width: 18, height: 18, cursor: 'pointer' }}
                             />
                             <span style={{ fontSize: 13, fontWeight: 500 }}>Activer l'expansion des lignes</span>
                           </label>
                           {tpl.pages[selectedPage].blocks[selectedIndex].props.expandedRows && (
                             <div style={{ padding: 12, background: '#f0f4ff', borderRadius: 8, marginTop: 8 }}>
+                              {/* Title text editor for linked title block */}
+                              {tpl.pages[selectedPage].blocks[selectedIndex].props.titleBlockId && (() => {
+                                const titleBlockId = tpl.pages[selectedPage].blocks[selectedIndex].props.titleBlockId
+                                const titleBlock = tpl.pages[selectedPage].blocks.find(b => b.props.blockId === titleBlockId)
+                                if (!titleBlock) return null
+                                return (
+                                  <div style={{ marginBottom: 12, padding: 10, background: '#fff', borderRadius: 6, border: '1px solid #e2e8f0' }}>
+                                    <label style={{ fontSize: 11, display: 'block', marginBottom: 4, fontWeight: 600, color: '#3498db' }}>📝 Texte du Title</label>
+                                    <input
+                                      type="text"
+                                      value={titleBlock.props.number || 'A'}
+                                      onChange={e => {
+                                        const pages = [...tpl.pages]
+                                        const page = { ...pages[selectedPage] }
+                                        const blocks = [...page.blocks]
+                                        const titleIdx = blocks.findIndex(b => b.props.blockId === titleBlockId)
+                                        if (titleIdx >= 0) {
+                                          blocks[titleIdx] = { ...blocks[titleIdx], props: { ...blocks[titleIdx].props, number: e.target.value } }
+                                          pages[selectedPage] = { ...page, blocks }
+                                          updateTpl({ ...tpl, pages })
+                                        }
+                                      }}
+                                      style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '2px solid #e9ecef', fontSize: 13 }}
+                                      placeholder="A, B, C..."
+                                    />
+                                  </div>
+                                )
+                              })()}
                               <div style={{ fontSize: 11, color: '#6c757d', marginBottom: 8 }}>
                                 💡 Chaque ligne affichera une zone d'expansion avec les toggles de langue (V2) en dessous.
                               </div>
