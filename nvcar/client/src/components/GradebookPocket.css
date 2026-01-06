@@ -6,15 +6,7 @@
   /* Use the passed prop for font size if available, otherwise calc default */
   --number-font-size: calc(var(--pocket-width) * 0.4);
   
-  /* Fallback defaults if props are not passed (though they usually are) */
-  --supply-color-1: #e74c3c; /* Ruler */
-  --supply-color-2: #f4d03f; /* Pencil */
-  --supply-color-3: #ff9ff3; /* Eraser */
-  --supply-color-4: #2ecc71; /* Pen */
-  --supply-color-5: #9b59b6; /* Marker */
-  --pencil-tip-color: #2c3e50;
-  --pocket-fill-color: #3498db;
-  --stitch-color: #ffffff;
+  /* Fixed colors */
   --number-color: #ffffff;
 
   position: relative;

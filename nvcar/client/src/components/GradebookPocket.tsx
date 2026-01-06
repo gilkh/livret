@@ -4,26 +4,8 @@ import './GradebookPocket.css';
 import pocketImage from '../pocket.png';
 
 export interface GradebookPocketProps {
-    /** The number to display on the pocket */
+    /** The number/text to display on the pocket */
     number: number | string;
-    /** Color for the left supply (ruler) */
-    supplyColor1?: string;
-    /** Color for the middle supply (pencil body) */
-    supplyColor2?: string;
-    /** Color for the pencil tip */
-    pencilTipColor?: string;
-    /** Color for the right supply (eraser) */
-    supplyColor3?: string;
-    /** Color for the 4th supply (pen) */
-    supplyColor4?: string;
-    /** Color for the 5th supply (marker) */
-    supplyColor5?: string;
-    /** Main pocket fill color */
-    pocketFillColor?: string;
-    /** Stitching detail color */
-    stitchColor?: string;
-    /** Number text color */
-    numberColor?: string;
     /** Optional className for additional styling */
     className?: string;
     /** Whether the component is draggable */
@@ -44,15 +26,6 @@ export interface GradebookPocketProps {
 
 export const GradebookPocket: React.FC<GradebookPocketProps> = ({
     number,
-    supplyColor1 = '#e74c3c',
-    supplyColor2 = '#f4d03f',
-    pencilTipColor = '#2c3e50',
-    supplyColor3 = '#ff9ff3',
-    supplyColor4 = '#2ecc71', // Green pen
-    supplyColor5 = '#9b59b6', // Purple marker
-    pocketFillColor = '#3498db',
-    stitchColor = '#ffffff',
-    numberColor = '#ffffff',
     className = '',
     draggable = false,
     onDragStart,
@@ -70,15 +43,6 @@ export const GradebookPocket: React.FC<GradebookPocketProps> = ({
     };
 
     const cssVars = {
-        '--supply-color-1': supplyColor1,
-        '--supply-color-2': supplyColor2,
-        '--pencil-tip-color': pencilTipColor,
-        '--supply-color-3': supplyColor3,
-        '--supply-color-4': supplyColor4,
-        '--supply-color-5': supplyColor5,
-        '--pocket-fill-color': pocketFillColor,
-        '--stitch-color': stitchColor,
-        '--number-color': numberColor,
         '--pocket-width': `${isMaximized ? width * maximizedScale : width}px`,
         ...(fontSize ? { '--number-font-size': `${fontSize}px` } : {}),
         zIndex: isMaximized ? 100 : undefined,

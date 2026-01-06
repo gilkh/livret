@@ -378,15 +378,6 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                             number={b.props.number || '1'}
                                             width={b.props.width || 120}
                                             fontSize={b.props.fontSize}
-                                            supplyColor1={b.props.supplyColor1 || '#e74c3c'}
-                                            supplyColor2={b.props.supplyColor2 || '#f4d03f'}
-                                            pencilTipColor={b.props.pencilTipColor || '#2c3e50'}
-                                            supplyColor3={b.props.supplyColor3 || '#ff9ff3'}
-                                            supplyColor4={b.props.supplyColor4 || '#2ecc71'}
-                                            supplyColor5={b.props.supplyColor5 || '#9b59b6'}
-                                            pocketFillColor={b.props.pocketFillColor || '#3498db'}
-                                            stitchColor={b.props.stitchColor || '#ffffff'}
-                                            numberColor={b.props.numberColor || '#ffffff'}
                                         />
                                     )}
                                     {b.type === 'line' && <div style={{ width: b.props.x2 || 100, height: b.props.strokeWidth || 2, background: b.props.stroke || '#b2bec3' }} />}
