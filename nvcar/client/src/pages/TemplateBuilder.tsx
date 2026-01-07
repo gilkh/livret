@@ -841,6 +841,22 @@ export default function TemplateBuilder() {
       movingIndices.add(idx)
     }
 
+    // Also include linked title blocks for any tables being moved
+    const pageBlocks = tpl.pages[pageIndex].blocks
+    movingIndices.forEach(i => {
+      const block = pageBlocks[i]
+      // If it's a table with a linked title, add the title to moving set
+      if (block?.type === 'table' && block.props.titleBlockId) {
+        const titleIdx = pageBlocks.findIndex(b => b.props.blockId === block.props.titleBlockId)
+        if (titleIdx >= 0) movingIndices.add(titleIdx)
+      }
+      // If it's a title linked to a table, add the table to moving set
+      if (block?.type === 'gradebook_pocket' && block.props.linkedTableBlockId) {
+        const tableIdx = pageBlocks.findIndex(b => b.props.blockId === block.props.linkedTableBlockId)
+        if (tableIdx >= 0) movingIndices.add(tableIdx)
+      }
+    })
+
     // Capture initial positions for all blocks that will move
     const initialPositions = new Map<number, { x: number, y: number }>()
     movingIndices.forEach(i => {
@@ -3519,7 +3535,248 @@ export default function TemplateBuilder() {
                   </button>
                 )}
               </div>
-              {selectedIndex != null ? (
+              
+              {/* Multi-selection alignment tools */}
+              {selectedIndices.length > 1 && (
+                <div style={{ marginBottom: 16, padding: 12, background: '#f0f4ff', borderRadius: 10 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#6c757d', marginBottom: 10, textTransform: 'uppercase' }}>
+                    Alignement (sur le 1er sélectionné)
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+                    {/* Align Left to First */}
+                    <button
+                      className="btn secondary"
+                      style={{ padding: '6px 10px', fontSize: 11 }}
+                      title="Aligner à gauche sur le premier"
+                      onClick={() => {
+                        const pages = [...tpl.pages]
+                        const page = { ...pages[selectedPage] }
+                        const blocks = [...page.blocks]
+                        const refX = blocks[selectedIndices[0]].props.x || 0
+                        selectedIndices.forEach(i => {
+                          blocks[i] = { ...blocks[i], props: { ...blocks[i].props, x: refX } }
+                        })
+                        pages[selectedPage] = { ...page, blocks }
+                        updateTpl({ ...tpl, pages })
+                      }}
+                    >⬅️ Gauche</button>
+                    
+                    {/* Align Center Horizontal to First */}
+                    <button
+                      className="btn secondary"
+                      style={{ padding: '6px 10px', fontSize: 11 }}
+                      title="Centrer horizontalement sur le premier"
+                      onClick={() => {
+                        const pages = [...tpl.pages]
+                        const page = { ...pages[selectedPage] }
+                        const blocks = [...page.blocks]
+                        const refBlock = blocks[selectedIndices[0]]
+                        const refCenterX = (refBlock.props.x || 0) + (refBlock.props.width || 100) / 2
+                        selectedIndices.forEach(i => {
+                          const b = blocks[i]
+                          const w = b.props.width || 100
+                          blocks[i] = { ...blocks[i], props: { ...blocks[i].props, x: refCenterX - w / 2 } }
+                        })
+                        pages[selectedPage] = { ...page, blocks }
+                        updateTpl({ ...tpl, pages })
+                      }}
+                    >↔️ Centre H</button>
+                    
+                    {/* Align Right to First */}
+                    <button
+                      className="btn secondary"
+                      style={{ padding: '6px 10px', fontSize: 11 }}
+                      title="Aligner à droite sur le premier"
+                      onClick={() => {
+                        const pages = [...tpl.pages]
+                        const page = { ...pages[selectedPage] }
+                        const blocks = [...page.blocks]
+                        const refBlock = blocks[selectedIndices[0]]
+                        const refRight = (refBlock.props.x || 0) + (refBlock.props.width || 100)
+                        selectedIndices.forEach(i => {
+                          const b = blocks[i]
+                          const w = b.props.width || 100
+                          blocks[i] = { ...blocks[i], props: { ...blocks[i].props, x: refRight - w } }
+                        })
+                        pages[selectedPage] = { ...page, blocks }
+                        updateTpl({ ...tpl, pages })
+                      }}
+                    >➡️ Droite</button>
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+                    {/* Align Top to First */}
+                    <button
+                      className="btn secondary"
+                      style={{ padding: '6px 10px', fontSize: 11 }}
+                      title="Aligner en haut sur le premier"
+                      onClick={() => {
+                        const pages = [...tpl.pages]
+                        const page = { ...pages[selectedPage] }
+                        const blocks = [...page.blocks]
+                        const refY = blocks[selectedIndices[0]].props.y || 0
+                        selectedIndices.forEach(i => {
+                          blocks[i] = { ...blocks[i], props: { ...blocks[i].props, y: refY } }
+                        })
+                        pages[selectedPage] = { ...page, blocks }
+                        updateTpl({ ...tpl, pages })
+                      }}
+                    >⬆️ Haut</button>
+                    
+                    {/* Align Center Vertical to First */}
+                    <button
+                      className="btn secondary"
+                      style={{ padding: '6px 10px', fontSize: 11 }}
+                      title="Centrer verticalement sur le premier"
+                      onClick={() => {
+                        const pages = [...tpl.pages]
+                        const page = { ...pages[selectedPage] }
+                        const blocks = [...page.blocks]
+                        const refBlock = blocks[selectedIndices[0]]
+                        const refCenterY = (refBlock.props.y || 0) + (refBlock.props.height || 100) / 2
+                        selectedIndices.forEach(i => {
+                          const b = blocks[i]
+                          const h = b.props.height || 100
+                          blocks[i] = { ...blocks[i], props: { ...blocks[i].props, y: refCenterY - h / 2 } }
+                        })
+                        pages[selectedPage] = { ...page, blocks }
+                        updateTpl({ ...tpl, pages })
+                      }}
+                    >↕️ Centre V</button>
+                    
+                    {/* Align Bottom to First */}
+                    <button
+                      className="btn secondary"
+                      style={{ padding: '6px 10px', fontSize: 11 }}
+                      title="Aligner en bas sur le premier"
+                      onClick={() => {
+                        const pages = [...tpl.pages]
+                        const page = { ...pages[selectedPage] }
+                        const blocks = [...page.blocks]
+                        const refBlock = blocks[selectedIndices[0]]
+                        const refBottom = (refBlock.props.y || 0) + (refBlock.props.height || 100)
+                        selectedIndices.forEach(i => {
+                          const b = blocks[i]
+                          const h = b.props.height || 100
+                          blocks[i] = { ...blocks[i], props: { ...blocks[i].props, y: refBottom - h } }
+                        })
+                        pages[selectedPage] = { ...page, blocks }
+                        updateTpl({ ...tpl, pages })
+                      }}
+                    >⬇️ Bas</button>
+                  </div>
+                  
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#6c757d', marginBottom: 10, marginTop: 12, textTransform: 'uppercase' }}>
+                    Distribution
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {/* Distribute Horizontally */}
+                    <button
+                      className="btn secondary"
+                      style={{ padding: '6px 10px', fontSize: 11 }}
+                      title="Distribuer horizontalement"
+                      disabled={selectedIndices.length < 3}
+                      onClick={() => {
+                        if (selectedIndices.length < 3) return
+                        const pages = [...tpl.pages]
+                        const page = { ...pages[selectedPage] }
+                        const blocks = [...page.blocks]
+                        
+                        // Sort by x position
+                        const sorted = [...selectedIndices].sort((a, b) => (blocks[a].props.x || 0) - (blocks[b].props.x || 0))
+                        const first = blocks[sorted[0]]
+                        const last = blocks[sorted[sorted.length - 1]]
+                        const startX = first.props.x || 0
+                        const endX = (last.props.x || 0) + (last.props.width || 100)
+                        const totalWidth = sorted.reduce((sum, i) => sum + (blocks[i].props.width || 100), 0)
+                        const gap = (endX - startX - totalWidth) / (sorted.length - 1)
+                        
+                        let currentX = startX
+                        sorted.forEach(i => {
+                          const w = blocks[i].props.width || 100
+                          blocks[i] = { ...blocks[i], props: { ...blocks[i].props, x: currentX } }
+                          currentX += w + gap
+                        })
+                        
+                        pages[selectedPage] = { ...page, blocks }
+                        updateTpl({ ...tpl, pages })
+                      }}
+                    >↔️ Espacer H</button>
+                    
+                    {/* Distribute Vertically */}
+                    <button
+                      className="btn secondary"
+                      style={{ padding: '6px 10px', fontSize: 11 }}
+                      title="Distribuer verticalement"
+                      disabled={selectedIndices.length < 3}
+                      onClick={() => {
+                        if (selectedIndices.length < 3) return
+                        const pages = [...tpl.pages]
+                        const page = { ...pages[selectedPage] }
+                        const blocks = [...page.blocks]
+                        
+                        // Sort by y position
+                        const sorted = [...selectedIndices].sort((a, b) => (blocks[a].props.y || 0) - (blocks[b].props.y || 0))
+                        const first = blocks[sorted[0]]
+                        const last = blocks[sorted[sorted.length - 1]]
+                        const startY = first.props.y || 0
+                        const endY = (last.props.y || 0) + (last.props.height || 100)
+                        const totalHeight = sorted.reduce((sum, i) => sum + (blocks[i].props.height || 100), 0)
+                        const gap = (endY - startY - totalHeight) / (sorted.length - 1)
+                        
+                        let currentY = startY
+                        sorted.forEach(i => {
+                          const h = blocks[i].props.height || 100
+                          blocks[i] = { ...blocks[i], props: { ...blocks[i].props, y: currentY } }
+                          currentY += h + gap
+                        })
+                        
+                        pages[selectedPage] = { ...page, blocks }
+                        updateTpl({ ...tpl, pages })
+                      }}
+                    >↕️ Espacer V</button>
+                    
+                    {/* Center on Page */}
+                    <button
+                      className="btn secondary"
+                      style={{ padding: '6px 10px', fontSize: 11 }}
+                      title="Centrer sur la page"
+                      onClick={() => {
+                        const pages = [...tpl.pages]
+                        const page = { ...pages[selectedPage] }
+                        const blocks = [...page.blocks]
+                        
+                        // Calculate bounding box of selection
+                        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+                        selectedIndices.forEach(i => {
+                          const b = blocks[i]
+                          const x = b.props.x || 0
+                          const y = b.props.y || 0
+                          const w = b.props.width || 100
+                          const h = b.props.height || 100
+                          minX = Math.min(minX, x)
+                          minY = Math.min(minY, y)
+                          maxX = Math.max(maxX, x + w)
+                          maxY = Math.max(maxY, y + h)
+                        })
+                        
+                        const selectionW = maxX - minX
+                        const selectionH = maxY - minY
+                        const offsetX = (pageWidth - selectionW) / 2 - minX
+                        const offsetY = (pageHeight - selectionH) / 2 - minY
+                        
+                        selectedIndices.forEach(i => {
+                          const b = blocks[i]
+                          blocks[i] = { ...blocks[i], props: { ...blocks[i].props, x: (b.props.x || 0) + offsetX, y: (b.props.y || 0) + offsetY } }
+                        })
+                        
+                        pages[selectedPage] = { ...page, blocks }
+                        updateTpl({ ...tpl, pages })
+                      }}
+                    >🎯 Centrer Page</button>
+                  </div>
+                </div>
+              )}
+              {selectedIndex != null && tpl.pages[selectedPage]?.blocks[selectedIndex] ? (
                 <div style={{ display: 'grid', gap: 12 }}>
                   <div style={{
                     padding: '10px 14px',
@@ -3956,13 +4213,23 @@ export default function TemplateBuilder() {
                                 const tableY = tableBlock.props.y || 0
                                 
                                 if (isExpanding) {
-                                  // Create a Title block 230px above the table
+                                  // Check if title block already exists
+                                  if (tableBlock.props.titleBlockId) {
+                                    const existingTitle = tpl.pages[selectedPage].blocks.find(b => b.props.blockId === tableBlock.props.titleBlockId)
+                                    if (existingTitle) {
+                                      // Title already exists, just enable expandedRows
+                                      updateSelectedTable(p => ({ ...p, expandedRows: true }))
+                                      return
+                                    }
+                                  }
+                                  
+                                  // Create a Title block 275px above the table
                                   const blockId = (window.crypto as any).randomUUID ? (window.crypto as any).randomUUID() : Math.random().toString(36).substring(2, 11)
                                   const titleBlock: Block = {
                                     type: 'gradebook_pocket',
                                     props: {
                                       x: tableX,
-                                      y: Math.max(0, tableY - 230),
+                                      y: Math.max(0, tableY - 265),
                                       z: (tableBlock.props.z || 0) + 1,
                                       blockId,
                                       width: 90,
