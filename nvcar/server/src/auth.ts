@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express'
-import jwt from 'jsonwebtoken'
+import jwt, { SignOptions } from 'jsonwebtoken'
 
 import { User } from './models/User'
 import { isSimulationSandbox } from './utils/simulationSandbox'
@@ -8,8 +8,11 @@ const jwtSecret = process.env.JWT_SECRET || 'dev-secret-change'
 
 export type Role = 'ADMIN' | 'SUBADMIN' | 'TEACHER' | 'AEFE'
 
-export const signToken = (payload: { userId: string; role: Role; impersonateUserId?: string; impersonateRole?: Role; tokenVersion?: number }) => {
-  return jwt.sign(payload, jwtSecret, { expiresIn: '2h' })
+export const signToken = (
+  payload: { userId: string; role: Role; impersonateUserId?: string; impersonateRole?: Role; tokenVersion?: number },
+  options?: { expiresIn?: SignOptions['expiresIn'] }
+) => {
+  return jwt.sign(payload, jwtSecret, { expiresIn: options?.expiresIn ?? '2h' })
 }
 
 export const requireAuth = (roles?: Role[]) => {
@@ -30,7 +33,11 @@ export const requireAuth = (roles?: Role[]) => {
         impersonateUserId?: string;
         impersonateRole?: Role;
         tokenVersion?: number;
+        iat?: number;
+        exp?: number;
       }
+      ; (req as any).authToken = token
+      ; (req as any).tokenPayload = decoded
 
       // If impersonating, use the impersonated user's ID and role for authorization
       // but keep the original admin info for audit trails

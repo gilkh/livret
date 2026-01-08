@@ -6,6 +6,7 @@ type AuditAction =
     | 'LOGIN'
     | 'LOGOUT'
     | 'LOGIN_MICROSOFT'
+    | 'EXTEND_SESSION'
     // Templates
     | 'EDIT_TEMPLATE'
     | 'UPDATE_TEMPLATE_DATA'

@@ -35,8 +35,10 @@ body { margin: 0; font-family: 'Poppins', system-ui, sans-serif; background: var
 .header-info { display: flex; flex-direction: column; }
 .row { display: flex; gap: 16px; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-.btn { padding: 10px 14px; border-radius: 8px; border: none; background: var(--primary); color: white; cursor: pointer; }
-.btn.secondary { background: var(--accent); }
+.btn { padding: 10px 14px; border-radius: 8px; border: 1px solid transparent; background: var(--primary); color: white; cursor: pointer; }
+.btn.secondary { background: #f1f5f9; border-color: #e2e8f0; color: #334155; }
+.btn.secondary:hover:not(:disabled) { background: #e2e8f0; border-color: #cbd5e1; }
+.btn.secondary:active:not(:disabled) { background: #e2e8f0; border-color: #94a3b8; color: #0f172a; }
 .btn:disabled { opacity: 0.6; cursor: not-allowed; }
 .btn.ghost { background: transparent; color: var(--text); border: 1px solid #e2e8f0; }
 .btn.danger { background: #ff4d4f; }
@@ -194,6 +196,17 @@ body { margin: 0; font-family: 'Poppins', system-ui, sans-serif; background: var
 
 .page-canvas { position: relative; border: 2px solid #dfe6e9; border-radius: 8px; box-shadow: 0 10px 24px rgba(0,0,0,0.08); background: #fff; }
 .page-margins { position: absolute; left: 24px; top: 24px; right: 24px; bottom: 24px; border: 1px dashed #b2bec3; pointer-events: none; }
+
+.template-builder-right-panel { min-width: 0; max-width: 100%; }
+.template-builder-right-panel * { min-width: 0; }
+.template-builder-right-panel input,
+.template-builder-right-panel select,
+.template-builder-right-panel textarea,
+.template-builder-right-panel button { max-width: 100%; }
+.template-builder-right-panel label,
+.template-builder-right-panel h3,
+.template-builder-right-panel span,
+.template-builder-right-panel div { overflow-wrap: anywhere; word-break: break-word; }
 
 /* ============================================
    LOGIN PAGE STYLES - Champville Dick el Mehdi

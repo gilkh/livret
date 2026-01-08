@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.logAudit = void 0;
+exports.logAuditFromReq = exports.logAudit = void 0;
 const AuditLog_1 = require("../models/AuditLog");
 const User_1 = require("../models/User");
 const logAudit = async ({ userId, action, details, req }) => {
@@ -60,7 +60,11 @@ const logAudit = async ({ userId, action, details, req }) => {
             return;
         }
         // Extract IP address from request if available
-        const ipAddress = req?.ip || req?.connection?.remoteAddress || req?.socket?.remoteAddress || 'unknown';
+        const ipAddress = req?.ip ||
+            req?.headers?.['x-forwarded-for']?.split(',')[0]?.trim() ||
+            req?.connection?.remoteAddress ||
+            req?.socket?.remoteAddress ||
+            'unknown';
         await AuditLog_1.AuditLog.create({
             userId,
             userName: user.displayName || user.email,
@@ -76,3 +80,18 @@ const logAudit = async ({ userId, action, details, req }) => {
     }
 };
 exports.logAudit = logAudit;
+// Helper to log with admin info directly (for cases where we have the admin info in req.user)
+const logAuditFromReq = async (req, action, details) => {
+    const user = req.user;
+    if (!user) {
+        console.warn('Audit log: No user in request');
+        return;
+    }
+    await (0, exports.logAudit)({
+        userId: user.userId,
+        action,
+        details,
+        req
+    });
+};
+exports.logAuditFromReq = logAuditFromReq;

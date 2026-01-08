@@ -1,4 +1,6 @@
+import { useEffect, useRef, useState } from 'react'
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
+import api from './api'
 import Login from './pages/Login'
 import AdminLogin from './pages/AdminLogin'
 import AdminDashboard from './pages/AdminDashboard'
@@ -49,6 +51,7 @@ import SuggestionGradebookTemplates from './pages/SuggestionGradebookTemplates'
 import AdminMonitoring from './pages/AdminMonitoring'
 import SystemAlertBanner from './components/SystemAlertBanner'
 import SimulationLab from './pages/SimulationLab'
+import Toast, { ToastType } from './components/Toast'
 
 const RequireAuth = ({ children }: { children: JSX.Element }) => {
   const location = useLocation()
@@ -75,6 +78,118 @@ const RequireAuth = ({ children }: { children: JSX.Element }) => {
 export default function App() {
   const navigate = useNavigate()
   const location = useLocation()
+
+  const [authToken, setAuthToken] = useState<string | null>(() => sessionStorage.getItem('token') || localStorage.getItem('token'))
+  const [extendBusy, setExtendBusy] = useState(false)
+  const [globalToast, setGlobalToast] = useState<{
+    message: string;
+    type: ToastType;
+    duration?: number;
+    actionLabel?: string;
+    onAction?: () => void;
+  } | null>(null)
+
+  const sessionTimersRef = useRef<number[]>([])
+
+  const clearStoredAuth = () => {
+    sessionStorage.removeItem('token')
+    sessionStorage.removeItem('role')
+    sessionStorage.removeItem('displayName')
+    localStorage.removeItem('token')
+    localStorage.removeItem('role')
+    localStorage.removeItem('displayName')
+  }
+
+  const decodeJwtExpMs = (token: string) => {
+    try {
+      const part = token.split('.')[1]
+      if (!part) return null
+      const base64 = part.replace(/-/g, '+').replace(/_/g, '/')
+      const pad = (4 - (base64.length % 4)) % 4
+      const json = JSON.parse(atob(base64 + '='.repeat(pad)))
+      const expSec = Number(json?.exp)
+      if (!Number.isFinite(expSec)) return null
+      return expSec * 1000
+    } catch {
+      return null
+    }
+  }
+
+  const extendSession = async () => {
+    if (extendBusy) return
+    setExtendBusy(true)
+    try {
+      const r = await api.post('/auth/extend')
+      const token = r.data?.token
+      if (!token) throw new Error('missing_token')
+
+      if (sessionStorage.getItem('token')) sessionStorage.setItem('token', token)
+      else localStorage.setItem('token', token)
+
+      setAuthToken(token)
+      setGlobalToast({ message: 'Session extended by 30 minutes.', type: 'success', duration: 4000 })
+    } catch (e) {
+      setGlobalToast({ message: 'Unable to extend session.', type: 'error', duration: 5000 })
+    } finally {
+      setExtendBusy(false)
+    }
+  }
+
+  useEffect(() => {
+    const syncToken = () => {
+      const next = sessionStorage.getItem('token') || localStorage.getItem('token')
+      setAuthToken(prev => (prev === next ? prev : next))
+    }
+
+    syncToken()
+    const id = window.setInterval(syncToken, 3000)
+    return () => window.clearInterval(id)
+  }, [])
+
+  useEffect(() => {
+    sessionTimersRef.current.forEach(id => window.clearTimeout(id))
+    sessionTimersRef.current = []
+
+    if (!authToken) {
+      setGlobalToast(null)
+      return
+    }
+
+    const expMs = decodeJwtExpMs(authToken)
+    if (!expMs) return
+
+    const scheduleAt = (atMs: number, fn: () => void) => {
+      const delay = atMs - Date.now()
+      if (delay <= 0) return
+      const id = window.setTimeout(fn, delay)
+      sessionTimersRef.current.push(id)
+    }
+
+    for (const minutes of [5, 4, 3, 2, 1]) {
+      scheduleAt(expMs - minutes * 60 * 1000, () => {
+        setGlobalToast({
+          message: `Your session will expire in ${minutes} minute${minutes === 1 ? '' : 's'}.`,
+          type: 'info',
+          duration: 59000,
+          actionLabel: 'Extend +30 min',
+          onAction: extendSession,
+        })
+      })
+    }
+
+    scheduleAt(expMs, () => {
+      clearStoredAuth()
+      setAuthToken(null)
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login' + window.location.search
+      }
+    })
+
+    return () => {
+      sessionTimersRef.current.forEach(id => window.clearTimeout(id))
+      sessionTimersRef.current = []
+    }
+  }, [authToken])
 
   // Hide navbar on login and print pages
   const showNavBar = location.pathname !== '/login' && location.pathname !== '/admin/login' && !location.pathname.startsWith('/print/')
@@ -528,6 +643,17 @@ export default function App() {
           }
         />
       </Routes>
+      {globalToast && (
+        <Toast
+          message={globalToast.message}
+          type={globalToast.type}
+          duration={globalToast.duration}
+          onAction={globalToast.onAction}
+          actionLabel={globalToast.actionLabel}
+          actionDisabled={extendBusy}
+          onClose={() => setGlobalToast(null)}
+        />
+      )}
     </>
   )
 }

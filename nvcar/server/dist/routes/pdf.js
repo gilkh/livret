@@ -664,15 +664,16 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
                                     console.error('Failed to load signature image:', e);
                                 }
                             }
-                            if (!rendered && subAdmin?.signatureUrl) {
-                                try {
-                                    const sigPath = path_1.default.join(__dirname, '../../public', subAdmin.signatureUrl);
-                                    if (fs_1.default.existsSync(sigPath)) {
-                                        doc.image(sigPath, x + 5, y + 5, { fit: [imgWidth, imgHeight], align: 'center', valign: 'center' });
-                                    }
-                                }
-                                catch (e) {
-                                    console.error('Failed to load signature image:', e);
+                            // If signature exists but no image was rendered, show a text checkmark with signer name
+                            // Do NOT fall back to current user's signatureUrl as it may have changed since signing
+                            if (!rendered) {
+                                doc.fontSize(10).fillColor('#333');
+                                const signerName = subAdmin?.displayName || 'Signé';
+                                const signedAt = signature.signedAt ? new Date(signature.signedAt).toLocaleDateString() : '';
+                                doc.text(`✓ ${signerName}`, x + 5, y + (height / 2) - 10, { width: width - 10, align: 'center' });
+                                if (signedAt) {
+                                    doc.fontSize(8).fillColor('#666');
+                                    doc.text(signedAt, x + 5, y + (height / 2) + 5, { width: width - 10, align: 'center' });
                                 }
                             }
                         }
@@ -1478,15 +1479,16 @@ exports.pdfRouter.get('/class/:classId/batch', (0, auth_1.requireAuth)(['ADMIN',
                                                 console.error('Failed to load signature image:', e);
                                             }
                                         }
-                                        if (!rendered && subAdmin?.signatureUrl) {
-                                            try {
-                                                const sigPath = path_1.default.join(__dirname, '../../public', subAdmin.signatureUrl);
-                                                if (fs_1.default.existsSync(sigPath)) {
-                                                    doc.image(sigPath, x + 5, y + 5, { fit: [imgWidth, imgHeight], align: 'center', valign: 'center' });
-                                                }
-                                            }
-                                            catch (e) {
-                                                console.error('Failed to load signature image:', e);
+                                        // If signature exists but no image was rendered, show a text checkmark with signer name
+                                        // Do NOT fall back to current user's signatureUrl as it may have changed since signing
+                                        if (!rendered) {
+                                            doc.fontSize(10).fillColor('#333');
+                                            const signerName = subAdmin?.displayName || 'Signé';
+                                            const signedAt = signature.signedAt ? new Date(signature.signedAt).toLocaleDateString() : '';
+                                            doc.text(`✓ ${signerName}`, x + 5, y + (height / 2) - 10, { width: width - 10, align: 'center' });
+                                            if (signedAt) {
+                                                doc.fontSize(8).fillColor('#666');
+                                                doc.text(signedAt, x + 5, y + (height / 2) + 5, { width: width - 10, align: 'center' });
                                             }
                                         }
                                     }

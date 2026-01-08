@@ -6,6 +6,7 @@ const auth_1 = require("../auth");
 const TeacherClassAssignment_1 = require("../models/TeacherClassAssignment");
 const TemplateAssignment_1 = require("../models/TemplateAssignment");
 const TemplateChangeLog_1 = require("../models/TemplateChangeLog");
+const TemplateSignature_1 = require("../models/TemplateSignature");
 const GradebookTemplate_1 = require("../models/GradebookTemplate");
 const Student_1 = require("../models/Student");
 const Enrollment_1 = require("../models/Enrollment");
@@ -70,6 +71,63 @@ const findEnrollmentForStudent = async (studentId) => {
         enrollment = await Enrollment_1.Enrollment.findOne({ studentId }).sort({ _id: -1 }).lean();
     }
     return { enrollment, activeYear };
+};
+/**
+ * Check if the assignment is currently locked due to signatures.
+ *
+ * The locking logic is semester-aware:
+ * - In Semester 1: Teachers cannot edit after the Sem1 signature is applied
+ * - In Semester 2: Teachers can edit again (Sem1 signature is ignored) until the end_of_year signature
+ * - After end_of_year signature: Teachers cannot edit permanently
+ *
+ * Note: We only consider signatures from the CURRENT school year.
+ * Legacy signatures without signaturePeriodId are also checked for backwards compatibility.
+ */
+const isAssignmentSigned = async (assignmentId) => {
+    // Get the active school year to determine current semester
+    const activeYear = await (0, cache_1.withCache)('school-years-active', () => SchoolYear_1.SchoolYear.findOne({ active: true }).lean());
+    if (!activeYear) {
+        // If no active year, fall back to checking for any signature
+        const anySignature = await TemplateSignature_1.TemplateSignature.findOne({
+            templateAssignmentId: assignmentId
+        }).lean();
+        return !!anySignature;
+    }
+    const activeSemester = activeYear.activeSemester || 1;
+    const schoolYearId = String(activeYear._id);
+    // Always check for end_of_year signature first - if it exists for current year, permanently locked
+    const endOfYearPeriodId = `${schoolYearId}_end_of_year`;
+    const endOfYearSignature = await TemplateSignature_1.TemplateSignature.findOne({
+        templateAssignmentId: assignmentId,
+        $or: [
+            { signaturePeriodId: endOfYearPeriodId },
+            // Legacy: signatures with type 'end_of_year' and matching schoolYearId
+            { type: 'end_of_year', schoolYearId: schoolYearId },
+            // Legacy: signatures with type 'end_of_year' and no schoolYearId (from before period tracking)
+            { type: 'end_of_year', schoolYearId: { $exists: false } }
+        ]
+    }).lean();
+    if (endOfYearSignature) {
+        return true; // Permanently locked after end_of_year signature
+    }
+    // In Semester 1: Check for sem1 signature for the current year
+    if (activeSemester === 1) {
+        const sem1PeriodId = `${schoolYearId}_sem1`;
+        const sem1Signature = await TemplateSignature_1.TemplateSignature.findOne({
+            templateAssignmentId: assignmentId,
+            $or: [
+                { signaturePeriodId: sem1PeriodId },
+                // Legacy: 'standard' signatures with matching schoolYearId
+                { type: 'standard', schoolYearId: schoolYearId },
+                // Legacy: 'standard' signatures with no schoolYearId (from before period tracking)
+                { type: 'standard', schoolYearId: { $exists: false } }
+            ]
+        }).lean();
+        return !!sem1Signature; // Locked in Sem1 if sem1 signature exists
+    }
+    // In Semester 2: Only locked if end_of_year exists (already checked above)
+    // Sem1 signature does NOT lock the gradebook in Semester 2
+    return false;
 };
 // Teacher: Get classes assigned to logged-in teacher
 exports.teacherTemplatesRouter.get('/classes', (0, auth_1.requireAuth)(['TEACHER', 'ADMIN', 'SUBADMIN']), async (req, res) => {
@@ -294,7 +352,9 @@ exports.teacherTemplatesRouter.get('/template-assignments/:assignmentId', (0, au
         }
         // Determine if teacher can edit
         // Since we enforce class assignment above, if they reach here, they can edit.
-        const canEdit = true;
+        // UNLESS the gradebook has been signed by a subadmin
+        const isSigned = await isAssignmentSigned(assignmentId);
+        const canEdit = !isSigned; // Teachers cannot edit signed gradebooks
         const isProfPolyvalent = (enrollment && enrollment.classId)
             ? (await TeacherClassAssignment_1.TeacherClassAssignment.findOne({ teacherId, classId: enrollment.classId }).lean())?.isProfPolyvalent
             : false;
@@ -310,6 +370,7 @@ exports.teacherTemplatesRouter.get('/template-assignments/:assignmentId', (0, au
             template: versionedTemplate,
             student: { ...student, level, className },
             canEdit,
+            isSigned,
             allowedLanguages,
             isProfPolyvalent,
             isMyWorkCompleted,
@@ -340,6 +401,10 @@ exports.teacherTemplatesRouter.patch('/template-assignments/:assignmentId/langua
             return res.status(404).json({ error: 'not_found' });
         if (!assignment.assignedTeachers.includes(teacherId)) {
             return res.status(403).json({ error: 'not_assigned_to_template' });
+        }
+        // Check if the assignment has been signed - teachers cannot edit signed gradebooks
+        if (await isAssignmentSigned(assignmentId)) {
+            return res.status(403).json({ error: 'gradebook_signed', message: 'Cannot edit a signed gradebook' });
         }
         // Get the template to verify the block
         const template = await (0, cache_1.withCache)(`template-${assignment.templateId}`, () => GradebookTemplate_1.GradebookTemplate.findById(assignment.templateId).lean());
@@ -471,6 +536,10 @@ exports.teacherTemplatesRouter.post('/templates/:assignmentId/mark-done', (0, au
         if (!assignment.assignedTeachers.includes(teacherId)) {
             return res.status(403).json({ error: 'not_assigned_to_template' });
         }
+        // Check if the assignment has been signed - teachers cannot modify signed gradebooks
+        if (await isAssignmentSigned(assignmentId)) {
+            return res.status(403).json({ error: 'gradebook_signed', message: 'Cannot modify a signed gradebook' });
+        }
         // Update teacher completion
         let teacherCompletions = assignment.teacherCompletions || [];
         // Find existing entry or create new
@@ -551,6 +620,10 @@ exports.teacherTemplatesRouter.post('/templates/:assignmentId/unmark-done', (0, 
             return res.status(404).json({ error: 'not_found' });
         if (!assignment.assignedTeachers.includes(teacherId)) {
             return res.status(403).json({ error: 'not_assigned_to_template' });
+        }
+        // Check if the assignment has been signed - teachers cannot modify signed gradebooks
+        if (await isAssignmentSigned(assignmentId)) {
+            return res.status(403).json({ error: 'gradebook_signed', message: 'Cannot modify a signed gradebook' });
         }
         // Update teacher completion
         let teacherCompletions = assignment.teacherCompletions || [];
@@ -749,6 +822,10 @@ exports.teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data',
             return res.status(404).json({ error: 'not_found' });
         if (!assignment.assignedTeachers.includes(teacherId)) {
             return res.status(403).json({ error: 'not_assigned_to_template' });
+        }
+        // Check if the assignment has been signed - teachers cannot edit signed gradebooks
+        if (await isAssignmentSigned(assignmentId)) {
+            return res.status(403).json({ error: 'gradebook_signed', message: 'Cannot edit a signed gradebook' });
         }
         const { enrollment, activeYear } = await findEnrollmentForStudent(assignment.studentId);
         if (!enrollment || !enrollment.classId) {

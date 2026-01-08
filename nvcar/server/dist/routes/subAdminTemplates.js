@@ -747,11 +747,12 @@ exports.subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote',
                         class: '',
                         by: subAdminId
                     };
-                    const rolloverUpdate = (0, rolloverService_1.getRolloverUpdate)(nextSchoolYearId, subAdminId);
+                    // Note: Do NOT call getRolloverUpdate here. The teacher progress should remain
+                    // visible for the current year until the admin advances to the next school year.
+                    // Rollover will happen via checkAndAssignTemplates when the school year changes.
                     await TemplateAssignment_1.TemplateAssignment.findByIdAndUpdate(templateAssignmentId, {
                         $push: { 'data.promotions': promotionData },
-                        $inc: { dataVersion: 1 },
-                        $set: rolloverUpdate
+                        $inc: { dataVersion: 1 }
                     }, { new: true });
                 }
                 catch (err) {
@@ -837,11 +838,12 @@ exports.subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote',
                         class: '',
                         by: subAdminId
                     };
-                    const rolloverUpdate = (0, rolloverService_1.getRolloverUpdate)(nextSchoolYearId, subAdminId);
+                    // Note: Do NOT call getRolloverUpdate here. The teacher progress should remain
+                    // visible for the current year until the admin advances to the next school year.
+                    // Rollover will happen via checkAndAssignTemplates when the school year changes.
                     await TemplateAssignment_1.TemplateAssignment.findByIdAndUpdate(templateAssignmentId, {
                         $push: { 'data.promotions': promotionData },
-                        $inc: { dataVersion: 1 },
-                        $set: rolloverUpdate
+                        $inc: { dataVersion: 1 }
                     }, { new: true, session });
                     await session.commitTransaction();
                 }
@@ -1330,6 +1332,7 @@ exports.subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', (
                 schoolYearId: undefined,
                 schoolYearName: resolveSignatureSchoolYearName(sig),
                 level: sig.level,
+                signatureUrl: sig.signatureUrl, // Include stored signature image URL
             });
         });
         assignment.data = assignment.data || {};

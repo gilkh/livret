@@ -15,6 +15,7 @@ const jszip_1 = __importDefault(require("jszip"));
 const pptxImporter_1 = require("../utils/pptxImporter");
 const templateUtils_1 = require("../utils/templateUtils");
 const cache_1 = require("../utils/cache");
+const User_1 = require("../models/User");
 const fs_1 = __importDefault(require("fs"));
 exports.templatesRouter = (0, express_1.Router)();
 const upload = (0, multer_1.default)({ storage: multer_1.default.memoryStorage() });
@@ -175,6 +176,16 @@ exports.templatesRouter.get('/:id/export-package', (0, auth_1.requireAuth)(['ADM
             existed = true;
         }
         const output = fs_1.default.createWriteStream(filePath);
+        // Save metadata
+        const userId = req.user.userId;
+        const user = await User_1.User.findById(userId).lean();
+        const metadata = {
+            exportedBy: userId,
+            exportedByName: user?.displayName || 'Unknown',
+            timestamp: new Date().toISOString()
+        };
+        const metaPath = filePath + '.json';
+        fs_1.default.writeFileSync(metaPath, JSON.stringify(metadata, null, 2));
         await new Promise((resolve, reject) => {
             output.on('close', () => resolve());
             output.on('error', reject);
@@ -211,6 +222,69 @@ pause
     catch (e) {
         console.error('Export error:', e);
         res.status(500).json({ error: 'export_failed', message: e.message });
+    }
+});
+// List exported packages in ../temps
+exports.templatesRouter.get('/exports', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN']), async (req, res) => {
+    try {
+        const targetDir = path_1.default.join(process.cwd(), '../temps');
+        if (!fs_1.default.existsSync(targetDir))
+            return res.json([]);
+        const files = fs_1.default.readdirSync(targetDir).filter(f => f.endsWith('.zip'));
+        const list = files.map(f => {
+            const p = path_1.default.join(targetDir, f);
+            const stat = fs_1.default.statSync(p);
+            let metadata = {};
+            try {
+                const metaPath = p + '.json';
+                if (fs_1.default.existsSync(metaPath)) {
+                    metadata = JSON.parse(fs_1.default.readFileSync(metaPath, 'utf8'));
+                }
+            }
+            catch (e) { /* ignore */ }
+            return { fileName: f, size: stat.size, mtime: stat.mtime.toISOString(), ...metadata };
+        }).sort((a, b) => (new Date(b.mtime).getTime() - new Date(a.mtime).getTime()));
+        res.json(list);
+    }
+    catch (e) {
+        console.error('List exports error:', e);
+        res.status(500).json({ error: 'list_exports_failed', message: e.message });
+    }
+});
+// Download an exported package
+exports.templatesRouter.get('/exports/:fileName', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN']), async (req, res) => {
+    try {
+        const { fileName } = req.params;
+        const targetDir = path_1.default.join(process.cwd(), '../temps');
+        const filePath = path_1.default.join(targetDir, fileName);
+        if (!fs_1.default.existsSync(filePath))
+            return res.status(404).json({ error: 'not_found' });
+        res.download(filePath, fileName);
+    }
+    catch (e) {
+        console.error('Download export error:', e);
+        res.status(500).json({ error: 'download_failed', message: e.message });
+    }
+});
+// Delete an exported package
+exports.templatesRouter.delete('/exports/:fileName', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN']), async (req, res) => {
+    try {
+        const { fileName } = req.params;
+        const targetDir = path_1.default.join(process.cwd(), '../temps');
+        const filePath = path_1.default.join(targetDir, fileName);
+        if (!fs_1.default.existsSync(filePath))
+            return res.status(404).json({ error: 'not_found' });
+        fs_1.default.unlinkSync(filePath);
+        // Delete metadata if exists
+        const metaPath = filePath + '.json';
+        if (fs_1.default.existsSync(metaPath)) {
+            fs_1.default.unlinkSync(metaPath);
+        }
+        res.json({ success: true });
+    }
+    catch (e) {
+        console.error('Delete export error:', e);
+        res.status(500).json({ error: 'delete_failed', message: e.message });
     }
 });
 exports.templatesRouter.get('/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', 'AEFE', 'TEACHER']), async (req, res) => {

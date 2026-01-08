@@ -8,8 +8,8 @@ const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const User_1 = require("./models/User");
 const simulationSandbox_1 = require("./utils/simulationSandbox");
 const jwtSecret = process.env.JWT_SECRET || 'dev-secret-change';
-const signToken = (payload) => {
-    return jsonwebtoken_1.default.sign(payload, jwtSecret, { expiresIn: '2h' });
+const signToken = (payload, options) => {
+    return jsonwebtoken_1.default.sign(payload, jwtSecret, { expiresIn: options?.expiresIn ?? '2h' });
 };
 exports.signToken = signToken;
 const requireAuth = (roles) => {
@@ -25,6 +25,8 @@ const requireAuth = (roles) => {
             return res.status(401).json({ error: 'unauthorized' });
         try {
             const decoded = jsonwebtoken_1.default.verify(token, jwtSecret);
+            req.authToken = token;
+            req.tokenPayload = decoded;
             // If impersonating, use the impersonated user's ID and role for authorization
             // but keep the original admin info for audit trails
             const effectiveUserId = decoded.impersonateUserId || decoded.userId;
@@ -55,6 +57,14 @@ const requireAuth = (roles) => {
             const tokenVersion = decoded.tokenVersion || 0;
             if ((user.tokenVersion || 0) > tokenVersion) {
                 return res.status(401).json({ error: 'token_expired' });
+            }
+            // Check if user account is active
+            const userStatus = user.status || 'active';
+            if (userStatus === 'deleted') {
+                return res.status(401).json({ error: 'account_deleted', message: 'This account has been deleted' });
+            }
+            if (userStatus === 'inactive') {
+                return res.status(401).json({ error: 'account_disabled', message: 'This account has been deactivated' });
             }
             // Update lastActive
             user.lastActive = new Date();

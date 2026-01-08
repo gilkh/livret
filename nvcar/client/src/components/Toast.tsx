@@ -8,16 +8,19 @@ interface ToastProps {
     type?: ToastType
     onClose: () => void
     duration?: number
+    actionLabel?: string
+    onAction?: () => void
+    actionDisabled?: boolean
 }
 
-export default function Toast({ message, type = 'info', onClose, duration = 3000 }: ToastProps) {
+export default function Toast({ message, type = 'info', onClose, duration = 3000, actionLabel, onAction, actionDisabled }: ToastProps) {
     useEffect(() => {
         const timer = setTimeout(() => {
             onClose()
         }, duration)
 
         return () => clearTimeout(timer)
-    }, [duration, onClose])
+    }, [duration, onClose, message])
 
     const bgColors = {
         success: '#10b981',
@@ -63,6 +66,25 @@ export default function Toast({ message, type = 'info', onClose, duration = 3000
                 {icons[type]}
             </div>
             <div>{message}</div>
+            {actionLabel && onAction && (
+                <button
+                    onClick={onAction}
+                    disabled={!!actionDisabled}
+                    style={{
+                        background: 'rgba(255,255,255,0.2)',
+                        border: '1px solid rgba(255,255,255,0.35)',
+                        color: 'white',
+                        cursor: actionDisabled ? 'not-allowed' : 'pointer',
+                        borderRadius: 6,
+                        padding: '6px 10px',
+                        fontWeight: 600,
+                        opacity: actionDisabled ? 0.7 : 1,
+                        whiteSpace: 'nowrap'
+                    }}
+                >
+                    {actionLabel}
+                </button>
+            )}
             <button 
                 onClick={onClose}
                 style={{

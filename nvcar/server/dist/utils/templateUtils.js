@@ -267,6 +267,12 @@ async function checkAndAssignTemplates(studentId, level, schoolYearId, classId, 
                 const completionYearId = String(exists.completionSchoolYearId || '');
                 const shouldResetForNewYear = completionYearId && completionYearId !== String(schoolYearId);
                 if (shouldResetForNewYear) {
+                    // Import archiveYearCompletions to preserve historical data
+                    const { archiveYearCompletions } = await Promise.resolve().then(() => __importStar(require('../services/rolloverService')));
+                    // Archive current year's completions BEFORE resetting
+                    const archiveUpdates = archiveYearCompletions(exists, completionYearId);
+                    Object.assign(updates, archiveUpdates);
+                    // Now reset for the new year
                     updates.status = 'draft';
                     updates.isCompleted = false;
                     updates.completedAt = null;

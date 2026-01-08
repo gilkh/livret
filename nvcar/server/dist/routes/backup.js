@@ -49,6 +49,7 @@ const jszip_1 = __importDefault(require("jszip"));
 const User_1 = require("../models/User");
 const bcrypt = __importStar(require("bcryptjs"));
 const Level_1 = require("../models/Level");
+const auditLogger_1 = require("../utils/auditLogger");
 exports.backupRouter = (0, express_1.Router)();
 const BACKUP_DIR = path_1.default.join(process.cwd(), 'backups');
 if (!fs_1.default.existsSync(BACKUP_DIR)) {
@@ -95,11 +96,22 @@ exports.backupRouter.post('/create', (0, auth_1.requireAuth)(['ADMIN']), async (
         }
         const output = fs_1.default.createWriteStream(archivePath);
         const archive = (0, archiver_1.default)('zip', { zlib: { level: 9 } });
-        output.on('close', () => {
+        const adminId = req.user?.userId;
+        output.on('close', async () => {
             try {
                 fs_1.default.rmSync(tempDir, { recursive: true, force: true });
             }
             catch (e) { }
+            // Log the backup creation
+            await (0, auditLogger_1.logAudit)({
+                userId: adminId,
+                action: 'CREATE_BACKUP',
+                details: {
+                    filename: fileName,
+                    modelsBackedUp: models.length
+                },
+                req
+            });
             res.json({ success: true, filename: fileName });
         });
         archive.on('error', (err) => {
@@ -144,6 +156,17 @@ exports.backupRouter.post('/restore/:filename', (0, auth_1.requireAuth)(['ADMIN'
                 }
             }
         }
+        // Log the restore
+        const adminId = req.user?.userId;
+        await (0, auditLogger_1.logAudit)({
+            userId: adminId,
+            action: 'RESTORE_BACKUP',
+            details: {
+                filename,
+                modelsRestored: models.length
+            },
+            req
+        });
         res.json({ success: true });
     }
     catch (e) {
@@ -171,6 +194,19 @@ exports.backupRouter.post('/empty', (0, auth_1.requireAuth)(['ADMIN']), async (r
             { name: 'MS', order: 2 },
             { name: 'GS', order: 3 },
         ]);
+        // Log the database empty operation
+        const adminId = req.user?.userId;
+        if (adminId) {
+            await (0, auditLogger_1.logAudit)({
+                userId: adminId,
+                action: 'EMPTY_DATABASE',
+                details: {
+                    adminsPreserved: adminUsers.length,
+                    levelsReseeded: true
+                },
+                req
+            });
+        }
         res.json({ success: true });
     }
     catch (e) {

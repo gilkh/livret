@@ -146,15 +146,21 @@ exports.templateAssignmentsRouter.post('/bulk-level', (0, auth_1.requireAuth)(['
                 }
             }
             // If the carnet already exists from a previous year, roll it over to this year
-            // by stamping completionSchoolYearId and resetting year-bound workflow fields.
-            await TemplateAssignment_1.TemplateAssignment.updateMany({
+            // by archiving the current year's completions and resetting workflow fields.
+            const existingFromOtherYear = await TemplateAssignment_1.TemplateAssignment.find({
                 templateId,
                 studentId: { $in: selectedStudentIds },
                 completionSchoolYearId: { $ne: String(targetYearId) }
-            }, {
-                $set: (0, rolloverService_1.getRolloverUpdate)(String(targetYearId), assignedBy),
-                $inc: { dataVersion: 1 }
-            }, { session });
+            }).session(session).lean();
+            for (const existing of existingFromOtherYear) {
+                const fromYearId = String(existing.completionSchoolYearId || '');
+                const archiveUpdates = (0, rolloverService_1.archiveYearCompletions)(existing, fromYearId);
+                const rolloverUpdates = (0, rolloverService_1.getRolloverUpdate)(String(targetYearId), assignedBy);
+                await TemplateAssignment_1.TemplateAssignment.updateOne({ _id: existing._id }, {
+                    $set: { ...rolloverUpdates, ...archiveUpdates },
+                    $inc: { dataVersion: 1 }
+                }, { session });
+            }
             return { count: ops.length, totalProcessed };
         });
         if (!result.success) {
@@ -248,10 +254,9 @@ exports.templateAssignmentsRouter.post('/', (0, auth_1.requireAuth)(['ADMIN']), 
                 return res.status(400).json({ error: 'no_active_year' });
             targetYearId = String(activeYear._id);
         }
-        const existing = await TemplateAssignment_1.TemplateAssignment.findOne({ templateId, studentId })
-            .select('completionSchoolYearId')
-            .lean();
-        const yearChanged = !!existing && String(existing.completionSchoolYearId || '') !== String(targetYearId);
+        const existing = await TemplateAssignment_1.TemplateAssignment.findOne({ templateId, studentId }).lean();
+        const existingYearId = String(existing?.completionSchoolYearId || '');
+        const yearChanged = !!existing && existingYearId !== String(targetYearId);
         // Create or update assignment (respect existing progress unless force:true)
         const forceSingle = !!req.body.force;
         const assignedAt = new Date();
@@ -278,9 +283,17 @@ exports.templateAssignmentsRouter.post('/', (0, auth_1.requireAuth)(['ADMIN']), 
         };
         const assignedBy = req.user.userId;
         if (yearChanged && !forceSingle) {
+            // Archive current year's completions before rollover
+            const archiveUpdates = (0, rolloverService_1.archiveYearCompletions)(existing, existingYearId);
             Object.assign(setFieldsSingle, (0, rolloverService_1.getRolloverUpdate)(String(targetYearId), assignedBy));
+            Object.assign(setFieldsSingle, archiveUpdates);
         }
         if (forceSingle) {
+            // Archive current year's completions before force reset
+            if (existingYearId) {
+                const archiveUpdates = (0, rolloverService_1.archiveYearCompletions)(existing, existingYearId);
+                Object.assign(setFieldsSingle, archiveUpdates);
+            }
             const rolloverUpdate = (0, rolloverService_1.getRolloverUpdate)(String(targetYearId), assignedBy);
             Object.assign(setFieldsSingle, rolloverUpdate);
             // Remove colliding fields from setOnInsert

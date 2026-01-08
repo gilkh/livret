@@ -2,7 +2,7 @@ import { Router } from 'express'
 import * as bcrypt from 'bcryptjs'
 import { User } from '../models/User'
 import { Setting } from '../models/Setting'
-import { signToken } from '../auth'
+import { requireAuth, signToken } from '../auth'
 import { logAudit } from '../utils/auditLogger'
 
 export const authRouter = Router()
@@ -56,4 +56,45 @@ authRouter.post('/login', async (req, res) => {
   await logAudit({ userId: String(user._id), action: 'LOGIN', details: { email }, req })
 
   res.json({ token, role: user.role, displayName: user.displayName })
+})
+
+authRouter.post('/extend', requireAuth(), async (req, res) => {
+  const tokenPayload = (req as any).tokenPayload as {
+    userId: string;
+    role: any;
+    impersonateUserId?: string;
+    impersonateRole?: any;
+    tokenVersion?: number;
+    exp?: number;
+  } | undefined
+
+  const exp = tokenPayload?.exp
+  if (!exp) return res.status(400).json({ error: 'missing_exp' })
+
+  const nowSec = Math.floor(Date.now() / 1000)
+  const remainingSec = exp - nowSec
+  if (remainingSec <= 0) return res.status(401).json({ error: 'token_expired' })
+  if (remainingSec > 5 * 60 + 5) return res.status(400).json({ error: 'too_early' })
+
+  const newExpiresInSec = remainingSec + 30 * 60
+
+  const token = signToken(
+    {
+      userId: tokenPayload.userId,
+      role: tokenPayload.role,
+      impersonateUserId: tokenPayload.impersonateUserId,
+      impersonateRole: tokenPayload.impersonateRole,
+      tokenVersion: tokenPayload.tokenVersion,
+    },
+    { expiresIn: newExpiresInSec }
+  )
+
+  await logAudit({
+    userId: tokenPayload.userId,
+    action: 'EXTEND_SESSION',
+    details: { extendByMinutes: 30, remainingSec, newExpiresInSec, isImpersonating: !!tokenPayload.impersonateUserId },
+    req
+  })
+
+  res.json({ token })
 })

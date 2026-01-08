@@ -428,24 +428,31 @@ export default function TemplateBuilder() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (viewMode !== 'edit') return
+      const target = e.target as HTMLElement | null
+      const isEditableTarget =
+        !!target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable)
 
       // Undo: Ctrl+Z
-      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+      if (!isEditableTarget && (e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
         e.preventDefault()
         undo()
       }
       // Redo: Ctrl+Y or Ctrl+Shift+Z
-      if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.shiftKey && e.key === 'z'))) {
+      if (!isEditableTarget && (e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.shiftKey && e.key === 'z'))) {
         e.preventDefault()
         redo()
       }
       // Copy: Ctrl+C
-      if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
+      if (!isEditableTarget && (e.ctrlKey || e.metaKey) && e.key === 'c') {
         e.preventDefault()
         copySelection()
       }
       // Paste: Ctrl+V
-      if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
+      if (!isEditableTarget && (e.ctrlKey || e.metaKey) && e.key === 'v') {
         e.preventDefault()
         pasteFromClipboard()
       }
@@ -632,7 +639,67 @@ export default function TemplateBuilder() {
     const pages = [...tpl.pages]
     const page = { ...pages[selectedPage] }
     const blocks = [...page.blocks]
+    const selectedBlock = blocks[selectedIndex]
+    const prevX = Number(selectedBlock?.props?.x || 0)
+    const prevY = Number(selectedBlock?.props?.y || 0)
+    const nextX = Object.prototype.hasOwnProperty.call(patch, 'x') ? Number(patch.x || 0) : prevX
+    const nextY = Object.prototype.hasOwnProperty.call(patch, 'y') ? Number(patch.y || 0) : prevY
+    const dx = nextX - prevX
+    const dy = nextY - prevY
+
     blocks[selectedIndex] = { ...blocks[selectedIndex], props: { ...blocks[selectedIndex].props, ...patch } }
+
+    if ((dx !== 0 || dy !== 0) && selectedBlock) {
+      if (selectedBlock.type === 'table') {
+        let titleIdx = -1
+        const titleBlockId = selectedBlock.props?.titleBlockId
+        if (typeof titleBlockId === 'string' && titleBlockId.trim()) {
+          titleIdx = blocks.findIndex(b => b?.props?.blockId === titleBlockId)
+        }
+        if (titleIdx < 0) {
+          const tableBlockId = selectedBlock.props?.blockId
+          if (typeof tableBlockId === 'string' && tableBlockId.trim()) {
+            titleIdx = blocks.findIndex(b => b?.type === 'gradebook_pocket' && b?.props?.linkedTableBlockId === tableBlockId)
+          }
+        }
+        if (titleIdx >= 0) {
+          const t = blocks[titleIdx]
+          blocks[titleIdx] = {
+            ...t,
+            props: {
+              ...t.props,
+              x: Number(t.props?.x || 0) + dx,
+              y: Number(t.props?.y || 0) + dy
+            }
+          }
+        }
+      }
+
+      if (selectedBlock.type === 'gradebook_pocket') {
+        let tableIdx = -1
+        const linkedTableBlockId = selectedBlock.props?.linkedTableBlockId
+        if (typeof linkedTableBlockId === 'string' && linkedTableBlockId.trim()) {
+          tableIdx = blocks.findIndex(b => b?.type === 'table' && b?.props?.blockId === linkedTableBlockId)
+        }
+        if (tableIdx < 0) {
+          const titleBlockId = selectedBlock.props?.blockId
+          if (typeof titleBlockId === 'string' && titleBlockId.trim()) {
+            tableIdx = blocks.findIndex(b => b?.type === 'table' && b?.props?.titleBlockId === titleBlockId)
+          }
+        }
+        if (tableIdx >= 0) {
+          const tb = blocks[tableIdx]
+          blocks[tableIdx] = {
+            ...tb,
+            props: {
+              ...tb.props,
+              x: Number(tb.props?.x || 0) + dx,
+              y: Number(tb.props?.y || 0) + dy
+            }
+          }
+        }
+      }
+    }
     pages[selectedPage] = { ...page, blocks }
     updateTpl({ ...tpl, pages })
   }
@@ -843,19 +910,50 @@ export default function TemplateBuilder() {
 
     // Also include linked title blocks for any tables being moved
     const pageBlocks = tpl.pages[pageIndex].blocks
-    movingIndices.forEach(i => {
-      const block = pageBlocks[i]
-      // If it's a table with a linked title, add the title to moving set
-      if (block?.type === 'table' && block.props.titleBlockId) {
-        const titleIdx = pageBlocks.findIndex(b => b.props.blockId === block.props.titleBlockId)
-        if (titleIdx >= 0) movingIndices.add(titleIdx)
-      }
-      // If it's a title linked to a table, add the table to moving set
-      if (block?.type === 'gradebook_pocket' && block.props.linkedTableBlockId) {
-        const tableIdx = pageBlocks.findIndex(b => b.props.blockId === block.props.linkedTableBlockId)
-        if (tableIdx >= 0) movingIndices.add(tableIdx)
-      }
-    })
+    let linkedChanged = true
+    while (linkedChanged) {
+      linkedChanged = false
+      Array.from(movingIndices).forEach(i => {
+        const block = pageBlocks[i]
+        if (!block) return
+
+        if (block.type === 'table') {
+          let titleIdx = -1
+          const titleBlockId = block.props?.titleBlockId
+          if (typeof titleBlockId === 'string' && titleBlockId.trim()) {
+            titleIdx = pageBlocks.findIndex(b => b?.props?.blockId === titleBlockId)
+          }
+          if (titleIdx < 0) {
+            const tableBlockId = block.props?.blockId
+            if (typeof tableBlockId === 'string' && tableBlockId.trim()) {
+              titleIdx = pageBlocks.findIndex(b => b?.type === 'gradebook_pocket' && b?.props?.linkedTableBlockId === tableBlockId)
+            }
+          }
+          if (titleIdx >= 0 && !movingIndices.has(titleIdx)) {
+            movingIndices.add(titleIdx)
+            linkedChanged = true
+          }
+        }
+
+        if (block.type === 'gradebook_pocket') {
+          let tableIdx = -1
+          const linkedTableBlockId = block.props?.linkedTableBlockId
+          if (typeof linkedTableBlockId === 'string' && linkedTableBlockId.trim()) {
+            tableIdx = pageBlocks.findIndex(b => b?.type === 'table' && b?.props?.blockId === linkedTableBlockId)
+          }
+          if (tableIdx < 0) {
+            const titleBlockId = block.props?.blockId
+            if (typeof titleBlockId === 'string' && titleBlockId.trim()) {
+              tableIdx = pageBlocks.findIndex(b => b?.type === 'table' && b?.props?.titleBlockId === titleBlockId)
+            }
+          }
+          if (tableIdx >= 0 && !movingIndices.has(tableIdx)) {
+            movingIndices.add(tableIdx)
+            linkedChanged = true
+          }
+        }
+      })
+    }
 
     // Capture initial positions for all blocks that will move
     const initialPositions = new Map<number, { x: number, y: number }>()
@@ -3050,8 +3148,8 @@ export default function TemplateBuilder() {
                                   display: expandedRows ? 'flex' : 'grid',
                                   flexDirection: 'column',
                                   gap: `${gapRow}px ${gapCol}px`,
-                                  gridTemplateColumns: !expandedRows ? cols.map(w => `${Math.max(1, Math.round(w))}px`).join(' ') : undefined,
-                                  gridTemplateRows: !expandedRows ? rows.map(h => `${Math.max(1, Math.round(h))}px`).join(' ') : undefined,
+                                  gridTemplateColumns: !expandedRows ? cols.map(w => `${Math.max(1, w)}px`).join(' ') : undefined,
+                                  gridTemplateRows: !expandedRows ? rows.map(h => `${Math.max(1, h)}px`).join(' ') : undefined,
                                   overflow: 'visible',
                                   background: (gapRow > 0 || gapCol > 0) ? 'transparent' : (b.props.backgroundColor || 'transparent'),
                                   borderRadius: (gapRow > 0 || gapCol > 0) ? 0 : (b.props.borderRadius || 0)
@@ -3105,14 +3203,16 @@ export default function TemplateBuilder() {
                                       const mainRowHeight = rows[ri] || 40
 
                                       return (
-                                        <div key={`row-unit-${ri}`} style={{ position: 'relative', display: 'flex', flexDirection: 'column' }}>
+                                        <div key={`row-unit-${ri}`} style={{ position: 'relative', display: 'flex', flexDirection: 'column', width, boxSizing: 'border-box' }}>
 
                                           {/* Main Row Grid */}
                                           <div style={{
                                             display: 'grid',
-                                            gridTemplateColumns: cols.map(w => `${Math.max(1, Math.round(w))}px`).join(' '),
+                                            gridTemplateColumns: cols.map(w => `${Math.max(1, w)}px`).join(' '),
                                             columnGap: gapCol,
-                                            height: mainRowHeight
+                                            height: mainRowHeight,
+                                            width: '100%',
+                                            boxSizing: 'border-box'
                                           }}>
                                             {row.map((cell, ci) => {
                                               const bl = cell?.borders?.l; const br = cell?.borders?.r; const bt = cell?.borders?.t; const bb = cell?.borders?.b
@@ -3157,7 +3257,9 @@ export default function TemplateBuilder() {
                                             borderBottomRightRadius: (treatAsCards || isLastRow) ? radius : 0,
                                             height: expandedRowHeight,
                                             position: 'relative',
-                                            paddingBottom: expandedPadding
+                                            paddingBottom: expandedPadding,
+                                            width: '100%',
+                                            boxSizing: 'border-box'
                                           }}>
                                             {/* Divider Line */}
                                             <div style={{
@@ -3323,7 +3425,7 @@ export default function TemplateBuilder() {
                               )
                             })()
                           )}
-                          {['image', 'text', 'dynamic_text', 'student_info', 'student_photo', 'category_title', 'competency_list', 'signature', 'signature_box', 'promotion_info', 'teacher_text', 'language_toggle', 'language_toggle_v2', 'gradebook_pocket'].includes(b.type) && selectedIndex === idx && selectedPage === pageIndex && (
+                          {['image', 'text', 'dynamic_text', 'student_info', 'student_photo', 'category_title', 'competency_list', 'signature', 'signature_box', 'promotion_info', 'teacher_text', 'language_toggle', 'language_toggle_v2', 'gradebook_pocket', 'rect'].includes(b.type) && selectedIndex === idx && selectedPage === pageIndex && (
                             <>
                               {['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'].map((dir) => {
                                 const style: React.CSSProperties = {
@@ -3395,6 +3497,7 @@ export default function TemplateBuilder() {
 
         {/* Right Panel - Properties & Pages */}
         <div
+          className="template-builder-right-panel"
           style={{
             position: 'sticky',
             top: 24,
@@ -3404,7 +3507,8 @@ export default function TemplateBuilder() {
             borderRadius: 16,
             padding: '24px 20px',
             boxShadow: '0 2px 12px rgba(0,0,0,0.08)',
-            overflowX: 'hidden'
+            overflowX: 'hidden',
+            minWidth: 0
           }}
         >
           <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
@@ -4223,13 +4327,14 @@ export default function TemplateBuilder() {
                                     }
                                   }
                                   
-                                  // Create a Title block 275px above the table
+                                  const titleOffsetX = Number(tableBlock.props.titleOffsetX || 0)
+                                  const titleOffsetY = Number(tableBlock.props.titleOffsetY || -265)
                                   const blockId = (window.crypto as any).randomUUID ? (window.crypto as any).randomUUID() : Math.random().toString(36).substring(2, 11)
                                   const titleBlock: Block = {
                                     type: 'gradebook_pocket',
                                     props: {
-                                      x: tableX,
-                                      y: Math.max(0, tableY - 265),
+                                      x: tableX + titleOffsetX,
+                                      y: Math.max(0, tableY + titleOffsetY),
                                       z: (tableBlock.props.z || 0) + 1,
                                       blockId,
                                       width: 90,
@@ -4246,7 +4351,7 @@ export default function TemplateBuilder() {
                                   // Update table with expandedRows and link to title
                                   blocks[selectedIndex] = {
                                     ...blocks[selectedIndex],
-                                    props: { ...blocks[selectedIndex].props, expandedRows: true, titleBlockId: blockId }
+                                    props: { ...blocks[selectedIndex].props, expandedRows: true, titleBlockId: blockId, titleOffsetX, titleOffsetY }
                                   }
                                   
                                   // Add the title block
@@ -4293,6 +4398,13 @@ export default function TemplateBuilder() {
                                 const titleBlockId = tpl.pages[selectedPage].blocks[selectedIndex].props.titleBlockId
                                 const titleBlock = tpl.pages[selectedPage].blocks.find(b => b.props.blockId === titleBlockId)
                                 if (!titleBlock) return null
+                                const tableBlock = tpl.pages[selectedPage].blocks[selectedIndex]
+                                const tableX = Number(tableBlock.props.x || 0)
+                                const tableY = Number(tableBlock.props.y || 0)
+                                const inferredOffsetX = Number(titleBlock.props.x || 0) - tableX
+                                const inferredOffsetY = Number(titleBlock.props.y || 0) - tableY
+                                const titleOffsetX = typeof tableBlock.props.titleOffsetX === 'number' ? tableBlock.props.titleOffsetX : (isNaN(inferredOffsetX) ? 0 : inferredOffsetX)
+                                const titleOffsetY = typeof tableBlock.props.titleOffsetY === 'number' ? tableBlock.props.titleOffsetY : (isNaN(inferredOffsetY) ? -265 : inferredOffsetY)
                                 return (
                                   <div style={{ marginBottom: 12, padding: 10, background: '#fff', borderRadius: 6, border: '1px solid #e2e8f0' }}>
                                     <label style={{ fontSize: 11, display: 'block', marginBottom: 4, fontWeight: 600, color: '#3498db' }}>📝 Texte du Title</label>
@@ -4313,6 +4425,50 @@ export default function TemplateBuilder() {
                                       style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '2px solid #e9ecef', fontSize: 13 }}
                                       placeholder="A, B, C..."
                                     />
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 10 }}>
+                                      <div>
+                                        <label style={{ fontSize: 11, display: 'block', marginBottom: 4, fontWeight: 600, color: '#6c757d' }}>Décalage X (px)</label>
+                                        <input
+                                          type="number"
+                                          value={titleOffsetX}
+                                          onChange={e => {
+                                            const nextX = Number(e.target.value)
+                                            const pages = [...tpl.pages]
+                                            const page = { ...pages[selectedPage] }
+                                            const blocks = [...page.blocks]
+                                            const titleIdx = blocks.findIndex(b => b.props.blockId === titleBlockId)
+                                            if (titleIdx >= 0) {
+                                              blocks[titleIdx] = { ...blocks[titleIdx], props: { ...blocks[titleIdx].props, x: tableX + nextX } }
+                                              blocks[selectedIndex] = { ...blocks[selectedIndex], props: { ...blocks[selectedIndex].props, titleOffsetX: nextX } }
+                                              pages[selectedPage] = { ...page, blocks }
+                                              updateTpl({ ...tpl, pages })
+                                            }
+                                          }}
+                                          style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '2px solid #e9ecef', fontSize: 13 }}
+                                        />
+                                      </div>
+                                      <div>
+                                        <label style={{ fontSize: 11, display: 'block', marginBottom: 4, fontWeight: 600, color: '#6c757d' }}>Décalage Y (px)</label>
+                                        <input
+                                          type="number"
+                                          value={titleOffsetY}
+                                          onChange={e => {
+                                            const nextY = Number(e.target.value)
+                                            const pages = [...tpl.pages]
+                                            const page = { ...pages[selectedPage] }
+                                            const blocks = [...page.blocks]
+                                            const titleIdx = blocks.findIndex(b => b.props.blockId === titleBlockId)
+                                            if (titleIdx >= 0) {
+                                              blocks[titleIdx] = { ...blocks[titleIdx], props: { ...blocks[titleIdx].props, y: Math.max(0, tableY + nextY) } }
+                                              blocks[selectedIndex] = { ...blocks[selectedIndex], props: { ...blocks[selectedIndex].props, titleOffsetY: nextY } }
+                                              pages[selectedPage] = { ...page, blocks }
+                                              updateTpl({ ...tpl, pages })
+                                            }
+                                          }}
+                                          style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '2px solid #e9ecef', fontSize: 13 }}
+                                        />
+                                      </div>
+                                    </div>
                                   </div>
                                 )
                               })()}
