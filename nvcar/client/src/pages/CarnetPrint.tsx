@@ -314,10 +314,45 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                         return (
                         <div key={idx} style={{ position: 'absolute', left: b.props.x || 0, top: b.props.y || 0, zIndex: b.props.z ?? idx }}>
                             {b.type === 'text' && (
-                                <div style={{ color: b.props.color, fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden', whiteSpace: 'pre-wrap' }}>{b.props.text}</div>
+                                <div style={{
+                                    color: b.props.color,
+                                    fontSize: b.props.fontSize,
+                                    fontWeight: b.props.bold ? 700 : 400,
+                                    textDecoration: b.props.underline ? 'underline' : 'none',
+                                    width: b.props.width,
+                                    height: b.props.height,
+                                    overflow: 'hidden',
+                                    whiteSpace: 'pre-wrap'
+                                }}>
+                                    {Array.isArray(b.props.runs) && b.props.runs.length ? (
+                                        (b.props.runs as any[]).map((r, i) => (
+                                            <span
+                                                key={i}
+                                                style={{
+                                                    color: (r && typeof r === 'object' && typeof r.color === 'string' && r.color) ? r.color : (b.props.color || undefined),
+                                                    fontWeight: (r && typeof r === 'object' && typeof r.bold === 'boolean') ? (r.bold ? 700 : 400) : (b.props.bold ? 700 : 400),
+                                                    textDecoration: (r && typeof r === 'object' && typeof r.underline === 'boolean') ? (r.underline ? 'underline' : 'none') : (b.props.underline ? 'underline' : 'none'),
+                                                }}
+                                            >
+                                                {r?.text || ''}
+                                            </span>
+                                        ))
+                                    ) : (
+                                        b.props.text
+                                    )}
+                                </div>
                             )}
                             {b.type === 'dynamic_text' && (
-                                <div style={{ color: b.props.color, fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden', whiteSpace: 'pre-wrap' }}>
+                                <div style={{
+                                    color: b.props.color,
+                                    fontSize: b.props.fontSize,
+                                    fontWeight: b.props.bold ? 700 : 400,
+                                    textDecoration: b.props.underline ? 'underline' : 'none',
+                                    width: b.props.width,
+                                    height: b.props.height,
+                                    overflow: 'hidden',
+                                    whiteSpace: 'pre-wrap'
+                                }}>
                                     {(b.props.text || '')
                                         .replace(/\{student\.firstName\}/g, student.firstName)
                                         .replace(/\{student\.lastName\}/g, student.lastName)

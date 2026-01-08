@@ -15,6 +15,7 @@ type Template = { _id?: string; name: string; pages: Page[]; updatedAt?: string 
 type Year = { _id: string; name: string; active?: boolean }
 type ClassDoc = { _id: string; name: string; schoolYearId: string; level?: string }
 type StudentDoc = { _id: string; firstName: string; lastName: string; level?: string; nextLevel?: string; className?: string }
+type TextRun = { text: string; bold?: boolean; underline?: boolean; color?: string }
 
 const pageWidth = 800
 const pageHeight = 1120
@@ -120,6 +121,7 @@ export default function TemplateBuilder() {
   const [activeGuides, setActiveGuides] = useState<{ type: 'x' | 'y', pos: number }[]>([])
   const [clipboard, setClipboard] = useState<Block[] | null>(null)
   const dragJustOccurred = useRef(false) // Track if a drag just happened to prevent click handler
+  const [textSelection, setTextSelection] = useState<{ start: number; end: number } | null>(null)
 
   // Undo/Redo History State
   const [history, setHistory] = useState<Template[]>([])
@@ -714,6 +716,105 @@ export default function TemplateBuilder() {
     blocks[selectedIndex] = { ...blocks[selectedIndex], props: nextProps }
     pages[selectedPage] = { ...page, blocks }
     updateTpl({ ...tpl, pages })
+  }
+
+  const normalizeTextRuns = (props: any): TextRun[] => {
+    const rawRuns = props?.runs
+    if (Array.isArray(rawRuns) && rawRuns.length) {
+      const cleaned = rawRuns
+        .filter((r: any) => r && typeof r === 'object' && typeof r.text === 'string')
+        .map((r: any) => ({
+          text: String(r.text || ''),
+          bold: typeof r.bold === 'boolean' ? r.bold : undefined,
+          underline: typeof r.underline === 'boolean' ? r.underline : undefined,
+          color: typeof r.color === 'string' && r.color ? r.color : undefined,
+        }))
+        .filter((r: TextRun) => r.text.length > 0)
+      if (cleaned.length) return cleaned
+    }
+    return [{ text: String(props?.text || '') }]
+  }
+
+  const mergeTextRuns = (runs: TextRun[]) => {
+    const out: TextRun[] = []
+    for (const r of runs) {
+      if (!r.text) continue
+      const prev = out[out.length - 1]
+      if (
+        prev &&
+        prev.bold === r.bold &&
+        prev.underline === r.underline &&
+        prev.color === r.color
+      ) {
+        prev.text += r.text
+      } else {
+        out.push({ ...r })
+      }
+    }
+    return out
+  }
+
+  const getSelectionEffectiveAll = (
+    runs: TextRun[],
+    start: number,
+    end: number,
+    base: { bold?: boolean; underline?: boolean }
+  ) => {
+    let any = false
+    let allBold = true
+    let allUnderline = true
+    let offset = 0
+    for (const r of runs) {
+      const len = r.text.length
+      const rs = offset
+      const re = offset + len
+      const overlapStart = Math.max(start, rs)
+      const overlapEnd = Math.min(end, re)
+      if (overlapStart < overlapEnd) {
+        any = true
+        const effBold = (typeof r.bold === 'boolean' ? r.bold : base.bold) ? true : false
+        const effUnderline = (typeof r.underline === 'boolean' ? r.underline : base.underline) ? true : false
+        if (!effBold) allBold = false
+        if (!effUnderline) allUnderline = false
+      }
+      offset = re
+    }
+    return { any, allBold, allUnderline }
+  }
+
+  const applyStyleToSelection = (
+    props: any,
+    selection: { start: number; end: number },
+    patch: Partial<Pick<TextRun, 'bold' | 'underline' | 'color'>>
+  ) => {
+    const runs = normalizeTextRuns(props)
+    const fullText = runs.map(r => r.text).join('')
+    const start = Math.max(0, Math.min(selection.start, fullText.length))
+    const end = Math.max(0, Math.min(selection.end, fullText.length))
+    if (start >= end) return { text: fullText, runs }
+
+    const next: TextRun[] = []
+    let offset = 0
+    for (const r of runs) {
+      const t = r.text
+      const len = t.length
+      const rs = offset
+      const re = offset + len
+      if (re <= start || rs >= end) {
+        next.push({ ...r })
+      } else {
+        const localStart = Math.max(0, start - rs)
+        const localEnd = Math.min(len, end - rs)
+        const before = t.slice(0, localStart)
+        const mid = t.slice(localStart, localEnd)
+        const after = t.slice(localEnd)
+        if (before) next.push({ ...r, text: before })
+        if (mid) next.push({ ...r, text: mid, ...patch })
+        if (after) next.push({ ...r, text: after })
+      }
+      offset = re
+    }
+    return { text: fullText, runs: mergeTextRuns(next) }
   }
 
   const persistExpandedTableDesignPresets = (next: ExpandedTableDesignPreset[]) => {
@@ -2728,7 +2829,37 @@ export default function TemplateBuilder() {
                             }
                           }}
                         >
-                          {b.type === 'text' && <div style={{ color: b.props.color, fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden', whiteSpace: 'pre-wrap' }}>{b.props.text}</div>}
+                          {b.type === 'text' && (
+                            <div
+                              style={{
+                                color: b.props.color,
+                                fontSize: b.props.fontSize,
+                                fontWeight: b.props.bold ? 700 : 400,
+                                textDecoration: b.props.underline ? 'underline' : 'none',
+                                width: b.props.width,
+                                height: b.props.height,
+                                overflow: 'hidden',
+                                whiteSpace: 'pre-wrap'
+                              }}
+                            >
+                              {Array.isArray(b.props.runs) && b.props.runs.length ? (
+                                (b.props.runs as any[]).map((r, i) => (
+                                  <span
+                                    key={i}
+                                    style={{
+                                      color: (r && typeof r === 'object' && typeof r.color === 'string' && r.color) ? r.color : (b.props.color || undefined),
+                                      fontWeight: (r && typeof r === 'object' && typeof r.bold === 'boolean') ? (r.bold ? 700 : 400) : (b.props.bold ? 700 : 400),
+                                      textDecoration: (r && typeof r === 'object' && typeof r.underline === 'boolean') ? (r.underline ? 'underline' : 'none') : (b.props.underline ? 'underline' : 'none'),
+                                    }}
+                                  >
+                                    {r?.text || ''}
+                                  </span>
+                                ))
+                              ) : (
+                                b.props.text
+                              )}
+                            </div>
+                          )}
                           {b.type === 'image' && <img src={b.props.url} style={{ width: b.props.width || 120, height: b.props.height || 120, borderRadius: 8 }} />}
                           {b.type === 'student_photo' && (() => {
                             let url = ''
@@ -3576,7 +3707,24 @@ export default function TemplateBuilder() {
                   <div style={{ width: '100%', aspectRatio: `${pageWidth}/${pageHeight}`, background: page.bgColor || '#fff', border: '1px solid #ccc', borderRadius: 4, overflow: 'hidden', position: 'relative', cursor: 'pointer', transform: 'scale(0.95)' }} onClick={() => setSelectedPage(idx)}>
                     {page.blocks.map((b, bidx) => (
                       <div key={bidx} style={{ position: 'absolute', left: `${((b.props.x || 0) / pageWidth) * 100}%`, top: `${((b.props.y || 0) / pageHeight) * 100}%`, fontSize: 6, opacity: 0.7 }}>
-                        {b.type === 'text' && <div style={{ color: b.props.color, fontSize: (b.props.fontSize || 12) * 0.3 }}>{(b.props.text || '').slice(0, 20)}</div>}
+                        {b.type === 'text' && (
+                          <div
+                            style={{
+                              color: b.props.color,
+                              fontSize: (b.props.fontSize || 12) * 0.3,
+                              fontWeight: b.props.bold ? 700 : 400,
+                              textDecoration: b.props.underline ? 'underline' : 'none',
+                            }}
+                          >
+                            {(() => {
+                              if (Array.isArray(b.props.runs) && b.props.runs.length) {
+                                const full = (b.props.runs as any[]).map(r => String(r?.text || '')).join('')
+                                return full.slice(0, 20)
+                              }
+                              return (b.props.text || '').slice(0, 20)
+                            })()}
+                          </div>
+                        )}
                         {b.type === 'image' && <img src={b.props.url} style={{ width: (b.props.width || 120) * 0.3, height: (b.props.height || 120) * 0.3, borderRadius: 2 }} />}
                         {b.type === 'rect' && <div style={{ width: (b.props.width || 80) * 0.3, height: (b.props.height || 80) * 0.3, background: b.props.color, borderRadius: 2 }} />}
                         {b.type === 'gradebook_pocket' && <div style={{ width: (b.props.width || 120) * 0.3, height: (b.props.width || 120) * 0.33, background: b.props.pocketFillColor || '#3498db', borderRadius: '2px 2px 8px 8px' }} />}
@@ -4052,6 +4200,44 @@ export default function TemplateBuilder() {
                         }}
                       />
                     </div>
+                    {tpl.pages[selectedPage].blocks[selectedIndex].type === 'text' && (
+                      <div style={{ marginTop: 10 }}>
+                        <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 6, fontWeight: 600 }}>Texte</label>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                          <button
+                            className="btn secondary"
+                            style={{
+                              padding: '8px 10px',
+                              fontSize: 13,
+                              fontWeight: 700,
+                              borderRadius: 6,
+                              border: '2px solid #e9ecef',
+                              background: tpl.pages[selectedPage].blocks[selectedIndex].props.bold ? '#667eea' : '#fff',
+                              color: tpl.pages[selectedPage].blocks[selectedIndex].props.bold ? '#fff' : '#2d3436'
+                            }}
+                            onClick={() => updateSelected({ bold: !tpl.pages[selectedPage].blocks[selectedIndex].props.bold })}
+                          >
+                            Bold
+                          </button>
+                          <button
+                            className="btn secondary"
+                            style={{
+                              padding: '8px 10px',
+                              fontSize: 13,
+                              fontWeight: 700,
+                              borderRadius: 6,
+                              border: '2px solid #e9ecef',
+                              background: tpl.pages[selectedPage].blocks[selectedIndex].props.underline ? '#667eea' : '#fff',
+                              color: tpl.pages[selectedPage].blocks[selectedIndex].props.underline ? '#fff' : '#2d3436',
+                              textDecoration: 'underline'
+                            }}
+                            onClick={() => updateSelected({ underline: !tpl.pages[selectedPage].blocks[selectedIndex].props.underline })}
+                          >
+                            Underline
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* Type-specific properties */}
@@ -4066,8 +4252,20 @@ export default function TemplateBuilder() {
                       <textarea
                         placeholder="Texte"
                         rows={4}
-                        value={tpl.pages[selectedPage].blocks[selectedIndex].props.text || ''}
-                        onChange={e => updateSelected({ text: e.target.value })}
+                        value={(() => {
+                          const b = tpl.pages[selectedPage].blocks[selectedIndex]
+                          if (Array.isArray(b.props.runs) && b.props.runs.length) {
+                            return (b.props.runs as any[]).map(r => String(r?.text || '')).join('')
+                          }
+                          return b.props.text || ''
+                        })()}
+                        onChange={e => updateSelected({ text: e.target.value, runs: null })}
+                        onSelect={(e) => {
+                          const start = Number((e.currentTarget as any).selectionStart ?? 0)
+                          const end = Number((e.currentTarget as any).selectionEnd ?? 0)
+                          if (start === end) setTextSelection(null)
+                          else setTextSelection({ start, end })
+                        }}
                         style={{
                           width: '100%',
                           padding: '10px 12px',
@@ -4078,6 +4276,90 @@ export default function TemplateBuilder() {
                           resize: 'vertical'
                         }}
                       />
+                      {(() => {
+                        const b = tpl.pages[selectedPage].blocks[selectedIndex]
+                        const selection = textSelection
+                        if (!selection || b.type !== 'text') return null
+                        const baseBold = !!b.props.bold
+                        const baseUnderline = !!b.props.underline
+                        const runs = normalizeTextRuns(b.props)
+                        const s = getSelectionEffectiveAll(runs, selection.start, selection.end, { bold: baseBold, underline: baseUnderline })
+                        if (!s.any) return null
+
+                        return (
+                          <div style={{ marginTop: 10 }}>
+                            <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 6, fontWeight: 600 }}>
+                              Sélection ({Math.max(0, selection.end - selection.start)} caractères)
+                            </label>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+                              <button
+                                className="btn secondary"
+                                style={{
+                                  padding: '8px 10px',
+                                  fontSize: 13,
+                                  fontWeight: 700,
+                                  borderRadius: 6,
+                                  border: '2px solid #e9ecef',
+                                  background: s.allBold ? '#667eea' : '#fff',
+                                  color: s.allBold ? '#fff' : '#2d3436'
+                                }}
+                                onClick={() => {
+                                  const nextBold = !s.allBold
+                                  const out = applyStyleToSelection(b.props, selection, { bold: nextBold })
+                                  updateSelected({ text: out.text, runs: out.runs })
+                                }}
+                              >
+                                Bold
+                              </button>
+                              <button
+                                className="btn secondary"
+                                style={{
+                                  padding: '8px 10px',
+                                  fontSize: 13,
+                                  fontWeight: 700,
+                                  borderRadius: 6,
+                                  border: '2px solid #e9ecef',
+                                  background: s.allUnderline ? '#667eea' : '#fff',
+                                  color: s.allUnderline ? '#fff' : '#2d3436',
+                                  textDecoration: 'underline'
+                                }}
+                                onClick={() => {
+                                  const nextUnderline = !s.allUnderline
+                                  const out = applyStyleToSelection(b.props, selection, { underline: nextUnderline })
+                                  updateSelected({ text: out.text, runs: out.runs })
+                                }}
+                              >
+                                Underline
+                              </button>
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'center' }}>
+                              <input
+                                type="color"
+                                value={String(b.props.color || '#000000')}
+                                onChange={(ev) => {
+                                  const out = applyStyleToSelection(b.props, selection, { color: ev.target.value })
+                                  updateSelected({ text: out.text, runs: out.runs })
+                                }}
+                                style={{
+                                  width: '100%',
+                                  height: 38,
+                                  padding: 4,
+                                  borderRadius: 6,
+                                  border: '2px solid #e9ecef',
+                                  cursor: 'pointer'
+                                }}
+                              />
+                              <button
+                                className="btn secondary"
+                                style={{ padding: '8px 10px', fontSize: 12 }}
+                                onClick={() => setTextSelection(null)}
+                              >
+                                Clear
+                              </button>
+                            </div>
+                          </div>
+                        )
+                      })()}
                     </div>
                   )}
                   {tpl.pages[selectedPage].blocks[selectedIndex].type === 'image' && (

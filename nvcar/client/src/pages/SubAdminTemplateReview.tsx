@@ -1123,11 +1123,6 @@ export default function SubAdminTemplateReview() {
                                         if (!b || !b.props) return null;
                                         return (
                                             <div key={idx} style={{ position: 'absolute', left: b.props.x || 0, top: b.props.y || 0, zIndex: b.props.z ?? idx, padding: 6 }}>
-                                                {b.type === 'text' && (
-                                                    <div style={{ position: 'relative' }}>
-                                                        <div style={{ color: b.props.color, fontSize: b.props.fontSize }}>{b.props.text}</div>
-                                                    </div>
-                                                )}
                                                 {b.type === 'language_toggle_v2' && (
                                                     <div style={{
                                                         display: 'flex',
@@ -1208,7 +1203,35 @@ export default function SubAdminTemplateReview() {
                                                         })}
                                                     </div>
                                                 )}
-                                                {b.type === 'text' && <div style={{ color: b.props.color, fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden', whiteSpace: 'pre-wrap' }}>{b.props.text}</div>}
+                                                {b.type === 'text' && (
+                                                    <div style={{
+                                                        color: b.props.color,
+                                                        fontSize: b.props.fontSize,
+                                                        fontWeight: b.props.bold ? 700 : 400,
+                                                        textDecoration: b.props.underline ? 'underline' : 'none',
+                                                        width: b.props.width,
+                                                        height: b.props.height,
+                                                        overflow: 'hidden',
+                                                        whiteSpace: 'pre-wrap'
+                                                    }}>
+                                                        {Array.isArray(b.props.runs) && b.props.runs.length ? (
+                                                            (b.props.runs as any[]).map((r, i) => (
+                                                                <span
+                                                                    key={i}
+                                                                    style={{
+                                                                        color: (r && typeof r === 'object' && typeof r.color === 'string' && r.color) ? r.color : (b.props.color || undefined),
+                                                                        fontWeight: (r && typeof r === 'object' && typeof r.bold === 'boolean') ? (r.bold ? 700 : 400) : (b.props.bold ? 700 : 400),
+                                                                        textDecoration: (r && typeof r === 'object' && typeof r.underline === 'boolean') ? (r.underline ? 'underline' : 'none') : (b.props.underline ? 'underline' : 'none'),
+                                                                    }}
+                                                                >
+                                                                    {r?.text || ''}
+                                                                </span>
+                                                            ))
+                                                        ) : (
+                                                            b.props.text
+                                                        )}
+                                                    </div>
+                                                )}
                                                 {b.type === 'image' && <img src={b.props.url} style={{ width: b.props.width || 120, height: b.props.height || 120, borderRadius: 8 }} alt="" />}
                                                 {b.type === 'rect' && <div style={{ width: b.props.width, height: b.props.height, background: b.props.color, borderRadius: b.props.radius || 8, border: b.props.stroke ? `${b.props.strokeWidth || 1}px solid ${b.props.stroke}` : 'none' }} />}
                                                 {b.type === 'circle' && <div style={{ width: (b.props.radius || 60) * 2, height: (b.props.radius || 60) * 2, background: b.props.color, borderRadius: '50%', border: b.props.stroke ? `${b.props.strokeWidth || 1}px solid ${b.props.stroke}` : 'none' }} />}

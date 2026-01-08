@@ -215,7 +215,12 @@ export default function SuggestionGradebookTemplates() {
                                             }
 
                                             if (b.type === 'text' || b.type === 'dynamic_text') {
-                                                const display = b.props?.text ?? b.props?.content ?? ''
+                                                const display = (() => {
+                                                    if (Array.isArray(b.props?.runs) && b.props.runs.length) {
+                                                        return (b.props.runs as any[]).map(r => String(r?.text || '')).join('')
+                                                    }
+                                                    return b.props?.text ?? b.props?.content ?? ''
+                                                })()
                                                 return (
                                                     <div key={blockIndex} style={{ position: 'absolute', left: b.props.x || 0, top: b.props.y || 0, zIndex: b.props.z ?? blockIndex, padding: 6 }}>
                                                         <div style={{ position: 'relative' }}>

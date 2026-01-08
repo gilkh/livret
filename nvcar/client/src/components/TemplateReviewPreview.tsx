@@ -288,7 +288,24 @@ export default function TemplateReviewPreview({ template, student, assignment, s
                                     <div key={idx} style={{ position: 'absolute', left: b.props.x || 0, top: b.props.y || 0, zIndex: b.props.z ?? idx, padding: 6 }}>
                                         {b.type === 'text' && (
                                             <div style={{ position: 'relative' }}>
-                                                <div style={{ color: b.props.color, fontSize: b.props.fontSize }}>{b.props.text}</div>
+                                                <div style={{ color: b.props.color, fontSize: b.props.fontSize, fontWeight: b.props.bold ? 700 : 400, textDecoration: b.props.underline ? 'underline' : 'none' }}>
+                                                    {Array.isArray(b.props.runs) && b.props.runs.length ? (
+                                                        (b.props.runs as any[]).map((r, i) => (
+                                                            <span
+                                                                key={i}
+                                                                style={{
+                                                                    color: (r && typeof r === 'object' && typeof r.color === 'string' && r.color) ? r.color : (b.props.color || undefined),
+                                                                    fontWeight: (r && typeof r === 'object' && typeof r.bold === 'boolean') ? (r.bold ? 700 : 400) : (b.props.bold ? 700 : 400),
+                                                                    textDecoration: (r && typeof r === 'object' && typeof r.underline === 'boolean') ? (r.underline ? 'underline' : 'none') : (b.props.underline ? 'underline' : 'none'),
+                                                                }}
+                                                            >
+                                                                {r?.text || ''}
+                                                            </span>
+                                                        ))
+                                                    ) : (
+                                                        b.props.text
+                                                    )}
+                                                </div>
                                             </div>
                                         )}
                                         {b.type === 'language_toggle_v2' && (
