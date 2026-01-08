@@ -29,21 +29,29 @@ echo   Starting NVCAR Application...
 echo ========================================
 echo.
 
-:: Kill any existing processes on port 443 (Server HTTPS)
-echo [1/6] Checking for processes on port 443...
+:: Kill ALL existing Node processes to ensure fresh code is loaded
+echo [1/6] Killing any existing Node processes...
+taskkill /F /IM node.exe >nul 2>&1
+if %ERRORLEVEL% equ 0 (
+    echo       Killed existing Node processes.
+) else (
+    echo       No existing Node processes found.
+)
+
+:: Also check specific ports as backup
+echo [2/6] Checking for processes on ports 443, 4000 (server), 5173...
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr :443 ^| findstr LISTENING') do (
     echo       Killing process %%a on port 443
     taskkill /F /PID %%a >nul 2>&1
 )
-
-:: Kill any existing processes on port 5173 (Client)
-echo [2/6] Checking for processes on port 5173...
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr :4000 ^| findstr LISTENING') do (
+    echo       Killing process %%a on port 4000
+    taskkill /F /PID %%a >nul 2>&1
+)
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr :5173 ^| findstr LISTENING') do (
     echo       Killing process %%a on port 5173
     taskkill /F /PID %%a >nul 2>&1
 )
-
-:: (Port 443 handled above for Server)
 
 echo.
 echo Ports cleared.

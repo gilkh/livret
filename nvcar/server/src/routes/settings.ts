@@ -12,10 +12,10 @@ export async function getSmtpSettings() {
   const settings = await Setting.find({
     key: { $in: ['smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass', 'smtp_secure'] }
   }).lean()
-  
+
   const map: Record<string, any> = {}
   settings.forEach(s => { map[s.key] = s.value })
-  
+
   return {
     host: map.smtp_host || '',
     port: parseInt(map.smtp_port) || 587,
@@ -31,7 +31,7 @@ export async function createSmtpTransporter() {
   if (!smtp.host || !smtp.user || !smtp.pass) {
     return null
   }
-  
+
   return nodemailer.createTransport({
     host: smtp.host,
     port: smtp.port,
@@ -59,7 +59,7 @@ settingsRouter.get('/status', requireAuth(['ADMIN']), async (req, res) => {
 
 settingsRouter.get('/public', async (req, res) => {
   const settings = await Setting.find({
-    key: { $in: ['login_enabled_microsoft', 'school_name', 'nav_permissions'] }
+    key: { $in: ['login_enabled_microsoft', 'school_name', 'nav_permissions', 'teacher_quick_grading_enabled'] }
   }).lean()
 
   const settingsMap: Record<string, any> = {}
@@ -71,6 +71,7 @@ settingsRouter.get('/public', async (req, res) => {
   if (settingsMap.login_enabled_microsoft === undefined) settingsMap.login_enabled_microsoft = true
   if (settingsMap.school_name === undefined) settingsMap.school_name = ''
   if (settingsMap.nav_permissions === undefined) settingsMap.nav_permissions = {}
+  if (settingsMap.teacher_quick_grading_enabled === undefined) settingsMap.teacher_quick_grading_enabled = true
 
   res.json(settingsMap)
 })
@@ -107,21 +108,21 @@ settingsRouter.post('/restart', requireAuth(['ADMIN']), async (req, res) => {
 settingsRouter.post('/smtp/test', requireAuth(['ADMIN']), async (req, res) => {
   try {
     const { host, port, user, pass, secure, testEmail } = req.body
-    
+
     if (!host || !user || !pass) {
       return res.status(400).json({ success: false, error: 'Configuration SMTP incomplète' })
     }
-    
+
     const transporter = nodemailer.createTransport({
       host,
       port: parseInt(port) || 587,
       secure: secure === true,
       auth: { user, pass }
     })
-    
+
     // Verify connection
     await transporter.verify()
-    
+
     // Send test email if address provided
     if (testEmail) {
       await transporter.sendMail({
@@ -133,12 +134,12 @@ settingsRouter.post('/smtp/test', requireAuth(['ADMIN']), async (req, res) => {
       })
       return res.json({ success: true, message: 'Email de test envoyé avec succès' })
     }
-    
+
     res.json({ success: true, message: 'Connexion SMTP vérifiée avec succès' })
   } catch (err: any) {
     console.error('SMTP test error:', err)
-    res.status(400).json({ 
-      success: false, 
+    res.status(400).json({
+      success: false,
       error: err.message || 'Erreur de connexion SMTP'
     })
   }

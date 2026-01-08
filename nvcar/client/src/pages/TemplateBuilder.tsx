@@ -2430,20 +2430,11 @@ export default function TemplateBuilder() {
               className="btn secondary"
               onClick={async () => {
                 try {
-                  const r = await api.get(`/pdf-v2/preview/${tpl._id}/${studentId}`, {
-                    responseType: 'blob'
-                  })
-                  const stu = students.find(s => s._id === studentId)
-                  const name = stu ? `carnet-${stu.lastName}-${stu.firstName}.pdf` : 'carnet.pdf'
-                  const blob = new Blob([r.data], { type: 'application/pdf' })
-                  const url = URL.createObjectURL(blob)
-                  const a = document.createElement('a')
-                  a.href = url
-                  a.download = name
-                  document.body.appendChild(a)
-                  a.click()
-                  a.remove()
-                  URL.revokeObjectURL(url)
+                  const token = sessionStorage.getItem('token') || localStorage.getItem('token') || ''
+                  const base = String(api.defaults.baseURL || '').replace(/\/$/, '')
+                  const origin = typeof window !== 'undefined' ? window.location.origin : ''
+                  const url = `${base}/pdf-v2/preview/${tpl._id}/${studentId}?token=${encodeURIComponent(token)}&frontendOrigin=${encodeURIComponent(origin)}`
+                  window.open(url, '_blank')
                 } catch (e) {
                   setError('Échec de l\'export PDF')
                 }

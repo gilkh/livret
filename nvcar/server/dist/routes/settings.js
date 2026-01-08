@@ -58,7 +58,7 @@ exports.settingsRouter.get('/status', (0, auth_1.requireAuth)(['ADMIN']), async 
 });
 exports.settingsRouter.get('/public', async (req, res) => {
     const settings = await Setting_1.Setting.find({
-        key: { $in: ['login_enabled_microsoft', 'school_name', 'nav_permissions'] }
+        key: { $in: ['login_enabled_microsoft', 'school_name', 'nav_permissions', 'teacher_quick_grading_enabled'] }
     }).lean();
     const settingsMap = {};
     settings.forEach(s => {
@@ -71,6 +71,8 @@ exports.settingsRouter.get('/public', async (req, res) => {
         settingsMap.school_name = '';
     if (settingsMap.nav_permissions === undefined)
         settingsMap.nav_permissions = {};
+    if (settingsMap.teacher_quick_grading_enabled === undefined)
+        settingsMap.teacher_quick_grading_enabled = true;
     res.json(settingsMap);
 });
 exports.settingsRouter.get('/', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {

@@ -13,6 +13,7 @@ const auth_1 = require("../auth");
 const puppeteer_1 = __importDefault(require("puppeteer"));
 const archiver_1 = __importDefault(require("archiver"));
 const fs_1 = __importDefault(require("fs"));
+const pdfkit_1 = __importDefault(require("pdfkit"));
 exports.pdfPuppeteerRouter = (0, express_1.Router)();
 // Singleton browser instance
 let browserInstance = null;
@@ -71,18 +72,102 @@ const getTokenFromReq = (req) => {
         return String(req.body.token);
     return '';
 };
-const resolveFrontendUrl = () => {
-    // Use custom domain if available, otherwise localhost on default HTTPS port (443)
-    // Since we changed vite config to port 443, we should not include :5173
-    let frontendUrl = process.env.FRONTEND_URL || 'https://livret.champville.com';
-    // Fallback logic in case environment variable is missing but we want to be safe
-    if (!process.env.FRONTEND_URL) {
-        // If running locally without domain setup, fallback to localhost
-        // frontendUrl = 'https://localhost' 
+const resolveFrontendUrl = (req) => {
+    // DEBUG: Log all available sources for frontend URL resolution
+    const explicitRaw = String(req?.query?.frontendOrigin || req?.query?.frontendUrl || req?.headers?.['x-frontend-origin'] || '').trim();
+    const envUrlRaw = String(process.env.FRONTEND_URL || '').trim();
+    const forwardedProto = String(req?.headers?.['x-forwarded-proto'] || '').trim();
+    const forwardedHost = String(req?.headers?.['x-forwarded-host'] || '').trim();
+    const hostHeader = String(req?.headers?.host || '').trim();
+    const originHeader = String(req?.headers?.origin || '').trim();
+    const refererHeader = String(req?.headers?.referer || '').trim();
+    console.log('[PDF URL DEBUG] Resolving frontend URL from sources:', {
+        explicitRaw: explicitRaw || '(empty)',
+        envUrlRaw: envUrlRaw || '(empty)',
+        forwardedProto: forwardedProto || '(empty)',
+        forwardedHost: forwardedHost || '(empty)',
+        hostHeader: hostHeader || '(empty)',
+        originHeader: originHeader || '(empty)',
+        refererHeader: refererHeader || '(empty)'
+    });
+    if (explicitRaw) {
+        try {
+            const result = new URL(explicitRaw).origin;
+            console.log('[PDF URL DEBUG] Using explicit query/header origin:', result);
+            return result;
+        }
+        catch { }
     }
-    return frontendUrl;
+    let fromReq = '';
+    if (forwardedProto && forwardedHost) {
+        fromReq = `${forwardedProto}://${forwardedHost}`;
+        console.log('[PDF URL DEBUG] Built fromReq from forwarded headers:', fromReq);
+    }
+    else if (refererHeader) {
+        try {
+            fromReq = new URL(refererHeader).origin;
+            console.log('[PDF URL DEBUG] Built fromReq from referer:', fromReq);
+        }
+        catch { }
+    }
+    else if (originHeader) {
+        fromReq = originHeader;
+        console.log('[PDF URL DEBUG] Built fromReq from origin header:', fromReq);
+    }
+    else if (hostHeader) {
+        const proto = forwardedProto || 'http';
+        fromReq = `${proto}://${hostHeader}`;
+        console.log('[PDF URL DEBUG] Built fromReq from host header:', fromReq);
+    }
+    const isLocalhostLike = (urlString) => {
+        try {
+            const h = new URL(urlString).hostname;
+            return h === 'localhost' || h === '127.0.0.1' || h === '0.0.0.0';
+        }
+        catch {
+            return false;
+        }
+    };
+    if (envUrlRaw) {
+        if (isLocalhostLike(envUrlRaw) && fromReq && !isLocalhostLike(fromReq)) {
+            console.log('[PDF URL DEBUG] FRONTEND_URL is localhost but request is from non-localhost, using fromReq:', fromReq);
+            return fromReq;
+        }
+        const resolved = envUrlRaw.replace('//localhost', '//127.0.0.1');
+        console.log('[PDF URL DEBUG] Using FRONTEND_URL env var (normalized):', resolved);
+        return resolved;
+    }
+    if (fromReq) {
+        const resolved = fromReq.replace('//localhost', '//127.0.0.1');
+        console.log('[PDF URL DEBUG] Using fromReq (normalized):', resolved);
+        return resolved;
+    }
+    console.log('[PDF URL DEBUG] FALLBACK to default: https://127.0.0.1:443');
+    return 'https://127.0.0.1:443';
 };
 const generatePdfBufferFromPrintUrl = async (printUrl, token, frontendUrl) => {
+    const pdfPageWidthPxRaw = Number(process.env.PDF_PAGE_WIDTH_PX || '800');
+    const pdfPageHeightPxRaw = Number(process.env.PDF_PAGE_HEIGHT_PX || '1120');
+    const pdfPageWidthPx = Number.isFinite(pdfPageWidthPxRaw) && pdfPageWidthPxRaw > 0 ? Math.round(pdfPageWidthPxRaw) : 800;
+    const pdfPageHeightPx = Number.isFinite(pdfPageHeightPxRaw) && pdfPageHeightPxRaw > 0 ? Math.round(pdfPageHeightPxRaw) : 1120;
+    const pdfDeviceScaleFactorRaw = Number(process.env.PDF_DEVICE_SCALE_FACTOR || process.env.PDF_DPI_SCALE || '2');
+    const pdfDeviceScaleFactor = Number.isFinite(pdfDeviceScaleFactorRaw) && pdfDeviceScaleFactorRaw > 0 ? Math.min(4, Math.max(1, pdfDeviceScaleFactorRaw)) : 2;
+    // SAFETY: Force 127.0.0.1 if localhost leaked through (e.g. stale code or resolve bypass)
+    if (printUrl.includes('//localhost')) {
+        printUrl = printUrl.replace('//localhost', '//127.0.0.1');
+        console.log('[PDF DEBUG] Rewrote printUrl localhost to 127.0.0.1');
+    }
+    // SAFETY: Fix port 5173 to 443 (user's Vite runs on 443)
+    if (printUrl.includes(':5173')) {
+        printUrl = printUrl.replace(':5173', ':443');
+        console.log('[PDF DEBUG] Rewrote printUrl port 5173 to 443');
+    }
+    if (frontendUrl.includes('//localhost')) {
+        frontendUrl = frontendUrl.replace('//localhost', '//127.0.0.1');
+    }
+    if (frontendUrl.includes(':5173')) {
+        frontendUrl = frontendUrl.replace(':5173', ':443');
+    }
     let page = null;
     const tStart = Date.now();
     const safePrintUrl = String(printUrl || '').replace(/([?&])token=[^&]*/, '$1token=***');
@@ -99,7 +184,7 @@ const generatePdfBufferFromPrintUrl = async (printUrl, token, frontendUrl) => {
         page.on('requestfailed', (req) => {
             console.error('[FAILED REQUEST]', req.url(), req.failure());
         });
-        await page.setViewport({ width: 800, height: 1120 });
+        await page.setViewport({ width: pdfPageWidthPx, height: pdfPageHeightPx, deviceScaleFactor: pdfDeviceScaleFactor });
         console.log(`[PDF TIMING] newPage created in ${Date.now() - tStart}ms`);
         if (token) {
             let cookieDomain = 'localhost';
@@ -117,15 +202,52 @@ const generatePdfBufferFromPrintUrl = async (printUrl, token, frontendUrl) => {
         // Try to navigate until DOM content loaded only (faster and avoids long-polling third-party scripts)
         let navStart = Date.now();
         let navMs = 0;
+        let response = null;
+        console.log(`[PDF DEBUG] Attempting to navigate to: ${safePrintUrl}`);
+        console.log(`[PDF DEBUG] Frontend URL being used: ${frontendUrl}`);
         try {
-            await page.goto(printUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+            response = await page.goto(printUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
             navMs = Date.now() - navStart;
             console.log(`[PDF TIMING] page.goto completed in ${navMs}ms for ${safePrintUrl}`);
         }
-        catch (e) {
+        catch (navError) {
             navMs = Date.now() - navStart;
-            console.warn(`[PDF TIMING] page.goto error after ${navMs}ms for ${safePrintUrl}, proceeding:`, e.message);
+            console.error(`[PDF ERROR] Navigation failed after ${navMs}ms for ${safePrintUrl}`);
+            console.error(`[PDF ERROR] Error type: ${navError?.name || 'Unknown'}`);
+            console.error(`[PDF ERROR] Error message: ${navError?.message || 'No message'}`);
+            // Provide helpful diagnostic info for common errors
+            if (navError?.message?.includes('ERR_CONNECTION_REFUSED')) {
+                console.error('[PDF ERROR] *** CONNECTION REFUSED ***');
+                console.error(`[PDF ERROR] The browser could not connect to: ${printUrl}`);
+                console.error('[PDF ERROR] Possible causes:');
+                console.error('[PDF ERROR]   1. Frontend dev server is not running (run "npm run dev" in client folder)');
+                console.error('[PDF ERROR]   2. Frontend is running on a different port');
+                console.error('[PDF ERROR]   3. FRONTEND_URL env variable is not set correctly for production');
+                console.error(`[PDF ERROR] Current FRONTEND_URL env: ${process.env.FRONTEND_URL || '(not set)'}`);
+            }
+            else if (navError?.message?.includes('ERR_CERT')) {
+                console.error('[PDF ERROR] *** SSL CERTIFICATE ERROR ***');
+                console.error('[PDF ERROR] Puppeteer cannot verify the SSL certificate');
+                console.error('[PDF ERROR] For local HTTPS dev, ensure ignoreHTTPSErrors is enabled');
+            }
+            else if (navError?.message?.includes('TIMEOUT') || navError?.message?.includes('timeout')) {
+                console.error('[PDF ERROR] *** NAVIGATION TIMEOUT ***');
+                console.error('[PDF ERROR] The page took too long to load');
+            }
+            throw new Error(`${navError?.message || 'Navigation failed'} at ${safePrintUrl}`);
         }
+        if (!response) {
+            const currentUrl = String(page.url() || '');
+            throw new Error(`Failed to load print page (no response). currentUrl=${currentUrl}`);
+        }
+        const status = response.status();
+        if (status >= 400) {
+            throw new Error(`Failed to load print page (HTTP ${status})`);
+        }
+        try {
+            await page.emulateMediaType('print');
+        }
+        catch { }
         // Wait for explicit ready signal from client, but shorter timeout (10s)
         let readyStart = Date.now();
         let readyMs = 0;
@@ -145,17 +267,56 @@ const generatePdfBufferFromPrintUrl = async (printUrl, token, frontendUrl) => {
         const delayStart = Date.now();
         await new Promise(resolve => setTimeout(resolve, 250));
         console.log(`[PDF TIMING] pre-pdf delay ${Date.now() - delayStart}ms for ${safePrintUrl}`);
-        console.log('[PDF DEBUG] Generating PDF buffer');
+        let resolvedPdfPageWidthPx = pdfPageWidthPx;
+        let resolvedPdfPageHeightPx = pdfPageHeightPx;
+        try {
+            const rect = await page.evaluate(() => {
+                const el = document.querySelector('.page-canvas');
+                if (!el)
+                    return null;
+                const r = el.getBoundingClientRect();
+                const width = Math.round(r.width);
+                const height = Math.round(r.height);
+                if (!width || !height)
+                    return null;
+                return { width, height };
+            });
+            if (rect?.width && rect?.height) {
+                resolvedPdfPageWidthPx = rect.width;
+                resolvedPdfPageHeightPx = rect.height;
+            }
+        }
+        catch { }
+        console.log(`[PDF DEBUG] Using PDF page size ${resolvedPdfPageWidthPx}x${resolvedPdfPageHeightPx}px @ scale ${pdfDeviceScaleFactor} for ${safePrintUrl}`);
         const tPdfStart = Date.now();
-        const pdfBufferRaw = await page.pdf({
-            format: 'A4',
-            printBackground: true,
-            margin: { top: 0, right: 0, bottom: 0, left: 0 }
+        const pageCanvases = await page.$$('.page-canvas');
+        if (!pageCanvases.length) {
+            throw new Error('No .page-canvas elements found on print page');
+        }
+        const pdfBuffer = await new Promise(async (resolve, reject) => {
+            try {
+                const chunks = [];
+                const doc = new pdfkit_1.default({ autoFirstPage: false, margin: 0 });
+                doc.on('data', (c) => chunks.push(Buffer.from(c)));
+                doc.on('end', () => resolve(Buffer.concat(chunks)));
+                doc.on('error', reject);
+                for (const handle of pageCanvases) {
+                    try {
+                        await handle.evaluate((el) => el?.scrollIntoView?.({ block: 'start' }));
+                    }
+                    catch { }
+                    const png = (await handle.screenshot({ type: 'png', omitBackground: true }));
+                    doc.addPage({ size: [resolvedPdfPageWidthPx, resolvedPdfPageHeightPx], margin: 0 });
+                    doc.image(png, 0, 0, { width: resolvedPdfPageWidthPx, height: resolvedPdfPageHeightPx });
+                }
+                doc.end();
+            }
+            catch (e) {
+                reject(e);
+            }
         });
         const pdfMs = Date.now() - tPdfStart;
-        // Ensure we have a Buffer, not just a Uint8Array
-        const pdfBuffer = Buffer.from(pdfBufferRaw);
-        console.log(`[PDF TIMING] page.pdf took ${pdfMs}ms, size: ${pdfBuffer?.length || 0}, isBuffer: ${Buffer.isBuffer(pdfBuffer)} for ${safePrintUrl}`);
+        console.log(`[PDF TIMING] pdf render took ${pdfMs}ms, size: ${pdfBuffer?.length || 0}, isBuffer: ${Buffer.isBuffer(pdfBuffer)} for ${safePrintUrl}`);
         const totalMs = Date.now() - tStart;
         console.log(`[PDF TIMING] generatePdfBufferFromPrintUrl total ${totalMs}ms (nav ${navMs}ms, ready ${readyMs}ms, pdf ${pdfMs}ms) for ${safePrintUrl}`);
         try {
@@ -213,7 +374,7 @@ exports.pdfPuppeteerRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN',
             token = String(req.query.token);
         }
         console.log('[PDF] Getting browser instance...');
-        const frontendUrl = resolveFrontendUrl();
+        const frontendUrl = resolveFrontendUrl(req);
         const printUrl = `${frontendUrl}/print/carnet/${assignment._id}?token=${token}`;
         const safePrintUrl = String(printUrl || '').replace(/([?&])token=[^&]*/, '$1token=***');
         console.log('[PDF] Generating PDF via shared function:', safePrintUrl);
@@ -264,7 +425,7 @@ exports.pdfPuppeteerRouter.post('/assignments/zip', (0, auth_1.requireAuth)(['AD
             return res.status(400).json({ error: 'missing_assignment_ids' });
         }
         const token = getTokenFromReq(req);
-        const frontendUrl = resolveFrontendUrl();
+        const frontendUrl = resolveFrontendUrl(req);
         try {
             await getBrowser();
         }
@@ -394,40 +555,14 @@ exports.pdfPuppeteerRouter.get('/preview/:templateId/:studentId', (0, auth_1.req
     let page = null;
     try {
         const { templateId, studentId } = req.params;
-        let token = '';
-        if (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
-            token = req.headers.authorization.slice('Bearer '.length);
-        }
-        else if (req.query.token) {
-            token = String(req.query.token);
-        }
+        const token = getTokenFromReq(req);
         const student = await Student_1.Student.findById(studentId).lean();
         if (!student)
             return res.status(404).json({ error: 'student_not_found' });
         const template = await GradebookTemplate_1.GradebookTemplate.findById(templateId).lean();
         if (!template)
             return res.status(404).json({ error: 'template_not_found' });
-        const forwardedProto = String(req.headers['x-forwarded-proto'] || '');
-        const forwardedHost = String(req.headers['x-forwarded-host'] || '');
-        const originHeader = String(req.headers['origin'] || '');
-        const refererHeader = String(req.headers['referer'] || '');
-        let frontendUrl = process.env.FRONTEND_URL || '';
-        if (!frontendUrl) {
-            if (forwardedProto && forwardedHost) {
-                frontendUrl = `${forwardedProto}://${forwardedHost}`;
-            }
-            else if (originHeader) {
-                frontendUrl = originHeader;
-            }
-            else if (refererHeader) {
-                try {
-                    frontendUrl = new URL(refererHeader).origin;
-                }
-                catch { }
-            }
-        }
-        if (!frontendUrl)
-            frontendUrl = 'https://localhost:5173';
+        const frontendUrl = resolveFrontendUrl(req);
         const printUrl = `${frontendUrl}/print/preview/${templateId}/student/${studentId}?token=${token}`;
         const safePrintUrl = String(printUrl || '').replace(/([?&])token=[^&]*/, '$1token=***');
         console.log('[PDF] Generating Preview PDF via shared function:', safePrintUrl);
@@ -472,35 +607,8 @@ exports.pdfPuppeteerRouter.get('/saved/:id', (0, auth_1.requireAuth)(['ADMIN', '
             console.log('[PDF] Saved gradebook not found:', id);
             return res.status(404).json({ error: 'saved_gradebook_not_found' });
         }
-        // Get token for authentication
-        let token = '';
-        if (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
-            token = req.headers.authorization.slice('Bearer '.length);
-        }
-        else if (req.query.token) {
-            token = String(req.query.token);
-        }
-        const forwardedProto = String(req.headers['x-forwarded-proto'] || '');
-        const forwardedHost = String(req.headers['x-forwarded-host'] || '');
-        const originHeader = String(req.headers['origin'] || '');
-        const refererHeader = String(req.headers['referer'] || '');
-        let frontendUrl = process.env.FRONTEND_URL || '';
-        if (!frontendUrl) {
-            if (forwardedProto && forwardedHost) {
-                frontendUrl = `${forwardedProto}://${forwardedHost}`;
-            }
-            else if (originHeader) {
-                frontendUrl = originHeader;
-            }
-            else if (refererHeader) {
-                try {
-                    frontendUrl = new URL(refererHeader).origin;
-                }
-                catch { }
-            }
-        }
-        if (!frontendUrl)
-            frontendUrl = 'https://localhost:5173';
+        const token = getTokenFromReq(req);
+        const frontendUrl = resolveFrontendUrl(req);
         const printUrl = `${frontendUrl}/print/saved/${saved._id}?token=${token}`;
         const safePrintUrl = String(printUrl || '').replace(/([?&])token=[^&]*/, '$1token=***');
         console.log('[PDF] Generating Saved Gradebook PDF via shared function:', safePrintUrl);

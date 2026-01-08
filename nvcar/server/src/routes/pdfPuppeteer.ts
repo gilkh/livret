@@ -8,6 +8,7 @@ import { requireAuth } from '../auth'
 import puppeteer, { Browser } from 'puppeteer'
 import archiver from 'archiver'
 import fs from 'fs'
+import PDFDocument from 'pdfkit'
 
 export const pdfPuppeteerRouter = Router()
 
@@ -72,24 +73,111 @@ const getTokenFromReq = (req: any) => {
   return ''
 }
 
-const resolveFrontendUrl = () => {
-  // Use custom domain if available, otherwise localhost on default HTTPS port (443)
-  // Since we changed vite config to port 443, we should not include :5173
-  let frontendUrl = process.env.FRONTEND_URL || 'https://livret.champville.com'
-  
-  // Fallback logic in case environment variable is missing but we want to be safe
-  if (!process.env.FRONTEND_URL) {
-     // If running locally without domain setup, fallback to localhost
-     // frontendUrl = 'https://localhost' 
+const resolveFrontendUrl = (req?: any) => {
+  // DEBUG: Log all available sources for frontend URL resolution
+  const explicitRaw =
+    String(req?.query?.frontendOrigin || req?.query?.frontendUrl || req?.headers?.['x-frontend-origin'] || '').trim()
+
+  const envUrlRaw = String(process.env.FRONTEND_URL || '').trim()
+  const forwardedProto = String(req?.headers?.['x-forwarded-proto'] || '').trim()
+  const forwardedHost = String(req?.headers?.['x-forwarded-host'] || '').trim()
+  const hostHeader = String(req?.headers?.host || '').trim()
+  const originHeader = String(req?.headers?.origin || '').trim()
+  const refererHeader = String(req?.headers?.referer || '').trim()
+
+  console.log('[PDF URL DEBUG] Resolving frontend URL from sources:', {
+    explicitRaw: explicitRaw || '(empty)',
+    envUrlRaw: envUrlRaw || '(empty)',
+    forwardedProto: forwardedProto || '(empty)',
+    forwardedHost: forwardedHost || '(empty)',
+    hostHeader: hostHeader || '(empty)',
+    originHeader: originHeader || '(empty)',
+    refererHeader: refererHeader || '(empty)'
+  })
+
+  if (explicitRaw) {
+    try {
+      const result = new URL(explicitRaw).origin
+      console.log('[PDF URL DEBUG] Using explicit query/header origin:', result)
+      return result
+    } catch { }
   }
 
-  return frontendUrl
+  let fromReq = ''
+  if (forwardedProto && forwardedHost) {
+    fromReq = `${forwardedProto}://${forwardedHost}`
+    console.log('[PDF URL DEBUG] Built fromReq from forwarded headers:', fromReq)
+  } else if (refererHeader) {
+    try {
+      fromReq = new URL(refererHeader).origin
+      console.log('[PDF URL DEBUG] Built fromReq from referer:', fromReq)
+    } catch { }
+  } else if (originHeader) {
+    fromReq = originHeader
+    console.log('[PDF URL DEBUG] Built fromReq from origin header:', fromReq)
+  } else if (hostHeader) {
+    const proto = forwardedProto || 'http'
+    fromReq = `${proto}://${hostHeader}`
+    console.log('[PDF URL DEBUG] Built fromReq from host header:', fromReq)
+  }
+
+  const isLocalhostLike = (urlString: string) => {
+    try {
+      const h = new URL(urlString).hostname
+      return h === 'localhost' || h === '127.0.0.1' || h === '0.0.0.0'
+    } catch {
+      return false
+    }
+  }
+
+  if (envUrlRaw) {
+    if (isLocalhostLike(envUrlRaw) && fromReq && !isLocalhostLike(fromReq)) {
+      console.log('[PDF URL DEBUG] FRONTEND_URL is localhost but request is from non-localhost, using fromReq:', fromReq)
+      return fromReq
+    }
+    const resolved = envUrlRaw.replace('//localhost', '//127.0.0.1')
+    console.log('[PDF URL DEBUG] Using FRONTEND_URL env var (normalized):', resolved)
+    return resolved
+  }
+
+  if (fromReq) {
+    const resolved = fromReq.replace('//localhost', '//127.0.0.1')
+    console.log('[PDF URL DEBUG] Using fromReq (normalized):', resolved)
+    return resolved
+  }
+
+  console.log('[PDF URL DEBUG] FALLBACK to default: https://127.0.0.1:443')
+  return 'https://127.0.0.1:443'
 }
 
 const generatePdfBufferFromPrintUrl = async (printUrl: string, token: string, frontendUrl: string) => {
+  const pdfPageWidthPxRaw = Number(process.env.PDF_PAGE_WIDTH_PX || '800')
+  const pdfPageHeightPxRaw = Number(process.env.PDF_PAGE_HEIGHT_PX || '1120')
+  const pdfPageWidthPx = Number.isFinite(pdfPageWidthPxRaw) && pdfPageWidthPxRaw > 0 ? Math.round(pdfPageWidthPxRaw) : 800
+  const pdfPageHeightPx = Number.isFinite(pdfPageHeightPxRaw) && pdfPageHeightPxRaw > 0 ? Math.round(pdfPageHeightPxRaw) : 1120
+  const pdfDeviceScaleFactorRaw = Number(process.env.PDF_DEVICE_SCALE_FACTOR || process.env.PDF_DPI_SCALE || '2')
+  const pdfDeviceScaleFactor = Number.isFinite(pdfDeviceScaleFactorRaw) && pdfDeviceScaleFactorRaw > 0 ? Math.min(4, Math.max(1, pdfDeviceScaleFactorRaw)) : 2
+
+  // SAFETY: Force 127.0.0.1 if localhost leaked through (e.g. stale code or resolve bypass)
+  if (printUrl.includes('//localhost')) {
+    printUrl = printUrl.replace('//localhost', '//127.0.0.1')
+    console.log('[PDF DEBUG] Rewrote printUrl localhost to 127.0.0.1')
+  }
+  // SAFETY: Fix port 5173 to 443 (user's Vite runs on 443)
+  if (printUrl.includes(':5173')) {
+    printUrl = printUrl.replace(':5173', ':443')
+    console.log('[PDF DEBUG] Rewrote printUrl port 5173 to 443')
+  }
+  if (frontendUrl.includes('//localhost')) {
+    frontendUrl = frontendUrl.replace('//localhost', '//127.0.0.1')
+  }
+  if (frontendUrl.includes(':5173')) {
+    frontendUrl = frontendUrl.replace(':5173', ':443')
+  }
+
   let page: any = null
   const tStart = Date.now()
-  const safePrintUrl = String(printUrl || '').replace(/([?&])token=[^&]*/,'$1token=***')
+  const safePrintUrl = String(printUrl || '').replace(/([?&])token=[^&]*/, '$1token=***')
   const browser = await getBrowser()
   page = await browser.newPage()
   console.log(`[PDF TIMING] Starting PDF generation for ${safePrintUrl}`)
@@ -105,14 +193,14 @@ const generatePdfBufferFromPrintUrl = async (printUrl: string, token: string, fr
       console.error('[FAILED REQUEST]', req.url(), req.failure())
     })
 
-    await page.setViewport({ width: 800, height: 1120 })
+    await page.setViewport({ width: pdfPageWidthPx, height: pdfPageHeightPx, deviceScaleFactor: pdfDeviceScaleFactor })
     console.log(`[PDF TIMING] newPage created in ${Date.now() - tStart}ms`)
 
     if (token) {
       let cookieDomain = 'localhost'
       try {
         cookieDomain = new URL(frontendUrl).hostname
-      } catch {}
+      } catch { }
       await page.setCookie({
         name: 'token',
         value: token,
@@ -124,14 +212,54 @@ const generatePdfBufferFromPrintUrl = async (printUrl: string, token: string, fr
     // Try to navigate until DOM content loaded only (faster and avoids long-polling third-party scripts)
     let navStart = Date.now()
     let navMs = 0
+    let response: any = null
+
+    console.log(`[PDF DEBUG] Attempting to navigate to: ${safePrintUrl}`)
+    console.log(`[PDF DEBUG] Frontend URL being used: ${frontendUrl}`)
+
     try {
-      await page.goto(printUrl, { waitUntil: 'domcontentloaded', timeout: 15000 })
+      response = await page.goto(printUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
       navMs = Date.now() - navStart
       console.log(`[PDF TIMING] page.goto completed in ${navMs}ms for ${safePrintUrl}`)
-    } catch (e: any) {
+    } catch (navError: any) {
       navMs = Date.now() - navStart
-      console.warn(`[PDF TIMING] page.goto error after ${navMs}ms for ${safePrintUrl}, proceeding:`, e.message)
+      console.error(`[PDF ERROR] Navigation failed after ${navMs}ms for ${safePrintUrl}`)
+      console.error(`[PDF ERROR] Error type: ${navError?.name || 'Unknown'}`)
+      console.error(`[PDF ERROR] Error message: ${navError?.message || 'No message'}`)
+
+      // Provide helpful diagnostic info for common errors
+      if (navError?.message?.includes('ERR_CONNECTION_REFUSED')) {
+        console.error('[PDF ERROR] *** CONNECTION REFUSED ***')
+        console.error(`[PDF ERROR] The browser could not connect to: ${printUrl}`)
+        console.error('[PDF ERROR] Possible causes:')
+        console.error('[PDF ERROR]   1. Frontend dev server is not running (run "npm run dev" in client folder)')
+        console.error('[PDF ERROR]   2. Frontend is running on a different port')
+        console.error('[PDF ERROR]   3. FRONTEND_URL env variable is not set correctly for production')
+        console.error(`[PDF ERROR] Current FRONTEND_URL env: ${process.env.FRONTEND_URL || '(not set)'}`)
+      } else if (navError?.message?.includes('ERR_CERT')) {
+        console.error('[PDF ERROR] *** SSL CERTIFICATE ERROR ***')
+        console.error('[PDF ERROR] Puppeteer cannot verify the SSL certificate')
+        console.error('[PDF ERROR] For local HTTPS dev, ensure ignoreHTTPSErrors is enabled')
+      } else if (navError?.message?.includes('TIMEOUT') || navError?.message?.includes('timeout')) {
+        console.error('[PDF ERROR] *** NAVIGATION TIMEOUT ***')
+        console.error('[PDF ERROR] The page took too long to load')
+      }
+
+      throw new Error(`${navError?.message || 'Navigation failed'} at ${safePrintUrl}`)
     }
+
+    if (!response) {
+      const currentUrl = String(page.url() || '')
+      throw new Error(`Failed to load print page (no response). currentUrl=${currentUrl}`)
+    }
+    const status = response.status()
+    if (status >= 400) {
+      throw new Error(`Failed to load print page (HTTP ${status})`)
+    }
+
+    try {
+      await page.emulateMediaType('print')
+    } catch { }
 
     // Wait for explicit ready signal from client, but shorter timeout (10s)
     let readyStart = Date.now()
@@ -153,19 +281,60 @@ const generatePdfBufferFromPrintUrl = async (printUrl: string, token: string, fr
     await new Promise(resolve => setTimeout(resolve, 250))
     console.log(`[PDF TIMING] pre-pdf delay ${Date.now() - delayStart}ms for ${safePrintUrl}`)
 
-    console.log('[PDF DEBUG] Generating PDF buffer')
-    const tPdfStart = Date.now()
-    const pdfBufferRaw = await page.pdf({
-      format: 'A4',
-      printBackground: true,
-      margin: { top: 0, right: 0, bottom: 0, left: 0 }
-    })
-    const pdfMs = Date.now() - tPdfStart
-    
-    // Ensure we have a Buffer, not just a Uint8Array
-    const pdfBuffer = Buffer.from(pdfBufferRaw)
+    let resolvedPdfPageWidthPx = pdfPageWidthPx
+    let resolvedPdfPageHeightPx = pdfPageHeightPx
+    try {
+      const rect = await page.evaluate(() => {
+        const el = document.querySelector('.page-canvas') as HTMLElement | null
+        if (!el) return null
+        const r = el.getBoundingClientRect()
+        const width = Math.round(r.width)
+        const height = Math.round(r.height)
+        if (!width || !height) return null
+        return { width, height }
+      })
+      if (rect?.width && rect?.height) {
+        resolvedPdfPageWidthPx = rect.width
+        resolvedPdfPageHeightPx = rect.height
+      }
+    } catch { }
+    console.log(`[PDF DEBUG] Using PDF page size ${resolvedPdfPageWidthPx}x${resolvedPdfPageHeightPx}px @ scale ${pdfDeviceScaleFactor} for ${safePrintUrl}`)
 
-    console.log(`[PDF TIMING] page.pdf took ${pdfMs}ms, size: ${pdfBuffer?.length || 0}, isBuffer: ${Buffer.isBuffer(pdfBuffer)} for ${safePrintUrl}`)
+    const tPdfStart = Date.now()
+
+    const pageCanvases = await page.$$('.page-canvas')
+    if (!pageCanvases.length) {
+      throw new Error('No .page-canvas elements found on print page')
+    }
+
+    const pdfBuffer = await new Promise<Buffer>(async (resolve, reject) => {
+      try {
+        const chunks: Buffer[] = []
+        const doc = new PDFDocument({ autoFirstPage: false, margin: 0 })
+        doc.on('data', (c: any) => chunks.push(Buffer.from(c)))
+        doc.on('end', () => resolve(Buffer.concat(chunks)))
+        doc.on('error', reject)
+
+        for (const handle of pageCanvases) {
+          try {
+            await handle.evaluate((el: any) => el?.scrollIntoView?.({ block: 'start' }))
+          } catch { }
+
+          const png = (await handle.screenshot({ type: 'png', omitBackground: true })) as Buffer
+
+          doc.addPage({ size: [resolvedPdfPageWidthPx, resolvedPdfPageHeightPx], margin: 0 })
+          doc.image(png, 0, 0, { width: resolvedPdfPageWidthPx, height: resolvedPdfPageHeightPx })
+        }
+
+        doc.end()
+      } catch (e) {
+        reject(e)
+      }
+    })
+
+    const pdfMs = Date.now() - tPdfStart
+
+    console.log(`[PDF TIMING] pdf render took ${pdfMs}ms, size: ${pdfBuffer?.length || 0}, isBuffer: ${Buffer.isBuffer(pdfBuffer)} for ${safePrintUrl}`)
     const totalMs = Date.now() - tStart
     console.log(`[PDF TIMING] generatePdfBufferFromPrintUrl total ${totalMs}ms (nav ${navMs}ms, ready ${readyMs}ms, pdf ${pdfMs}ms) for ${safePrintUrl}`)
 
@@ -183,45 +352,45 @@ const generatePdfBufferFromPrintUrl = async (printUrl: string, token: string, fr
   } finally {
     try {
       await page?.close()
-    } catch {}
+    } catch { }
   }
 }
 
 // Generate PDF using Puppeteer from HTML render
-pdfPuppeteerRouter.get('/student/:id', requireAuth(['ADMIN','SUBADMIN','TEACHER']), async (req, res) => {
+pdfPuppeteerRouter.get('/student/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), async (req, res) => {
   let page: any = null
   try {
     const { id } = req.params
     const { templateId } = req.query
-    
+
     if (!templateId) {
       return res.status(400).json({ error: 'templateId required' })
     }
-    
+
     console.log('[PDF] Starting PDF generation for student:', id, 'template:', templateId)
-    
+
     const student = await Student.findById(id).lean()
     if (!student) {
       console.log('[PDF] Student not found:', id)
       return res.status(404).json({ error: 'student_not_found' })
     }
-    
+
     const template = await GradebookTemplate.findById(templateId).lean()
     if (!template) {
       console.log('[PDF] Template not found:', templateId)
       return res.status(404).json({ error: 'template_not_found' })
     }
-    
-    const assignment = await TemplateAssignment.findOne({ 
-      studentId: id, 
-      templateId: templateId 
+
+    const assignment = await TemplateAssignment.findOne({
+      studentId: id,
+      templateId: templateId
     }).lean()
-    
+
     if (!assignment) {
       console.log('[PDF] Assignment not found')
       return res.status(404).json({ error: 'assignment_not_found' })
     }
-    
+
     // Get token for authentication
     let token = ''
     if (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
@@ -229,25 +398,25 @@ pdfPuppeteerRouter.get('/student/:id', requireAuth(['ADMIN','SUBADMIN','TEACHER'
     } else if (req.query.token) {
       token = String(req.query.token)
     }
-    
+
     console.log('[PDF] Getting browser instance...')
-    
-    const frontendUrl = resolveFrontendUrl()
+
+    const frontendUrl = resolveFrontendUrl(req)
     const printUrl = `${frontendUrl}/print/carnet/${assignment._id}?token=${token}`
-    
-    const safePrintUrl = String(printUrl || '').replace(/([?&])token=[^&]*/,'$1token=***')
+
+    const safePrintUrl = String(printUrl || '').replace(/([?&])token=[^&]*/, '$1token=***')
     console.log('[PDF] Generating PDF via shared function:', safePrintUrl)
     const genStart = Date.now()
     const pdfBuffer = await generatePdfBufferFromPrintUrl(printUrl, token, frontendUrl)
-    console.log(`[PDF TIMING] generatePdfBufferFromPrintUrl total ${Date.now()-genStart}ms for ${safePrintUrl}`)
-    
+    console.log(`[PDF TIMING] generatePdfBufferFromPrintUrl total ${Date.now() - genStart}ms for ${safePrintUrl}`)
+
     console.log('[PDF] PDF generated successfully, size:', pdfBuffer.length, 'bytes')
-    
+
     // Verify PDF is valid
     if (!pdfBuffer || pdfBuffer.length === 0) {
       throw new Error('Generated PDF buffer is empty')
     }
-    
+
     // Send PDF with proper headers to avoid corruption
     res.set({
       'Content-Type': 'application/pdf',
@@ -255,13 +424,13 @@ pdfPuppeteerRouter.get('/student/:id', requireAuth(['ADMIN','SUBADMIN','TEACHER'
       'Content-Length': pdfBuffer.length.toString()
     })
     res.end(pdfBuffer)
-    
+
     console.log('[PDF] PDF sent successfully')
-    
+
   } catch (error: any) {
     console.error('[PDF] PDF generation error:', error.message)
     console.error('[PDF] Stack:', error.stack)
-    
+
     // Clean up page if it's still open
     if (page) {
       try {
@@ -270,8 +439,8 @@ pdfPuppeteerRouter.get('/student/:id', requireAuth(['ADMIN','SUBADMIN','TEACHER'
         console.error('[PDF] Error closing page:', e)
       }
     }
-    
-    res.status(500).json({ 
+
+    res.status(500).json({
       error: 'pdf_generation_failed',
       message: error.message,
       details: process.env.NODE_ENV === 'development' ? error.stack : undefined
@@ -282,7 +451,7 @@ pdfPuppeteerRouter.get('/student/:id', requireAuth(['ADMIN','SUBADMIN','TEACHER'
 pdfPuppeteerRouter.post('/assignments/zip', requireAuth(['ADMIN', 'SUBADMIN', 'AEFE']), async (req, res) => {
   // Increase timeout for large batches
   req.setTimeout(3600000) // 1 hour
-  
+
   let archive: archiver.Archiver | null = null
   try {
     const assignmentIds = Array.isArray(req.body?.assignmentIds) ? req.body.assignmentIds.filter(Boolean) : []
@@ -293,15 +462,15 @@ pdfPuppeteerRouter.post('/assignments/zip', requireAuth(['ADMIN', 'SUBADMIN', 'A
     }
 
     const token = getTokenFromReq(req)
-    const frontendUrl = resolveFrontendUrl()
+    const frontendUrl = resolveFrontendUrl(req)
 
     try {
       await getBrowser()
     } catch (err: any) {
       console.error('[PDF ZIP] Browser launch failed:', err)
-      return res.status(500).json({ 
-        error: 'browser_launch_failed', 
-        message: err.message 
+      return res.status(500).json({
+        error: 'browser_launch_failed',
+        message: err.message
       })
     }
 
@@ -316,7 +485,7 @@ pdfPuppeteerRouter.post('/assignments/zip', requireAuth(['ADMIN', 'SUBADMIN', 'A
     res.on('close', () => {
       if (res.writableEnded) return
       aborted = true
-      try { archive?.abort() } catch {}
+      try { archive?.abort() } catch { }
     })
     archive.on('error', (err) => {
       console.error('[PDF ZIP] Archiver error:', err)
@@ -365,7 +534,7 @@ pdfPuppeteerRouter.post('/assignments/zip', requireAuth(['ADMIN', 'SUBADMIN', 'A
           const pdfName = sanitizeFileName(`${studentLast}-${studentFirst}-${templateName}.pdf`)
 
           const printUrl = `${frontendUrl}/print/carnet/${assignment._id}?token=${token}`
-          const safePrintUrl = String(printUrl || '').replace(/([?&])token=[^&]*/,'$1token=***')
+          const safePrintUrl = String(printUrl || '').replace(/([?&])token=[^&]*/, '$1token=***')
           console.log(`[PDF ZIP] (worker ${workerIdx}) Generating PDF for assignment ${assignmentId} (${safePrintUrl})`)
           const assignStart = Date.now()
           const pdfBuffer = await generatePdfBufferFromPrintUrl(printUrl, token, frontendUrl)
@@ -399,15 +568,15 @@ pdfPuppeteerRouter.post('/assignments/zip', requireAuth(['ADMIN', 'SUBADMIN', 'A
         // If archive is not yet finalized, try to append error and finalize
         // @ts-ignore
         if (archive && archive._state.status !== 'finalized' && archive._state.status !== 'finalizing') {
-             archive.append(`${e?.message || 'zip_generation_failed'}\n`, { name: `errors/fatal.txt` })
-             await archive.finalize()
+          archive.append(`${e?.message || 'zip_generation_failed'}\n`, { name: `errors/fatal.txt` })
+          await archive.finalize()
         } else {
-             console.warn('[PDF ZIP] Archive already finalizing or finalized, forcing response end.')
-             try { res.end() } catch {}
+          console.warn('[PDF ZIP] Archive already finalizing or finalized, forcing response end.')
+          try { res.end() } catch { }
         }
       } catch (err) {
         console.error('[PDF ZIP] Error finalizing archive in catch block:', err)
-        try { res.end() } catch {}
+        try { res.end() } catch { }
       }
       return
     }
@@ -415,49 +584,30 @@ pdfPuppeteerRouter.post('/assignments/zip', requireAuth(['ADMIN', 'SUBADMIN', 'A
   }
 })
 
-pdfPuppeteerRouter.get('/preview/:templateId/:studentId', requireAuth(['ADMIN','SUBADMIN','TEACHER']), async (req, res) => {
+pdfPuppeteerRouter.get('/preview/:templateId/:studentId', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), async (req, res) => {
   let page: any = null
   try {
     const { templateId, studentId } = req.params
-    let token = ''
-    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
-      token = req.headers.authorization.slice('Bearer '.length)
-    } else if (req.query.token) {
-      token = String(req.query.token)
-    }
+    const token = getTokenFromReq(req)
     const student = await Student.findById(studentId).lean()
     if (!student) return res.status(404).json({ error: 'student_not_found' })
     const template = await GradebookTemplate.findById(templateId).lean()
     if (!template) return res.status(404).json({ error: 'template_not_found' })
-    const forwardedProto = String(req.headers['x-forwarded-proto'] || '')
-    const forwardedHost = String(req.headers['x-forwarded-host'] || '')
-    const originHeader = String(req.headers['origin'] || '')
-    const refererHeader = String(req.headers['referer'] || '')
-    let frontendUrl = process.env.FRONTEND_URL || ''
-    if (!frontendUrl) {
-      if (forwardedProto && forwardedHost) {
-        frontendUrl = `${forwardedProto}://${forwardedHost}`
-      } else if (originHeader) {
-        frontendUrl = originHeader
-      } else if (refererHeader) {
-        try { frontendUrl = new URL(refererHeader).origin } catch {}
-      }
-    }
-    if (!frontendUrl) frontendUrl = 'https://localhost:5173'
-    
+    const frontendUrl = resolveFrontendUrl(req)
+
     const printUrl = `${frontendUrl}/print/preview/${templateId}/student/${studentId}?token=${token}`
-    
-    const safePrintUrl = String(printUrl || '').replace(/([?&])token=[^&]*/,'$1token=***')
+
+    const safePrintUrl = String(printUrl || '').replace(/([?&])token=[^&]*/, '$1token=***')
     console.log('[PDF] Generating Preview PDF via shared function:', safePrintUrl)
     const genStart = Date.now()
     const pdfBuffer = await generatePdfBufferFromPrintUrl(printUrl, token, frontendUrl)
-    console.log(`[PDF TIMING] generatePdfBufferFromPrintUrl total ${Date.now()-genStart}ms for ${safePrintUrl}`)
-    
+    console.log(`[PDF TIMING] generatePdfBufferFromPrintUrl total ${Date.now() - genStart}ms for ${safePrintUrl}`)
+
     // Verify PDF is valid
     if (!pdfBuffer || pdfBuffer.length === 0) {
       throw new Error('Generated PDF buffer is empty')
     }
-    
+
     res.set({
       'Content-Type': 'application/pdf',
       'Content-Disposition': `attachment; filename="carnet-${student.lastName}-${student.firstName}.pdf"`,
@@ -468,9 +618,9 @@ pdfPuppeteerRouter.get('/preview/:templateId/:studentId', requireAuth(['ADMIN','
     console.error('[PDF] Preview PDF generation error:', error.message)
     console.error('[PDF] Preview stack:', error.stack)
     if (page) {
-      try { await page.close() } catch {}
+      try { await page.close() } catch { }
     }
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'pdf_generation_failed',
       message: error.message,
       details: process.env.NODE_ENV === 'development' ? error.stack : undefined
@@ -478,71 +628,50 @@ pdfPuppeteerRouter.get('/preview/:templateId/:studentId', requireAuth(['ADMIN','
   }
 })
 // Generate PDF for Saved Gradebook
-pdfPuppeteerRouter.get('/saved/:id', requireAuth(['ADMIN','SUBADMIN','TEACHER']), async (req, res) => {
+pdfPuppeteerRouter.get('/saved/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), async (req, res) => {
   let page: any = null
   try {
     const { id } = req.params
-    
+
     console.log('[PDF] Starting PDF generation for saved gradebook:', id)
-    
+
     const saved = await SavedGradebook.findById(id).lean()
     if (!saved) {
       console.log('[PDF] Saved gradebook not found:', id)
       return res.status(404).json({ error: 'saved_gradebook_not_found' })
     }
-    
-    // Get token for authentication
-    let token = ''
-    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
-      token = req.headers.authorization.slice('Bearer '.length)
-    } else if (req.query.token) {
-      token = String(req.query.token)
-    }
-    
-    const forwardedProto = String(req.headers['x-forwarded-proto'] || '')
-    const forwardedHost = String(req.headers['x-forwarded-host'] || '')
-    const originHeader = String(req.headers['origin'] || '')
-    const refererHeader = String(req.headers['referer'] || '')
-    let frontendUrl = process.env.FRONTEND_URL || ''
-    if (!frontendUrl) {
-      if (forwardedProto && forwardedHost) {
-        frontendUrl = `${forwardedProto}://${forwardedHost}`
-      } else if (originHeader) {
-        frontendUrl = originHeader
-      } else if (refererHeader) {
-        try { frontendUrl = new URL(refererHeader).origin } catch {}
-      }
-    }
-    if (!frontendUrl) frontendUrl = 'https://localhost:5173'
-    
+
+    const token = getTokenFromReq(req)
+    const frontendUrl = resolveFrontendUrl(req)
+
     const printUrl = `${frontendUrl}/print/saved/${saved._id}?token=${token}`
-    
-    const safePrintUrl = String(printUrl || '').replace(/([?&])token=[^&]*/,'$1token=***')
+
+    const safePrintUrl = String(printUrl || '').replace(/([?&])token=[^&]*/, '$1token=***')
     console.log('[PDF] Generating Saved Gradebook PDF via shared function:', safePrintUrl)
     const genStart = Date.now()
     const pdfBuffer = await generatePdfBufferFromPrintUrl(printUrl, token, frontendUrl)
-    console.log(`[PDF TIMING] generatePdfBufferFromPrintUrl total ${Date.now()-genStart}ms for ${safePrintUrl}`)
-    
+    console.log(`[PDF TIMING] generatePdfBufferFromPrintUrl total ${Date.now() - genStart}ms for ${safePrintUrl}`)
+
     if (!pdfBuffer || pdfBuffer.length === 0) {
       throw new Error('Generated PDF buffer is empty')
     }
-    
+
     // Use student name from saved data if available, otherwise generic name
     const studentName = saved.data?.student ? `${saved.data.student.lastName}-${saved.data.student.firstName}` : 'carnet'
-    
+
     res.set({
       'Content-Type': 'application/pdf',
       'Content-Disposition': `attachment; filename="carnet-${studentName}.pdf"`,
       'Content-Length': pdfBuffer.length.toString()
     })
     res.end(pdfBuffer)
-    
+
     console.log('[PDF] PDF sent successfully')
-    
+
   } catch (error: any) {
     console.error('[PDF] PDF generation error:', error.message)
     console.error('[PDF] Stack:', error.stack)
-    
+
     if (page) {
       try {
         await page.close()
@@ -550,8 +679,8 @@ pdfPuppeteerRouter.get('/saved/:id', requireAuth(['ADMIN','SUBADMIN','TEACHER'])
         console.error('[PDF] Error closing page:', e)
       }
     }
-    
-    res.status(500).json({ 
+
+    res.status(500).json({
       error: 'pdf_generation_failed',
       message: error.message,
       details: process.env.NODE_ENV === 'development' ? error.stack : undefined
