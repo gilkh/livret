@@ -122,6 +122,8 @@ export default function TemplateBuilder() {
   const [clipboard, setClipboard] = useState<Block[] | null>(null)
   const dragJustOccurred = useRef(false) // Track if a drag just happened to prevent click handler
   const [textSelection, setTextSelection] = useState<{ start: number; end: number } | null>(null)
+  const lastCanvasPointerRef = useRef<{ pageIndex: number; x: number; y: number } | null>(null)
+  const imagePasteHandledRef = useRef(false)
 
   // Undo/Redo History State
   const [history, setHistory] = useState<Template[]>([])
@@ -455,8 +457,10 @@ export default function TemplateBuilder() {
       }
       // Paste: Ctrl+V
       if (!isEditableTarget && (e.ctrlKey || e.metaKey) && e.key === 'v') {
-        e.preventDefault()
-        pasteFromClipboard()
+        imagePasteHandledRef.current = false
+        setTimeout(() => {
+          if (!imagePasteHandledRef.current) pasteFromClipboard()
+        }, 0)
       }
       // Delete
       if ((e.key === 'Delete' || e.key === 'Backspace') && !['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName) && !(e.target as HTMLElement).isContentEditable) {
@@ -478,6 +482,40 @@ export default function TemplateBuilder() {
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [historyIndex, history, viewMode, undo, redo, tpl, selectedPage, selectedIndex, selectedIndices, clipboard])
+
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      if (viewMode !== 'edit') return
+      const target = e.target as HTMLElement | null
+      const isEditableTarget =
+        !!target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable)
+      if (isEditableTarget) return
+
+      const items = e.clipboardData?.items
+      if (!items || items.length === 0) return
+
+      const files: File[] = []
+      for (const item of Array.from(items)) {
+        if (item.kind === 'file') {
+          const f = item.getAsFile()
+          if (f) files.push(f)
+        }
+      }
+      if (files.length === 0) return
+      if (!files.some(isImageFile)) return
+
+      imagePasteHandledRef.current = true
+      e.preventDefault()
+      void pasteImagesFromFiles(files)
+    }
+
+    window.addEventListener('paste', handlePaste)
+    return () => window.removeEventListener('paste', handlePaste)
+  }, [viewMode, tpl, selectedPage])
 
   // Modal state
   const [showCreateModal, setShowCreateModal] = useState(false)
@@ -569,6 +607,17 @@ export default function TemplateBuilder() {
       })
     })
     return dropdowns
+  }
+
+  const updateLastCanvasPointer = (e: React.MouseEvent<HTMLDivElement>, pageIndex: number) => {
+    const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect()
+    const x = (e.clientX - rect.left) / scale
+    const y = (e.clientY - rect.top) / scale
+    lastCanvasPointerRef.current = {
+      pageIndex,
+      x: clamp(x, 0, pageWidth),
+      y: clamp(y, 0, pageHeight)
+    }
   }
 
   const addBlock = (b: Block) => {
@@ -941,6 +990,115 @@ export default function TemplateBuilder() {
     })
 
     setClipboard(blocksToCopy)
+  }
+
+  const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v))
+
+  const isImageFile = (file: File) => {
+    if (!file) return false
+    if (typeof file.type === 'string' && file.type.toLowerCase().startsWith('image/')) return true
+    return /\.(png|jpe?g|gif|webp|bmp)$/i.test(file.name || '')
+  }
+
+  const getImageDimensions = async (blob: Blob): Promise<{ width: number; height: number } | null> => {
+    try {
+      const w = window as any
+      if (typeof w.createImageBitmap === 'function') {
+        const bmp = await w.createImageBitmap(blob)
+        const out = { width: Number(bmp.width || 0), height: Number(bmp.height || 0) }
+        if (typeof bmp.close === 'function') bmp.close()
+        if (out.width > 0 && out.height > 0) return out
+      }
+    } catch { }
+
+    return await new Promise(resolve => {
+      const url = URL.createObjectURL(blob)
+      const img = new Image()
+      img.onload = () => {
+        const out = { width: Number(img.naturalWidth || 0), height: Number(img.naturalHeight || 0) }
+        URL.revokeObjectURL(url)
+        resolve(out.width > 0 && out.height > 0 ? out : null)
+      }
+      img.onerror = () => {
+        URL.revokeObjectURL(url)
+        resolve(null)
+      }
+      img.src = url
+    })
+  }
+
+  const addImageBlock = (opts: { pageIndex: number; url: string; x: number; y: number; width: number; height: number }) => {
+    const pages = [...tpl.pages]
+    const page = { ...pages[opts.pageIndex] }
+    const zList = (page.blocks || []).map(bb => (bb.props?.z ?? 0))
+    const nextZ = (zList.length ? Math.max(...zList) : 0) + 1
+    const blockId = (window.crypto as any).randomUUID ? (window.crypto as any).randomUUID() : Math.random().toString(36).substring(2, 11)
+
+    const x = clamp(opts.x, 0, Math.max(0, pageWidth - opts.width))
+    const y = clamp(opts.y, 0, Math.max(0, pageHeight - opts.height))
+
+    const blocks = [
+      ...page.blocks,
+      {
+        type: 'image',
+        props: {
+          url: opts.url,
+          width: opts.width,
+          height: opts.height,
+          x,
+          y,
+          z: nextZ,
+          blockId
+        }
+      }
+    ]
+
+    pages[opts.pageIndex] = { ...page, blocks }
+    updateTpl({ ...tpl, pages })
+    setSelectedPage(opts.pageIndex)
+    setSelectedIndex(blocks.length - 1)
+    setSelectedIndices([])
+    setSelectedCell(null)
+  }
+
+  const pasteImagesFromFiles = async (files: File[]) => {
+    const imageFiles = files.filter(isImageFile)
+    if (imageFiles.length === 0) return
+
+    const base = lastCanvasPointerRef.current
+    const pageIndex = base?.pageIndex ?? selectedPage
+    const anchorX = base?.x ?? pageWidth / 2
+    const anchorY = base?.y ?? pageHeight / 2
+
+    for (let i = 0; i < imageFiles.length; i++) {
+      const file = imageFiles[i]
+      const dims = await getImageDimensions(file)
+      const rawW = dims?.width || 320
+      const rawH = dims?.height || 240
+      const maxSide = 420
+      const fit = Math.min(1, maxSide / Math.max(rawW, rawH))
+      const width = Math.max(20, Math.round(rawW * fit))
+      const height = Math.max(20, Math.round(rawH * fit))
+
+      const fd = new FormData()
+      fd.append('file', file)
+      try {
+        const r = await api.post('/media/upload', fd)
+        const url = r?.data?.url ? String(r.data.url) : ''
+        if (!url) continue
+        addImageBlock({
+          pageIndex,
+          url,
+          x: (anchorX + i * 20) - width / 2,
+          y: (anchorY + i * 20) - height / 2,
+          width,
+          height
+        })
+        await refreshGallery()
+      } catch {
+        setError('Échec du collage de l’image')
+      }
+    }
   }
 
   const pasteFromClipboard = () => {
@@ -2740,6 +2898,7 @@ export default function TemplateBuilder() {
                       position: 'relative',
                       margin: 0
                     }}
+                    onMouseMove={(e) => updateLastCanvasPointer(e, pageIndex)}
                     onClick={() => setSelectedPage(pageIndex)}
                   >
                     <div className="page-margins" />
