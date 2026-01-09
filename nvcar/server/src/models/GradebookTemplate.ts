@@ -11,15 +11,15 @@ import { randomUUID } from 'crypto'
  */
 const blockSchema = new Schema({
   type: { type: String, required: true },
-  props: { 
-    type: Schema.Types.Mixed, 
+  props: {
+    type: Schema.Types.Mixed,
     default: () => ({ blockId: randomUUID() }),
     // Ensure blockId is always present via pre-save hook
   },
 })
 
 // Pre-validate hook to ensure every block has a stable blockId
-blockSchema.pre('validate', function(next) {
+blockSchema.pre('validate', function (next) {
   if (!this.props) {
     this.props = {}
   }
@@ -59,7 +59,8 @@ const templateSchema = new Schema({
       watermark: { type: Schema.Types.Mixed },
       createdAt: { type: Date, required: true },
       createdBy: { type: String, required: true },
-      changeDescription: { type: String }
+      changeDescription: { type: String },
+      saveType: { type: String, enum: ['manual', 'auto'], default: 'manual' }
     }],
     default: []
   }

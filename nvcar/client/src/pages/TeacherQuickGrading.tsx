@@ -21,6 +21,7 @@ type TextRow = {
     pageIndex: number
     blockIndex: number
     rowIndex?: number
+    title?: string
     label: string
     level?: string
     items: LanguageItem[]
@@ -75,6 +76,36 @@ export default function TeacherQuickGrading() {
         template.pages.forEach((page: any, pageIdx: number) => {
             if (!page?.blocks) return
 
+            const findClosestTitleText = (currentBlockIndex: number, currentY: number, currentX?: number) => {
+                const blocks = page.blocks || []
+                const candidates = blocks
+                    .slice(0, Math.max(0, currentBlockIndex))
+                    .filter((b: any) => b?.type === 'text' && b?.props && typeof b.props.text === 'string')
+                    .map((b: any) => ({
+                        text: (b.props.text || '').trim(),
+                        x: typeof b.props.x === 'number' ? b.props.x : Number(b.props.x ?? 0),
+                        y: typeof b.props.y === 'number' ? b.props.y : Number(b.props.y ?? 0),
+                        fontSize: typeof b.props.fontSize === 'number' ? b.props.fontSize : Number(b.props.fontSize ?? 0)
+                    }))
+                    .filter((t: any) => {
+                        if (!t.text) return false
+                        const lower = t.text.toLowerCase()
+                        if (lower === 'titre' || lower === 'title') return false
+                        if (!(t.y <= currentY)) return false
+                        if (typeof currentX === 'number' && Number.isFinite(currentX) && Number.isFinite(t.x)) {
+                            if (Math.abs(t.x - currentX) > 600) return false
+                        }
+                        return true
+                    })
+
+                const nearby = candidates.filter((t: any) => t.fontSize >= 14 && (currentY - t.y) <= 700)
+                const pool = nearby.length > 0 ? nearby : candidates
+                if (pool.length === 0) return ''
+
+                const best = pool.reduce((acc: any, cur: any) => (cur.y > acc.y ? cur : acc), pool[0])
+                return best?.text || ''
+            }
+
             page.blocks.forEach((block: any, blockIdx: number) => {
                 if (!block?.props) return
 
@@ -104,11 +135,17 @@ export default function TeacherQuickGrading() {
                     )
 
                     if (filteredItems.length > 0) {
+                        const blockY = typeof block.props.y === 'number' ? block.props.y : Number(block.props.y ?? 0)
+                        const blockX = typeof block.props.x === 'number' ? block.props.x : Number(block.props.x ?? 0)
+                        const titleText = findClosestTitleText(blockIdx, blockY, blockX)
+                        const baseLabel = block.props.label || `Texte ${rows.length + 1}`
+
                         rows.push({
                             blockId,
                             pageIndex: pageIdx,
                             blockIndex: blockIdx,
-                            label: block.props.label || `Texte ${rows.length + 1}`,
+                            title: titleText || undefined,
+                            label: baseLabel,
                             level: blockLevel,
                             items: filteredItems
                         })
@@ -121,10 +158,30 @@ export default function TeacherQuickGrading() {
                     const expandedLanguages = block.props.expandedLanguages || []
                     const rowLanguages = block.props.rowLanguages || {}
                     const rowIds = Array.isArray(block.props.rowIds) ? block.props.rowIds : []
-                    const tableBlockId = typeof block.props.blockId === 'string' && block.props.blockId.trim() 
-                        ? block.props.blockId.trim() 
+                    const tableBlockId = typeof block.props.blockId === 'string' && block.props.blockId.trim()
+                        ? block.props.blockId.trim()
                         : null
                     const tableLevel = block.props.level
+                    const tableY = typeof block.props.y === 'number' ? block.props.y : Number(block.props.y ?? 0)
+                    const tableX = typeof block.props.x === 'number' ? block.props.x : Number(block.props.x ?? 0)
+
+                    // First, try to find the linked gradebook_pocket title block
+                    let tableTitleText = ''
+                    const titleBlockId = block.props.titleBlockId
+                    if (titleBlockId) {
+                        const linkedTitleBlock = page.blocks.find((b: any) => b?.props?.blockId === titleBlockId)
+                        if (linkedTitleBlock && linkedTitleBlock.type === 'gradebook_pocket') {
+                            tableTitleText = linkedTitleBlock.props?.number || ''
+                        }
+                    }
+                    // Fall back to expandedTitleText property on the table
+                    if (!tableTitleText && block.props.expandedTitleText) {
+                        tableTitleText = block.props.expandedTitleText
+                    }
+                    // Finally fall back to searching for nearby text blocks
+                    if (!tableTitleText) {
+                        tableTitleText = findClosestTitleText(blockIdx, tableY, tableX)
+                    }
 
                     // Skip if table has a specific level that doesn't match student
                     if (tableLevel && studentLevel && tableLevel !== studentLevel) return
@@ -139,17 +196,17 @@ export default function TeacherQuickGrading() {
                         if (!Array.isArray(rowLangs) || rowLangs.length === 0) return
 
                         // Build the data key for this row
-                        const rowId = typeof rowIds[rowIdx] === 'string' && rowIds[rowIdx].trim() 
-                            ? rowIds[rowIdx].trim() 
+                        const rowId = typeof rowIds[rowIdx] === 'string' && rowIds[rowIdx].trim()
+                            ? rowIds[rowIdx].trim()
                             : null
-                        const toggleKeyStable = tableBlockId && rowId 
-                            ? `table_${tableBlockId}_row_${rowId}` 
+                        const toggleKeyStable = tableBlockId && rowId
+                            ? `table_${tableBlockId}_row_${rowId}`
                             : null
                         const toggleKeyLegacy = `table_${pageIdx}_${blockIdx}_row_${rowIdx}`
                         const dataKey = toggleKeyStable || toggleKeyLegacy
 
                         // Get saved items or use source
-                        const savedItems = toggleKeyStable 
+                        const savedItems = toggleKeyStable
                             ? (assignmentData?.[toggleKeyStable] || assignmentData?.[toggleKeyLegacy])
                             : assignmentData?.[toggleKeyLegacy]
 
@@ -173,6 +230,7 @@ export default function TeacherQuickGrading() {
                                 pageIndex: pageIdx,
                                 blockIndex: blockIdx,
                                 rowIndex: rowIdx,
+                                title: tableTitleText || undefined,
                                 label: rowLabel,
                                 level: tableLevel,
                                 items: filteredItems,
@@ -741,6 +799,17 @@ export default function TeacherQuickGrading() {
                             <tr style={{ background: '#f8fafc' }}>
                                 <th style={{
                                     padding: '14px 16px',
+                                    textAlign: 'center',
+                                    fontSize: 14,
+                                    fontWeight: 600,
+                                    color: '#475569',
+                                    borderBottom: '2px solid #e2e8f0',
+                                    width: 80
+                                }}>
+                                    Titre
+                                </th>
+                                <th style={{
+                                    padding: '14px 16px',
                                     textAlign: 'left',
                                     fontSize: 14,
                                     fontWeight: 600,
@@ -765,7 +834,7 @@ export default function TeacherQuickGrading() {
                         <tbody>
                             {filteredRows.length === 0 ? (
                                 <tr>
-                                    <td colSpan={2} style={{
+                                    <td colSpan={3} style={{
                                         padding: 40,
                                         textAlign: 'center',
                                         color: '#94a3b8',
@@ -788,6 +857,30 @@ export default function TeacherQuickGrading() {
                                             onMouseEnter={e => e.currentTarget.style.background = '#f0f4ff'}
                                             onMouseLeave={e => e.currentTarget.style.background = idx % 2 === 0 ? '#fff' : '#f8fafc'}
                                         >
+                                            <td style={{
+                                                padding: '12px 16px',
+                                                borderBottom: '1px solid #e2e8f0',
+                                                textAlign: 'center',
+                                                verticalAlign: 'middle'
+                                            }}>
+                                                {row.title && (
+                                                    <span style={{
+                                                        display: 'inline-flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        width: 36,
+                                                        height: 36,
+                                                        borderRadius: '50%',
+                                                        background: 'linear-gradient(135deg, #6c5ce7 0%, #a29bfe 100%)',
+                                                        color: '#fff',
+                                                        fontWeight: 700,
+                                                        fontSize: 14,
+                                                        boxShadow: '0 2px 6px rgba(108, 92, 231, 0.3)'
+                                                    }}>
+                                                        {row.title}
+                                                    </span>
+                                                )}
+                                            </td>
                                             <td style={{
                                                 padding: '12px 16px',
                                                 borderBottom: '1px solid #e2e8f0',

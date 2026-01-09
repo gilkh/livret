@@ -177,7 +177,8 @@ templatePropagationRouter.patch('/:templateId', requireAuth(['ADMIN']), async (r
         const {
             templateData,
             propagateToAssignmentIds,
-            changeDescription
+            changeDescription,
+            saveType
         } = req.body
 
         const userId = (req as any).user.actualUserId || (req as any).user.userId
@@ -219,7 +220,8 @@ templatePropagationRouter.patch('/:templateId', requireAuth(['ADMIN']), async (r
                 watermark: rest.watermark !== undefined ? rest.watermark : currentTemplate.watermark,
                 createdAt: new Date(),
                 createdBy: userId,
-                changeDescription: changeDescription || `Version ${newVersion}`
+                changeDescription: changeDescription || `Version ${newVersion}`,
+                saveType: saveType || 'manual'
             }
 
             currentTemplate.versionHistory.push(newHistoryEntry)

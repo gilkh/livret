@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../api'
 import { useSchoolYear } from '../context/SchoolYearContext'
+import Toast from '../components/Toast'
 import './AdminSettings.css'
 
 // Icons as components for cleaner code
@@ -25,9 +26,10 @@ const Icons = {
   Clock: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>,
   Save: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" /><polyline points="17 21 17 13 7 13 7 21" /><polyline points="7 3 7 8 15 8" /></svg>,
   Folder: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></svg>,
+  Bell: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" /></svg>,
 }
 
-type SectionId = 'status' | 'monitoring' | 'year' | 'access' | 'teacher' | 'smtp' | 'signature' | 'database' | 'maintenance' | 'sandbox'
+type SectionId = 'status' | 'monitoring' | 'year' | 'access' | 'teacher' | 'smtp' | 'signature' | 'database' | 'maintenance' | 'sandbox' | 'notiftest'
 
 interface NavItem {
   id: SectionId
@@ -48,6 +50,7 @@ const navItems: NavItem[] = [
   { id: 'signature', label: 'Restrictions Signature', icon: 'FileText', color: '#ff9f43', description: 'Règles sous-admin' },
   { id: 'database', label: 'Base de Données', icon: 'Database', color: '#3498db', description: 'Sauvegardes' },
   { id: 'maintenance', label: 'Maintenance', icon: 'Tool', color: '#fd79a8', description: 'Outils système' },
+  { id: 'notiftest', label: 'Test Notification', icon: 'Bell', color: '#f59e0b', description: 'Tester le popup session' },
 ]
 
 export default function AdminSettings() {
@@ -80,6 +83,8 @@ export default function AdminSettings() {
   const [systemStatus, setSystemStatus] = useState<{ backend: string; database: string; uptime: number } | null>(null)
   const [backups, setBackups] = useState<{ name: string, size: number, date: string }[]>([])
   const [emptyClickCount, setEmptyClickCount] = useState(0)
+  const [testToast, setTestToast] = useState<{ message: string; type: 'info' | 'success' | 'error'; actionLabel?: string; onAction?: () => void } | null>(null)
+  const [testExtending, setTestExtending] = useState(false)
 
   // SMTP
   const [smtpHost, setSmtpHost] = useState('')
@@ -579,6 +584,48 @@ export default function AdminSettings() {
               )}
             </div>
           </SectionCard>
+
+          {/* Notification Test */}
+          <SectionCard id="notiftest">
+            <div className="setting-item">
+              <div className="setting-info">
+                <h3>🔔 Tester la Notification de Session</h3>
+                <p>Simulez la notification d'expiration de session qui apparaît 5 minutes avant la fin. Cela vous permet de voir l'apparence et de tester le bouton "+30 min".</p>
+              </div>
+              <button
+                className="settings-btn primary"
+                onClick={() => {
+                  setTestToast({
+                    message: 'Votre session expirera dans 5 minutes.',
+                    type: 'info',
+                    actionLabel: 'Prolonger +30 min',
+                    onAction: () => {
+                      setTestExtending(true)
+                      setTimeout(() => {
+                        setTestToast({
+                          message: 'Session prolongée de 30 minutes ! (Simulation)',
+                          type: 'success'
+                        })
+                        setTestExtending(false)
+                        setTimeout(() => setTestToast(null), 4000)
+                      }, 1000)
+                    }
+                  })
+                }}
+              >
+                🔔 Afficher la Notification Test
+              </button>
+            </div>
+            <div className="setting-item" style={{ background: '#fef3c7', borderColor: '#fcd34d' }}>
+              <div className="setting-info">
+                <h3 style={{ color: '#b45309' }}>ℹ️ À propos de cette notification</h3>
+                <p style={{ color: '#92400e' }}>
+                  La notification apparaît maintenant en <strong>haut à droite</strong> de l'écran et est plus grande et visible.
+                  Elle s'affiche automatiquement 5 minutes avant l'expiration de votre session réelle.
+                </p>
+              </div>
+            </div>
+          </SectionCard>
         </div>
       </main>
 
@@ -588,6 +635,19 @@ export default function AdminSettings() {
           {msgType === 'success' ? <Icons.Check /> : <Icons.AlertTriangle />}
           <span>{msg}</span>
         </div>
+      )}
+
+      {/* Test Toast for Session Notification */}
+      {testToast && (
+        <Toast
+          message={testToast.message}
+          type={testToast.type}
+          duration={59000}
+          onClose={() => setTestToast(null)}
+          actionLabel={testToast.actionLabel}
+          onAction={testToast.onAction}
+          actionDisabled={testExtending}
+        />
       )}
     </div>
   )

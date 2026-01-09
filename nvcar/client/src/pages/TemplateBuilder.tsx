@@ -8,6 +8,7 @@ import { useSchoolYear } from '../context/SchoolYearContext'
 import { GradebookPocket } from '../components/GradebookPocket'
 import { TemplatePropagationModal } from '../components/TemplatePropagationModal'
 import { TemplateHistoryModal } from '../components/TemplateHistoryModal'
+import { TemplateStateHistoryModal } from '../components/TemplateStateHistoryModal'
 
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
@@ -74,10 +75,10 @@ const inferTableBorderStyle = (props: any): { color: string; width: number; foun
         const b = borders?.[side]
         if (b && typeof b === 'object' && ('width' in b || 'color' in b)) {
           // Found a border definition - return it even if width is 0
-          return { 
-            color: String(b?.color || '#000000'), 
+          return {
+            color: String(b?.color || '#000000'),
             width: Number(b?.width ?? 0),
-            found: true 
+            found: true
           }
         }
       }
@@ -124,6 +125,12 @@ export default function TemplateBuilder() {
   const [textSelection, setTextSelection] = useState<{ start: number; end: number } | null>(null)
   const lastCanvasPointerRef = useRef<{ pageIndex: number; x: number; y: number } | null>(null)
   const imagePasteHandledRef = useRef(false)
+
+  // Auto-save state
+  const [autoSaveEnabled, setAutoSaveEnabled] = useState(true)
+  const autoSaveIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const lastAutoSaveRef = useRef<string>('')
+  const AUTO_SAVE_INTERVAL = 5 * 60 * 1000 // 5 minutes
 
   // Undo/Redo History State
   const [history, setHistory] = useState<Template[]>([])
@@ -428,6 +435,57 @@ export default function TemplateBuilder() {
     }
   }, [tpl, viewMode, socket])
 
+  // Auto-save effect
+  useEffect(() => {
+    if (viewMode !== 'edit' || !tpl._id || !autoSaveEnabled) {
+      // Clear any existing interval
+      if (autoSaveIntervalRef.current) {
+        clearInterval(autoSaveIntervalRef.current)
+        autoSaveIntervalRef.current = null
+      }
+      return
+    }
+
+    // Set up auto-save interval
+    autoSaveIntervalRef.current = setInterval(async () => {
+      const currentTplJson = JSON.stringify(tpl)
+      // Only auto-save if there have been changes since last save
+      if (currentTplJson === lastAutoSaveRef.current) {
+        return
+      }
+
+      try {
+        // Check if there are existing assignments
+        const checkRes = await api.get(`/template-propagation/${tpl._id}/assignments`)
+        if (checkRes.data.totalCount > 0) {
+          // Has assignments - use propagation endpoint with 'all' and auto-save description
+          await api.patch(`/template-propagation/${tpl._id}`, {
+            templateData: tpl,
+            propagateToAssignmentIds: 'all',
+            changeDescription: `Auto-save ${new Date().toLocaleString('fr-FR')}`,
+            saveType: 'auto'
+          })
+        } else {
+          // No assignments - simple save
+          await api.patch(`/templates/${tpl._id}`, { ...tpl, saveType: 'auto' })
+        }
+        lastAutoSaveRef.current = currentTplJson
+        setSaveStatus('✓ Auto-saved')
+        setTimeout(() => setSaveStatus(''), 2000)
+      } catch (e) {
+        console.error('[AutoSave] Error:', e)
+        // Don't show error for auto-save failures - it's silent
+      }
+    }, AUTO_SAVE_INTERVAL)
+
+    return () => {
+      if (autoSaveIntervalRef.current) {
+        clearInterval(autoSaveIntervalRef.current)
+        autoSaveIntervalRef.current = null
+      }
+    }
+  }, [viewMode, tpl._id, autoSaveEnabled, tpl])
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -522,6 +580,7 @@ export default function TemplateBuilder() {
   const [newTemplateName, setNewTemplateName] = useState('')
   const [showPropagationModal, setShowPropagationModal] = useState(false)
   const [showHistoryModal, setShowHistoryModal] = useState(false)
+  const [showTemplateStateHistoryModal, setShowTemplateStateHistoryModal] = useState(false)
   const [pendingSave, setPendingSave] = useState(false)
 
   // Exported packages modal
@@ -959,9 +1018,9 @@ export default function TemplateBuilder() {
 
     // Always infer border style directly from the current table cells
     const currentInferred = inferTableBorderStyle(block.props)
-    const style = buildExpandedTableDesignFromTableProps(block.props, { 
-      globalBorderColor: currentInferred.color, 
-      globalBorderWidth: currentInferred.width 
+    const style = buildExpandedTableDesignFromTableProps(block.props, {
+      globalBorderColor: currentInferred.color,
+      globalBorderWidth: currentInferred.width
     })
     const existing = expandedTableDesignPresets.find(p => p.name.toLowerCase() === name.toLowerCase())
     const id = existing?.id || ((window.crypto as any).randomUUID ? (window.crypto as any).randomUUID() : Math.random().toString(36).substring(2, 11))
@@ -2262,25 +2321,87 @@ export default function TemplateBuilder() {
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          {/* History Button */}
+          {/* Auto-save Toggle */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '8px 14px',
+            background: autoSaveEnabled ? '#ecfdf5' : '#f9fafb',
+            border: `1px solid ${autoSaveEnabled ? '#a7f3d0' : '#e5e7eb'}`,
+            borderRadius: 8
+          }}>
+            <span style={{ fontSize: 14, color: '#6b7280' }}>Auto Save</span>
+            <button
+              onClick={() => setAutoSaveEnabled(!autoSaveEnabled)}
+              style={{
+                width: 44,
+                height: 24,
+                borderRadius: 12,
+                border: 'none',
+                background: autoSaveEnabled ? '#10b981' : '#d1d5db',
+                cursor: 'pointer',
+                position: 'relative',
+                transition: 'background 0.2s'
+              }}
+            >
+              <div style={{
+                position: 'absolute',
+                top: 2,
+                left: autoSaveEnabled ? 22 : 2,
+                width: 20,
+                height: 20,
+                borderRadius: '50%',
+                background: '#fff',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                transition: 'left 0.2s'
+              }} />
+            </button>
+          </div>
+
+          <div style={{ height: 24, width: 1, background: '#e0e0e0' }} />
+
+          {/* Student Gradebook History Button */}
           {tpl._id && (
             <button
               className="btn secondary"
               onClick={() => setShowHistoryModal(true)}
-              title="Voir l'historique des versions"
+              title="Voir l'historique des carnets élèves"
               style={{
-                padding: '12px 20px',
-                fontSize: 15,
+                padding: '10px 16px',
+                fontSize: 14,
                 fontWeight: 600,
                 display: 'flex',
                 alignItems: 'center',
                 gap: 8,
-                background: '#f3f4f6',
-                border: '1px solid #e5e7eb',
-                color: '#374151'
+                background: '#faf5ff',
+                border: '1px solid #e9d5ff',
+                color: '#7c3aed'
               }}
             >
-              📜 Historique
+              👥 Student Gradebook History
+            </button>
+          )}
+
+          {/* Template History Button */}
+          {tpl._id && (
+            <button
+              className="btn secondary"
+              onClick={() => setShowTemplateStateHistoryModal(true)}
+              title="Voir l'historique des sauvegardes du template"
+              style={{
+                padding: '10px 16px',
+                fontSize: 14,
+                fontWeight: 600,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                background: '#eff6ff',
+                border: '1px solid #bfdbfe',
+                color: '#2563eb'
+              }}
+            >
+              🗂️ Template History
             </button>
           )}
 
@@ -2292,6 +2413,8 @@ export default function TemplateBuilder() {
                 setError('');
                 setSaveStatus('');
                 await save();
+                // Update the last auto-save ref so we don't auto-save immediately after manual save
+                lastAutoSaveRef.current = JSON.stringify(tpl)
                 setSaveStatus('Enregistré avec succès');
                 setTimeout(() => setSaveStatus(''), 3000);
                 await loadTemplates()
@@ -3941,7 +4064,7 @@ export default function TemplateBuilder() {
                   </button>
                 )}
               </div>
-              
+
               {/* Multi-selection alignment tools */}
               {selectedIndices.length > 1 && (
                 <div style={{ marginBottom: 16, padding: 12, background: '#f0f4ff', borderRadius: 10 }}>
@@ -3966,7 +4089,7 @@ export default function TemplateBuilder() {
                         updateTpl({ ...tpl, pages })
                       }}
                     >⬅️ Gauche</button>
-                    
+
                     {/* Align Center Horizontal to First */}
                     <button
                       className="btn secondary"
@@ -3987,7 +4110,7 @@ export default function TemplateBuilder() {
                         updateTpl({ ...tpl, pages })
                       }}
                     >↔️ Centre H</button>
-                    
+
                     {/* Align Right to First */}
                     <button
                       className="btn secondary"
@@ -4027,7 +4150,7 @@ export default function TemplateBuilder() {
                         updateTpl({ ...tpl, pages })
                       }}
                     >⬆️ Haut</button>
-                    
+
                     {/* Align Center Vertical to First */}
                     <button
                       className="btn secondary"
@@ -4048,7 +4171,7 @@ export default function TemplateBuilder() {
                         updateTpl({ ...tpl, pages })
                       }}
                     >↕️ Centre V</button>
-                    
+
                     {/* Align Bottom to First */}
                     <button
                       className="btn secondary"
@@ -4070,7 +4193,7 @@ export default function TemplateBuilder() {
                       }}
                     >⬇️ Bas</button>
                   </div>
-                  
+
                   <div style={{ fontSize: 11, fontWeight: 700, color: '#6c757d', marginBottom: 10, marginTop: 12, textTransform: 'uppercase' }}>
                     Distribution
                   </div>
@@ -4086,7 +4209,7 @@ export default function TemplateBuilder() {
                         const pages = [...tpl.pages]
                         const page = { ...pages[selectedPage] }
                         const blocks = [...page.blocks]
-                        
+
                         // Sort by x position
                         const sorted = [...selectedIndices].sort((a, b) => (blocks[a].props.x || 0) - (blocks[b].props.x || 0))
                         const first = blocks[sorted[0]]
@@ -4095,19 +4218,19 @@ export default function TemplateBuilder() {
                         const endX = (last.props.x || 0) + (last.props.width || 100)
                         const totalWidth = sorted.reduce((sum, i) => sum + (blocks[i].props.width || 100), 0)
                         const gap = (endX - startX - totalWidth) / (sorted.length - 1)
-                        
+
                         let currentX = startX
                         sorted.forEach(i => {
                           const w = blocks[i].props.width || 100
                           blocks[i] = { ...blocks[i], props: { ...blocks[i].props, x: currentX } }
                           currentX += w + gap
                         })
-                        
+
                         pages[selectedPage] = { ...page, blocks }
                         updateTpl({ ...tpl, pages })
                       }}
                     >↔️ Espacer H</button>
-                    
+
                     {/* Distribute Vertically */}
                     <button
                       className="btn secondary"
@@ -4119,7 +4242,7 @@ export default function TemplateBuilder() {
                         const pages = [...tpl.pages]
                         const page = { ...pages[selectedPage] }
                         const blocks = [...page.blocks]
-                        
+
                         // Sort by y position
                         const sorted = [...selectedIndices].sort((a, b) => (blocks[a].props.y || 0) - (blocks[b].props.y || 0))
                         const first = blocks[sorted[0]]
@@ -4128,19 +4251,19 @@ export default function TemplateBuilder() {
                         const endY = (last.props.y || 0) + (last.props.height || 100)
                         const totalHeight = sorted.reduce((sum, i) => sum + (blocks[i].props.height || 100), 0)
                         const gap = (endY - startY - totalHeight) / (sorted.length - 1)
-                        
+
                         let currentY = startY
                         sorted.forEach(i => {
                           const h = blocks[i].props.height || 100
                           blocks[i] = { ...blocks[i], props: { ...blocks[i].props, y: currentY } }
                           currentY += h + gap
                         })
-                        
+
                         pages[selectedPage] = { ...page, blocks }
                         updateTpl({ ...tpl, pages })
                       }}
                     >↕️ Espacer V</button>
-                    
+
                     {/* Center on Page */}
                     <button
                       className="btn secondary"
@@ -4150,7 +4273,7 @@ export default function TemplateBuilder() {
                         const pages = [...tpl.pages]
                         const page = { ...pages[selectedPage] }
                         const blocks = [...page.blocks]
-                        
+
                         // Calculate bounding box of selection
                         let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
                         selectedIndices.forEach(i => {
@@ -4164,17 +4287,17 @@ export default function TemplateBuilder() {
                           maxX = Math.max(maxX, x + w)
                           maxY = Math.max(maxY, y + h)
                         })
-                        
+
                         const selectionW = maxX - minX
                         const selectionH = maxY - minY
                         const offsetX = (pageWidth - selectionW) / 2 - minX
                         const offsetY = (pageHeight - selectionH) / 2 - minY
-                        
+
                         selectedIndices.forEach(i => {
                           const b = blocks[i]
                           blocks[i] = { ...blocks[i], props: { ...blocks[i].props, x: (b.props.x || 0) + offsetX, y: (b.props.y || 0) + offsetY } }
                         })
-                        
+
                         pages[selectedPage] = { ...page, blocks }
                         updateTpl({ ...tpl, pages })
                       }}
@@ -4751,7 +4874,7 @@ export default function TemplateBuilder() {
                                 const tableBlock = tpl.pages[selectedPage].blocks[selectedIndex]
                                 const tableX = tableBlock.props.x || 0
                                 const tableY = tableBlock.props.y || 0
-                                
+
                                 if (isExpanding) {
                                   const wantTitle = tableBlock.props.showExpandedTitle !== false
 
@@ -4769,7 +4892,7 @@ export default function TemplateBuilder() {
                                       return
                                     }
                                   }
-                                  
+
                                   const titleOffsetX = Number(tableBlock.props.titleOffsetX || 0)
                                   const titleOffsetY = Number(tableBlock.props.titleOffsetY || -265)
                                   const blockId = (window.crypto as any).randomUUID ? (window.crypto as any).randomUUID() : Math.random().toString(36).substring(2, 11)
@@ -4786,20 +4909,20 @@ export default function TemplateBuilder() {
                                       linkedTableBlockId: tableBlock.props.blockId
                                     }
                                   }
-                                  
+
                                   const pages = [...tpl.pages]
                                   const page = { ...pages[selectedPage] }
                                   const blocks = [...page.blocks]
-                                  
+
                                   // Update table with expandedRows and link to title
                                   blocks[selectedIndex] = {
                                     ...blocks[selectedIndex],
                                     props: { ...blocks[selectedIndex].props, expandedRows: true, titleBlockId: blockId, titleOffsetX, titleOffsetY, showExpandedTitle: true }
                                   }
-                                  
+
                                   // Add the title block
                                   blocks.push(titleBlock)
-                                  
+
                                   pages[selectedPage] = { ...page, blocks }
                                   updateTpl({ ...tpl, pages })
                                 } else {
@@ -4808,21 +4931,21 @@ export default function TemplateBuilder() {
                                   const pages = [...tpl.pages]
                                   const page = { ...pages[selectedPage] }
                                   let blocks = [...page.blocks]
-                                  
+
                                   // Update table to remove expandedRows
                                   blocks[selectedIndex] = {
                                     ...blocks[selectedIndex],
                                     props: { ...blocks[selectedIndex].props, expandedRows: false, titleBlockId: undefined }
                                   }
-                                  
+
                                   // Remove the title block if it exists
                                   if (titleBlockId) {
                                     blocks = blocks.filter(b => b.props.blockId !== titleBlockId)
                                   }
-                                  
+
                                   pages[selectedPage] = { ...page, blocks }
                                   updateTpl({ ...tpl, pages })
-                                  
+
                                   // Adjust selectedIndex if needed (if title was after table)
                                   const newSelectedIndex = blocks.findIndex(b => b.props.blockId === tableBlock.props.blockId)
                                   if (newSelectedIndex !== selectedIndex) {
@@ -6087,13 +6210,25 @@ export default function TemplateBuilder() {
         )
       }
 
-      {/* Template History Modal */}
+      {/* Template History Modal (Student Gradebook History) */}
       {
         showHistoryModal && tpl._id && (
           <TemplateHistoryModal
             templateId={tpl._id}
             templateName={tpl.name}
             onClose={() => setShowHistoryModal(false)}
+          />
+        )
+      }
+
+      {/* Template State History Modal */}
+      {
+        showTemplateStateHistoryModal && tpl._id && (
+          <TemplateStateHistoryModal
+            templateId={tpl._id}
+            templateName={tpl.name}
+            currentVersion={(tpl as any).currentVersion || 1}
+            onClose={() => setShowTemplateStateHistoryModal(false)}
           />
         )
       }

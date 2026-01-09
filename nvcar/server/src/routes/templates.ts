@@ -306,6 +306,50 @@ templatesRouter.delete('/exports/:fileName', requireAuth(['ADMIN', 'SUBADMIN']),
   }
 })
 
+// Get template state history (version snapshots)
+templatesRouter.get('/:id/state-history', requireAuth(['ADMIN']), async (req, res) => {
+  try {
+    const { id } = req.params
+    const template = await GradebookTemplate.findById(id).lean()
+    if (!template) return res.status(404).json({ error: 'not_found' })
+
+    const versionHistory = (template.versionHistory || []) as any[]
+
+    // Get unique user IDs from the history
+    const userIds = [...new Set(versionHistory.map(v => v.createdBy).filter(Boolean))]
+    const users = await User.find({ _id: { $in: userIds } }).lean()
+    const userMap = new Map(users.map(u => [String(u._id), u]))
+
+    // Build enriched history entries
+    const enrichedHistory = versionHistory.map((entry: any) => {
+      const user = entry.createdBy ? userMap.get(String(entry.createdBy)) : null
+      const pages = entry.pages || []
+      const blockCount = pages.reduce((sum: number, page: any) => sum + (page.blocks || []).length, 0)
+
+      return {
+        version: entry.version,
+        createdAt: entry.createdAt,
+        createdBy: entry.createdBy,
+        createdByName: user?.displayName || (user as any)?.username || 'Unknown',
+        changeDescription: entry.changeDescription || '',
+        saveType: entry.saveType || 'manual',
+        pageCount: pages.length,
+        blockCount
+      }
+    }).sort((a: any, b: any) => b.version - a.version) // Most recent first
+
+    res.json({
+      templateId: template._id,
+      templateName: template.name,
+      currentVersion: template.currentVersion || 1,
+      versionHistory: enrichedHistory
+    })
+  } catch (e: any) {
+    console.error('[templates] Error fetching state history:', e)
+    res.status(500).json({ error: 'fetch_failed', message: e.message })
+  }
+})
+
 templatesRouter.get('/:id', requireAuth(['ADMIN', 'SUBADMIN', 'AEFE', 'TEACHER']), async (req, res) => {
   const { id } = req.params
   const tpl = await withCache(`template-${id}`, () =>
