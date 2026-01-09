@@ -5,6 +5,7 @@ import { useSocket } from '../context/SocketContext'
 import { useLevels } from '../context/LevelContext'
 import { useSchoolYear } from '../context/SchoolYearContext'
 import ScrollToTopButton from '../components/ScrollToTopButton'
+import { GradebookPocket } from '../components/GradebookPocket'
 
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
@@ -673,6 +674,13 @@ export default function TeacherTemplateEditor() {
                                                     </div>
                                                 )}
                                                 {b.type === 'image' && <img src={fixUrl(b.props.url)} style={{ width: b.props.width || 120, height: b.props.height || 120, borderRadius: 8 }} alt="" />}
+                                                {b.type === 'gradebook_pocket' && (
+                                                    <GradebookPocket
+                                                        number={b.props.number || '1'}
+                                                        width={b.props.width || 120}
+                                                        fontSize={b.props.fontSize}
+                                                    />
+                                                )}
                                                 {b.type === 'rect' && <div style={{ width: b.props.width, height: b.props.height, background: b.props.color, borderRadius: b.props.radius || 8, border: b.props.stroke ? `${b.props.strokeWidth || 1}px solid ${b.props.stroke}` : 'none' }} />}
                                                 {b.type === 'circle' && <div style={{ width: (b.props.radius || 60) * 2, height: (b.props.radius || 60) * 2, background: b.props.color, borderRadius: '50%', border: b.props.stroke ? `${b.props.strokeWidth || 1}px solid ${b.props.stroke}` : 'none' }} />}
                                                 {b.type === 'language_toggle' && (

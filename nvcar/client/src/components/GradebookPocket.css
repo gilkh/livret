@@ -99,8 +99,8 @@
 .pocket-number {
   position: absolute;
   bottom: 30%; /* Adjusted position relative to image */
-  left: 25%;
-  transform: translateX(-50%);
+  left: 24%;
+  transform: none;
   color: var(--number-color);
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   font-weight: bold;

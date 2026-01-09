@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import api from '../api'
 import { useLevels } from '../context/LevelContext'
 import { useSocket } from '../context/SocketContext'
@@ -89,6 +89,7 @@ const inferTableBorderStyle = (props: any): { color: string; width: number; foun
 
 export default function TemplateBuilder() {
   const navigate = useNavigate()
+  const location = useLocation()
   const { levels } = useLevels()
   const { activeYearId } = useSchoolYear()
   const [viewMode, setViewMode] = useState<'list' | 'edit'>('list')
@@ -130,6 +131,7 @@ export default function TemplateBuilder() {
   const [autoSaveEnabled, setAutoSaveEnabled] = useState(true)
   const autoSaveIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const lastAutoSaveRef = useRef<string>('')
+  const lastAutoSaveTemplateIdRef = useRef<string>('')
   const AUTO_SAVE_INTERVAL = 5 * 60 * 1000 // 5 minutes
 
   // Undo/Redo History State
@@ -137,6 +139,87 @@ export default function TemplateBuilder() {
   const [historyIndex, setHistoryIndex] = useState(-1)
   const isUndoRedoAction = useRef(false)
   const lastSelectedBlockIdRef = useRef<string>('')
+
+  const tplJson = useMemo(() => JSON.stringify(tpl), [tpl])
+  const isDirty = viewMode === 'edit' && lastAutoSaveRef.current !== '' && tplJson !== lastAutoSaveRef.current
+
+  useEffect(() => {
+    if (viewMode !== 'edit') return
+
+    const id = tpl?._id || ''
+    if (id && lastAutoSaveTemplateIdRef.current !== id) {
+      lastAutoSaveTemplateIdRef.current = id
+      lastAutoSaveRef.current = tplJson
+    }
+  }, [viewMode, tpl?._id, tplJson])
+
+  useEffect(() => {
+    if (!isDirty) return
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [isDirty])
+
+  const lastHrefRef = useRef<string>('')
+  useEffect(() => {
+    lastHrefRef.current = typeof window !== 'undefined' ? window.location.href : ''
+  }, [location])
+
+  useEffect(() => {
+    if (!isDirty) return
+
+    const shouldIgnoreAnchor = (a: HTMLAnchorElement, e: MouseEvent) => {
+      if (e.defaultPrevented) return true
+      if (e.button !== 0) return true
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return true
+      const target = (a.getAttribute('target') || '').toLowerCase()
+      if (target && target !== '_self') return true
+      if (a.hasAttribute('download')) return true
+      const href = a.getAttribute('href') || ''
+      if (!href || href.startsWith('mailto:') || href.startsWith('tel:') || href.startsWith('javascript:')) return true
+      return false
+    }
+
+    const onClickCapture = (e: MouseEvent) => {
+      const target = e.target as Element | null
+      const a = target?.closest?.('a[href]') as HTMLAnchorElement | null
+      if (!a) return
+      if (shouldIgnoreAnchor(a, e)) return
+
+      try {
+        const href = a.getAttribute('href') || ''
+        const dest = new URL(href, window.location.href)
+        if (dest.origin !== window.location.origin) return
+
+        const ok = window.confirm('Vous avez des modifications non enregistrées. Quitter sans sauvegarder ?')
+        if (!ok) {
+          e.preventDefault()
+          e.stopPropagation()
+        }
+      } catch {
+        return
+      }
+    }
+
+    const onPopState = () => {
+      const ok = window.confirm('Vous avez des modifications non enregistrées. Quitter sans sauvegarder ?')
+      if (!ok) {
+        try {
+          window.history.pushState(null, '', lastHrefRef.current || window.location.href)
+        } catch { }
+      }
+    }
+
+    document.addEventListener('click', onClickCapture, true)
+    window.addEventListener('popstate', onPopState)
+    return () => {
+      document.removeEventListener('click', onClickCapture, true)
+      window.removeEventListener('popstate', onPopState)
+    }
+  }, [isDirty])
 
   useEffect(() => {
     try {
@@ -1403,12 +1486,18 @@ export default function TemplateBuilder() {
 
       // No assignments, proceed with normal save
       const r = await api.patch(`/templates/${tpl._id}`, tpl)
-      setTpl(normalizeTemplateNumbers(r.data))
+      const normalized = normalizeTemplateNumbers(r.data)
+      setTpl(normalized)
+      lastAutoSaveRef.current = JSON.stringify(normalized)
+      lastAutoSaveTemplateIdRef.current = String((normalized as any)?._id || '')
       setSaveStatus('✓ Sauvegardé')
       setTimeout(() => setSaveStatus(''), 3000)
     } else {
       const r = await api.post('/templates', tpl)
-      setTpl(normalizeTemplateNumbers(r.data))
+      const normalized = normalizeTemplateNumbers(r.data)
+      setTpl(normalized)
+      lastAutoSaveRef.current = JSON.stringify(normalized)
+      lastAutoSaveTemplateIdRef.current = String((normalized as any)?._id || '')
       setSaveStatus('✓ Créé')
       setTimeout(() => setSaveStatus(''), 3000)
     }
@@ -1423,7 +1512,10 @@ export default function TemplateBuilder() {
         propagateToAssignmentIds,
         changeDescription
       })
-      setTpl(normalizeTemplateNumbers(r.data.template))
+      const normalized = normalizeTemplateNumbers(r.data.template)
+      setTpl(normalized)
+      lastAutoSaveRef.current = JSON.stringify(normalized)
+      lastAutoSaveTemplateIdRef.current = String((normalized as any)?._id || '')
       setShowPropagationModal(false)
 
       const { propagation } = r.data
@@ -1514,7 +1606,10 @@ export default function TemplateBuilder() {
     try {
       setSaveStatus('Importation en cours...')
       const r = await api.post('/templates/import-pptx', fd)
-      setTpl(normalizeTemplateNumbers(r.data))
+      const normalized = normalizeTemplateNumbers(r.data)
+      setTpl(normalized)
+      lastAutoSaveRef.current = JSON.stringify(normalized)
+      lastAutoSaveTemplateIdRef.current = String((normalized as any)?._id || '')
       setSaveStatus('Importé avec succès')
       await loadTemplates()
     } catch (err) {
@@ -1531,7 +1626,10 @@ export default function TemplateBuilder() {
     try {
       const newTpl: Template = { name: newTemplateName, pages: [{ title: 'Page 1', blocks: [] }] }
       const r = await api.post('/templates', newTpl)
-      setTpl(normalizeTemplateNumbers(r.data))
+      const normalized = normalizeTemplateNumbers(r.data)
+      setTpl(normalized)
+      lastAutoSaveRef.current = JSON.stringify(normalized)
+      lastAutoSaveTemplateIdRef.current = String((normalized as any)?._id || '')
       setViewMode('edit')
       setShowCreateModal(false)
       setNewTemplateName('')
@@ -1716,7 +1814,10 @@ export default function TemplateBuilder() {
                 key={item._id}
                 className="card"
                 onClick={() => {
-                  setTpl(normalizeTemplateNumbers(item));
+                  const normalized = normalizeTemplateNumbers(item)
+                  setTpl(normalized);
+                  lastAutoSaveRef.current = JSON.stringify(normalized)
+                  lastAutoSaveTemplateIdRef.current = String((normalized as any)?._id || '')
                   setViewMode('edit');
                   setSelectedPage(0);
                   setSelectedIndex(null)
@@ -2275,7 +2376,14 @@ export default function TemplateBuilder() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
           <button
             className="btn secondary"
-            onClick={() => { setViewMode('list'); loadTemplates() }}
+            onClick={() => {
+              if (isDirty) {
+                const ok = window.confirm('Vous avez des modifications non enregistrées. Quitter sans sauvegarder ?')
+                if (!ok) return
+              }
+              setViewMode('list');
+              loadTemplates()
+            }}
             style={{
               padding: '10px 20px',
               display: 'flex',
@@ -2322,42 +2430,48 @@ export default function TemplateBuilder() {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           {/* Auto-save Toggle */}
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            padding: '8px 14px',
-            background: autoSaveEnabled ? '#ecfdf5' : '#f9fafb',
-            border: `1px solid ${autoSaveEnabled ? '#a7f3d0' : '#e5e7eb'}`,
-            borderRadius: 8
-          }}>
-            <span style={{ fontSize: 14, color: '#6b7280' }}>Auto Save</span>
-            <button
-              onClick={() => setAutoSaveEnabled(!autoSaveEnabled)}
-              style={{
-                width: 44,
-                height: 24,
-                borderRadius: 12,
-                border: 'none',
-                background: autoSaveEnabled ? '#10b981' : '#d1d5db',
-                cursor: 'pointer',
-                position: 'relative',
-                transition: 'background 0.2s'
-              }}
-            >
+          <button
+            onClick={() => setAutoSaveEnabled(!autoSaveEnabled)}
+            title={autoSaveEnabled ? "Désactiver l'enregistrement automatique" : "Activer l'enregistrement automatique"}
+            style={{
+              padding: '6px 12px 6px 16px',
+              height: 38,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              background: autoSaveEnabled ? 'rgba(85, 239, 196, 0.15)' : '#f8f9fa',
+              border: `1px solid ${autoSaveEnabled ? '#55efc4' : '#e2e8f0'}`,
+              color: autoSaveEnabled ? '#00b894' : '#636e72',
+              fontWeight: 600,
+              fontSize: 13,
+              borderRadius: 20,
+              transition: 'all 0.2s ease',
+              cursor: 'pointer'
+            }}
+          >
+            <span>Auto Save</span>
+            <div style={{
+              width: 32,
+              height: 18,
+              borderRadius: 12,
+              background: autoSaveEnabled ? '#00b894' : '#cbd5e0',
+              position: 'relative',
+              transition: 'background 0.2s ease',
+              flexShrink: 0
+            }}>
               <div style={{
                 position: 'absolute',
                 top: 2,
-                left: autoSaveEnabled ? 22 : 2,
-                width: 20,
-                height: 20,
+                left: autoSaveEnabled ? 16 : 2,
+                width: 14,
+                height: 14,
                 borderRadius: '50%',
                 background: '#fff',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-                transition: 'left 0.2s'
+                boxShadow: '0 1px 2px rgba(0,0,0,0.2)',
+                transition: 'all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)'
               }} />
-            </button>
-          </div>
+            </div>
+          </button>
 
           <div style={{ height: 24, width: 1, background: '#e0e0e0' }} />
 
@@ -2413,8 +2527,6 @@ export default function TemplateBuilder() {
                 setError('');
                 setSaveStatus('');
                 await save();
-                // Update the last auto-save ref so we don't auto-save immediately after manual save
-                lastAutoSaveRef.current = JSON.stringify(tpl)
                 setSaveStatus('Enregistré avec succès');
                 setTimeout(() => setSaveStatus(''), 3000);
                 await loadTemplates()
@@ -4905,7 +5017,7 @@ export default function TemplateBuilder() {
                                       blockId,
                                       width: 90,
                                       number: String(tableBlock.props.expandedTitleText || 'A'),
-                                      fontSize: 20,
+                                      fontSize: 18,
                                       linkedTableBlockId: tableBlock.props.blockId
                                     }
                                   }
@@ -5018,7 +5130,7 @@ export default function TemplateBuilder() {
                                         blockId: nextBlockId,
                                         width: 90,
                                         number: String(tableBlock.props.expandedTitleText || 'A'),
-                                        fontSize: 20,
+                                        fontSize: 18,
                                         linkedTableBlockId: tableBlock.props.blockId
                                       }
                                     }
