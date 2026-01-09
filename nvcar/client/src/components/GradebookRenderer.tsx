@@ -623,6 +623,9 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                                         return <div>{student?.lastName}</div>
                                                     } else if (b.props.field === 'year') {
                                                         return <div>{getPromotionYearLabel(promo, blockLevel)}</div>
+                                                    } else if (b.props.field === 'currentYear') {
+                                                        const label = activeSchoolYearName || (activeYear ? activeYear.name : null) || promo.year || ''
+                                                        return <div>{String(label)}</div>
                                                     } else if (b.props.field === 'class') {
                                                         const raw = promo.class || ''
                                                         const parts = raw.split(/\s*[-\s]\s*/)

@@ -1403,6 +1403,9 @@ export default function TeacherTemplateEditor() {
                                                                     return <div>{student?.lastName}</div>
                                                                 } else if (b.props.field === 'year') {
                                                                     return <div>{yearLabel}</div>
+                                                                } else if (b.props.field === 'currentYear') {
+                                                                    const label = activeYear?.name || promo.year || ''
+                                                                    return <div>{String(label)}</div>
                                                                 } else if (b.props.field === 'class') {
                                                                     const raw = promo.class || ''
                                                                     const parts = raw.split(/\s*[-\s]\s*/)

@@ -554,6 +554,7 @@ export default function TemplateBuilder() {
     { type: 'promotion_info', props: { field: 'class', width: 100, height: 30, fontSize: 12, color: '#2d3436', label: 'Classe' } },
     { type: 'promotion_info', props: { field: 'level', width: 150, height: 30, fontSize: 12, color: '#2d3436', label: 'Niveau Suivant (Passage)' } },
     { type: 'promotion_info', props: { field: 'year', width: 120, height: 30, fontSize: 12, color: '#2d3436', label: 'Année Suivante' } },
+    { type: 'promotion_info', props: { field: 'currentYear', width: 120, height: 30, fontSize: 12, color: '#2d3436', label: 'Année Actuelle' } },
 
     // Legacy Final Signature Info (kept for compatibility but updated label)
     { type: 'final_signature_info', props: { field: 'nextLevel', width: 150, height: 30, fontSize: 12, color: '#2d3436', label: 'Info (Legacy) - Niveau Suivant', placeholder: '...' } },
@@ -3200,8 +3201,10 @@ export default function TemplateBuilder() {
                                 const m = selectedYear?.name?.match(/(\d{4})/)
                                 if (!m) return null
                                 const startYear = parseInt(m[1], 10)
+                                const currentYearStr = `${startYear}/${startYear + 1}`
                                 const nextStart = startYear + 1
-                                const yearStr = `Next Year ${nextStart}/${nextStart + 1}`
+                                const nextYearStr = `${nextStart}/${nextStart + 1}`
+                                const yearStr = `Next Year ${nextYearStr}`
 
                                 if (!b.props.field) {
                                   return (
@@ -3222,6 +3225,7 @@ export default function TemplateBuilder() {
                                 if (b.props.field === 'studentFirstName') return <div>{s ? s.firstName : '(Prénom)'}</div>
                                 if (b.props.field === 'studentLastName') return <div>{s ? s.lastName : '(Nom de famille)'}</div>
                                 if (b.props.field === 'year') return <div>{yearStr}</div>
+                                if (b.props.field === 'currentYear') return <div>{currentYearStr}</div>
                                 if (b.props.field === 'class') return <div>{className || (studentId ? '' : '(Classe)')}</div>
                                 if (b.props.field === 'currentLevel') return <div>{currentLevel || '(Niveau)'}</div>
 
@@ -5579,7 +5583,8 @@ export default function TemplateBuilder() {
                         <option value="">-- Complet (Bloc résumé) --</option>
                         <option value="currentLevel">Niveau Actuel (ex: PS)</option>
                         <option value="nextLevel">Niveau Suivant (ex: MS)</option>
-                        <option value="year">Année Scolaire (ex: 2025/2026)</option>
+                        <option value="year">Année Suivante (ex: 2026/2027)</option>
+                        <option value="currentYear">Année Actuelle (ex: 2025/2026)</option>
                         <option value="class">Classe (ex: A)</option>
                         <option value="student">Nom complet de l'élève</option>
                         <option value="studentFirstName">Prénom de l'élève</option>
