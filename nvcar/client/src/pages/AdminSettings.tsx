@@ -341,7 +341,6 @@ export default function AdminSettings() {
       <aside className={`settings-sidebar ${mobileMenuOpen ? 'open' : ''}`}>
         <div className="settings-sidebar-header">
           <h1 className="settings-sidebar-title"><Icons.Settings /> Paramètres</h1>
-          <p className="settings-sidebar-subtitle">Configuration système</p>
         </div>
         {navItems.map(item => {
           const Icon = Icons[item.icon]
