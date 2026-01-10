@@ -52,6 +52,7 @@ import AdminMonitoring from './pages/AdminMonitoring'
 import SystemAlertBanner from './components/SystemAlertBanner'
 import SimulationLab from './pages/SimulationLab'
 import Toast, { ToastType } from './components/Toast'
+import MobileBlocker from './components/MobileBlocker'
 
 const RequireAuth = ({ children }: { children: JSX.Element }) => {
   const location = useLocation()
@@ -88,6 +89,11 @@ export default function App() {
     actionLabel?: string;
     onAction?: () => void;
   } | null>(null)
+
+  // Mobile blocking settings
+  const [mobileBlockEnabled, setMobileBlockEnabled] = useState(false)
+  const [mobileMinWidth, setMobileMinWidth] = useState(1024)
+  const [schoolName, setSchoolName] = useState('')
 
   const sessionTimersRef = useRef<number[]>([])
 
@@ -146,6 +152,22 @@ export default function App() {
     return () => window.clearInterval(id)
   }, [])
 
+  // Fetch mobile blocking settings from public endpoint
+  useEffect(() => {
+    const fetchMobileSettings = async () => {
+      try {
+        const res = await api.get('/settings/public')
+        setMobileBlockEnabled(res.data.mobile_block_enabled === true)
+        setMobileMinWidth(res.data.mobile_min_width || 1024)
+        setSchoolName(res.data.school_name || '')
+      } catch (err) {
+        // If fetch fails, default to not blocking
+        console.error('Failed to fetch mobile settings:', err)
+      }
+    }
+    fetchMobileSettings()
+  }, [])
+
   useEffect(() => {
     sessionTimersRef.current.forEach(id => window.clearTimeout(id))
     sessionTimersRef.current = []
@@ -196,6 +218,9 @@ export default function App() {
 
   return (
     <>
+      {/* Mobile blocker overlay - shows when screen is too small */}
+      {mobileBlockEnabled && <MobileBlocker minWidth={mobileMinWidth} schoolName={schoolName} />}
+
       <SystemAlertBanner />
       {showNavBar && (
         <>

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useLevels } from '../context/LevelContext'
 import { useSchoolYear } from '../context/SchoolYearContext'
+import { GradebookPocket } from './GradebookPocket'
 
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
@@ -376,6 +377,13 @@ export default function TemplateReviewPreview({ template, student, assignment, s
                                         {b.type === 'image' && <img src={b.props.url} style={{ width: b.props.width || 120, height: b.props.height || 120, borderRadius: 8 }} alt="" />}
                                         {b.type === 'rect' && <div style={{ width: b.props.width, height: b.props.height, background: b.props.color, borderRadius: b.props.radius || 8, border: b.props.stroke ? `${b.props.strokeWidth || 1}px solid ${b.props.stroke}` : 'none' }} />}
                                         {b.type === 'circle' && <div style={{ width: (b.props.radius || 60) * 2, height: (b.props.radius || 60) * 2, background: b.props.color, borderRadius: '50%', border: b.props.stroke ? `${b.props.strokeWidth || 1}px solid ${b.props.stroke}` : 'none' }} />}
+                                        {b.type === 'gradebook_pocket' && (
+                                            <GradebookPocket
+                                                number={b.props.number || '1'}
+                                                width={b.props.width || 120}
+                                                fontSize={b.props.fontSize}
+                                            />
+                                        )}
                                         {b.type === 'language_toggle' && (
                                             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: b.props.spacing || 12 }}>
                                                 {(b.props.items || []).map((it: any, i: number) => {
@@ -606,7 +614,7 @@ export default function TemplateReviewPreview({ template, student, assignment, s
                                                                 </>
                                                             )
                                                         } else if (b.props.field === 'level') {
-                                                            return <div style={{ fontWeight: 'bold' }}>Passage en {promo.to}</div>
+                                                            return <div style={{ fontWeight: 'bold' }}>{promo.to}</div>
                                                         } else if (b.props.field === 'student') {
                                                             return <div>{student?.firstName} {student?.lastName}</div>
                                                         } else if (b.props.field === 'studentFirstName') {

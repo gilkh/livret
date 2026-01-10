@@ -1,16 +1,18 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import api from '../api'
 import { useSocket } from '../context/SocketContext'
 import { useLevels } from '../context/LevelContext'
 import { useSchoolYear } from '../context/SchoolYearContext'
+import { GradebookPocket } from '../components/GradebookPocket'
 import Modal from '../components/Modal'
 import Toast, { ToastType } from '../components/Toast'
 import ScrollToTopButton from '../components/ScrollToTopButton'
+import ScrollPageDownButton from '../components/ScrollPageDownButton'
 
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
-type Template = { _id?: string; name: string; pages: Page[] }
+type Template = { _id?: string; name: string; pages: Page[]; signingPage?: number }
 type Student = { _id: string; firstName: string; lastName: string; level?: string; className?: string }
 type TeacherStatusCategory = {
     teachers: { id: string; name: string }[]
@@ -93,6 +95,12 @@ export default function SubAdminTemplateReview() {
     const [isFitToScreen, setIsFitToScreen] = useState(false)
     const containerRef = useRef<HTMLDivElement | null>(null)
 
+    const computeFitScale = () => {
+        const containerWidth = containerRef.current ? containerRef.current.clientWidth : window.innerWidth
+        const availableWidth = Math.max(0, Math.min(window.innerWidth, containerWidth) - 48)
+        return Math.min(1, availableWidth / pageWidth)
+    }
+
     // UI State
     const [toast, setToast] = useState<{ message: string, type: ToastType } | null>(null)
     const [confirmModal, setConfirmModal] = useState<{ isOpen: boolean, title: string, content: React.ReactNode, onConfirm: () => void } | null>(null)
@@ -110,14 +118,7 @@ export default function SubAdminTemplateReview() {
     useEffect(() => {
         const handleResize = () => {
             if (isFitToScreen) {
-                // 48px is approx padding/margins. Adjust if necessary.
-                // Prefer measuring the actual container width instead of the full window,
-                // because the viewer may be embedded inside a narrower pane (gradebooks view).
-                const availableWidth = containerRef.current
-                    ? Math.max(0, containerRef.current.clientWidth - 48)
-                    : window.innerWidth - 48
-                const scale = Math.min(1, availableWidth / pageWidth)
-                setZoomLevel(scale)
+                setZoomLevel(computeFitScale())
             }
         }
 
@@ -664,6 +665,44 @@ export default function SubAdminTemplateReview() {
     return (
         <div style={{ padding: 24 }}>
             <ScrollToTopButton />
+            <ScrollPageDownButton />
+            {template?.signingPage && (
+                <button
+                    onClick={() => {
+                        const pIndex = (template.signingPage || 1) - 1
+                        setSelectedPage(pIndex)
+                        if (continuousScroll) {
+                            setTimeout(() => {
+                                const pageElement = document.getElementById(`page-${pIndex}`)
+                                if (pageElement) {
+                                    pageElement.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                                }
+                            }, 100)
+                        }
+                    }}
+                    title="Aller à la page de signature"
+                    style={{
+                        position: 'fixed',
+                        right: '70px', // Left of the scroll buttons
+                        bottom: '30px',
+                        zIndex: 999,
+                        padding: '10px 16px',
+                        borderRadius: 24,
+                        background: '#3b82f6',
+                        color: 'white',
+                        border: 'none',
+                        boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+                        fontWeight: 600,
+                        fontSize: 14,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8
+                    }}
+                >
+                    ✍️ Signature Page
+                </button>
+            )}
             {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 
             <Modal
@@ -1004,6 +1043,7 @@ export default function SubAdminTemplateReview() {
                         className="btn secondary"
                         onClick={() => {
                             if (!isFitToScreen) {
+                                setZoomLevel(computeFitScale())
                                 setIsFitToScreen(true)
                             } else {
                                 setIsFitToScreen(false)
@@ -1235,6 +1275,13 @@ export default function SubAdminTemplateReview() {
                                                 {b.type === 'image' && <img src={b.props.url} style={{ width: b.props.width || 120, height: b.props.height || 120, borderRadius: 8 }} alt="" />}
                                                 {b.type === 'rect' && <div style={{ width: b.props.width, height: b.props.height, background: b.props.color, borderRadius: b.props.radius || 8, border: b.props.stroke ? `${b.props.strokeWidth || 1}px solid ${b.props.stroke}` : 'none' }} />}
                                                 {b.type === 'circle' && <div style={{ width: (b.props.radius || 60) * 2, height: (b.props.radius || 60) * 2, background: b.props.color, borderRadius: '50%', border: b.props.stroke ? `${b.props.strokeWidth || 1}px solid ${b.props.stroke}` : 'none' }} />}
+                                                {b.type === 'gradebook_pocket' && (
+                                                    <GradebookPocket
+                                                        number={b.props.number || '1'}
+                                                        width={b.props.width || 120}
+                                                        fontSize={b.props.fontSize}
+                                                    />
+                                                )}
                                                 {b.type === 'language_toggle' && (
                                                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: b.props.spacing || 12 }}>
                                                         {(b.props.items || []).map((it: any, i: number) => {
@@ -1571,7 +1618,7 @@ export default function SubAdminTemplateReview() {
                                                                         </>
                                                                     )
                                                                 } else if (b.props.field === 'level') {
-                                                                    return <div style={{ fontWeight: 'bold' }}>Passage en {promo.to}</div>
+                                                                    return <div style={{ fontWeight: 'bold' }}>{promo.to}</div>
                                                                 } else if (b.props.field === 'student') {
                                                                     return <div>{student?.firstName} {student?.lastName}</div>
                                                                 } else if (b.props.field === 'studentFirstName') {

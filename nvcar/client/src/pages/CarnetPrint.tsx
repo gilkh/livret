@@ -835,7 +835,7 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                                             </>
                                                         )
                                                     } else if (b.props.field === 'level') {
-                                                        return <div style={{ fontWeight: 'bold' }}>Passage en {promo.to}</div>
+                                                        return <div style={{ fontWeight: 'bold' }}>{promo.to}</div>
                                                     } else if (b.props.field === 'student') {
                                                         return <div>{student?.firstName} {student?.lastName}</div>
                                                     } else if (b.props.field === 'studentFirstName') {

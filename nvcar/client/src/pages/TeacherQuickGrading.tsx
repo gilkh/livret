@@ -14,6 +14,7 @@ type LanguageItem = {
     logo?: string
     active: boolean
     levels?: string[]
+    sourceIndex?: number // Original index in source items array
 }
 
 type TextRow = {
@@ -25,6 +26,7 @@ type TextRow = {
     label: string
     level?: string
     items: LanguageItem[]
+    sourceItems?: LanguageItem[] // All source items (unfiltered) for correct saving
     isTableRow?: boolean
     tableBlockId?: string | null
     rowId?: string | null
@@ -122,15 +124,17 @@ export default function TeacherQuickGrading() {
                         : `language_toggle_${pageIdx}_${blockIdx}`
 
                     const savedItems = assignmentData?.[dataKey]
-                    const sourceItems = block.props.items || []
+                    const sourceItemsRaw = block.props.items || []
 
-                    const items: LanguageItem[] = sourceItems.map((item: any, i: number) => ({
+                    // Build items with source indices for proper saving later
+                    const allItems: LanguageItem[] = sourceItemsRaw.map((item: any, i: number) => ({
                         ...item,
-                        active: savedItems?.[i]?.active ?? item.active ?? false
+                        active: savedItems?.[i]?.active ?? item.active ?? false,
+                        sourceIndex: i
                     }))
 
                     // Filter items by student level if they have level restrictions
-                    const filteredItems = items.filter(item =>
+                    const filteredItems = allItems.filter(item =>
                         !item.levels || item.levels.length === 0 || (studentLevel && item.levels.includes(studentLevel))
                     )
 
@@ -147,7 +151,8 @@ export default function TeacherQuickGrading() {
                             title: titleText || undefined,
                             label: baseLabel,
                             level: blockLevel,
-                            items: filteredItems
+                            items: filteredItems,
+                            sourceItems: allItems // Store all items for correct saving
                         })
                     }
                 }
@@ -210,13 +215,15 @@ export default function TeacherQuickGrading() {
                             ? (assignmentData?.[toggleKeyStable] || assignmentData?.[toggleKeyLegacy])
                             : assignmentData?.[toggleKeyLegacy]
 
-                        const items: LanguageItem[] = rowLangs.map((lang: any, i: number) => ({
+                        // Build items with source indices for proper saving later
+                        const allItems: LanguageItem[] = rowLangs.map((lang: any, i: number) => ({
                             ...lang,
-                            active: savedItems?.[i]?.active ?? lang.active ?? false
+                            active: savedItems?.[i]?.active ?? lang.active ?? false,
+                            sourceIndex: i
                         }))
 
                         // Filter items by student level if they have level restrictions (check both level and levels)
-                        const filteredItems = items.filter(item => {
+                        const filteredItems = allItems.filter(item => {
                             const itemLevel = (item as any).level
                             const itemLevels = item.levels
                             if (itemLevel && studentLevel && itemLevel !== studentLevel) return false
@@ -234,6 +241,7 @@ export default function TeacherQuickGrading() {
                                 label: rowLabel,
                                 level: tableLevel,
                                 items: filteredItems,
+                                sourceItems: allItems, // Store all items for correct saving
                                 isTableRow: true,
                                 tableBlockId,
                                 rowId
@@ -374,20 +382,38 @@ export default function TeacherQuickGrading() {
         setSavingItems(prev => new Set(prev).add(savingKey))
 
         try {
-            const newItems = row.items.map((it, i) =>
+            // Update the filtered items for display
+            const newFilteredItems = row.items.map((it, i) =>
                 i === itemIndex ? { ...it, active: !it.active } : it
             )
 
-            // Optimistic update
+            // Build the full source items array with the updated item at its correct position
+            // This ensures we save all items with correct indices, not just the filtered ones
+            const sourceItems = row.sourceItems || row.items
+            const itemToToggle = row.items[itemIndex]
+            const sourceIndex = itemToToggle.sourceIndex
+
+            const newSourceItems = sourceItems.map((it, i) => {
+                if (sourceIndex !== undefined && i === sourceIndex) {
+                    return { ...it, active: !it.active }
+                }
+                // Also check by matching the item if sourceIndex is not available
+                if (sourceIndex === undefined && it.code === itemToToggle.code) {
+                    return { ...it, active: !it.active }
+                }
+                return it
+            })
+
+            // Optimistic update for display
             setTextRows(prev => prev.map(r =>
-                r.blockId === row.blockId ? { ...r, items: newItems } : r
+                r.blockId === row.blockId ? { ...r, items: newFilteredItems, sourceItems: newSourceItems } : r
             ))
 
             // For table rows, use the /data endpoint
             if (row.isTableRow) {
                 const dataKey = row.blockId // blockId is already the data key for table rows
                 await api.patch(`/teacher/template-assignments/${assignmentId}/data`, {
-                    data: { [dataKey]: newItems }
+                    data: { [dataKey]: newSourceItems }
                 })
 
                 // Broadcast via socket
@@ -397,7 +423,7 @@ export default function TeacherQuickGrading() {
                         payload: {
                             type: 'assignment-data',
                             assignmentId,
-                            data: { [dataKey]: newItems }
+                            data: { [dataKey]: newSourceItems }
                         }
                     })
                 }
@@ -407,7 +433,7 @@ export default function TeacherQuickGrading() {
                     pageIndex: row.pageIndex,
                     blockIndex: row.blockIndex,
                     blockId: row.blockId,
-                    items: newItems
+                    items: newSourceItems
                 }
 
                 if (assignment?.dataVersion) {
@@ -432,7 +458,7 @@ export default function TeacherQuickGrading() {
                             type: 'language-toggle',
                             pageIndex: row.pageIndex,
                             blockIndex: row.blockIndex,
-                            items: newItems,
+                            items: newSourceItems,
                             changeId: res.data?.changeId,
                             dataVersion: res.data?.dataVersion
                         }
@@ -442,7 +468,7 @@ export default function TeacherQuickGrading() {
         } catch (e: any) {
             // Revert on error
             setTextRows(prev => prev.map(r =>
-                r.blockId === row.blockId ? { ...r, items: row.items } : r
+                r.blockId === row.blockId ? { ...r, items: row.items, sourceItems: row.sourceItems } : r
             ))
 
             if (e?.response?.status === 409) {
@@ -538,6 +564,17 @@ export default function TeacherQuickGrading() {
                 row.label.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').includes(q)
             )
         }
+
+        // Sort by title using natural/alphanumeric sorting (handles numbers properly)
+        result = [...result].sort((a, b) => {
+            const titleA = (a.title || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+            const titleB = (b.title || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+            // Items without title go to the end
+            if (!titleA && titleB) return 1
+            if (titleA && !titleB) return -1
+            // Use numeric collation so "o2" comes before "o10"
+            return titleA.localeCompare(titleB, 'fr', { numeric: true, sensitivity: 'base' })
+        })
 
         return result
     }, [textRows, search])
@@ -804,7 +841,8 @@ export default function TeacherQuickGrading() {
                                     fontWeight: 600,
                                     color: '#475569',
                                     borderBottom: '2px solid #e2e8f0',
-                                    width: 80
+                                    minWidth: 80,
+                                    maxWidth: 160
                                 }}>
                                     Titre
                                 </th>
@@ -864,19 +902,27 @@ export default function TeacherQuickGrading() {
                                                 verticalAlign: 'middle'
                                             }}>
                                                 {row.title && (
-                                                    <span style={{
-                                                        display: 'inline-flex',
-                                                        alignItems: 'center',
-                                                        justifyContent: 'center',
-                                                        width: 36,
-                                                        height: 36,
-                                                        borderRadius: '50%',
-                                                        background: 'linear-gradient(135deg, #6c5ce7 0%, #a29bfe 100%)',
-                                                        color: '#fff',
-                                                        fontWeight: 700,
-                                                        fontSize: 14,
-                                                        boxShadow: '0 2px 6px rgba(108, 92, 231, 0.3)'
-                                                    }}>
+                                                    <span
+                                                        title={row.title}
+                                                        style={{
+                                                            display: 'inline-flex',
+                                                            alignItems: 'center',
+                                                            justifyContent: 'center',
+                                                            minWidth: 32,
+                                                            height: 32,
+                                                            padding: row.title.length > 2 ? '4px 12px' : '4px 8px',
+                                                            borderRadius: row.title.length > 2 ? 16 : '50%',
+                                                            background: 'linear-gradient(135deg, #6c5ce7 0%, #a29bfe 100%)',
+                                                            color: '#fff',
+                                                            fontWeight: 700,
+                                                            fontSize: row.title.length > 3 ? 12 : 14,
+                                                            boxShadow: '0 2px 6px rgba(108, 92, 231, 0.3)',
+                                                            maxWidth: 120,
+                                                            overflow: 'hidden',
+                                                            textOverflow: 'ellipsis',
+                                                            whiteSpace: 'nowrap',
+                                                            cursor: 'default'
+                                                        }}>
                                                         {row.title}
                                                     </span>
                                                 )}

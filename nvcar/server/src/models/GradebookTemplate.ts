@@ -39,6 +39,7 @@ const pageSchema = new Schema({
 const templateSchema = new Schema({
   name: { type: String, required: true },
   defaultForLevels: { type: [String], default: [] },
+  signingPage: { type: Number },
   pages: { type: [pageSchema], default: [] },
   createdBy: { type: String },
   updatedAt: { type: Date, default: () => new Date() },

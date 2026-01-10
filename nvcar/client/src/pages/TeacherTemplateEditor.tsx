@@ -5,6 +5,7 @@ import { useSocket } from '../context/SocketContext'
 import { useLevels } from '../context/LevelContext'
 import { useSchoolYear } from '../context/SchoolYearContext'
 import ScrollToTopButton from '../components/ScrollToTopButton'
+import ScrollPageDownButton from '../components/ScrollPageDownButton'
 import { GradebookPocket } from '../components/GradebookPocket'
 
 type Block = { type: string; props: any }
@@ -38,6 +39,12 @@ export default function TeacherTemplateEditor() {
     const [isFitToScreen, setIsFitToScreen] = useState(false)
     const containerRef = useRef<HTMLDivElement | null>(null)
 
+    const computeFitScale = () => {
+        const containerWidth = containerRef.current ? containerRef.current.clientWidth : window.innerWidth
+        const availableWidth = Math.max(0, Math.min(window.innerWidth, containerWidth) - 48)
+        return Math.min(1, availableWidth / pageWidth)
+    }
+
     const { levels } = useLevels()
     const { activeYear } = useSchoolYear()
     const socket = useSocket()
@@ -58,15 +65,7 @@ export default function TeacherTemplateEditor() {
     useEffect(() => {
         const handleResize = () => {
             if (isFitToScreen) {
-                // 48px is approx padding/margins. Adjust if necessary.
-                // Prefer measuring the actual container width instead of the full window,
-                // because the viewer may be embedded inside a narrower pane (gradebooks view).
-                const availableWidth = containerRef.current
-                    ? Math.max(0, containerRef.current.clientWidth - 48)
-                    : window.innerWidth - 48
-                // Limit max scale to 1 so we only shrink-to-fit.
-                const scale = Math.min(1, availableWidth / pageWidth)
-                setZoomLevel(scale)
+                setZoomLevel(computeFitScale())
             }
         }
 
@@ -173,7 +172,7 @@ export default function TeacherTemplateEditor() {
             const block = template?.pages?.[pageIndex]?.blocks?.[blockIndex]
             const blockId = block?.props?.blockId
 
-            const payload:any = { pageIndex, blockIndex, blockId, items }
+            const payload: any = { pageIndex, blockIndex, blockId, items }
             const expected = (assignment as any)?.dataVersion
             if (typeof expected === 'number') payload.expectedDataVersion = expected
 
@@ -337,6 +336,7 @@ export default function TeacherTemplateEditor() {
     return (
         <div style={{ padding: 24 }}>
             <ScrollToTopButton />
+            <ScrollPageDownButton />
             <div className="card">
                 <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
                     <button className="btn secondary" onClick={() => window.history.back()} style={{
@@ -498,6 +498,7 @@ export default function TeacherTemplateEditor() {
                         className="btn secondary"
                         onClick={() => {
                             if (!isFitToScreen) {
+                                setZoomLevel(computeFitScale())
                                 setIsFitToScreen(true)
                             } else {
                                 setIsFitToScreen(false)
@@ -1402,7 +1403,7 @@ export default function TeacherTemplateEditor() {
                                                                         </>
                                                                     )
                                                                 } else if (b.props.field === 'level') {
-                                                                    return <div style={{ fontWeight: 'bold' }}>Passage en {promo.to}</div>
+                                                                    return <div style={{ fontWeight: 'bold' }}>{promo.to}</div>
                                                                 } else if (b.props.field === 'student') {
                                                                     return <div>{student?.firstName} {student?.lastName}</div>
                                                                 } else if (b.props.field === 'studentFirstName') {
@@ -1491,9 +1492,9 @@ export default function TeacherTemplateEditor() {
                                                                 )
                                                             } else {
                                                                 return (
-                                                                    <div style={{ 
-                                                                        width: '100%', 
-                                                                        height: '100%', 
+                                                                    <div style={{
+                                                                        width: '100%',
+                                                                        height: '100%',
                                                                         whiteSpace: 'pre-wrap',
                                                                         color: textValue ? 'inherit' : '#999'
                                                                     }}>
@@ -1532,7 +1533,7 @@ export default function TeacherTemplateEditor() {
                                                     }}>
                                                         {assignment?.status === 'signed' ? '✓ Signé Fin Année' : b.props.label || 'Signature Fin Année'}
                                                     </div>
-                                                )} 
+                                                )}
                                                 {b.type === 'final_signature_info' && (
                                                     <div style={{
                                                         width: b.props.width || 150,

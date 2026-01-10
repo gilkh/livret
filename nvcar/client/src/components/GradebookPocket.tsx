@@ -1,5 +1,4 @@
-import React, { CSSProperties, useState } from 'react';
-import { Maximize2, Minimize2 } from 'lucide-react';
+import React, { CSSProperties } from 'react';
 import './GradebookPocket.css';
 import pocketImage from '../pocket.png';
 
@@ -20,8 +19,6 @@ export interface GradebookPocketProps {
     width?: number;
     /** Font size for the number/text (optional) */
     fontSize?: number;
-    /** Multiplier for maximized state (default: 2.5) */
-    maximizedScale?: number;
 }
 
 export const GradebookPocket: React.FC<GradebookPocketProps> = ({
@@ -33,24 +30,15 @@ export const GradebookPocket: React.FC<GradebookPocketProps> = ({
     onClick,
     width = 120,
     fontSize,
-    maximizedScale = 2.5,
 }) => {
-    const [isMaximized, setIsMaximized] = useState(false);
-
-    const handleToggleMaximize = (e: React.MouseEvent) => {
-        e.stopPropagation();
-        setIsMaximized(!isMaximized);
-    };
-
     const cssVars = {
-        '--pocket-width': `${isMaximized ? width * maximizedScale : width}px`,
+        '--pocket-width': `${width}px`,
         ...(fontSize ? { '--number-font-size': `${fontSize}px` } : {}),
-        zIndex: isMaximized ? 100 : undefined,
     } as CSSProperties;
 
     return (
         <div
-            className={`gradebook-pocket ${className} ${isMaximized ? 'maximized' : ''}`}
+            className={`gradebook-pocket ${className}`}
             style={cssVars}
             draggable={draggable}
             onDragStart={onDragStart}
@@ -59,16 +47,6 @@ export const GradebookPocket: React.FC<GradebookPocketProps> = ({
             role={onClick ? 'button' : undefined}
             tabIndex={onClick ? 0 : undefined}
         >
-            {/* Maximize/Minimize Toggle Button */}
-            <button 
-                className="pocket-toggle-btn"
-                onClick={handleToggleMaximize}
-                aria-label={isMaximized ? "Minimize" : "Maximize"}
-                type="button"
-            >
-                {isMaximized ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-            </button>
-
             {/* Layer 2: Pocket (Front Layer) */}
             <div className="pocket-body">
                 <img src={pocketImage} alt="Pocket" className="pocket-image" />

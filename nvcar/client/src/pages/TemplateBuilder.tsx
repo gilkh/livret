@@ -12,7 +12,7 @@ import { TemplateStateHistoryModal } from '../components/TemplateStateHistoryMod
 
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
-type Template = { _id?: string; name: string; pages: Page[]; updatedAt?: string }
+type Template = { _id?: string; name: string; pages: Page[]; updatedAt?: string; signingPage?: number }
 type Year = { _id: string; name: string; active?: boolean }
 type ClassDoc = { _id: string; name: string; schoolYearId: string; level?: string }
 type StudentDoc = { _id: string; firstName: string; lastName: string; level?: string; nextLevel?: string; className?: string }
@@ -2632,6 +2632,30 @@ export default function TemplateBuilder() {
             />
           </div>
 
+          {/* Signing Page Number */}
+          <div style={{ flex: '0 0 120px' }}>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#6c757d', marginBottom: 6 }}>
+              PAGE SIGNATURE
+            </label>
+            <input
+              type="number"
+              min={1}
+              placeholder="#"
+              value={(tpl as any).signingPage || ''}
+              onChange={e => setTpl({ ...tpl, signingPage: parseInt(e.target.value) || undefined })}
+              style={{
+                width: '100%',
+                padding: '10px 14px',
+                borderRadius: 8,
+                border: '2px solid #e9ecef',
+                fontSize: 15,
+                transition: 'all 0.2s'
+              }}
+              onFocus={(e) => e.target.style.borderColor = '#667eea'}
+              onBlur={(e) => e.target.style.borderColor = '#e9ecef'}
+            />
+          </div>
+
           {/* Page Selector */}
           <div style={{ flex: '0 0 auto' }}>
             <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#6c757d', marginBottom: 6 }}>
@@ -4995,6 +5019,22 @@ export default function TemplateBuilder() {
                                     return
                                   }
 
+                                  const tableBlockId = tableBlock.props.blockId
+                                  if (typeof tableBlockId === 'string' && tableBlockId.trim()) {
+                                    const linkedTitle = tpl.pages[selectedPage].blocks.find(
+                                      b => b?.type === 'gradebook_pocket' && b?.props?.linkedTableBlockId === tableBlockId
+                                    )
+                                    if (linkedTitle && typeof linkedTitle.props?.blockId === 'string' && linkedTitle.props.blockId.trim()) {
+                                      updateSelectedTable(p => ({
+                                        ...p,
+                                        expandedRows: true,
+                                        showExpandedTitle: true,
+                                        titleBlockId: linkedTitle.props.blockId
+                                      }))
+                                      return
+                                    }
+                                  }
+
                                   // Check if title block already exists
                                   if (tableBlock.props.titleBlockId) {
                                     const existingTitle = tpl.pages[selectedPage].blocks.find(b => b.props.blockId === tableBlock.props.titleBlockId)
@@ -5040,6 +5080,7 @@ export default function TemplateBuilder() {
                                 } else {
                                   // Remove the linked title block if it exists
                                   const titleBlockId = tableBlock.props.titleBlockId
+                                  const tableBlockId = tableBlock.props.blockId
                                   const pages = [...tpl.pages]
                                   const page = { ...pages[selectedPage] }
                                   let blocks = [...page.blocks]
@@ -5053,6 +5094,9 @@ export default function TemplateBuilder() {
                                   // Remove the title block if it exists
                                   if (titleBlockId) {
                                     blocks = blocks.filter(b => b.props.blockId !== titleBlockId)
+                                  }
+                                  if (typeof tableBlockId === 'string' && tableBlockId.trim()) {
+                                    blocks = blocks.filter(b => !(b?.type === 'gradebook_pocket' && b?.props?.linkedTableBlockId === tableBlockId))
                                   }
 
                                   pages[selectedPage] = { ...page, blocks }
@@ -5080,6 +5124,7 @@ export default function TemplateBuilder() {
                                     const tableBlock = tpl.pages[selectedPage].blocks[selectedIndex]
                                     const tableX = Number(tableBlock.props.x || 0)
                                     const tableY = Number(tableBlock.props.y || 0)
+                                    const tableBlockId = tableBlock.props.blockId
 
                                     const pages = [...tpl.pages]
                                     const page = { ...pages[selectedPage] }
@@ -5088,11 +5133,20 @@ export default function TemplateBuilder() {
                                     const titleBlockId = tableBlock.props.titleBlockId
                                     const titleBlockIdx = titleBlockId ? blocks.findIndex(b => b.props.blockId === titleBlockId) : -1
                                     const existingTitleBlock = titleBlockIdx >= 0 ? blocks[titleBlockIdx] : null
+                                    const linkedTitleBlockIdx = !existingTitleBlock && typeof tableBlockId === 'string' && tableBlockId.trim()
+                                      ? blocks.findIndex(b => b?.type === 'gradebook_pocket' && b?.props?.linkedTableBlockId === tableBlockId)
+                                      : -1
+                                    const existingOrLinkedTitleBlock = existingTitleBlock || (linkedTitleBlockIdx >= 0 ? blocks[linkedTitleBlockIdx] : null)
 
                                     if (!want) {
-                                      const nextTitleText = (existingTitleBlock && typeof existingTitleBlock.props?.number === 'string') ? existingTitleBlock.props.number : tableBlock.props.expandedTitleText
+                                      const nextTitleText = (existingOrLinkedTitleBlock && typeof existingOrLinkedTitleBlock.props?.number === 'string')
+                                        ? existingOrLinkedTitleBlock.props.number
+                                        : tableBlock.props.expandedTitleText
                                       if (titleBlockId) {
                                         blocks = blocks.filter(b => b.props.blockId !== titleBlockId)
+                                      }
+                                      if (typeof tableBlockId === 'string' && tableBlockId.trim()) {
+                                        blocks = blocks.filter(b => !(b?.type === 'gradebook_pocket' && b?.props?.linkedTableBlockId === tableBlockId))
                                       }
                                       blocks[selectedIndex] = {
                                         ...blocks[selectedIndex],
@@ -5108,10 +5162,14 @@ export default function TemplateBuilder() {
                                       return
                                     }
 
-                                    if (existingTitleBlock) {
+                                    if (existingOrLinkedTitleBlock) {
                                       blocks[selectedIndex] = {
                                         ...blocks[selectedIndex],
-                                        props: { ...blocks[selectedIndex].props, showExpandedTitle: true }
+                                        props: {
+                                          ...blocks[selectedIndex].props,
+                                          showExpandedTitle: true,
+                                          titleBlockId: existingOrLinkedTitleBlock.props.blockId
+                                        }
                                       }
                                       pages[selectedPage] = { ...page, blocks }
                                       updateTpl({ ...tpl, pages })
@@ -5151,42 +5209,97 @@ export default function TemplateBuilder() {
                                   }}
                                   style={{ width: 18, height: 18, cursor: 'pointer' }}
                                 />
-                                <span style={{ fontSize: 13, fontWeight: 500 }}>Afficher le title</span>
+                                <span style={{ fontSize: 13, fontWeight: 500 }}>Afficher le titre</span>
                               </label>
 
-                              {/* Title text editor for linked title block */}
-                              {tpl.pages[selectedPage].blocks[selectedIndex].props.titleBlockId && (() => {
-                                const titleBlockId = tpl.pages[selectedPage].blocks[selectedIndex].props.titleBlockId
-                                const titleBlock = tpl.pages[selectedPage].blocks.find(b => b.props.blockId === titleBlockId)
-                                if (!titleBlock) return null
+                              {(() => {
                                 const tableBlock = tpl.pages[selectedPage].blocks[selectedIndex]
                                 const tableX = Number(tableBlock.props.x || 0)
                                 const tableY = Number(tableBlock.props.y || 0)
-                                const inferredOffsetX = Number(titleBlock.props.x || 0) - tableX
-                                const inferredOffsetY = Number(titleBlock.props.y || 0) - tableY
-                                const titleOffsetX = typeof tableBlock.props.titleOffsetX === 'number' ? tableBlock.props.titleOffsetX : (isNaN(inferredOffsetX) ? 0 : inferredOffsetX)
-                                const titleOffsetY = typeof tableBlock.props.titleOffsetY === 'number' ? tableBlock.props.titleOffsetY : (isNaN(inferredOffsetY) ? -265 : inferredOffsetY)
+                                const tableBlockId = tableBlock.props.blockId
+                                const titleBlockId = tableBlock.props.titleBlockId
+
+                                const byId = (typeof titleBlockId === 'string' && titleBlockId.trim())
+                                  ? tpl.pages[selectedPage].blocks.find(b => b?.props?.blockId === titleBlockId)
+                                  : null
+                                const byLink = (!byId && typeof tableBlockId === 'string' && tableBlockId.trim())
+                                  ? tpl.pages[selectedPage].blocks.find(b => b?.type === 'gradebook_pocket' && b?.props?.linkedTableBlockId === tableBlockId)
+                                  : null
+                                const titleBlock = byId || byLink
+
+                                const titleOffsetX = Number(tableBlock.props.titleOffsetX || 0)
+                                const titleOffsetY = Number(tableBlock.props.titleOffsetY || -265)
+                                const titleText =
+                                  (titleBlock && typeof titleBlock.props?.number === 'string' && titleBlock.props.number.length)
+                                    ? titleBlock.props.number
+                                    : String(tableBlock.props.expandedTitleText || 'A')
+
+                                const wantTitle = tableBlock.props.showExpandedTitle !== false
+
                                 return (
                                   <div style={{ marginBottom: 12, padding: 10, background: '#fff', borderRadius: 6, border: '1px solid #e2e8f0' }}>
-                                    <label style={{ fontSize: 11, display: 'block', marginBottom: 4, fontWeight: 600, color: '#3498db' }}>📝 Texte du Title</label>
+                                    <label style={{ fontSize: 11, display: 'block', marginBottom: 4, fontWeight: 600, color: '#3498db' }}>📝 Texte du Titre</label>
                                     <input
                                       type="text"
-                                      value={titleBlock.props.number || 'A'}
+                                      value={titleText}
                                       onChange={e => {
+                                        const nextTitle = e.target.value
                                         const pages = [...tpl.pages]
                                         const page = { ...pages[selectedPage] }
                                         const blocks = [...page.blocks]
-                                        const titleIdx = blocks.findIndex(b => b.props.blockId === titleBlockId)
-                                        if (titleIdx >= 0) {
-                                          blocks[titleIdx] = { ...blocks[titleIdx], props: { ...blocks[titleIdx].props, number: e.target.value } }
-                                          blocks[selectedIndex] = { ...blocks[selectedIndex], props: { ...blocks[selectedIndex].props, expandedTitleText: e.target.value } }
-                                          pages[selectedPage] = { ...page, blocks }
-                                          updateTpl({ ...tpl, pages })
+                                        const nextTableBlock = { ...blocks[selectedIndex] }
+                                        const nextTableProps = { ...nextTableBlock.props, expandedTitleText: nextTitle }
+
+                                        const resolveTitleIdx = () => {
+                                          if (typeof nextTableProps.titleBlockId === 'string' && nextTableProps.titleBlockId.trim()) {
+                                            const idx = blocks.findIndex(b => b?.props?.blockId === nextTableProps.titleBlockId)
+                                            if (idx >= 0) return idx
+                                          }
+                                          if (typeof tableBlockId === 'string' && tableBlockId.trim()) {
+                                            const idx = blocks.findIndex(b => b?.type === 'gradebook_pocket' && b?.props?.linkedTableBlockId === tableBlockId)
+                                            if (idx >= 0) return idx
+                                          }
+                                          return -1
                                         }
+
+                                        let titleIdx = wantTitle ? resolveTitleIdx() : -1
+
+                                        if (wantTitle && titleIdx < 0) {
+                                          const nextBlockId = (window.crypto as any).randomUUID ? (window.crypto as any).randomUUID() : Math.random().toString(36).substring(2, 11)
+                                          const newTitleBlock: Block = {
+                                            type: 'gradebook_pocket',
+                                            props: {
+                                              x: tableX + titleOffsetX,
+                                              y: Math.max(0, tableY + titleOffsetY),
+                                              z: (nextTableProps.z || 0) + 1,
+                                              blockId: nextBlockId,
+                                              width: 90,
+                                              number: String(nextTitle || 'A'),
+                                              fontSize: 18,
+                                              linkedTableBlockId: tableBlockId
+                                            }
+                                          }
+                                          blocks.push(newTitleBlock)
+                                          nextTableProps.titleBlockId = nextBlockId
+                                          titleIdx = blocks.length - 1
+                                        }
+
+                                        if (wantTitle && titleIdx >= 0) {
+                                          const b = blocks[titleIdx]
+                                          blocks[titleIdx] = { ...b, props: { ...b.props, number: nextTitle } }
+                                          if (typeof blocks[titleIdx].props?.blockId === 'string' && blocks[titleIdx].props.blockId.trim()) {
+                                            nextTableProps.titleBlockId = blocks[titleIdx].props.blockId
+                                          }
+                                        }
+
+                                        blocks[selectedIndex] = { ...nextTableBlock, props: nextTableProps }
+                                        pages[selectedPage] = { ...page, blocks }
+                                        updateTpl({ ...tpl, pages })
                                       }}
                                       style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '2px solid #e9ecef', fontSize: 13 }}
                                       placeholder="A, B, C..."
                                     />
+
                                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 10 }}>
                                       <div>
                                         <label style={{ fontSize: 11, display: 'block', marginBottom: 4, fontWeight: 600, color: '#6c757d' }}>Décalage X (px)</label>
@@ -5198,13 +5311,32 @@ export default function TemplateBuilder() {
                                             const pages = [...tpl.pages]
                                             const page = { ...pages[selectedPage] }
                                             const blocks = [...page.blocks]
-                                            const titleIdx = blocks.findIndex(b => b.props.blockId === titleBlockId)
-                                            if (titleIdx >= 0) {
-                                              blocks[titleIdx] = { ...blocks[titleIdx], props: { ...blocks[titleIdx].props, x: tableX + nextX } }
-                                              blocks[selectedIndex] = { ...blocks[selectedIndex], props: { ...blocks[selectedIndex].props, titleOffsetX: nextX } }
-                                              pages[selectedPage] = { ...page, blocks }
-                                              updateTpl({ ...tpl, pages })
+
+                                            const nextTable = { ...blocks[selectedIndex] }
+                                            const nextTableProps = { ...nextTable.props, titleOffsetX: nextX }
+                                            blocks[selectedIndex] = { ...nextTable, props: nextTableProps }
+
+                                            if (wantTitle) {
+                                              const resolveTitleIdx = () => {
+                                                if (typeof nextTableProps.titleBlockId === 'string' && nextTableProps.titleBlockId.trim()) {
+                                                  const idx = blocks.findIndex(b => b?.props?.blockId === nextTableProps.titleBlockId)
+                                                  if (idx >= 0) return idx
+                                                }
+                                                if (typeof tableBlockId === 'string' && tableBlockId.trim()) {
+                                                  const idx = blocks.findIndex(b => b?.type === 'gradebook_pocket' && b?.props?.linkedTableBlockId === tableBlockId)
+                                                  if (idx >= 0) return idx
+                                                }
+                                                return -1
+                                              }
+                                              const titleIdx = resolveTitleIdx()
+                                              if (titleIdx >= 0) {
+                                                const tb = blocks[titleIdx]
+                                                blocks[titleIdx] = { ...tb, props: { ...tb.props, x: tableX + nextX } }
+                                              }
                                             }
+
+                                            pages[selectedPage] = { ...page, blocks }
+                                            updateTpl({ ...tpl, pages })
                                           }}
                                           style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '2px solid #e9ecef', fontSize: 13 }}
                                         />
@@ -5219,13 +5351,32 @@ export default function TemplateBuilder() {
                                             const pages = [...tpl.pages]
                                             const page = { ...pages[selectedPage] }
                                             const blocks = [...page.blocks]
-                                            const titleIdx = blocks.findIndex(b => b.props.blockId === titleBlockId)
-                                            if (titleIdx >= 0) {
-                                              blocks[titleIdx] = { ...blocks[titleIdx], props: { ...blocks[titleIdx].props, y: Math.max(0, tableY + nextY) } }
-                                              blocks[selectedIndex] = { ...blocks[selectedIndex], props: { ...blocks[selectedIndex].props, titleOffsetY: nextY } }
-                                              pages[selectedPage] = { ...page, blocks }
-                                              updateTpl({ ...tpl, pages })
+
+                                            const nextTable = { ...blocks[selectedIndex] }
+                                            const nextTableProps = { ...nextTable.props, titleOffsetY: nextY }
+                                            blocks[selectedIndex] = { ...nextTable, props: nextTableProps }
+
+                                            if (wantTitle) {
+                                              const resolveTitleIdx = () => {
+                                                if (typeof nextTableProps.titleBlockId === 'string' && nextTableProps.titleBlockId.trim()) {
+                                                  const idx = blocks.findIndex(b => b?.props?.blockId === nextTableProps.titleBlockId)
+                                                  if (idx >= 0) return idx
+                                                }
+                                                if (typeof tableBlockId === 'string' && tableBlockId.trim()) {
+                                                  const idx = blocks.findIndex(b => b?.type === 'gradebook_pocket' && b?.props?.linkedTableBlockId === tableBlockId)
+                                                  if (idx >= 0) return idx
+                                                }
+                                                return -1
+                                              }
+                                              const titleIdx = resolveTitleIdx()
+                                              if (titleIdx >= 0) {
+                                                const tb = blocks[titleIdx]
+                                                blocks[titleIdx] = { ...tb, props: { ...tb.props, y: Math.max(0, tableY + nextY) } }
+                                              }
                                             }
+
+                                            pages[selectedPage] = { ...page, blocks }
+                                            updateTpl({ ...tpl, pages })
                                           }}
                                           style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '2px solid #e9ecef', fontSize: 13 }}
                                         />

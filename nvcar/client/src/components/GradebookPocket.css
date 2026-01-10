@@ -15,7 +15,7 @@
   display: flex;
   flex-direction: column;
   background: transparent;
-  transition: width 0.3s ease-out, z-index 0.3s; /* Smooth resizing */
+  transition: width 0.3s ease-out, z-index 0.3s;
 }
 
 .gradebook-pocket[draggable="true"] {
@@ -39,43 +39,6 @@
   outline: calc(2 * var(--p-unit)) solid var(--pocket-fill-color);
   outline-offset: calc(4 * var(--p-unit));
   border-radius: calc(4 * var(--p-unit));
-}
-
-/* TOGGLE BUTTON */
-.pocket-toggle-btn {
-  position: absolute;
-  top: calc(2 * var(--p-unit));
-  right: calc(2 * var(--p-unit));
-  z-index: 20; /* Above supplies and everything */
-  background: rgba(255, 255, 255, 0.9);
-  border: 1px solid rgba(0,0,0,0.1);
-  border-radius: 50%;
-  width: 24px;
-  height: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  padding: 0;
-  box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-  opacity: 0; 
-  transform: scale(0.8);
-  transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-  color: #555;
-}
-
-.gradebook-pocket:hover .pocket-toggle-btn,
-.gradebook-pocket:focus-within .pocket-toggle-btn,
-.pocket-toggle-btn:focus {
-  opacity: 1;
-  transform: scale(1);
-}
-
-.pocket-toggle-btn:hover {
-  background: white;
-  color: #000;
-  transform: scale(1.15);
-  box-shadow: 0 3px 8px rgba(0,0,0,0.25);
 }
 
 /* POCKET BODY - Image */

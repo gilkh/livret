@@ -27,9 +27,10 @@ const Icons = {
   Save: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" /><polyline points="17 21 17 13 7 13 7 21" /><polyline points="7 3 7 8 15 8" /></svg>,
   Folder: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></svg>,
   Bell: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" /></svg>,
+  Monitor: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" /></svg>,
 }
 
-type SectionId = 'status' | 'monitoring' | 'year' | 'access' | 'teacher' | 'smtp' | 'signature' | 'database' | 'maintenance' | 'sandbox' | 'notiftest'
+type SectionId = 'status' | 'monitoring' | 'year' | 'access' | 'device' | 'teacher' | 'smtp' | 'signature' | 'database' | 'maintenance' | 'sandbox' | 'notiftest'
 
 interface NavItem {
   id: SectionId
@@ -45,6 +46,7 @@ const navItems: NavItem[] = [
   { id: 'monitoring', label: 'Diagnostics', icon: 'Box', color: '#ff7675', description: 'Surveillance & logs' },
   { id: 'year', label: 'Année Scolaire', icon: 'Calendar', color: '#6c5ce7', description: 'Session admin' },
   { id: 'access', label: 'Accès & Sécurité', icon: 'Lock', color: '#6c5ce7', description: 'Connexions utilisateurs' },
+  { id: 'device', label: 'Appareils', icon: 'Monitor', color: '#e17055', description: 'Restrictions écran' },
   { id: 'teacher', label: 'Options Enseignants', icon: 'Users', color: '#9b59b6', description: 'Affichage & vues' },
   { id: 'smtp', label: 'Email (SMTP)', icon: 'Mail', color: '#3498db', description: 'Configuration email' },
   { id: 'signature', label: 'Restrictions Signature', icon: 'FileText', color: '#ff9f43', description: 'Règles sous-admin' },
@@ -96,6 +98,12 @@ export default function AdminSettings() {
   const [smtpTesting, setSmtpTesting] = useState(false)
   const [smtpTestResult, setSmtpTestResult] = useState<{ success: boolean; message: string } | null>(null)
 
+  // Mobile/Device blocking
+  const [mobileBlockEnabled, setMobileBlockEnabled] = useState(false)
+  const [mobileMinWidth, setMobileMinWidth] = useState(1024)
+  const [mobileAccessLogs, setMobileAccessLogs] = useState<any[]>([])
+  const [mobileLogsLoading, setMobileLogsLoading] = useState(false)
+
   const showMsg = (text: string, type: 'success' | 'error' = 'success') => {
     setMsg(text)
     setMsgType(type)
@@ -122,7 +130,7 @@ export default function AdminSettings() {
   }
 
   // API calls
-  useEffect(() => { loadSettings(); checkStatus(); loadBackups() }, [])
+  useEffect(() => { loadSettings(); checkStatus(); loadBackups(); loadMobileAccessLogs() }, [])
   useEffect(() => { if (msg) { const t = setTimeout(() => setMsg(''), 4000); return () => clearTimeout(t) } }, [msg])
 
   const loadBackups = async () => { try { const res = await api.get('/backup/list'); setBackups(res.data) } catch (e) { console.error(e) } }
@@ -145,6 +153,9 @@ export default function AdminSettings() {
       setSmtpUser(res.data.smtp_user || '')
       setSmtpPass(res.data.smtp_pass || '')
       setSmtpSecure(res.data.smtp_secure === true)
+      // Mobile blocking
+      setMobileBlockEnabled(res.data.mobile_block_enabled === true)
+      setMobileMinWidth(res.data.mobile_min_width || 1024)
     } catch (err) { console.error(err) } finally { setLoading(false) }
   }
 
@@ -158,6 +169,33 @@ export default function AdminSettings() {
     setter(newVal)
     if (!(await saveSetting(key, newVal))) setter(current)
   }
+
+  // Mobile access logs functions
+  const loadMobileAccessLogs = async () => {
+    setMobileLogsLoading(true)
+    try {
+      const res = await api.get('/settings/mobile-access-logs?limit=50')
+      setMobileAccessLogs(res.data)
+    } catch (err) {
+      console.error('Failed to load mobile access logs:', err)
+      showMsg('Erreur lors du chargement des journaux', 'error')
+    } finally {
+      setMobileLogsLoading(false)
+    }
+  }
+
+  const clearMobileAccessLogs = async () => {
+    if (!confirm('Voulez-vous vraiment supprimer tous les journaux d\'accès mobile ?')) return
+    try {
+      await api.delete('/settings/mobile-access-logs')
+      setMobileAccessLogs([])
+      showMsg('Journaux supprimés')
+    } catch (err) {
+      console.error('Failed to clear mobile access logs:', err)
+      showMsg('Erreur lors de la suppression', 'error')
+    }
+  }
+
 
   // Backup functions
   const createBackup = async () => {
@@ -402,6 +440,172 @@ export default function AdminSettings() {
                 </div>
               </div>
             ))}
+          </SectionCard>
+
+          {/* Device / Mobile Blocking */}
+          <SectionCard id="device">
+            <div className="setting-item">
+              <div className="setting-info">
+                <h3>📱 Bloquer les appareils mobiles</h3>
+                <p>Empêcher l'accès à l'application depuis les téléphones et tablettes. Un message invite à utiliser un ordinateur.</p>
+              </div>
+              <div className="setting-actions">
+                <StatusIndicator active={mobileBlockEnabled} activeText="Bloqué" inactiveText="Autorisé" />
+                <Toggle checked={mobileBlockEnabled} onChange={() => toggleSetting('mobile_block_enabled', mobileBlockEnabled, setMobileBlockEnabled)} />
+              </div>
+            </div>
+            {mobileBlockEnabled && (
+              <div className="conditional-settings">
+                <div className="setting-item conditional-item">
+                  <div className="setting-info">
+                    <h3>📏 Largeur d'écran minimale</h3>
+                    <p>Les appareils avec une largeur inférieure à cette valeur seront bloqués. Recommandé : 1024px (ancien laptops compatibles) ou 1280px (tablettes bloquées).</p>
+                  </div>
+                  <div className="settings-form-group" style={{ marginLeft: 'auto', minWidth: 140 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <input
+                        type="number"
+                        min="768"
+                        max="1920"
+                        className="settings-input"
+                        value={mobileMinWidth}
+                        onChange={e => setMobileMinWidth(parseInt(e.target.value) || 1024)}
+                        style={{ width: 80, textAlign: 'center' }}
+                      />
+                      <span style={{ color: '#64748b' }}>px</span>
+                      <button
+                        type="button"
+                        className="settings-btn primary"
+                        onClick={() => saveSetting('mobile_min_width', mobileMinWidth)}
+                        style={{ padding: '8px 12px', fontSize: 13 }}
+                      >
+                        💾
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <div className="setting-item" style={{ background: '#fef3c7', borderColor: '#fcd34d' }}>
+                  <div className="setting-info">
+                    <h3 style={{ color: '#b45309' }}>ℹ️ Valeurs recommandées</h3>
+                    <p style={{ color: '#92400e' }}>
+                      <strong>1024px</strong> : Supporte les anciens laptops, bloque la plupart des tablettes<br />
+                      <strong>1280px</strong> : Bloque presque toutes les tablettes<br />
+                      <strong>1366px</strong> : Bloque toutes les tablettes (peut bloquer les très petits laptops)
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Mobile Access Logs */}
+            <div className="setting-item" style={{ marginTop: '1.5rem' }}>
+              <div className="setting-info">
+                <h3>📋 Journaux d'accès mobile ({mobileAccessLogs.length})</h3>
+                <p>Historique des tentatives d'accès depuis des appareils bloqués (IP, appareil, heure).</p>
+              </div>
+              <div className="settings-btn-group">
+                <button type="button" className="settings-btn secondary" onClick={loadMobileAccessLogs} disabled={mobileLogsLoading}>
+                  {mobileLogsLoading ? '⏳' : '🔄'} Rafraîchir
+                </button>
+                {mobileAccessLogs.length > 0 && (
+                  <button type="button" className="settings-btn danger" onClick={clearMobileAccessLogs}>
+                    🗑️ Vider
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {mobileLogsLoading && mobileAccessLogs.length === 0 && (
+              <div style={{ padding: '24px', textAlign: 'center', color: '#64748b' }}>
+                ⏳ Chargement des journaux...
+              </div>
+            )}
+
+            {!mobileLogsLoading && mobileAccessLogs.length === 0 && (
+              <div style={{
+                padding: '24px',
+                textAlign: 'center',
+                color: '#64748b',
+                background: '#f8fafc',
+                borderRadius: 12,
+                marginTop: '1rem'
+              }}>
+                ✅ Aucune tentative d'accès mobile enregistrée
+              </div>
+            )}
+
+            {mobileAccessLogs.length > 0 && (
+              <div className="backup-table-wrapper" style={{ marginTop: '1rem' }}>
+                <table className="backup-table">
+                  <thead>
+                    <tr>
+                      <th>Date/Heure</th>
+                      <th>Adresse IP</th>
+                      <th>Appareil</th>
+                      <th>Écran</th>
+                      <th>Navigateur</th>
+                      <th>OS</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {mobileAccessLogs.map((log, i) => (
+                      <tr key={log._id || i}>
+                        <td>
+                          <div style={{ fontSize: 13, fontWeight: 500 }}>
+                            {new Date(log.timestamp).toLocaleDateString('fr-FR')}
+                          </div>
+                          <div style={{ fontSize: 11, color: '#64748b' }}>
+                            {new Date(log.timestamp).toLocaleTimeString('fr-FR')}
+                          </div>
+                        </td>
+                        <td>
+                          <code style={{
+                            background: '#f1f5f9',
+                            padding: '4px 8px',
+                            borderRadius: 4,
+                            fontSize: 12,
+                            fontFamily: 'monospace'
+                          }}>
+                            {log.ipAddress}
+                          </code>
+                        </td>
+                        <td>
+                          <span style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            padding: '4px 10px',
+                            borderRadius: 12,
+                            fontSize: 12,
+                            fontWeight: 500,
+                            background: log.deviceType === 'phone' ? '#fef2f2' : log.deviceType === 'tablet' ? '#fef3c7' : '#f0fdf4',
+                            color: log.deviceType === 'phone' ? '#dc2626' : log.deviceType === 'tablet' ? '#d97706' : '#16a34a'
+                          }}>
+                            {log.deviceType === 'phone' ? '📱' : log.deviceType === 'tablet' ? '📱' : '💻'}
+                            {log.deviceType === 'phone' ? 'Téléphone' : log.deviceType === 'tablet' ? 'Tablette' : log.deviceType}
+                          </span>
+                        </td>
+                        <td style={{ fontSize: 12, color: '#64748b' }}>
+                          {log.screenWidth}×{log.screenHeight}
+                        </td>
+                        <td style={{ fontSize: 12 }}>{log.browser || '-'}</td>
+                        <td style={{ fontSize: 12 }}>{log.os || '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div style={{
+                  padding: '12px 16px',
+                  background: '#f8fafc',
+                  borderTop: '1px solid #e2e8f0',
+                  fontSize: 12,
+                  color: '#64748b',
+                  textAlign: 'center'
+                }}>
+                  Affichage des {mobileAccessLogs.length} dernières tentatives
+                </div>
+              </div>
+            )}
           </SectionCard>
 
           {/* Teacher Options */}
