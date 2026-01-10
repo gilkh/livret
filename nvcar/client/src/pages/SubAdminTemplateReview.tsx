@@ -1471,22 +1471,24 @@ export default function SubAdminTemplateReview() {
                                                         </div>
                                                     )
                                                 })()}
-                                                {b.type === 'dropdown_reference' && (
-                                                    <div style={{
-                                                        color: b.props.color || '#333',
-                                                        fontSize: b.props.fontSize || 12,
-                                                        width: b.props.width || 200,
-                                                        minHeight: b.props.height || 'auto',
-                                                        wordWrap: 'break-word',
-                                                        whiteSpace: 'pre-wrap'
-                                                    }}>
-                                                        {(() => {
-                                                            const dropdownNum = b.props.dropdownNumber || 1
-                                                            const value = assignment?.data?.[`dropdown_${dropdownNum}`]
-                                                            return value || `[Dropdown #${dropdownNum}]`
-                                                        })()}
-                                                    </div>
-                                                )}
+                                                {b.type === 'dropdown_reference' && (() => {
+                                                    const dropdownNum = b.props.dropdownNumber || 1
+                                                    const raw = assignment?.data?.[`dropdown_${dropdownNum}`]
+                                                    const value = typeof raw === 'string' ? raw.trim() : raw
+                                                    if (!value) return null
+                                                    return (
+                                                        <div style={{
+                                                            color: b.props.color || '#333',
+                                                            fontSize: b.props.fontSize || 12,
+                                                            width: b.props.width || 200,
+                                                            minHeight: b.props.height || 'auto',
+                                                            wordWrap: 'break-word',
+                                                            whiteSpace: 'pre-wrap'
+                                                        }}>
+                                                            {String(value)}
+                                                        </div>
+                                                    )
+                                                })()}
                                                 {b.type === 'promotion_info' && (
                                                     <div style={{
                                                         width: b.props.width || (b.props.field ? 150 : 300),
@@ -2017,7 +2019,7 @@ export default function SubAdminTemplateReview() {
                                                                 })
                                                                 if (matchingSig) return `✓ Signé (${matchingSig.schoolYearName || 'Ancien'})`
                                                             }
-                                                            return b.props.label || 'Signature Fin Année'
+                                                            return null
                                                         })()}
                                                     </div>
                                                 )}
@@ -2117,7 +2119,7 @@ export default function SubAdminTemplateReview() {
                                                                 }
                                                             }
 
-                                                            return b.props.label || 'Signature'
+                                                            return null
                                                         })()}
                                                     </div>
                                                 )}

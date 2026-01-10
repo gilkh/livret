@@ -38,6 +38,7 @@ const pageSchema = new mongoose_1.Schema({
 const templateSchema = new mongoose_1.Schema({
     name: { type: String, required: true },
     defaultForLevels: { type: [String], default: [] },
+    signingPage: { type: Number },
     pages: { type: [pageSchema], default: [] },
     createdBy: { type: String },
     updatedAt: { type: Date, default: () => new Date() },
@@ -58,7 +59,8 @@ const templateSchema = new mongoose_1.Schema({
                 watermark: { type: mongoose_1.Schema.Types.Mixed },
                 createdAt: { type: Date, required: true },
                 createdBy: { type: String, required: true },
-                changeDescription: { type: String }
+                changeDescription: { type: String },
+                saveType: { type: String, enum: ['manual', 'auto'], default: 'manual' }
             }],
         default: []
     }

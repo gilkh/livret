@@ -137,7 +137,7 @@ exports.templatePropagationRouter.get('/:templateId/assignments', (0, auth_1.req
 exports.templatePropagationRouter.patch('/:templateId', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
     try {
         const { templateId } = req.params;
-        const { templateData, propagateToAssignmentIds, changeDescription } = req.body;
+        const { templateData, propagateToAssignmentIds, changeDescription, saveType } = req.body;
         const userId = req.user.actualUserId || req.user.userId;
         // Get the current template
         const currentTemplate = await GradebookTemplate_1.GradebookTemplate.findById(templateId);
@@ -169,7 +169,8 @@ exports.templatePropagationRouter.patch('/:templateId', (0, auth_1.requireAuth)(
                 watermark: rest.watermark !== undefined ? rest.watermark : currentTemplate.watermark,
                 createdAt: new Date(),
                 createdBy: userId,
-                changeDescription: changeDescription || `Version ${newVersion}`
+                changeDescription: changeDescription || `Version ${newVersion}`,
+                saveType: saveType || 'manual'
             };
             currentTemplate.versionHistory.push(newHistoryEntry);
             currentTemplate.currentVersion = newVersion;

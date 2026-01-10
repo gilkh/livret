@@ -215,11 +215,12 @@ export default function App() {
 
   // Hide navbar on login and print pages
   const showNavBar = location.pathname !== '/login' && location.pathname !== '/admin/login' && !location.pathname.startsWith('/print/')
+  const showMobileBlocker = mobileBlockEnabled && !location.pathname.startsWith('/print/')
 
   return (
     <>
       {/* Mobile blocker overlay - shows when screen is too small */}
-      {mobileBlockEnabled && <MobileBlocker minWidth={mobileMinWidth} schoolName={schoolName} />}
+      {showMobileBlocker && <MobileBlocker minWidth={mobileMinWidth} schoolName={schoolName} />}
 
       <SystemAlertBanner />
       {showNavBar && (

@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useMemo } from 'react'
 import { useParams } from 'react-router-dom'
 import api from '../api'
 import { useSocket } from '../context/SocketContext'
@@ -10,7 +10,7 @@ import { GradebookPocket } from '../components/GradebookPocket'
 
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
-type Template = { _id?: string; name: string; pages: Page[] }
+type Template = { _id?: string; name: string; pages: Page[]; signingPage?: number }
 type Student = { _id: string; firstName: string; lastName: string; level?: string; className?: string }
 type Assignment = { _id: string; status: string; data?: Record<string, any> }
 
@@ -48,6 +48,12 @@ export default function TeacherTemplateEditor() {
     const { levels } = useLevels()
     const { activeYear } = useSchoolYear()
     const socket = useSocket()
+
+    const visiblePages = useMemo(() => {
+        if (!template) return []
+        return template.pages.map((p, i) => ({ page: p, originalIndex: i }))
+            .filter((_, i) => template.signingPage === undefined || i !== (template.signingPage - 1))
+    }, [template])
 
     const fixUrl = (url: string) => {
         if (!url) return url
@@ -541,7 +547,8 @@ export default function TeacherTemplateEditor() {
                                 if (continuousScroll) {
                                     // Scroll to the selected page
                                     setTimeout(() => {
-                                        const pageElement = document.getElementById(`page-${pageNum}`)
+                                        const originalIndex = visiblePages[pageNum]?.originalIndex
+                                        const pageElement = document.getElementById(`page-${originalIndex}`)
                                         if (pageElement) {
                                             pageElement.scrollIntoView({ behavior: 'smooth', block: 'start' })
                                         }
@@ -559,19 +566,19 @@ export default function TeacherTemplateEditor() {
                                 minWidth: 150
                             }}
                         >
-                            {template.pages.map((p, i) => <option key={i} value={i}>{p.title || `Page ${i + 1}`}</option>)}
+                            {visiblePages.map((item, i) => <option key={i} value={i}>{item.page.title || `Page ${item.originalIndex + 1}`}</option>)}
                         </select>
                         <button
                             className="btn secondary"
-                            onClick={() => setSelectedPage(Math.min(template.pages.length - 1, selectedPage + 1))}
-                            disabled={selectedPage === template.pages.length - 1 || continuousScroll}
+                            onClick={() => setSelectedPage(Math.min(visiblePages.length - 1, selectedPage + 1))}
+                            disabled={selectedPage === visiblePages.length - 1 || continuousScroll}
                             style={{
                                 padding: '10px 16px',
                                 background: '#f1f5f9',
                                 color: '#475569',
                                 border: '1px solid #cbd5e1',
-                                opacity: (selectedPage === template.pages.length - 1 || continuousScroll) ? 0.5 : 1,
-                                cursor: (selectedPage === template.pages.length - 1 || continuousScroll) ? 'not-allowed' : 'pointer',
+                                opacity: (selectedPage === visiblePages.length - 1 || continuousScroll) ? 0.5 : 1,
+                                cursor: (selectedPage === visiblePages.length - 1 || continuousScroll) ? 'not-allowed' : 'pointer',
                                 fontWeight: 500
                             }}
                         >
@@ -588,8 +595,11 @@ export default function TeacherTemplateEditor() {
                     overflowX: 'hidden', // Prevent horizontal scroll on parent
                     width: '100%' // Ensure it takes full width
                 }}>
-                    {(continuousScroll ? template.pages : [template.pages[selectedPage]]).map((page, pageIdx) => {
-                        const actualPageIndex = continuousScroll ? pageIdx : selectedPage
+
+                    {(continuousScroll ? visiblePages : (visiblePages[selectedPage] ? [visiblePages[selectedPage]] : [])).map((item, viewIdx) => {
+                        const page = item.page
+                        const actualPageIndex = item.originalIndex
+
                         return (
                             <div
                                 key={actualPageIndex}

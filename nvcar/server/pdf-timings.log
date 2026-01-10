@@ -94,3 +94,16 @@
 2026-01-08T19:48:06.108Z https://127.0.0.1/print/preview/695feb8b2fadb140c15276f7/student/695ab3f79006dc16c4b40a1d?token=*** totalMs=16431 navMs=1426 readyMs=1303 pdfMs=12781 size=11086153
 2026-01-08T19:48:12.766Z https://127.0.0.1/print/preview/695feb8b2fadb140c15276f7/student/695ab3f79006dc16c4b40a1d?token=*** totalMs=23114 navMs=1349 readyMs=1376 pdfMs=19487 size=11086153
 2026-01-08T19:48:19.073Z https://127.0.0.1/print/preview/695feb8b2fadb140c15276f7/student/695ab3f79006dc16c4b40a1d?token=*** totalMs=29449 navMs=796 readyMs=1592 pdfMs=25876 size=11086153
+2026-01-10T20:02:09.843Z https://127.0.0.1:443/print/carnet/69629c9748292241df2330bf?token=*** totalMs=14633 navMs=278 readyMs=1228 pdfMs=12201 size=22551106
+2026-01-10T20:02:26.358Z https://127.0.0.1:443/print/carnet/69629c9748292241df2330bf?token=*** totalMs=13271 navMs=210 readyMs=1105 pdfMs=11566 size=22677264
+2026-01-10T20:02:46.524Z https://127.0.0.1:443/print/carnet/69629c9748292241df2330bf?token=*** totalMs=19520 navMs=291 readyMs=5284 pdfMs=11639 size=21830040
+2026-01-10T20:02:58.176Z https://127.0.0.1:443/print/carnet/69629c9748292241df2330bf?token=*** totalMs=31256 navMs=4554 readyMs=1792 pdfMs=23229 size=22001820
+2026-01-10T20:03:09.819Z https://127.0.0.1:443/print/carnet/69629c9748292241df2330bf?token=*** totalMs=42987 navMs=4632 readyMs=1870 pdfMs=34878 size=22320352
+2026-01-10T20:03:21.509Z https://127.0.0.1:443/print/carnet/69629c9748292241df2330bf?token=*** totalMs=54764 navMs=4281 readyMs=1994 pdfMs=46566 size=22242465
+2026-01-10T20:03:33.368Z https://127.0.0.1:443/print/carnet/69629c9748292241df2330bf?token=*** totalMs=66730 navMs=3961 readyMs=2104 pdfMs=58426 size=21878270
+2026-01-10T20:07:01.202Z https://127.0.0.1:443/print/carnet/69629c9748292241df2330bf?token=*** totalMs=7552 navMs=209 readyMs=1117 pdfMs=5916 size=12109483
+2026-01-10T20:07:13.418Z https://127.0.0.1:443/print/carnet/69629c9748292241df2330bf?token=*** totalMs=7332 navMs=195 readyMs=1116 pdfMs=5718 size=12109483
+2026-01-10T20:07:26.177Z https://127.0.0.1:443/print/carnet/69629c9748292241df2330bf?token=*** totalMs=12293 navMs=244 readyMs=5465 pdfMs=6140 size=12109483
+2026-01-10T20:07:32.166Z https://127.0.0.1:443/print/carnet/69629c9748292241df2330bf?token=*** totalMs=18375 navMs=3531 readyMs=1364 pdfMs=12072 size=12109483
+2026-01-10T20:07:38.252Z https://127.0.0.1:443/print/carnet/69629c9748292241df2330bf?token=*** totalMs=24548 navMs=3594 readyMs=1310 pdfMs=18163 size=12109483
+2026-01-10T20:07:44.249Z https://127.0.0.1:443/print/carnet/69629c9748292241df2330bf?token=*** totalMs=30663 navMs=3553 readyMs=1431 pdfMs=24166 size=12109483

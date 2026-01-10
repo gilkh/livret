@@ -287,6 +287,46 @@ exports.templatesRouter.delete('/exports/:fileName', (0, auth_1.requireAuth)(['A
         res.status(500).json({ error: 'delete_failed', message: e.message });
     }
 });
+// Get template state history (version snapshots)
+exports.templatesRouter.get('/:id/state-history', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const template = await GradebookTemplate_1.GradebookTemplate.findById(id).lean();
+        if (!template)
+            return res.status(404).json({ error: 'not_found' });
+        const versionHistory = (template.versionHistory || []);
+        // Get unique user IDs from the history
+        const userIds = [...new Set(versionHistory.map(v => v.createdBy).filter(Boolean))];
+        const users = await User_1.User.find({ _id: { $in: userIds } }).lean();
+        const userMap = new Map(users.map(u => [String(u._id), u]));
+        // Build enriched history entries
+        const enrichedHistory = versionHistory.map((entry) => {
+            const user = entry.createdBy ? userMap.get(String(entry.createdBy)) : null;
+            const pages = entry.pages || [];
+            const blockCount = pages.reduce((sum, page) => sum + (page.blocks || []).length, 0);
+            return {
+                version: entry.version,
+                createdAt: entry.createdAt,
+                createdBy: entry.createdBy,
+                createdByName: user?.displayName || user?.username || 'Unknown',
+                changeDescription: entry.changeDescription || '',
+                saveType: entry.saveType || 'manual',
+                pageCount: pages.length,
+                blockCount
+            };
+        }).sort((a, b) => b.version - a.version); // Most recent first
+        res.json({
+            templateId: template._id,
+            templateName: template.name,
+            currentVersion: template.currentVersion || 1,
+            versionHistory: enrichedHistory
+        });
+    }
+    catch (e) {
+        console.error('[templates] Error fetching state history:', e);
+        res.status(500).json({ error: 'fetch_failed', message: e.message });
+    }
+});
 exports.templatesRouter.get('/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', 'AEFE', 'TEACHER']), async (req, res) => {
     const { id } = req.params;
     const tpl = await (0, cache_1.withCache)(`template-${id}`, () => GradebookTemplate_1.GradebookTemplate.findById(id).lean());

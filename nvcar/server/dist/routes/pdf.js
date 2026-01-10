@@ -730,7 +730,10 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
             else if (b.type === 'dropdown_reference') {
                 // Render the value selected in the referenced dropdown
                 const dropdownNum = b.props?.dropdownNumber || 1;
-                const selectedValue = assignmentData[`dropdown_${dropdownNum}`] || `[Dropdown #${dropdownNum}]`;
+                const raw = assignmentData[`dropdown_${dropdownNum}`];
+                const selectedValue = typeof raw === 'string' ? raw.trim() : raw;
+                if (!selectedValue)
+                    return;
                 if (b.props?.color)
                     doc.fillColor(b.props.color);
                 doc.fontSize(b.props?.size || b.props?.fontSize || 12);
@@ -741,10 +744,10 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
                     const options = { width };
                     if (height)
                         options.height = height;
-                    doc.text(selectedValue, px(x), py(y), options);
+                    doc.text(String(selectedValue), px(x), py(y), options);
                 }
                 else {
-                    doc.text(selectedValue);
+                    doc.text(String(selectedValue));
                 }
                 doc.fillColor('#2d3436');
             }
@@ -1246,7 +1249,10 @@ exports.pdfRouter.get('/class/:classId/batch', (0, auth_1.requireAuth)(['ADMIN',
                         else if (b.type === 'dropdown_reference') {
                             // Render the value selected in the referenced dropdown
                             const dropdownNum = b.props?.dropdownNumber || 1;
-                            const selectedValue = assignmentData[`dropdown_${dropdownNum}`] || `[Dropdown #${dropdownNum}]`;
+                            const raw = assignmentData[`dropdown_${dropdownNum}`];
+                            const selectedValue = typeof raw === 'string' ? raw.trim() : raw;
+                            if (!selectedValue)
+                                return;
                             if (b.props?.color)
                                 doc.fillColor(b.props.color);
                             doc.fontSize(b.props?.size || b.props?.fontSize || 12);
@@ -1257,10 +1263,10 @@ exports.pdfRouter.get('/class/:classId/batch', (0, auth_1.requireAuth)(['ADMIN',
                                 const options = { width };
                                 if (height)
                                     options.height = height;
-                                doc.text(selectedValue, px(x), py(y), options);
+                                doc.text(String(selectedValue), px(x), py(y), options);
                             }
                             else {
-                                doc.text(selectedValue);
+                                doc.text(String(selectedValue));
                             }
                             doc.fillColor('#2d3436');
                         }

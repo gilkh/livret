@@ -594,7 +594,9 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), asy
       } else if (b.type === 'dropdown_reference') {
         // Render the value selected in the referenced dropdown
         const dropdownNum = b.props?.dropdownNumber || 1
-        const selectedValue = assignmentData[`dropdown_${dropdownNum}`] || `[Dropdown #${dropdownNum}]`
+        const raw = assignmentData[`dropdown_${dropdownNum}`]
+        const selectedValue = typeof raw === 'string' ? raw.trim() : raw
+        if (!selectedValue) return
 
         if (b.props?.color) doc.fillColor(b.props.color)
         doc.fontSize(b.props?.size || b.props?.fontSize || 12)
@@ -605,9 +607,9 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), asy
         if (typeof x === 'number' && typeof y === 'number') {
           const options: any = { width }
           if (height) options.height = height
-          doc.text(selectedValue, px(x), py(y), options)
+          doc.text(String(selectedValue), px(x), py(y), options)
         } else {
-          doc.text(selectedValue)
+          doc.text(String(selectedValue))
         }
         doc.fillColor('#2d3436')
       } else if (b.type === 'language_toggle' || b.type === 'language_toggle_v2') {
@@ -1010,7 +1012,9 @@ pdfRouter.get('/class/:classId/batch', requireAuth(['ADMIN', 'SUBADMIN']), async
             } else if (b.type === 'dropdown_reference') {
               // Render the value selected in the referenced dropdown
               const dropdownNum = b.props?.dropdownNumber || 1
-              const selectedValue = assignmentData[`dropdown_${dropdownNum}`] || `[Dropdown #${dropdownNum}]`
+              const raw = assignmentData[`dropdown_${dropdownNum}`]
+              const selectedValue = typeof raw === 'string' ? raw.trim() : raw
+              if (!selectedValue) return
 
               if (b.props?.color) doc.fillColor(b.props.color)
               doc.fontSize(b.props?.size || b.props?.fontSize || 12)
@@ -1021,9 +1025,9 @@ pdfRouter.get('/class/:classId/batch', requireAuth(['ADMIN', 'SUBADMIN']), async
               if (typeof x === 'number' && typeof y === 'number') {
                 const options: any = { width }
                 if (height) options.height = height
-                doc.text(selectedValue, px(x), py(y), options)
+                doc.text(String(selectedValue), px(x), py(y), options)
               } else {
-                doc.text(selectedValue)
+                doc.text(String(selectedValue))
               }
               doc.fillColor('#2d3436')
             } else if (b.type === 'language_toggle' || b.type === 'language_toggle_v2') {
