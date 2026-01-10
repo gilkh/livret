@@ -98,7 +98,7 @@ export default function SubAdminTemplateReview() {
     const computeFitScale = () => {
         const containerWidth = containerRef.current ? containerRef.current.clientWidth : window.innerWidth
         const availableWidth = Math.max(0, Math.min(window.innerWidth, containerWidth) - 48)
-        return Math.min(1, availableWidth / pageWidth)
+        return availableWidth / pageWidth
     }
 
     // UI State

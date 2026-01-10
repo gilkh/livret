@@ -3161,7 +3161,7 @@ export default function TemplateBuilder() {
                     onMouseMove={(e) => updateLastCanvasPointer(e, pageIndex)}
                     onClick={() => setSelectedPage(pageIndex)}
                   >
-                    <div className="page-margins" />
+                    <div className="page-margins" style={{ border: '1px dashed #b2bec3' }} />
                     {/* Guides */}
                     {activeGuides.map((g, i) => (
                       <div
@@ -5576,229 +5576,238 @@ export default function TemplateBuilder() {
                           }}>
                             <div style={{ fontSize: 11, fontWeight: 700, color: '#6c757d', marginBottom: 10, textTransform: 'uppercase' }}>Lignes</div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                              {(tpl.pages[selectedPage].blocks[selectedIndex].props.rowHeights || []).map((h: number, i: number) => (
-                                <div key={i} style={{ marginBottom: 4, paddingBottom: 8, borderBottom: i < (tpl.pages[selectedPage].blocks[selectedIndex].props.rowHeights || []).length - 1 ? '1px dashed #f1f5f9' : 'none' }}>
-                                  <div style={{ display: 'grid', gridTemplateColumns: '24px 1fr 32px', gap: 8, alignItems: 'center', marginBottom: 4 }}>
-                                    <div style={{ fontWeight: 500, fontSize: 12, color: '#64748b' }}>#{i + 1}</div>
-                                    <input
-                                      type="number"
-                                      value={Math.round(h)}
-                                      onChange={e => {
-                                        const rows = [...(tpl.pages[selectedPage].blocks[selectedIndex].props.rowHeights || [])]
-                                        rows[i] = Number(e.target.value)
-                                        updateSelectedTable(p => ({ ...p, rowHeights: rows }))
-                                      }}
-                                      style={{
-                                        width: '100%',
-                                        padding: '6px 10px',
-                                        borderRadius: 6,
-                                        border: '1px solid #e2e8f0',
-                                        fontSize: 13,
-                                        outline: 'none',
-                                        transition: 'border-color 0.2s'
-                                      }}
-                                      onFocus={e => e.target.style.borderColor = '#667eea'}
-                                      onBlur={e => e.target.style.borderColor = '#e2e8f0'}
-                                      title="Hauteur de la ligne"
-                                    />
+                              {(() => {
+                                const props = tpl.pages[selectedPage].blocks[selectedIndex].props
+                                const hCount = (props.rowHeights || []).length
+                                const cCount = (props.cells || []).length
+                                const count = Math.max(hCount, cCount)
+                                return Array.from({ length: count }).map((_, i) => {
+                                  const h = (props.rowHeights || [])[i] ?? 40
+                                  return (
+                                    <div key={i} style={{ marginBottom: 4, paddingBottom: 8, borderBottom: i < count - 1 ? '1px dashed #f1f5f9' : 'none' }}>
+                                      <div style={{ display: 'grid', gridTemplateColumns: '24px 1fr 32px', gap: 8, alignItems: 'center', marginBottom: 4 }}>
+                                        <div style={{ fontWeight: 500, fontSize: 12, color: '#64748b' }}>#{i + 1}</div>
+                                        <input
+                                          type="number"
+                                          value={Math.round(h)}
+                                          onChange={e => {
+                                            const rows = [...(tpl.pages[selectedPage].blocks[selectedIndex].props.rowHeights || [])]
+                                            rows[i] = Number(e.target.value)
+                                            updateSelectedTable(p => ({ ...p, rowHeights: rows }))
+                                          }}
+                                          style={{
+                                            width: '100%',
+                                            padding: '6px 10px',
+                                            borderRadius: 6,
+                                            border: '1px solid #e2e8f0',
+                                            fontSize: 13,
+                                            outline: 'none',
+                                            transition: 'border-color 0.2s'
+                                          }}
+                                          onFocus={e => e.target.style.borderColor = '#667eea'}
+                                          onBlur={e => e.target.style.borderColor = '#e2e8f0'}
+                                          title="Hauteur de la ligne"
+                                        />
 
-                                    <button
-                                      className="btn secondary"
-                                      onClick={() => {
-                                        const props = tpl.pages[selectedPage].blocks[selectedIndex].props
-                                        const rows = [...(props.rowHeights || [])]
-                                        if (!rows.length) return
-                                        rows.splice(i, 1)
-                                        const cells = (props.cells || []).filter((_: any, ri: number) => ri !== i)
-                                        const rowLanguages = [...(props.rowLanguages || [])]
-                                        if (rowLanguages.length > i) rowLanguages.splice(i, 1)
-                                        updateSelectedTable(p => ({ ...p, rowHeights: rows, cells, rowLanguages }))
-                                        if (selectedCell) {
-                                          if (selectedCell.ri === i) setSelectedCell(null)
-                                          else if (selectedCell.ri > i) setSelectedCell({ ri: selectedCell.ri - 1, ci: selectedCell.ci })
-                                        }
-                                      }}
-                                      style={{
-                                        padding: '6px',
-                                        color: '#ef4444',
-                                        border: '1px solid #fee2e2',
-                                        background: '#fef2f2',
-                                        borderRadius: 6,
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        cursor: 'pointer'
-                                      }}
-                                      title="Supprimer la ligne"
-                                    >
-                                      🗑️
-                                    </button>
-                                  </div>
+                                        <button
+                                          className="btn secondary"
+                                          onClick={() => {
+                                            const props = tpl.pages[selectedPage].blocks[selectedIndex].props
+                                            const rows = [...(props.rowHeights || [])]
+                                            if (!rows.length) return
+                                            rows.splice(i, 1)
+                                            const cells = (props.cells || []).filter((_: any, ri: number) => ri !== i)
+                                            const rowLanguages = [...(props.rowLanguages || [])]
+                                            if (rowLanguages.length > i) rowLanguages.splice(i, 1)
+                                            updateSelectedTable(p => ({ ...p, rowHeights: rows, cells, rowLanguages }))
+                                            if (selectedCell) {
+                                              if (selectedCell.ri === i) setSelectedCell(null)
+                                              else if (selectedCell.ri > i) setSelectedCell({ ri: selectedCell.ri - 1, ci: selectedCell.ci })
+                                            }
+                                          }}
+                                          style={{
+                                            padding: '6px',
+                                            color: '#ef4444',
+                                            border: '1px solid #fee2e2',
+                                            background: '#fef2f2',
+                                            borderRadius: 6,
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            cursor: 'pointer'
+                                          }}
+                                          title="Supprimer la ligne"
+                                        >
+                                          🗑️
+                                        </button>
+                                      </div>
 
-                                  {/* Row Language Editor Inline */}
-                                  {tpl.pages[selectedPage].blocks[selectedIndex].props.expandedRows && (
-                                    <div style={{ marginLeft: 32 }}>
-                                      {(() => {
-                                        const props = tpl.pages[selectedPage].blocks[selectedIndex].props
-                                        const rowIdx = i // Capture current index
-                                        const myRowLangs = props.rowLanguages?.[rowIdx]
-                                        const globalLangs = props.expandedLanguages || [
-                                          { code: 'fr', label: 'French', emoji: '🇫🇷', active: false },
-                                          { code: 'en', label: 'English', emoji: '🇬🇧', active: false },
-                                          { code: 'ar', label: 'Lebanese', emoji: '🇱🇧', active: false }
-                                        ]
-                                        const currentLangs = myRowLangs || globalLangs
-                                        const isCustom = !!myRowLangs
+                                      {/* Row Language Editor Inline */}
+                                      {tpl.pages[selectedPage].blocks[selectedIndex].props.expandedRows && (
+                                        <div style={{ marginLeft: 32 }}>
+                                          {(() => {
+                                            const props = tpl.pages[selectedPage].blocks[selectedIndex].props
+                                            const rowIdx = i // Capture current index
+                                            const myRowLangs = props.rowLanguages?.[rowIdx]
+                                            const globalLangs = props.expandedLanguages || [
+                                              { code: 'fr', label: 'French', emoji: '🇫🇷', active: false },
+                                              { code: 'en', label: 'English', emoji: '🇬🇧', active: false },
+                                              { code: 'ar', label: 'Lebanese', emoji: '🇱🇧', active: false }
+                                            ]
+                                            const currentLangs = myRowLangs || globalLangs
+                                            const isCustom = !!myRowLangs
 
-                                        return (
-                                          <div style={{ marginTop: 4 }}>
                                             return (
-                                            <div style={{ marginTop: 4 }}>
-                                              <div style={{ borderRadius: 6, background: '#f0fff4', border: '1px solid #c6f6d5', padding: 8 }}>
-                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                                                  <div style={{ fontSize: 11, color: '#276749', fontWeight: 600 }}>
-                                                    Langues ({currentLangs.length})
-                                                  </div>
-                                                  {isCustom && (
-                                                    <button className="btn secondary" style={{
-                                                      padding: '2px 6px',
-                                                      fontSize: 10,
-                                                      color: '#c53030',
-                                                      background: '#fff',
-                                                      border: '1px solid #feb2b2',
-                                                      borderRadius: 4
-                                                    }} onClick={() => {
-                                                      updateSelectedTable(p => {
-                                                        const rl = [...(p.rowLanguages || [])]
-                                                        if (rl.length > rowIdx) rl[rowIdx] = undefined
-                                                        return { ...p, rowLanguages: rl }
-                                                      })
-                                                    }}>Rétablir Global</button>
-                                                  )}
-                                                </div>
+                                              <div style={{ marginTop: 4 }}>
 
-                                                {/* List of Langs for Row */}
-                                                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                                                  {currentLangs.map((lang: any, li: number) => (
-                                                    <div key={li} style={{
-                                                      display: 'grid',
-                                                      gridTemplateColumns: 'auto 1fr 40px auto',
-                                                      gap: 4,
-                                                      alignItems: 'center',
-                                                      padding: 4,
-                                                      background: '#fff',
-                                                      borderRadius: 4,
-                                                      border: '1px solid #e2e8f0'
-                                                    }}>
-                                                      <input
-                                                        type="text"
-                                                        value={lang.emoji}
-                                                        onChange={e => {
+                                                <div style={{ marginTop: 4 }}>
+                                                  <div style={{ borderRadius: 6, background: '#f0fff4', border: '1px solid #c6f6d5', padding: 8 }}>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                                                      <div style={{ fontSize: 11, color: '#276749', fontWeight: 600 }}>
+                                                        Langues ({currentLangs.length})
+                                                      </div>
+                                                      {isCustom && (
+                                                        <button className="btn secondary" style={{
+                                                          padding: '2px 6px',
+                                                          fontSize: 10,
+                                                          color: '#c53030',
+                                                          background: '#fff',
+                                                          border: '1px solid #feb2b2',
+                                                          borderRadius: 4
+                                                        }} onClick={() => {
                                                           updateSelectedTable(p => {
                                                             const rl = [...(p.rowLanguages || [])]
-                                                            // Initialize from current if not custom yet
-                                                            const rowL = rl[rowIdx] ? [...rl[rowIdx]] : JSON.parse(JSON.stringify(currentLangs))
-                                                            rowL[li] = { ...rowL[li], emoji: e.target.value }
-                                                            rl[rowIdx] = rowL
+                                                            if (rl.length > rowIdx) rl[rowIdx] = undefined
                                                             return { ...p, rowLanguages: rl }
                                                           })
-                                                        }}
-                                                        style={{ width: 24, textAlign: 'center', padding: 2, borderRadius: 3, border: '1px solid #ddd', fontSize: 12 }}
-                                                      />
-                                                      <input
-                                                        type="text"
-                                                        value={lang.label}
-                                                        onChange={e => {
-                                                          updateSelectedTable(p => {
-                                                            const rl = [...(p.rowLanguages || [])]
-                                                            const rowL = rl[rowIdx] ? [...rl[rowIdx]] : JSON.parse(JSON.stringify(currentLangs))
-                                                            rowL[li] = { ...rowL[li], label: e.target.value }
-                                                            rl[rowIdx] = rowL
-                                                            return { ...p, rowLanguages: rl }
-                                                          })
-                                                        }}
-                                                        style={{ width: '100%', padding: '2px 4px', borderRadius: 3, border: '1px solid #ddd', fontSize: 11 }}
-                                                      />
-                                                      <select
-                                                        value={lang.level || ''}
-                                                        onChange={e => {
-                                                          updateSelectedTable(p => {
-                                                            const rl = [...(p.rowLanguages || [])]
-                                                            const rowL = rl[rowIdx] ? [...rl[rowIdx]] : JSON.parse(JSON.stringify(currentLangs))
-                                                            rowL[li] = { ...rowL[li], level: e.target.value }
-                                                            rl[rowIdx] = rowL
-                                                            return { ...p, rowLanguages: rl }
-                                                          })
-                                                        }}
-                                                        title="Niveau"
-                                                        style={{ width: '100%', padding: '0px', borderRadius: 3, border: '1px solid #ddd', fontSize: 10, height: 22 }}
-                                                      >
-                                                        <option value="">-</option>
-                                                        <option value="PS">PS</option>
-                                                        <option value="MS">MS</option>
-                                                        <option value="GS">GS</option>
-                                                      </select>
-                                                      <button style={{ background: 'none', border: 'none', color: '#e53e3e', cursor: 'pointer', fontSize: 10 }} onClick={() => {
-                                                        updateSelectedTable(p => {
-                                                          const rl = [...(p.rowLanguages || [])]
-                                                          const rowL = rl[rowIdx] ? [...rl[rowIdx]] : JSON.parse(JSON.stringify(currentLangs))
-                                                          rowL.splice(li, 1)
-                                                          rl[rowIdx] = rowL
-                                                          return { ...p, rowLanguages: rl }
-                                                        })
-                                                      }}>✕</button>
+                                                        }}>Rétablir Global</button>
+                                                      )}
                                                     </div>
-                                                  ))}
 
-                                                  {/* Quick Add Dropdown */}
-                                                  <div style={{ marginTop: 2 }}>
-                                                    <select
-                                                      value=""
-                                                      onChange={(e) => {
-                                                        const val = e.target.value
-                                                        if (!val) return
-                                                        updateSelectedTable(p => {
-                                                          const rl = [...(p.rowLanguages || [])]
-                                                          const rowL = rl[rowIdx] ? [...rl[rowIdx]] : JSON.parse(JSON.stringify(currentLangs))
-                                                          let newLang = { code: 'new', label: 'New', emoji: '🏳️', active: false }
+                                                    {/* List of Langs for Row */}
+                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                                      {currentLangs.map((lang: any, li: number) => (
+                                                        <div key={li} style={{
+                                                          display: 'grid',
+                                                          gridTemplateColumns: 'auto 1fr 40px auto',
+                                                          gap: 4,
+                                                          alignItems: 'center',
+                                                          padding: 4,
+                                                          background: '#fff',
+                                                          borderRadius: 4,
+                                                          border: '1px solid #e2e8f0'
+                                                        }}>
+                                                          <input
+                                                            type="text"
+                                                            value={lang.emoji}
+                                                            onChange={e => {
+                                                              updateSelectedTable(p => {
+                                                                const rl = [...(p.rowLanguages || [])]
+                                                                // Initialize from current if not custom yet
+                                                                const rowL = rl[rowIdx] ? [...rl[rowIdx]] : JSON.parse(JSON.stringify(currentLangs))
+                                                                rowL[li] = { ...rowL[li], emoji: e.target.value }
+                                                                rl[rowIdx] = rowL
+                                                                return { ...p, rowLanguages: rl }
+                                                              })
+                                                            }}
+                                                            style={{ width: 24, textAlign: 'center', padding: 2, borderRadius: 3, border: '1px solid #ddd', fontSize: 12 }}
+                                                          />
+                                                          <input
+                                                            type="text"
+                                                            value={lang.label}
+                                                            onChange={e => {
+                                                              updateSelectedTable(p => {
+                                                                const rl = [...(p.rowLanguages || [])]
+                                                                const rowL = rl[rowIdx] ? [...rl[rowIdx]] : JSON.parse(JSON.stringify(currentLangs))
+                                                                rowL[li] = { ...rowL[li], label: e.target.value }
+                                                                rl[rowIdx] = rowL
+                                                                return { ...p, rowLanguages: rl }
+                                                              })
+                                                            }}
+                                                            style={{ width: '100%', padding: '2px 4px', borderRadius: 3, border: '1px solid #ddd', fontSize: 11 }}
+                                                          />
+                                                          <select
+                                                            value={lang.level || ''}
+                                                            onChange={e => {
+                                                              updateSelectedTable(p => {
+                                                                const rl = [...(p.rowLanguages || [])]
+                                                                const rowL = rl[rowIdx] ? [...rl[rowIdx]] : JSON.parse(JSON.stringify(currentLangs))
+                                                                rowL[li] = { ...rowL[li], level: e.target.value }
+                                                                rl[rowIdx] = rowL
+                                                                return { ...p, rowLanguages: rl }
+                                                              })
+                                                            }}
+                                                            title="Niveau"
+                                                            style={{ width: '100%', padding: '0px', borderRadius: 3, border: '1px solid #ddd', fontSize: 10, height: 22 }}
+                                                          >
+                                                            <option value="">-</option>
+                                                            <option value="PS">PS</option>
+                                                            <option value="MS">MS</option>
+                                                            <option value="GS">GS</option>
+                                                          </select>
+                                                          <button style={{ background: 'none', border: 'none', color: '#e53e3e', cursor: 'pointer', fontSize: 10 }} onClick={() => {
+                                                            updateSelectedTable(p => {
+                                                              const rl = [...(p.rowLanguages || [])]
+                                                              const rowL = rl[rowIdx] ? [...rl[rowIdx]] : JSON.parse(JSON.stringify(currentLangs))
+                                                              rowL.splice(li, 1)
+                                                              rl[rowIdx] = rowL
+                                                              return { ...p, rowLanguages: rl }
+                                                            })
+                                                          }}>✕</button>
+                                                        </div>
+                                                      ))}
 
-                                                          if (val === 'fr') newLang = { code: 'fr', label: 'French', emoji: '🇫🇷', active: false }
-                                                          else if (val === 'en') newLang = { code: 'en', label: 'English', emoji: '🇬🇧', active: false }
-                                                          else if (val === 'lb') newLang = { code: 'lb', label: 'Lebanese', emoji: '🇱🇧', active: false }
+                                                      {/* Quick Add Dropdown */}
+                                                      <div style={{ marginTop: 2 }}>
+                                                        <select
+                                                          value=""
+                                                          onChange={(e) => {
+                                                            const val = e.target.value
+                                                            if (!val) return
+                                                            updateSelectedTable(p => {
+                                                              const rl = [...(p.rowLanguages || [])]
+                                                              const rowL = rl[rowIdx] ? [...rl[rowIdx]] : JSON.parse(JSON.stringify(currentLangs))
+                                                              let newLang = { code: 'new', label: 'New', emoji: '🏳️', active: false }
 
-                                                          rowL.push(newLang)
-                                                          rl[rowIdx] = rowL
-                                                          return { ...p, rowLanguages: rl }
-                                                        })
-                                                      }}
-                                                      style={{
-                                                        width: '100%',
-                                                        padding: '4px',
-                                                        fontSize: 11,
-                                                        border: '1px solid #bee3f8',
-                                                        background: '#ebf8ff',
-                                                        color: '#3182ce',
-                                                        borderRadius: 3,
-                                                        cursor: 'pointer'
-                                                      }}
-                                                    >
-                                                      <option value="">+ Ajouter langue...</option>
-                                                      <option value="fr">🇫🇷 French</option>
-                                                      <option value="en">🇬🇧 English</option>
-                                                      <option value="ar">🇱🇧 Lebanese</option>
-                                                    </select>
+                                                              if (val === 'fr') newLang = { code: 'fr', label: 'French', emoji: '🇫🇷', active: false }
+                                                              else if (val === 'en') newLang = { code: 'en', label: 'English', emoji: '🇬🇧', active: false }
+                                                              else if (val === 'lb') newLang = { code: 'lb', label: 'Lebanese', emoji: '🇱🇧', active: false }
+
+                                                              rowL.push(newLang)
+                                                              rl[rowIdx] = rowL
+                                                              return { ...p, rowLanguages: rl }
+                                                            })
+                                                          }}
+                                                          style={{
+                                                            width: '100%',
+                                                            padding: '4px',
+                                                            fontSize: 11,
+                                                            border: '1px solid #bee3f8',
+                                                            background: '#ebf8ff',
+                                                            color: '#3182ce',
+                                                            borderRadius: 3,
+                                                            cursor: 'pointer'
+                                                          }}
+                                                        >
+                                                          <option value="">+ Ajouter langue...</option>
+                                                          <option value="fr">🇫🇷 French</option>
+                                                          <option value="en">🇬🇧 English</option>
+                                                          <option value="ar">🇱🇧 Lebanese</option>
+                                                        </select>
+                                                      </div>
+                                                    </div>
                                                   </div>
                                                 </div>
+                                                )
                                               </div>
-                                            </div>
                                             )
-                                          </div>
-                                        )
-                                      })()}
+                                          })()}
+                                        </div>
+                                      )}
                                     </div>
-                                  )}
-                                </div>
-                              ))}
+                                  )
+                                })
+                              })()}
                             </div>
                             <div className="toolbar" style={{ display: 'flex', gap: 8, marginTop: 12 }}>
                               <button className="btn secondary" style={{ flex: 1, padding: '8px', fontSize: 12, justifyContent: 'center' }} onClick={() => {
@@ -6454,11 +6463,12 @@ export default function TemplateBuilder() {
                   <div style={{ fontSize: 48, marginBottom: 16, opacity: 0.3 }}>🎯</div>
                   <p style={{ margin: 0, fontSize: 14 }}>Sélectionnez un bloc sur le canevas pour modifier ses propriétés</p>
                 </div>
-              )}
-            </div>
+              )
+              }
+            </div >
           )}
-        </div>
-      </div>
+        </div >
+      </div >
 
       {/* Template Propagation Modal */}
       {
