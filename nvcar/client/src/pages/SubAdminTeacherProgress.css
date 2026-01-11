@@ -385,8 +385,158 @@
     font-weight: 600;
 }
 
-/* Level Summary Card */
-.level-summary-card {
+/* Level Summary Card - Compact Version */
+.level-summary-card.compact {
+    background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+    border-radius: 16px;
+    padding: 16px 20px;
+    margin-bottom: 20px;
+    border: 1px solid rgba(99, 102, 241, 0.1);
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.03);
+}
+
+.summary-content-compact {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+}
+
+.circular-progress-section {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-shrink: 0;
+}
+
+.progress-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.progress-meta-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: #0f172a;
+}
+
+.progress-meta-subtitle {
+    font-size: 11px;
+    color: #64748b;
+    max-width: 140px;
+}
+
+/* Compact Circular Progress */
+.circular-progress {
+    position: relative;
+}
+
+.circular-progress svg {
+    transform: rotate(-90deg);
+}
+
+.circular-progress-bg {
+    fill: none;
+    stroke: #e2e8f0;
+}
+
+.circular-progress-fill {
+    fill: none;
+    stroke: url(#progressGradient);
+    stroke-linecap: round;
+    transition: stroke-dashoffset 1s ease-out;
+}
+
+.circular-progress-text {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+}
+
+.circular-progress-percentage {
+    font-size: 18px;
+    font-weight: 700;
+    color: #0f172a;
+    display: block;
+    line-height: 1;
+}
+
+/* Compact Category Grid */
+.category-progress-compact {
+    flex: 1;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 10px;
+}
+
+.category-item-compact {
+    background: white;
+    border-radius: 10px;
+    padding: 10px 12px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+    transition: all 0.2s ease;
+    border: 1px solid #f1f5f9;
+}
+
+.category-item-compact:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    border-color: rgba(99, 102, 241, 0.2);
+}
+
+.category-compact-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+}
+
+.category-name-compact {
+    font-size: 11px;
+    font-weight: 600;
+    color: #334155;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 80px;
+}
+
+.category-percentage-compact {
+    font-size: 12px;
+    font-weight: 700;
+    color: #6366f1;
+}
+
+.category-bar-compact {
+    height: 6px;
+    background: #e2e8f0;
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.category-bar-compact .category-bar-fill {
+    height: 100%;
+    animation: none;
+}
+
+.category-bar-compact .category-bar-fill::after {
+    display: none;
+}
+
+.category-teachers-compact {
+    display: block;
+    font-size: 10px;
+    color: #94a3b8;
+    margin-top: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Legacy Level Summary Card (kept for backwards compatibility) */
+.level-summary-card:not(.compact) {
     background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
     border-radius: 24px;
     padding: 28px;
@@ -421,7 +571,7 @@
     flex-wrap: wrap;
 }
 
-/* Circular Progress */
+/* Circular Progress (legacy) */
 .circular-progress-container {
     flex: 0 0 180px;
     display: flex;
@@ -438,53 +588,13 @@
     letter-spacing: 0.5px;
 }
 
-.circular-progress {
-    position: relative;
-    width: 150px;
-    height: 150px;
-}
-
-.circular-progress svg {
-    transform: rotate(-90deg);
-}
-
-.circular-progress-bg {
-    fill: none;
-    stroke: #e2e8f0;
-    stroke-width: 12;
-}
-
-.circular-progress-fill {
-    fill: none;
-    stroke: url(#progressGradient);
-    stroke-width: 12;
-    stroke-linecap: round;
-    transition: stroke-dashoffset 1s ease-out;
-}
-
-.circular-progress-text {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    text-align: center;
-}
-
-.circular-progress-percentage {
-    font-size: 32px;
-    font-weight: 700;
-    color: #0f172a;
-    display: block;
-    line-height: 1;
-}
-
 .circular-progress-subtext {
     font-size: 12px;
     color: #64748b;
     margin-top: 4px;
 }
 
-/* Category Progress Bars */
+/* Category Progress Bars (legacy) */
 .category-progress-container {
     flex: 1;
     min-width: 350px;
@@ -777,32 +887,33 @@
 
 .class-detailed-card {
     background: white;
-    border-radius: 20px;
-    margin-bottom: 28px;
+    border-radius: 12px;
+    margin-bottom: 16px;
     overflow: hidden;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
-    border: 1px solid #f1f5f9;
+    box-shadow: 0 1px 8px rgba(0, 0, 0, 0.04);
+    border: 1px solid #e2e8f0;
     transition: all 0.3s ease;
 }
 
 .class-detailed-card:hover {
-    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.08);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+    border-color: rgba(99, 102, 241, 0.2);
 }
 
 .class-detailed-header {
-    padding: 20px 24px;
+    padding: 10px 16px;
     background: linear-gradient(135deg, #f8fafc, #f1f5f9);
     border-bottom: 1px solid #e2e8f0;
 }
 
 .class-detailed-title {
-    font-size: 18px;
-    font-weight: 700;
-    color: #0f172a;
+    font-size: 14px;
+    font-weight: 600;
+    color: #1e293b;
     margin: 0;
 }
 
-/* Table Styles */
+/* Table Styles - Compact Version */
 .student-table-container {
     overflow-x: auto;
 }
@@ -813,13 +924,13 @@
 }
 
 .student-table thead {
-    background: linear-gradient(135deg, #f8fafc, #f1f5f9);
+    background: #f8fafc !important;
 }
 
 .student-table th {
-    padding: 16px 20px;
+    padding: 6px 12px !important;
     text-align: left;
-    font-size: 12px;
+    font-size: 10px !important;
     font-weight: 600;
     color: #64748b;
     text-transform: uppercase;
@@ -832,7 +943,7 @@
 }
 
 .student-table tbody tr {
-    transition: background 0.2s ease;
+    transition: background 0.15s ease;
 }
 
 .student-table tbody tr:hover {
@@ -840,9 +951,10 @@
 }
 
 .student-table td {
-    padding: 16px 20px;
+    padding: 6px 12px !important;
     border-bottom: 1px solid #f1f5f9;
-    font-size: 14px;
+    font-size: 12px !important;
+    vertical-align: middle;
 }
 
 .student-table td:not(:first-child) {
@@ -855,18 +967,23 @@
 
 .student-name {
     font-weight: 600;
-    color: #1e293b;
+    color: #0f172a !important;
+    font-size: 13px !important;
+    letter-spacing: -0.1px;
 }
 
-/* Status Icons */
+/* Status Icons - Compact */
 .status-icon {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 32px;
-    height: 32px;
-    border-radius: 10px;
-    font-size: 16px;
+    width: 22px !important;
+    height: 22px !important;
+    border-radius: 6px;
+    font-size: 11px !important;
+    font-weight: 600;
+    line-height: 1;
+    vertical-align: middle;
     transition: transform 0.2s ease;
 }
 
@@ -881,13 +998,13 @@
 
 .status-icon.pending {
     background: linear-gradient(135deg, #fee2e2, #fecaca);
-    color: #b91c1c;
+    color: #dc2626;
 }
 
 .status-icon.na {
     background: #f1f5f9;
     color: #94a3b8;
-    font-size: 11px;
+    font-size: 9px !important;
     font-weight: 600;
 }
 
@@ -1186,5 +1303,29 @@
     .level-stats {
         margin-left: 0;
         flex-wrap: wrap;
+    }
+
+    /* Compact Level Summary Mobile Styles */
+    .summary-content-compact {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 16px;
+    }
+
+    .circular-progress-section {
+        flex-direction: row;
+        justify-content: flex-start;
+    }
+
+    .progress-meta-subtitle {
+        max-width: 100%;
+    }
+
+    .category-progress-compact {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .category-name-compact {
+        max-width: 60px;
     }
 }

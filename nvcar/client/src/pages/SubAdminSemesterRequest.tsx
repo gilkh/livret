@@ -228,6 +228,53 @@ export default function SubAdminSemesterRequest() {
                 overflow: 'hidden',
                 position: 'relative'
             }}>
+                {/* Prominent CTA Button - Absolute Top Right */}
+                <button
+                    className="btn suggest-carnets-btn"
+                    onClick={() => navigate(isAefeUser ? '/aefe/suggestion/gradebooks' : '/subadmin/suggestion/gradebooks')}
+                    style={{
+                        position: 'absolute',
+                        top: 24,
+                        right: 24,
+                        zIndex: 10,
+                        padding: '14px 24px',
+                        borderRadius: 14,
+                        background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #a855f7 100%)',
+                        border: 'none',
+                        color: 'white',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 12,
+                        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                        cursor: 'pointer',
+                        boxShadow: '0 8px 24px -6px rgba(139, 92, 246, 0.5), 0 0 0 0 rgba(139, 92, 246, 0.4)',
+                        fontWeight: 700,
+                        fontSize: 15
+                    }}
+                    onMouseEnter={e => {
+                        e.currentTarget.style.transform = 'translateY(-2px) scale(1.02)'
+                        e.currentTarget.style.boxShadow = '0 12px 32px -6px rgba(139, 92, 246, 0.6), 0 0 20px rgba(139, 92, 246, 0.3)'
+                    }}
+                    onMouseLeave={e => {
+                        e.currentTarget.style.transform = 'translateY(0) scale(1)'
+                        e.currentTarget.style.boxShadow = '0 8px 24px -6px rgba(139, 92, 246, 0.5), 0 0 0 0 rgba(139, 92, 246, 0.4)'
+                    }}
+                >
+                    <div style={{
+                        width: 32,
+                        height: 32,
+                        background: 'rgba(255, 255, 255, 0.2)',
+                        borderRadius: 8,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                    }}>
+                        <FileText size={18} color="white" />
+                    </div>
+                    <span>Suggérer modifications carnets</span>
+                    <ChevronRight size={18} color="rgba(255,255,255,0.9)" />
+                </button>
+
                 {/* Decorative gradient blob */}
                 <div style={{
                     position: 'absolute',
@@ -246,7 +293,8 @@ export default function SubAdminSemesterRequest() {
                         display: 'flex',
                         alignItems: 'center',
                         gap: 16,
-                        marginBottom: 16
+                        marginBottom: 16,
+                        maxWidth: 'calc(100% - 320px)'
                     }}>
                         <div style={{
                             width: 56,
@@ -256,7 +304,8 @@ export default function SubAdminSemesterRequest() {
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            boxShadow: '0 8px 20px -4px rgba(59, 130, 246, 0.4)'
+                            boxShadow: '0 8px 20px -4px rgba(59, 130, 246, 0.4)',
+                            flexShrink: 0
                         }}>
                             <Send size={26} color="white" />
                         </div>
@@ -304,43 +353,6 @@ export default function SubAdminSemesterRequest() {
                             Période actuelle: Semestre {activeSemester}
                         </span>
                     </div>
-                </div>
-
-                {/* Quick Actions */}
-                <div style={{
-                    display: 'flex',
-                    gap: 12,
-                    marginBottom: 32,
-                    flexWrap: 'wrap'
-                }}>
-                    <button
-                        className="btn"
-                        onClick={() => navigate(isAefeUser ? '/aefe/suggestion/gradebooks' : '/subadmin/suggestion/gradebooks')}
-                        style={{
-                            padding: '12px 20px',
-                            borderRadius: 12,
-                            background: 'white',
-                            border: '1px solid #e2e8f0',
-                            color: '#475569',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 10,
-                            transition: 'all 0.2s ease',
-                            cursor: 'pointer'
-                        }}
-                        onMouseEnter={e => {
-                            e.currentTarget.style.background = '#f8fafc'
-                            e.currentTarget.style.borderColor = '#cbd5e1'
-                        }}
-                        onMouseLeave={e => {
-                            e.currentTarget.style.background = 'white'
-                            e.currentTarget.style.borderColor = '#e2e8f0'
-                        }}
-                    >
-                        <FileText size={18} color="#64748b" />
-                        <span style={{ fontWeight: 500 }}>Suggérer modifications carnets</span>
-                        <ChevronRight size={16} color="#94a3b8" />
-                    </button>
                 </div>
 
                 {/* Request Type Selection */}

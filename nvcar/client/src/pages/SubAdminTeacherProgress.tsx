@@ -49,7 +49,7 @@ const GRADIENT_COLORS = [
 ]
 
 // Circular Progress Component
-const CircularProgress = ({ percentage, size = 150, strokeWidth = 12 }: { percentage: number, size?: number, strokeWidth?: number }) => {
+const CircularProgress = ({ percentage, size = 80, strokeWidth = 8 }: { percentage: number, size?: number, strokeWidth?: number }) => {
     const radius = (size - strokeWidth) / 2
     const circumference = radius * 2 * Math.PI
     const offset = circumference - (percentage / 100) * circumference
@@ -69,12 +69,14 @@ const CircularProgress = ({ percentage, size = 150, strokeWidth = 12 }: { percen
                     cx={size / 2}
                     cy={size / 2}
                     r={radius}
+                    strokeWidth={strokeWidth}
                 />
                 <circle
                     className="circular-progress-fill"
                     cx={size / 2}
                     cy={size / 2}
                     r={radius}
+                    strokeWidth={strokeWidth}
                     strokeDasharray={circumference}
                     strokeDashoffset={offset}
                     style={{ transition: 'stroke-dashoffset 1s ease-out' }}
@@ -82,54 +84,44 @@ const CircularProgress = ({ percentage, size = 150, strokeWidth = 12 }: { percen
             </svg>
             <div className="circular-progress-text">
                 <span className="circular-progress-percentage">{percentage}%</span>
-                <span className="circular-progress-subtext">Complété</span>
             </div>
         </div>
     )
 }
 
-// Level Summary Component
+// Level Summary Component - Compact Version
 const LevelSummary = ({ title, subtitle, progress, byCategory }: any) => (
-    <div className="level-summary-card">
-        <div className="summary-header">
-            <div>
-                <h4 className="summary-title">{title}</h4>
-                <p className="summary-subtitle">{subtitle}</p>
-            </div>
-        </div>
-
-        <div className="summary-content">
-            <div className="circular-progress-container">
-                <div className="circular-progress-label">Progression Globale</div>
+    <div className="level-summary-card compact">
+        <div className="summary-content-compact">
+            <div className="circular-progress-section">
                 <CircularProgress percentage={progress.percentage} />
+                <div className="progress-meta">
+                    <span className="progress-meta-title">{title}</span>
+                    <span className="progress-meta-subtitle">{subtitle}</span>
+                </div>
             </div>
 
-            <div className="category-progress-container">
-                <div className="category-progress-title">Par Enseignant / Domaine</div>
-                <div className="category-list">
-                    {byCategory.map((cat: any, idx: number) => (
-                        <div key={idx} className="category-item">
-                            <div className="category-info">
-                                <div>
-                                    <h5 className="category-name">{cat.name}</h5>
-                                    {cat.teachers && cat.teachers.length > 0 && (
-                                        <p className="category-teachers">
-                                            {cat.teachers.slice(0, 3).join(', ')}
-                                            {cat.teachers.length > 3 && ` +${cat.teachers.length - 3}`}
-                                        </p>
-                                    )}
-                                </div>
-                                <span className="category-percentage">{cat.percentage}%</span>
-                            </div>
-                            <div className="category-bar">
-                                <div
-                                    className={`category-bar-fill ${GRADIENT_COLORS[idx % GRADIENT_COLORS.length]}`}
-                                    style={{ width: `${cat.percentage}%` }}
-                                />
-                            </div>
+            <div className="category-progress-compact">
+                {byCategory.map((cat: any, idx: number) => (
+                    <div key={idx} className="category-item-compact">
+                        <div className="category-compact-header">
+                            <span className="category-name-compact">{cat.name}</span>
+                            <span className="category-percentage-compact">{cat.percentage}%</span>
                         </div>
-                    ))}
-                </div>
+                        <div className="category-bar-compact">
+                            <div
+                                className={`category-bar-fill ${GRADIENT_COLORS[idx % GRADIENT_COLORS.length]}`}
+                                style={{ width: `${cat.percentage}%` }}
+                            />
+                        </div>
+                        {cat.teachers && cat.teachers.length > 0 && (
+                            <span className="category-teachers-compact">
+                                {cat.teachers.slice(0, 2).join(', ')}
+                                {cat.teachers.length > 2 && ` +${cat.teachers.length - 2}`}
+                            </span>
+                        )}
+                    </div>
+                ))}
             </div>
         </div>
     </div>
