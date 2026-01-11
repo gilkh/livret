@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom'
 import api from '../api'
 import ProgressionChart from '../components/ProgressionChart'
 import { useSchoolYear } from '../context/SchoolYearContext'
+import { openBatchPdfExport } from '../utils/pdfExport'
 import { AlertTriangle, CheckCircle2, Download, PenTool, TrendingUp, Users, BookOpen, Lightbulb, ArrowRight } from 'lucide-react'
 
 type Teacher = { _id: string; email: string; displayName: string }
@@ -152,103 +153,9 @@ export default function SubAdminDashboard() {
         const assignmentIds = students.map(s => s.assignmentId).filter(Boolean) as string[]
         if (assignmentIds.length === 0) return
 
-        setPromotionDownloads(prev => ({
-            ...prev,
-            [group]: { status: 'preparing', progress: 0 }
-        }))
-
-        try {
-            const response = await api.post(
-                '/pdf-v2/assignments/zip',
-                { assignmentIds, groupLabel: group },
-                {
-                    responseType: 'blob',
-                    onDownloadProgress: (evt) => {
-                        if (!evt.total) {
-                            setPromotionDownloads(prev => ({
-                                ...prev,
-                                [group]: { status: 'downloading', progress: -1 }
-                            }))
-                            return
-                        }
-                        const pct = Math.max(0, Math.min(100, Math.round((evt.loaded / evt.total) * 100)))
-                        setPromotionDownloads(prev => ({
-                            ...prev,
-                            [group]: { status: 'downloading', progress: pct }
-                        }))
-                    }
-                }
-            )
-
-            const contentType = String(response.headers?.['content-type'] || '')
-            const blobData = response.data as Blob
-            const headBuf = await blobData.slice(0, 4).arrayBuffer()
-            const head = new Uint8Array(headBuf)
-            const looksLikeZip = head.length >= 2 && head[0] === 0x50 && head[1] === 0x4b
-            if (!looksLikeZip || (!contentType.includes('application/zip') && !contentType.includes('application/octet-stream'))) {
-                let message = 'Réponse invalide (ZIP attendu)'
-                try {
-                    const text = await blobData.text()
-                    try {
-                        const parsed = JSON.parse(text)
-                        message = parsed?.message || parsed?.error || message
-                    } catch {
-                        message = text || message
-                    }
-                } catch { }
-                setPromotionDownloads(prev => ({
-                    ...prev,
-                    [group]: { status: 'error', progress: 0, error: message }
-                }))
-                return
-            }
-
-            const cd = String(response.headers?.['content-disposition'] || '')
-            const match = cd.match(/filename\*?=(?:UTF-8'')?"?([^"]+)"?/i)
-            const fallbackName = `carnets-${group.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-_]/g, '').toLowerCase() || 'promotion'}.zip`
-            const fileName = match?.[1] ? decodeURIComponent(match[1]) : fallbackName
-
-            const blob = new Blob([response.data], { type: 'application/zip' })
-            const url = window.URL.createObjectURL(blob)
-            const a = document.createElement('a')
-            a.href = url
-            a.download = fileName
-            document.body.appendChild(a)
-            a.click()
-            a.remove()
-            window.URL.revokeObjectURL(url)
-
-            setPromotionDownloads(prev => ({
-                ...prev,
-                [group]: { status: 'done', progress: 100 }
-            }))
-            setTimeout(() => {
-                setPromotionDownloads(prev => ({
-                    ...prev,
-                    [group]: { status: 'idle', progress: 0 }
-                }))
-            }, 1500)
-        } catch (e: any) {
-            let message = e?.message || 'Erreur'
-            try {
-                const blob = e?.response?.data
-                if (blob instanceof Blob) {
-                    const text = await blob.text()
-                    try {
-                        const parsed = JSON.parse(text)
-                        message = parsed?.message || parsed?.error || message
-                    } catch {
-                        message = text || message
-                    }
-                } else {
-                    message = e?.response?.data?.message || e?.response?.data?.error || message
-                }
-            } catch { }
-            setPromotionDownloads(prev => ({
-                ...prev,
-                [group]: { status: 'error', progress: 0, error: message }
-            }))
-        }
+        // Use the new progress page in a new tab for batch exports
+        const base = (api.defaults.baseURL || '').replace(/\/$/, '')
+        openBatchPdfExport(base, assignmentIds, group, `Carnets - ${group}`)
     }
 
     // Calculate statistics

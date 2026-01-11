@@ -53,6 +53,7 @@ import SystemAlertBanner from './components/SystemAlertBanner'
 import SimulationLab from './pages/SimulationLab'
 import Toast, { ToastType } from './components/Toast'
 import MobileBlocker from './components/MobileBlocker'
+import PdfExportProgress from './pages/PdfExportProgress'
 
 const RequireAuth = ({ children }: { children: JSX.Element }) => {
   const location = useLocation()
@@ -213,8 +214,8 @@ export default function App() {
     }
   }, [authToken])
 
-  // Hide navbar on login and print pages
-  const showNavBar = location.pathname !== '/login' && location.pathname !== '/admin/login' && !location.pathname.startsWith('/print/')
+  // Hide navbar on login, print, and export progress pages
+  const showNavBar = location.pathname !== '/login' && location.pathname !== '/admin/login' && !location.pathname.startsWith('/print/') && location.pathname !== '/export-progress'
   const showMobileBlocker = mobileBlockEnabled && !location.pathname.startsWith('/print/')
 
   return (
@@ -236,6 +237,8 @@ export default function App() {
         <Route path="/print/carnet/:assignmentId" element={<CarnetPrint />} />
         <Route path="/print/saved/:savedId" element={<CarnetPrint mode="saved" />} />
         <Route path="/print/preview/:templateId/student/:studentId" element={<CarnetPrint mode="preview" />} />
+        {/* PDF export progress page - no auth required, handles its own token */}
+        <Route path="/export-progress" element={<PdfExportProgress />} />
         <Route
           path="/"
           element={

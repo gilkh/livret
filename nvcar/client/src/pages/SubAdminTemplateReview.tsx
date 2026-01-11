@@ -9,6 +9,7 @@ import Modal from '../components/Modal'
 import Toast, { ToastType } from '../components/Toast'
 import ScrollToTopButton from '../components/ScrollToTopButton'
 import ScrollPageDownButton from '../components/ScrollPageDownButton'
+import { openPdfExport, buildStudentPdfUrl } from '../utils/pdfExport'
 
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
@@ -556,10 +557,10 @@ export default function SubAdminTemplateReview() {
     const handleExportPDF = async () => {
         if (template && student) {
             try {
-                const token = localStorage.getItem('token')
                 const base = (api.defaults.baseURL || '').replace(/\/$/, '')
-                const url = `${base}/pdf-v2/student/${student._id}?templateId=${template._id}&token=${token}`
-                window.open(url, '_blank')
+                const pdfUrl = buildStudentPdfUrl(base, student._id, template._id || '')
+                const studentFullName = `${student.firstName} ${student.lastName}`
+                openPdfExport(pdfUrl, studentFullName, 'single', 1)
             } catch (e: any) {
                 showToast('Échec de l\'export PDF', 'error')
                 console.error(e)

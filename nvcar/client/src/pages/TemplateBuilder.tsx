@@ -9,6 +9,7 @@ import { GradebookPocket } from '../components/GradebookPocket'
 import { TemplatePropagationModal } from '../components/TemplatePropagationModal'
 import { TemplateHistoryModal } from '../components/TemplateHistoryModal'
 import { TemplateStateHistoryModal } from '../components/TemplateStateHistoryModal'
+import { openPdfExport, buildPreviewPdfUrl } from '../utils/pdfExport'
 
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
@@ -2848,11 +2849,11 @@ export default function TemplateBuilder() {
               className="btn secondary"
               onClick={async () => {
                 try {
-                  const token = sessionStorage.getItem('token') || localStorage.getItem('token') || ''
                   const base = String(api.defaults.baseURL || '').replace(/\/$/, '')
-                  const origin = typeof window !== 'undefined' ? window.location.origin : ''
-                  const url = `${base}/pdf-v2/preview/${tpl._id}/${studentId}?token=${encodeURIComponent(token)}&frontendOrigin=${encodeURIComponent(origin)}`
-                  window.open(url, '_blank')
+                  const pdfUrl = buildPreviewPdfUrl(base, tpl._id || '', studentId)
+                  const selectedStudent = students.find(s => s._id === studentId)
+                  const studentFullName = selectedStudent ? `${selectedStudent.firstName} ${selectedStudent.lastName}` : 'Aperçu'
+                  openPdfExport(pdfUrl, studentFullName, 'single', 1)
                 } catch (e) {
                   setError('Échec de l\'export PDF')
                 }

@@ -3,6 +3,7 @@ import api from '../api'
 import TemplateReviewPreview from '../components/TemplateReviewPreview'
 import SearchableSelect from '../components/SearchableSelect'
 import ScrollToTopButton from '../components/ScrollToTopButton'
+import { openPdfExport, buildSavedGradebookPdfUrl } from '../utils/pdfExport'
 import './SubAdminGradebooks.css'
 
 export default function SubAdminGradebooks() {
@@ -152,7 +153,7 @@ export default function SubAdminGradebooks() {
             <div className="subadmin-header">
                 <h1 className="subadmin-title">Consultation des Carnets</h1>
             </div>
-            
+
             <div className="filters-card">
                 <div className="filter-group">
                     <label className="filter-label">Type</label>
@@ -223,8 +224,8 @@ export default function SubAdminGradebooks() {
                         <div className="filter-group">
                             <label className="filter-label">Élève</label>
                             <SearchableSelect
-                                options={exitedStudents.map(s => ({ 
-                                    value: s.studentId, 
+                                options={exitedStudents.map(s => ({
+                                    value: s.studentId,
                                     label: `${s.firstName} ${s.lastName}`,
                                     subLabel: s.exitLevel ? `(${s.exitLevel})` : undefined
                                 }))}
@@ -269,12 +270,13 @@ export default function SubAdminGradebooks() {
                         <h3 className="preview-title">
                             Carnet de {savedGradebook.data.student.firstName} {savedGradebook.data.student.lastName}
                         </h3>
-                        <button 
-                            className="download-btn" 
+                        <button
+                            className="download-btn"
                             onClick={() => {
-                                const token = localStorage.getItem('token')
                                 const base = (api.defaults.baseURL || '').replace(/\/$/, '')
-                                window.open(`${base}/pdf-v2/saved/${savedGradebook._id}?token=${token}`, '_blank')
+                                const pdfUrl = buildSavedGradebookPdfUrl(base, savedGradebook._id)
+                                const studentFullName = `${savedGradebook.data.student.firstName} ${savedGradebook.data.student.lastName}`
+                                openPdfExport(pdfUrl, studentFullName, 'single', 1)
                             }}
                         >
                             <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -284,16 +286,16 @@ export default function SubAdminGradebooks() {
                         </button>
                     </div>
                     <div className="renderer-wrapper">
-                        <TemplateReviewPreview 
-                            template={savedTemplate} 
-                            student={savedGradebook.data.student} 
+                        <TemplateReviewPreview
+                            template={savedTemplate}
+                            student={savedGradebook.data.student}
                             assignment={savedGradebook.data.assignment}
-                            signature={savedGradebook.data.signatures?.find((s: any) => s.type === 'standard') || 
-                                      savedGradebook.data.assignment?.data?.signatures?.find((s: any) => s.type === 'standard') ||
-                                      savedGradebook.data.signature}
-                            finalSignature={savedGradebook.data.signatures?.find((s: any) => s.type === 'end_of_year') || 
-                                           savedGradebook.data.assignment?.data?.signatures?.find((s: any) => s.type === 'end_of_year') ||
-                                           savedGradebook.data.finalSignature}
+                            signature={savedGradebook.data.signatures?.find((s: any) => s.type === 'standard') ||
+                                savedGradebook.data.assignment?.data?.signatures?.find((s: any) => s.type === 'standard') ||
+                                savedGradebook.data.signature}
+                            finalSignature={savedGradebook.data.signatures?.find((s: any) => s.type === 'end_of_year') ||
+                                savedGradebook.data.assignment?.data?.signatures?.find((s: any) => s.type === 'end_of_year') ||
+                                savedGradebook.data.finalSignature}
                         />
                     </div>
                 </div>

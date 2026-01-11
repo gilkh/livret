@@ -150,8 +150,13 @@ const generatePdfBufferFromPrintUrl = async (printUrl, token, frontendUrl) => {
     const pdfPageHeightPxRaw = Number(process.env.PDF_PAGE_HEIGHT_PX || '1120');
     const pdfPageWidthPx = Number.isFinite(pdfPageWidthPxRaw) && pdfPageWidthPxRaw > 0 ? Math.round(pdfPageWidthPxRaw) : 800;
     const pdfPageHeightPx = Number.isFinite(pdfPageHeightPxRaw) && pdfPageHeightPxRaw > 0 ? Math.round(pdfPageHeightPxRaw) : 1120;
-    const pdfDeviceScaleFactorRaw = Number(process.env.PDF_DEVICE_SCALE_FACTOR || process.env.PDF_DPI_SCALE || '2');
-    const pdfDeviceScaleFactor = Number.isFinite(pdfDeviceScaleFactorRaw) && pdfDeviceScaleFactorRaw > 0 ? Math.min(4, Math.max(1, pdfDeviceScaleFactorRaw)) : 2;
+    // Device scale factor controls DPI: 1.35 = ~130 DPI (sharp for screen/print, optimized for size)
+    // Lower = smaller files, Higher = sharper but larger files
+    const pdfDeviceScaleFactorRaw = Number(process.env.PDF_DEVICE_SCALE_FACTOR || process.env.PDF_DPI_SCALE || '1.35');
+    const pdfDeviceScaleFactor = Number.isFinite(pdfDeviceScaleFactorRaw) && pdfDeviceScaleFactorRaw > 0 ? Math.min(3, Math.max(1, pdfDeviceScaleFactorRaw)) : 1.35;
+    // Use native page.pdf() instead of screenshot-based approach
+    // Default to screenshot (false) since native PDF can add white borders around content
+    const useNativePdf = process.env.PDF_USE_NATIVE === 'true'; // Must explicitly enable
     // SAFETY: Force 127.0.0.1 if localhost leaked through (e.g. stale code or resolve bypass)
     if (printUrl.includes('//localhost')) {
         printUrl = printUrl.replace('//localhost', '//127.0.0.1');
@@ -173,7 +178,7 @@ const generatePdfBufferFromPrintUrl = async (printUrl, token, frontendUrl) => {
     const safePrintUrl = String(printUrl || '').replace(/([?&])token=[^&]*/, '$1token=***');
     const browser = await getBrowser();
     page = await browser.newPage();
-    console.log(`[PDF TIMING] Starting PDF generation for ${safePrintUrl}`);
+    console.log(`[PDF TIMING] Starting PDF generation for ${safePrintUrl} (native=${useNativePdf})`);
     try {
         page.on('console', (msg) => {
             console.log('[BROWSER LOG]', msg.text());
@@ -267,60 +272,94 @@ const generatePdfBufferFromPrintUrl = async (printUrl, token, frontendUrl) => {
         const delayStart = Date.now();
         await new Promise(resolve => setTimeout(resolve, 250));
         console.log(`[PDF TIMING] pre-pdf delay ${Date.now() - delayStart}ms for ${safePrintUrl}`);
+        // Get page dimensions from .page-canvas elements
         let resolvedPdfPageWidthPx = pdfPageWidthPx;
         let resolvedPdfPageHeightPx = pdfPageHeightPx;
+        let pageCount = 1;
         try {
-            const rect = await page.evaluate(() => {
-                const el = document.querySelector('.page-canvas');
-                if (!el)
+            const pageInfo = await page.evaluate(() => {
+                const pages = document.querySelectorAll('.page-canvas');
+                if (!pages.length)
                     return null;
-                const r = el.getBoundingClientRect();
+                const first = pages[0];
+                const r = first.getBoundingClientRect();
                 const width = Math.round(r.width);
                 const height = Math.round(r.height);
                 if (!width || !height)
                     return null;
-                return { width, height };
+                return { width, height, count: pages.length };
             });
-            if (rect?.width && rect?.height) {
-                resolvedPdfPageWidthPx = rect.width;
-                resolvedPdfPageHeightPx = rect.height;
+            if (pageInfo?.width && pageInfo?.height) {
+                resolvedPdfPageWidthPx = pageInfo.width;
+                resolvedPdfPageHeightPx = pageInfo.height;
+                pageCount = pageInfo.count || 1;
             }
         }
         catch { }
-        console.log(`[PDF DEBUG] Using PDF page size ${resolvedPdfPageWidthPx}x${resolvedPdfPageHeightPx}px @ scale ${pdfDeviceScaleFactor} for ${safePrintUrl}`);
+        console.log(`[PDF DEBUG] Found ${pageCount} pages, size ${resolvedPdfPageWidthPx}x${resolvedPdfPageHeightPx}px @ scale ${pdfDeviceScaleFactor} for ${safePrintUrl}`);
         const tPdfStart = Date.now();
-        const pageCanvases = await page.$$('.page-canvas');
-        if (!pageCanvases.length) {
-            throw new Error('No .page-canvas elements found on print page');
+        let pdfBuffer;
+        if (useNativePdf) {
+            // ========== NATIVE PDF APPROACH ==========
+            // Uses page.pdf() directly - text stays as vectors, only images are rasterized
+            // NOTE: This may add white borders if CSS @page rules don't match exactly
+            // Convert pixel dimensions to points (72 points = 1 inch, assuming 96 DPI screen)
+            const pageWidthInches = resolvedPdfPageWidthPx / 96;
+            const pageHeightInches = resolvedPdfPageHeightPx / 96;
+            console.log(`[PDF DEBUG] Using NATIVE page.pdf() - ${pageWidthInches.toFixed(2)}in x ${pageHeightInches.toFixed(2)}in per page`);
+            pdfBuffer = await page.pdf({
+                width: `${pageWidthInches}in`,
+                height: `${pageHeightInches}in`, // Single page height - CSS page-break-after handles pagination
+                printBackground: true,
+                preferCSSPageSize: true, // Prefer CSS @page rules if defined
+                scale: 1, // Full scale - CSS handles sizing
+                margin: { top: 0, right: 0, bottom: 0, left: 0 }
+            });
         }
-        const pdfBuffer = await new Promise(async (resolve, reject) => {
-            try {
-                const chunks = [];
-                const doc = new pdfkit_1.default({ autoFirstPage: false, margin: 0 });
-                doc.on('data', (c) => chunks.push(Buffer.from(c)));
-                doc.on('end', () => resolve(Buffer.concat(chunks)));
-                doc.on('error', reject);
-                for (const handle of pageCanvases) {
-                    try {
-                        await handle.evaluate((el) => el?.scrollIntoView?.({ block: 'start' }));
+        else {
+            // ========== SCREENSHOT-BASED APPROACH (DEFAULT) ==========
+            // Rasterizes everything - guaranteed visual fidelity matching the screen exactly
+            // Optimized: JPEG compression, 150 DPI (1.5 scale), PDF compression
+            const pageCanvases = await page.$$('.page-canvas');
+            if (!pageCanvases.length) {
+                throw new Error('No .page-canvas elements found on print page');
+            }
+            // PDF quality settings - optimized for size while maintaining good quality
+            // 72% JPEG quality: imperceptible quality loss on gradebooks, ~20% smaller than 80%
+            const pdfImageQuality = Number(process.env.PDF_IMAGE_QUALITY || '72');
+            const pdfUseJpeg = process.env.PDF_USE_JPEG !== 'false';
+            console.log(`[PDF DEBUG] Using SCREENSHOT approach - quality=${pdfImageQuality}, jpeg=${pdfUseJpeg}, pages=${pageCanvases.length}`);
+            pdfBuffer = await new Promise(async (resolve, reject) => {
+                try {
+                    const chunks = [];
+                    const doc = new pdfkit_1.default({ autoFirstPage: false, margin: 0, compress: true });
+                    doc.on('data', (c) => chunks.push(Buffer.from(c)));
+                    doc.on('end', () => resolve(Buffer.concat(chunks)));
+                    doc.on('error', reject);
+                    for (const handle of pageCanvases) {
+                        try {
+                            await handle.evaluate((el) => el?.scrollIntoView?.({ block: 'start' }));
+                        }
+                        catch { }
+                        const imageBuffer = pdfUseJpeg
+                            ? (await handle.screenshot({ type: 'jpeg', quality: pdfImageQuality, omitBackground: false }))
+                            : (await handle.screenshot({ type: 'png', omitBackground: true }));
+                        doc.addPage({ size: [resolvedPdfPageWidthPx, resolvedPdfPageHeightPx], margin: 0 });
+                        doc.image(imageBuffer, 0, 0, { width: resolvedPdfPageWidthPx, height: resolvedPdfPageHeightPx });
                     }
-                    catch { }
-                    const png = (await handle.screenshot({ type: 'png', omitBackground: true }));
-                    doc.addPage({ size: [resolvedPdfPageWidthPx, resolvedPdfPageHeightPx], margin: 0 });
-                    doc.image(png, 0, 0, { width: resolvedPdfPageWidthPx, height: resolvedPdfPageHeightPx });
+                    doc.end();
                 }
-                doc.end();
-            }
-            catch (e) {
-                reject(e);
-            }
-        });
+                catch (e) {
+                    reject(e);
+                }
+            });
+        }
         const pdfMs = Date.now() - tPdfStart;
-        console.log(`[PDF TIMING] pdf render took ${pdfMs}ms, size: ${pdfBuffer?.length || 0}, isBuffer: ${Buffer.isBuffer(pdfBuffer)} for ${safePrintUrl}`);
+        console.log(`[PDF TIMING] pdf render took ${pdfMs}ms, size: ${pdfBuffer?.length || 0}, isBuffer: ${Buffer.isBuffer(pdfBuffer)}, native: ${useNativePdf} for ${safePrintUrl}`);
         const totalMs = Date.now() - tStart;
         console.log(`[PDF TIMING] generatePdfBufferFromPrintUrl total ${totalMs}ms (nav ${navMs}ms, ready ${readyMs}ms, pdf ${pdfMs}ms) for ${safePrintUrl}`);
         try {
-            fs_1.default.appendFileSync('pdf-timings.log', `${new Date().toISOString()} ${safePrintUrl} totalMs=${totalMs} navMs=${navMs} readyMs=${readyMs} pdfMs=${pdfMs} size=${pdfBuffer?.length || 0}\n`);
+            fs_1.default.appendFileSync('pdf-timings.log', `${new Date().toISOString()} ${safePrintUrl} totalMs=${totalMs} navMs=${navMs} readyMs=${readyMs} pdfMs=${pdfMs} size=${pdfBuffer?.length || 0} native=${useNativePdf}\n`);
         }
         catch (e) {
             console.warn('[PDF] Failed to append timing to file:', e);

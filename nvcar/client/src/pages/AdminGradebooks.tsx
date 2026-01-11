@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import api from '../api'
 import { GradebookRenderer } from '../components/GradebookRenderer'
+import { openPdfExport, buildSavedGradebookPdfUrl } from '../utils/pdfExport'
 import './AdminGradebooks.css'
 
 export default function AdminGradebooks() {
@@ -61,7 +62,7 @@ export default function AdminGradebooks() {
                 if (r.data.templateId) {
                     const t = await api.get(`/templates/${r.data.templateId}`)
                     let templateData = t.data
-                    
+
                     // Handle versioning
                     const assignment = r.data.data?.assignment
                     if (assignment?.templateVersion && templateData.versionHistory) {
@@ -75,7 +76,7 @@ export default function AdminGradebooks() {
                             }
                         }
                     }
-                    
+
                     setSavedTemplate(templateData)
                 }
                 setLoadingSaved(false)
@@ -89,13 +90,13 @@ export default function AdminGradebooks() {
     const loadStudents = async (cls: string) => { const r = await api.get(`/students/by-class/${cls}`); setStudents(r.data) }
     const loadTemplates = async () => { const r = await api.get('/templates'); setTemplates(r.data) }
     const listSaved = async () => { if (!year || !classId) { setFiles([]); return } const r = await api.get('/media/list', { params: { folder: `gradebooks/${year._id}/${classId}` } }); setFiles(r.data) }
-    
-    useEffect(() => { 
+
+    useEffect(() => {
         if (viewMode === 'manual') {
-            loadYears(); loadTemplates() 
+            loadYears(); loadTemplates()
         }
     }, [viewMode])
-    
+
     useEffect(() => { if (year) { loadClasses(year._id); setClassId(''); setStudents([]); setFiles([]) } }, [year])
     useEffect(() => { if (classId) { loadStudents(classId); listSaved() } }, [classId])
 
@@ -149,13 +150,13 @@ export default function AdminGradebooks() {
             <div className="gradebooks-header">
                 <h2 className="gradebooks-title">Carnets sauvegardés</h2>
                 <div className="mode-switcher">
-                    <button 
+                    <button
                         className={`mode-btn ${viewMode === 'saved' ? 'active' : ''}`}
                         onClick={() => setViewMode('saved')}
                     >
                         Archives
                     </button>
-                    <button 
+                    <button
                         className={`mode-btn ${viewMode === 'manual' ? 'active' : ''}`}
                         onClick={() => setViewMode('manual')}
                     >
@@ -169,21 +170,21 @@ export default function AdminGradebooks() {
                     <div className="filters-bar">
                         <div className="filter-group">
                             <label className="filter-label">Année Scolaire</label>
-                            <select 
+                            <select
                                 className="filter-select"
-                                value={selectedSavedYear} 
+                                value={selectedSavedYear}
                                 onChange={e => setSelectedSavedYear(e.target.value)}
                             >
                                 <option value="">Sélectionner une année</option>
                                 {savedYears.map(y => <option key={y._id} value={y._id}>{y.name}</option>)}
                             </select>
                         </div>
-                        
+
                         <div className="filter-group">
                             <label className="filter-label">Niveau</label>
-                            <select 
+                            <select
                                 className="filter-select"
-                                value={selectedSavedLevel} 
+                                value={selectedSavedLevel}
                                 onChange={e => setSelectedSavedLevel(e.target.value)}
                                 disabled={!selectedSavedYear}
                             >
@@ -194,9 +195,9 @@ export default function AdminGradebooks() {
 
                         <div className="filter-group">
                             <label className="filter-label">Élève</label>
-                            <select 
+                            <select
                                 className="filter-select"
-                                value={selectedSavedStudentId} 
+                                value={selectedSavedStudentId}
                                 onChange={e => setSelectedSavedStudentId(e.target.value)}
                                 disabled={!selectedSavedLevel}
                             >
@@ -217,35 +218,36 @@ export default function AdminGradebooks() {
                         <div>
                             <div className="preview-actions">
                                 <button className="action-btn" onClick={() => {
-                                    const token = localStorage.getItem('token')
                                     const base = (api.defaults.baseURL || '').replace(/\/$/, '')
-                                    window.open(`${base}/pdf-v2/saved/${savedGradebook._id}?token=${token}`, '_blank')
+                                    const pdfUrl = buildSavedGradebookPdfUrl(base, savedGradebook._id)
+                                    const studentFullName = `${savedGradebook.data.student.firstName} ${savedGradebook.data.student.lastName}`
+                                    openPdfExport(pdfUrl, studentFullName, 'single', 1)
                                 }}>
                                     <span>🖨️ Imprimer / PDF</span>
                                 </button>
                             </div>
                             <div className="preview-container">
-                                <GradebookRenderer 
-                                    template={savedTemplate} 
-                                    student={savedGradebook.data.student} 
+                                <GradebookRenderer
+                                    template={savedTemplate}
+                                    student={savedGradebook.data.student}
                                     assignment={savedGradebook.data.assignment}
-                                    signature={savedGradebook.data.signatures?.find((s: any) => s.type === 'standard') || 
-                                              savedGradebook.data.assignment?.data?.signatures?.find((s: any) => s.type === 'standard') ||
-                                              savedGradebook.data.signature}
-                                    finalSignature={savedGradebook.data.signatures?.find((s: any) => s.type === 'end_of_year') || 
-                                                     savedGradebook.data.assignment?.data?.signatures?.find((s: any) => s.type === 'end_of_year') ||
-                                                     savedGradebook.data.finalSignature}
+                                    signature={savedGradebook.data.signatures?.find((s: any) => s.type === 'standard') ||
+                                        savedGradebook.data.assignment?.data?.signatures?.find((s: any) => s.type === 'standard') ||
+                                        savedGradebook.data.signature}
+                                    finalSignature={savedGradebook.data.signatures?.find((s: any) => s.type === 'end_of_year') ||
+                                        savedGradebook.data.assignment?.data?.signatures?.find((s: any) => s.type === 'end_of_year') ||
+                                        savedGradebook.data.finalSignature}
                                 />
                             </div>
                         </div>
                     )}
-                    
+
                     {!savedGradebook && !loadingSaved && (
                         <div className="empty-state">
                             <div className="empty-icon">📚</div>
                             <div>
-                                {selectedSavedStudentId 
-                                    ? "Aucun carnet trouvé pour cet élève." 
+                                {selectedSavedStudentId
+                                    ? "Aucun carnet trouvé pour cet élève."
                                     : "Sélectionnez une année, un niveau et un élève pour voir le carnet archivé."}
                             </div>
                         </div>
@@ -258,9 +260,9 @@ export default function AdminGradebooks() {
                     <div className="filters-bar">
                         <div className="filter-group">
                             <label className="filter-label">Année Scolaire</label>
-                            <select 
+                            <select
                                 className="filter-select"
-                                value={year?._id || ''} 
+                                value={year?._id || ''}
                                 onChange={e => { const y = years.find(yy => yy._id === e.target.value); setYear(y || null) }}
                             >
                                 <option value="">Sélectionner une année</option>
@@ -270,9 +272,9 @@ export default function AdminGradebooks() {
 
                         <div className="filter-group">
                             <label className="filter-label">Classe</label>
-                            <select 
+                            <select
                                 className="filter-select"
-                                value={classId} 
+                                value={classId}
                                 onChange={e => setClassId(e.target.value)}
                                 disabled={!year}
                             >
@@ -283,9 +285,9 @@ export default function AdminGradebooks() {
 
                         <div className="filter-group">
                             <label className="filter-label">Élève (Optionnel)</label>
-                            <select 
+                            <select
                                 className="filter-select"
-                                value={studentId} 
+                                value={studentId}
                                 onChange={e => setStudentId(e.target.value)}
                                 disabled={!classId}
                             >
@@ -296,9 +298,9 @@ export default function AdminGradebooks() {
 
                         <div className="filter-group">
                             <label className="filter-label">Modèle (Optionnel)</label>
-                            <select 
+                            <select
                                 className="filter-select"
-                                value={templateId} 
+                                value={templateId}
                                 onChange={e => setTemplateId(e.target.value)}
                             >
                                 <option value="">Modèle par défaut</option>
@@ -308,11 +310,11 @@ export default function AdminGradebooks() {
 
                         <div className="filter-group">
                             <label className="filter-label">Mot de passe (Optionnel)</label>
-                            <input 
+                            <input
                                 className="filter-input"
-                                placeholder="Mot de passe export" 
-                                value={pwd} 
-                                onChange={e => setPwd(e.target.value)} 
+                                placeholder="Mot de passe export"
+                                value={pwd}
+                                onChange={e => setPwd(e.target.value)}
                             />
                         </div>
                     </div>

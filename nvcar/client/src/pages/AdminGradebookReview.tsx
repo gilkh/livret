@@ -3,14 +3,15 @@ import { useParams, useNavigate } from 'react-router-dom'
 import api from '../api'
 import { useSocket } from '../context/SocketContext'
 import { GradebookRenderer } from '../components/GradebookRenderer'
+import { openPdfExport, buildStudentPdfUrl } from '../utils/pdfExport'
 
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
 type Template = { _id?: string; name: string; pages: Page[] }
 type Student = { _id: string; firstName: string; lastName: string; level?: string; dateOfBirth: Date; className?: string }
-type Assignment = { 
-    _id: string; 
-    status: string; 
+type Assignment = {
+    _id: string;
+    status: string;
     data?: any;
     isCompleted?: boolean;
     isCompletedSem1?: boolean;
@@ -44,8 +45,8 @@ export default function AdminGradebookReview() {
     const [editMode, setEditMode] = useState(false)
     const [openDropdown, setOpenDropdown] = useState<string | null>(null)
     const [suggestionModal, setSuggestionModal] = useState<{
-        pageIndex: number, 
-        blockIndex: number, 
+        pageIndex: number,
+        blockIndex: number,
         originalText: string,
         isOpen: boolean
     } | null>(null)
@@ -290,10 +291,10 @@ export default function AdminGradebookReview() {
         if (template && student) {
             try {
                 setError('')
-                const token = localStorage.getItem('token')
                 const base = (api.defaults.baseURL || '').replace(/\/$/, '')
-                const url = `${base}/pdf-v2/student/${student._id}?templateId=${template._id}&token=${token}`
-                window.open(url, '_blank')
+                const pdfUrl = buildStudentPdfUrl(base, student._id, template._id || '')
+                const studentFullName = `${student.firstName} ${student.lastName}`
+                openPdfExport(pdfUrl, studentFullName, 'single', 1)
             } catch (e: any) {
                 setError('Échec de l\'export PDF')
                 console.error(e)
@@ -308,7 +309,7 @@ export default function AdminGradebookReview() {
     return (
         <div style={{ padding: 24 }}>
             <div className="card">
-                <button className="btn secondary" onClick={() => navigate('/admin/all-gradebooks')} style={{ 
+                <button className="btn secondary" onClick={() => navigate('/admin/all-gradebooks')} style={{
                     marginBottom: 20,
                     display: 'inline-flex',
                     alignItems: 'center',
@@ -328,7 +329,7 @@ export default function AdminGradebookReview() {
                             <span style={{ fontSize: 14, fontWeight: 500, color: editMode ? '#10b981' : '#64748b' }}>
                                 {editMode ? 'Mode Édition' : 'Mode Lecture'}
                             </span>
-                            <div 
+                            <div
                                 onClick={() => setEditMode(!editMode)}
                                 style={{
                                     width: 48,
@@ -373,9 +374,9 @@ export default function AdminGradebookReview() {
                         </button>
                     ) : (
                         <>
-                            <div className="note" style={{ 
-                                padding: 12, 
-                                background: 'linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%)', 
+                            <div className="note" style={{
+                                padding: 12,
+                                background: 'linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%)',
                                 borderRadius: 8,
                                 border: '1px solid #6ee7b7',
                                 color: '#065f46',
@@ -383,7 +384,7 @@ export default function AdminGradebookReview() {
                             }}>
                                 ✅ Signé le {new Date(signature.signedAt).toLocaleString('fr-FR')}
                             </div>
-                            <button className="btn" style={{ 
+                            <button className="btn" style={{
                                 background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
                                 fontWeight: 500,
                                 padding: '12px 20px',
@@ -406,9 +407,9 @@ export default function AdminGradebookReview() {
                         </button>
                     ) : (
                         <>
-                            <div className="note" style={{ 
-                                padding: 12, 
-                                background: 'linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%)', 
+                            <div className="note" style={{
+                                padding: 12,
+                                background: 'linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%)',
                                 borderRadius: 8,
                                 border: '1px solid #93c5fd',
                                 color: '#1e40af',
@@ -416,7 +417,7 @@ export default function AdminGradebookReview() {
                             }}>
                                 ✅ Signé fin année le {new Date(finalSignature.signedAt).toLocaleString('fr-FR')}
                             </div>
-                            <button className="btn" style={{ 
+                            <button className="btn" style={{
                                 background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
                                 fontWeight: 500,
                                 padding: '12px 20px',
@@ -447,11 +448,11 @@ export default function AdminGradebookReview() {
                         {continuousScroll ? '📄 Vue page par page' : '📚 Vue continue'}
                     </button>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                        <button 
-                            className="btn secondary" 
+                        <button
+                            className="btn secondary"
                             onClick={() => setSelectedPage(Math.max(0, selectedPage - 1))}
                             disabled={selectedPage === 0 || continuousScroll}
-                            style={{ 
+                            style={{
                                 padding: '10px 16px',
                                 background: '#f1f5f9',
                                 color: '#475569',
@@ -461,8 +462,8 @@ export default function AdminGradebookReview() {
                         >
                             ← Précédent
                         </button>
-                        <select 
-                            value={selectedPage} 
+                        <select
+                            value={selectedPage}
                             onChange={e => {
                                 const pageNum = Number(e.target.value)
                                 setSelectedPage(pageNum)
@@ -474,10 +475,10 @@ export default function AdminGradebookReview() {
                                         }
                                     }, 100)
                                 }
-                            }} 
-                            style={{ 
-                                padding: '10px 16px', 
-                                borderRadius: 8, 
+                            }}
+                            style={{
+                                padding: '10px 16px',
+                                borderRadius: 8,
                                 border: '1px solid #cbd5e1',
                                 fontSize: 14,
                                 fontWeight: 500,
@@ -487,11 +488,11 @@ export default function AdminGradebookReview() {
                         >
                             {template.pages.map((p, i) => <option key={i} value={i}>{p.title || `Page ${i + 1}`}</option>)}
                         </select>
-                        <button 
-                            className="btn secondary" 
+                        <button
+                            className="btn secondary"
                             onClick={() => setSelectedPage(Math.min(template.pages.length - 1, selectedPage + 1))}
                             disabled={selectedPage === template.pages.length - 1 || continuousScroll}
-                            style={{ 
+                            style={{
                                 padding: '10px 16px',
                                 background: '#f1f5f9',
                                 color: '#475569',
