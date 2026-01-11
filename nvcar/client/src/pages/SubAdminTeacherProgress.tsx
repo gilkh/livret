@@ -236,11 +236,17 @@ export default function SubAdminTeacherProgress() {
     const [detailedClasses, setDetailedClasses] = useState<ClassDetailedProgress[]>([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState('')
-    const { activeYearId } = useSchoolYear()
+    const { activeYearId, isLoading: yearLoading } = useSchoolYear()
 
     useEffect(() => {
         const loadData = async () => {
-            if (!activeYearId) return
+            // Wait for school year context to finish loading
+            if (yearLoading) return
+            
+            if (!activeYearId) {
+                setLoading(false)
+                return
+            }
             try {
                 setLoading(true)
                 if (viewMode === 'summary') {
@@ -258,7 +264,7 @@ export default function SubAdminTeacherProgress() {
             }
         }
         loadData()
-    }, [viewMode, activeYearId])
+    }, [viewMode, activeYearId, yearLoading])
 
     const groupedByLevel = classes.reduce((acc, cls) => {
         if (!acc[cls.level]) acc[cls.level] = []
@@ -390,16 +396,22 @@ export default function SubAdminTeacherProgress() {
                     </div>
                 </div>
 
-                {loading && <div className="note" style={{ textAlign: 'center', padding: 24 }}>Chargement...</div>}
+                {(loading || yearLoading) && <div className="note" style={{ textAlign: 'center', padding: 24 }}>Chargement...</div>}
                 {error && <div className="note" style={{ color: '#dc2626', background: '#fef2f2', padding: 12, borderRadius: 8, border: '1px solid #fecaca' }}>{error}</div>}
+                
+                {!loading && !yearLoading && !activeYearId && (
+                    <div className="note" style={{ textAlign: 'center', padding: 24, color: '#b45309', background: '#fef3c7', borderRadius: 8, border: '1px solid #fcd34d' }}>
+                        Aucune année scolaire active trouvée. Veuillez sélectionner une année scolaire.
+                    </div>
+                )}
 
-                {!loading && !error && viewMode === 'summary' && classes.length === 0 && (
+                {!loading && !yearLoading && !error && activeYearId && viewMode === 'summary' && classes.length === 0 && (
                     <div className="note" style={{ textAlign: 'center', padding: 24 }}>
                         Aucune classe trouvée pour vos niveaux assignés.
                     </div>
                 )}
 
-                {!loading && !error && viewMode === 'summary' && classes.length > 0 && (
+                {!loading && !yearLoading && !error && activeYearId && viewMode === 'summary' && classes.length > 0 && (
                     <div>
                         {sortedLevels.map(level => {
                             const levelClasses = groupedByLevel[level]
@@ -456,13 +468,13 @@ export default function SubAdminTeacherProgress() {
                     </div>
                 )}
 
-                {!loading && !error && viewMode === 'detailed' && detailedClasses.length === 0 && (
+                {!loading && !yearLoading && !error && activeYearId && viewMode === 'detailed' && detailedClasses.length === 0 && (
                     <div className="note" style={{ textAlign: 'center', padding: 24 }}>
                         Aucune classe trouvée pour vos niveaux assignés.
                     </div>
                 )}
 
-                {!loading && !error && viewMode === 'detailed' && detailedClasses.length > 0 && (
+                {!loading && !yearLoading && !error && activeYearId && viewMode === 'detailed' && detailedClasses.length > 0 && (
                     <div>
                         {detailedSortedLevels.map(level => (
                             <div key={level} style={{ marginBottom: 40 }}>
