@@ -208,3 +208,9 @@
 2026-01-11T10:49:33.843Z assignment=69629c9748292241df2330bf worker=1 totalMs=7515 size=3436098 name=test2-test2-Carnet 2025_2026 _Imported_ _Imported_ _Imported_ _Imported_.pdf
 2026-01-11T10:54:39.038Z https://127.0.0.1/print/carnet/69629c9748292241df2330bf?token=*** totalMs=4108 navMs=243 readyMs=1195 pdfMs=2072 size=3436098 native=false
 2026-01-11T11:03:41.683Z https://127.0.0.1/print/carnet/69629c9748292241df2330bf?token=*** totalMs=4202 navMs=249 readyMs=1182 pdfMs=2166 size=3436098 native=false
+2026-01-11T11:17:12.183Z https://127.0.0.1/print/carnet/69629c9748292241df2330bf?token=*** totalMs=4210 navMs=278 readyMs=1226 pdfMs=2116 size=3423850 native=false
+2026-01-11T11:20:51.590Z https://127.0.0.1/print/carnet/69629c9748292241df2330bf?token=*** totalMs=4206 navMs=257 readyMs=1204 pdfMs=2144 size=3423850 native=false
+2026-01-11T11:29:23.173Z https://127.0.0.1/print/carnet/69629c9748292241df2330bf?token=*** totalMs=4222 navMs=239 readyMs=1142 pdfMs=2257 size=3425772 native=false
+2026-01-11T12:28:29.354Z https://127.0.0.1/print/carnet/69629c9748292241df2330bf?token=*** totalMs=4371 navMs=428 readyMs=1251 pdfMs=2094 size=3419612 native=false
+2026-01-11T12:31:33.058Z https://127.0.0.1/print/carnet/69629c9748292241df2330bf?token=*** totalMs=3897 navMs=268 readyMs=1239 pdfMs=2062 size=3423502 native=false
+2026-01-11T12:34:27.497Z https://127.0.0.1/print/carnet/69629c9748292241df2330bf?token=*** totalMs=4227 navMs=253 readyMs=1111 pdfMs=2171 size=3421973 native=false

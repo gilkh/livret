@@ -97,102 +97,6 @@ function getPromotionYearLabel(promo, assignmentData) {
     const next = computeNextSchoolYearName(year);
     return next || year;
 }
-function inferBlockLevel(b) {
-    const direct = b?.props?.level;
-    if (typeof direct === 'string' && direct.trim())
-        return direct.trim();
-    const label = String(b?.props?.label || '').toUpperCase();
-    if (/\bPS\b/.test(label))
-        return 'PS';
-    if (/\bMS\b/.test(label))
-        return 'MS';
-    if (/\bGS\b/.test(label))
-        return 'GS';
-    if (/\bEB1\b/.test(label))
-        return 'EB1';
-    if (/\bKG1\b/.test(label))
-        return 'KG1';
-    if (/\bKG2\b/.test(label))
-        return 'KG2';
-    if (/\bKG3\b/.test(label))
-        return 'KG3';
-    return null;
-}
-function getScopedData(data, key, blockLevel) {
-    if (!data || !key)
-        return undefined;
-    if (blockLevel) {
-        const scopedKey = `${key}_${blockLevel}`;
-        if (data[scopedKey] !== undefined)
-            return data[scopedKey];
-    }
-    let originLevel = null;
-    const promotions = data.promotions || [];
-    if (Array.isArray(promotions) && promotions.length > 0) {
-        const sorted = [...promotions].sort((a, b) => {
-            const da = new Date(a?.date || 0).getTime();
-            const db = new Date(b?.date || 0).getTime();
-            return da - db;
-        });
-        originLevel = sorted[0]?.from || null;
-    }
-    const allowFallback = !originLevel || (blockLevel === originLevel) || !blockLevel;
-    if (allowFallback)
-        return data[key];
-    return undefined;
-}
-function isEmptyDisplayValue(v) {
-    if (v === undefined || v === null)
-        return true;
-    const s = String(v).trim();
-    if (!s)
-        return true;
-    if (s === 'Sélectionner...')
-        return true;
-    if (/^\[Dropdown\s*#\d+\]$/.test(s))
-        return true;
-    return false;
-}
-function isBlockVisibleForPdf(b, studentLevel, assignmentData, hasStandardSignature, hasFinalSignature) {
-    const blockLevel = inferBlockLevel(b);
-    const field = String(b?.props?.field || '');
-    const fieldHasSignature = field.includes('signature');
-    if (!blockLevel) {
-        if (b?.props?.period === 'mid-year' && !hasStandardSignature && !fieldHasSignature)
-            return false;
-        if (b?.props?.period === 'end-year' && !hasFinalSignature && !fieldHasSignature)
-            return false;
-        return true;
-    }
-    let isSignedStandard = false;
-    let isSignedFinal = false;
-    if (studentLevel === blockLevel) {
-        if (hasStandardSignature)
-            isSignedStandard = true;
-        if (hasFinalSignature)
-            isSignedFinal = true;
-    }
-    const history = assignmentData?.signatures || [];
-    const promotions = assignmentData?.promotions || [];
-    if (Array.isArray(history) && Array.isArray(promotions)) {
-        for (const sig of history) {
-            if (!sig?.schoolYearName)
-                continue;
-            const promo = promotions.find((p) => p?.year === sig.schoolYearName);
-            if (!promo || promo?.from !== blockLevel)
-                continue;
-            if (sig?.type === 'end_of_year')
-                isSignedFinal = true;
-            else
-                isSignedStandard = true;
-        }
-    }
-    if (b?.props?.period === 'mid-year' && !isSignedStandard && !fieldHasSignature && b?.type !== 'signature_box')
-        return false;
-    if (b?.props?.period === 'end-year' && !isSignedFinal && !fieldHasSignature && b?.type !== 'signature_box')
-        return false;
-    return true;
-}
 const imgCache = new Map();
 const fetchImage = async (url) => {
     if (imgCache.has(url))
@@ -287,14 +191,6 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
             templateId: tplId
         }).lean();
         const assignmentData = assignment?.data || {};
-        let hasStandardSignature = false;
-        let hasFinalSignature = false;
-        if (assignment?._id) {
-            const TemplateSignature = (await Promise.resolve().then(() => __importStar(require('../models/TemplateSignature')))).TemplateSignature;
-            const sigs = await TemplateSignature.find({ templateAssignmentId: String(assignment._id) }).lean();
-            hasStandardSignature = !!(sigs || []).find((s) => (s?.type === 'standard' || !s?.type));
-            hasFinalSignature = !!(sigs || []).find((s) => s?.type === 'end_of_year');
-        }
         const categories = await Category_1.Category.find({}).lean();
         const comps = await Competency_1.Competency.find({}).lean();
         const compByCat = {};
@@ -319,31 +215,12 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
             const scale = (pageW / DESIGN_W + pageH / DESIGN_H) / 2;
             return (typeof v === 'number' ? v : 0) * scale;
         };
-        const resolveText = (t, b) => {
-            const base = t
-                .replace(/\{student\.firstName\}/g, String(student.firstName))
-                .replace(/\{student\.lastName\}/g, String(student.lastName))
-                .replace(/\{student\.dob\}/g, new Date(student.dateOfBirth).toLocaleDateString())
-                .replace(/\{class\.name\}/g, classDoc ? String(classDoc.name) : '');
-            return base.replace(/\{([^}]+)\}/g, (_m, keyRaw) => {
-                const key = String(keyRaw || '').trim();
-                if (!key)
-                    return '';
-                if (/^dropdown_\d+$/.test(key)) {
-                    const scoped = getScopedData(assignmentData, key, inferBlockLevel(b));
-                    if (isEmptyDisplayValue(scoped))
-                        return '';
-                    return String(scoped);
-                }
-                const v = assignmentData?.[key];
-                if (isEmptyDisplayValue(v))
-                    return '';
-                return String(v);
-            });
-        };
+        const resolveText = (t) => t
+            .replace(/\{student\.firstName\}/g, String(student.firstName))
+            .replace(/\{student\.lastName\}/g, String(student.lastName))
+            .replace(/\{student\.dob\}/g, new Date(student.dateOfBirth).toLocaleDateString())
+            .replace(/\{class\.name\}/g, classDoc ? String(classDoc.name) : '');
         const drawBlock = async (b, blockIdx = 0) => {
-            if (!isBlockVisibleForPdf(b, level, assignmentData, hasStandardSignature, hasFinalSignature))
-                return;
             if (b.type === 'text') {
                 if (b.props?.color)
                     doc.fillColor(b.props.color);
@@ -369,9 +246,7 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
                 doc.fontSize(b.props?.size || b.props?.fontSize || 12);
                 const x = b.props?.x, y = b.props?.y;
                 const w = b.props?.width, h = b.props?.height;
-                const txt = resolveText(b.props?.text || '', b);
-                if (!String(txt).trim())
-                    return;
+                const txt = resolveText(b.props?.text || '');
                 if (typeof x === 'number' && typeof y === 'number') {
                     const opts = {};
                     if (typeof w === 'number')
@@ -804,33 +679,20 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
                         }
                         doc.restore();
                     }
-                    else {
-                        const x2 = px(b.props?.x || 50);
-                        const y2 = py(b.props?.y || 50);
-                        const width2 = sx(b.props?.width || 200);
-                        const height2 = sy(b.props?.height || 80);
-                        doc.rect(x2, y2, width2, height2).stroke('#000');
-                    }
+                    // Do not render empty signature box when there's no signature
                 }
-                else {
-                    const x2 = px(b.props?.x || 50);
-                    const y2 = py(b.props?.y || 50);
-                    const width2 = sx(b.props?.width || 200);
-                    const height2 = sy(b.props?.height || 80);
-                    doc.rect(x2, y2, width2, height2).stroke('#000');
-                }
+                // Do not render empty signature box when there's no templateAssignment
             }
             else if (b.type === 'dropdown') {
                 // Check level
                 if (b.props?.levels && b.props.levels.length > 0 && level && !b.props.levels.includes(level)) {
                     return;
                 }
-                // Render dropdown with selected value or as empty box
+                // Render dropdown with selected value or skip if empty
                 const dropdownNum = b.props?.dropdownNumber;
-                const rawKey = dropdownNum ? `dropdown_${dropdownNum}` : (b.props?.variableName ? String(b.props.variableName) : '');
-                const scoped = rawKey ? getScopedData(assignmentData, rawKey, inferBlockLevel(b)) : '';
-                const selectedValue = typeof scoped === 'string' ? scoped.trim() : scoped;
-                if (isEmptyDisplayValue(selectedValue))
+                const selectedValue = dropdownNum ? assignmentData[`dropdown_${dropdownNum}`] : (b.props?.variableName ? assignmentData[b.props.variableName] : '');
+                // Skip rendering if no value is selected
+                if (!selectedValue)
                     return;
                 const x = px(b.props?.x || 50);
                 const y = py(b.props?.y || 50);
@@ -852,17 +714,16 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
                 }
                 // Draw selected value or placeholder with text wrapping
                 doc.fontSize(b.props?.fontSize || 12).fillColor(b.props?.color || '#333');
-                const displayText = String(selectedValue);
+                const displayText = selectedValue || 'Sélectionner...';
                 doc.text(displayText, x + 8, y + 8, { width: Math.max(0, width - 16), height: Math.max(0, height - 16), align: 'left' });
                 doc.restore();
             }
             else if (b.type === 'dropdown_reference') {
                 // Render the value selected in the referenced dropdown
                 const dropdownNum = b.props?.dropdownNumber || 1;
-                const rawKey = `dropdown_${dropdownNum}`;
-                const scoped = getScopedData(assignmentData, rawKey, inferBlockLevel(b));
-                const selectedValue = typeof scoped === 'string' ? scoped.trim() : scoped;
-                if (isEmptyDisplayValue(selectedValue))
+                const raw = assignmentData[`dropdown_${dropdownNum}`];
+                const selectedValue = typeof raw === 'string' ? raw.trim() : raw;
+                if (!selectedValue)
                     return;
                 if (b.props?.color)
                     doc.fillColor(b.props.color);
@@ -1053,14 +914,6 @@ exports.pdfRouter.get('/class/:classId/batch', (0, auth_1.requireAuth)(['ADMIN',
                         templateId: String(templateId)
                     }).lean();
                     const assignmentData = assignment?.data || {};
-                    let hasStandardSignature = false;
-                    let hasFinalSignature = false;
-                    if (assignment?._id) {
-                        const TemplateSignature = (await Promise.resolve().then(() => __importStar(require('../models/TemplateSignature')))).TemplateSignature;
-                        const sigs = await TemplateSignature.find({ templateAssignmentId: String(assignment._id) }).lean();
-                        hasStandardSignature = !!(sigs || []).find((s) => (s?.type === 'standard' || !s?.type));
-                        hasFinalSignature = !!(sigs || []).find((s) => s?.type === 'end_of_year');
-                    }
                     const categories = await Category_1.Category.find({}).lean();
                     const comps = await Competency_1.Competency.find({}).lean();
                     const compByCat = {};
@@ -1084,32 +937,13 @@ exports.pdfRouter.get('/class/:classId/batch', (0, auth_1.requireAuth)(['ADMIN',
                         const scale = (pageW / DESIGN_W + pageH / DESIGN_H) / 2;
                         return (typeof v === 'number' ? v : 0) * scale;
                     };
-                    const resolveText = (t, b) => {
-                        const base = t
-                            .replace(/\{student\.firstName\}/g, String(s.firstName))
-                            .replace(/\{student\.lastName\}/g, String(s.lastName))
-                            .replace(/\{student\.dob\}/g, new Date(s.dateOfBirth).toLocaleDateString())
-                            .replace(/\{class\.name\}/g, classDoc ? String(classDoc.name) : '');
-                        return base.replace(/\{([^}]+)\}/g, (_m, keyRaw) => {
-                            const key = String(keyRaw || '').trim();
-                            if (!key)
-                                return '';
-                            if (/^dropdown_\d+$/.test(key)) {
-                                const scoped = getScopedData(assignmentData, key, inferBlockLevel(b));
-                                if (isEmptyDisplayValue(scoped))
-                                    return '';
-                                return String(scoped);
-                            }
-                            const v = assignmentData?.[key];
-                            if (isEmptyDisplayValue(v))
-                                return '';
-                            return String(v);
-                        });
-                    };
+                    const resolveText = (t) => t
+                        .replace(/\{student\.firstName\}/g, String(s.firstName))
+                        .replace(/\{student\.lastName\}/g, String(s.lastName))
+                        .replace(/\{student\.dob\}/g, new Date(s.dateOfBirth).toLocaleDateString())
+                        .replace(/\{class\.name\}/g, classDoc ? String(classDoc.name) : '');
                     const drawBlock = async (b, blockIdx = 0) => {
                         if (Array.isArray(b?.props?.levels) && b.props.levels.length > 0 && level && !b.props.levels.includes(level))
-                            return;
-                        if (!isBlockVisibleForPdf(b, level, assignmentData, hasStandardSignature, hasFinalSignature))
                             return;
                         if (b.type === 'text') {
                             if (b.props?.color)
@@ -1136,9 +970,7 @@ exports.pdfRouter.get('/class/:classId/batch', (0, auth_1.requireAuth)(['ADMIN',
                             doc.fontSize(b.props?.size || b.props?.fontSize || 12);
                             const x = b.props?.x, y = b.props?.y;
                             const w = b.props?.width, h = b.props?.height;
-                            const txt = resolveText(b.props?.text || '', b);
-                            if (!String(txt).trim())
-                                return;
+                            const txt = resolveText(b.props?.text || '');
                             if (typeof x === 'number' && typeof y === 'number') {
                                 const opts = {};
                                 if (typeof w === 'number')
@@ -1378,12 +1210,11 @@ exports.pdfRouter.get('/class/:classId/batch', (0, auth_1.requireAuth)(['ADMIN',
                             }
                         }
                         else if (b.type === 'dropdown') {
-                            // Render dropdown with selected value or as empty box
+                            // Render dropdown with selected value or skip if empty
                             const dropdownNum = b.props?.dropdownNumber;
-                            const rawKey = dropdownNum ? `dropdown_${dropdownNum}` : (b.props?.variableName ? String(b.props.variableName) : '');
-                            const scoped = rawKey ? getScopedData(assignmentData, rawKey, inferBlockLevel(b)) : '';
-                            const selectedValue = typeof scoped === 'string' ? scoped.trim() : scoped;
-                            if (isEmptyDisplayValue(selectedValue))
+                            const selectedValue = dropdownNum ? assignmentData[`dropdown_${dropdownNum}`] : (b.props?.variableName ? assignmentData[b.props.variableName] : '');
+                            // Skip rendering if no value is selected
+                            if (!selectedValue)
                                 return;
                             const x = px(b.props?.x || 50);
                             const y = py(b.props?.y || 50);
@@ -1405,17 +1236,16 @@ exports.pdfRouter.get('/class/:classId/batch', (0, auth_1.requireAuth)(['ADMIN',
                             }
                             // Draw selected value or placeholder with text wrapping
                             doc.fontSize(b.props?.fontSize || 12).fillColor(b.props?.color || '#333');
-                            const displayText = String(selectedValue);
+                            const displayText = selectedValue || 'Sélectionner...';
                             doc.text(displayText, x + 8, y + 8, { width: Math.max(0, width - 16), height: Math.max(0, height - 16), align: 'left' });
                             doc.restore();
                         }
                         else if (b.type === 'dropdown_reference') {
                             // Render the value selected in the referenced dropdown
                             const dropdownNum = b.props?.dropdownNumber || 1;
-                            const rawKey = `dropdown_${dropdownNum}`;
-                            const scoped = getScopedData(assignmentData, rawKey, inferBlockLevel(b));
-                            const selectedValue = typeof scoped === 'string' ? scoped.trim() : scoped;
-                            if (isEmptyDisplayValue(selectedValue))
+                            const raw = assignmentData[`dropdown_${dropdownNum}`];
+                            const selectedValue = typeof raw === 'string' ? raw.trim() : raw;
+                            if (!selectedValue)
                                 return;
                             if (b.props?.color)
                                 doc.fillColor(b.props.color);
@@ -1664,21 +1494,9 @@ exports.pdfRouter.get('/class/:classId/batch', (0, auth_1.requireAuth)(['ADMIN',
                                     }
                                     doc.restore();
                                 }
-                                else {
-                                    const x2 = px(b.props?.x || 50);
-                                    const y2 = py(b.props?.y || 50);
-                                    const width2 = sx(b.props?.width || 200);
-                                    const height2 = sy(b.props?.height || 80);
-                                    doc.rect(x2, y2, width2, height2).stroke('#000');
-                                }
+                                // Do not render empty signature box when there's no signature
                             }
-                            else {
-                                const x2 = px(b.props?.x || 50);
-                                const y2 = py(b.props?.y || 50);
-                                const width2 = sx(b.props?.width || 200);
-                                const height2 = sy(b.props?.height || 80);
-                                doc.rect(x2, y2, width2, height2).stroke('#000');
-                            }
+                            // Do not render empty signature box when there's no templateAssignment
                         }
                         else if (b.type === 'promotion_info') {
                             const targetLevel = b.props?.targetLevel;

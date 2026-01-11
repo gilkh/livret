@@ -101,6 +101,60 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
         return next || year
     }
 
+    // Check if a block should be visible based on signature status
+    const isBlockVisible = (b: Block) => {
+        // If block has no period, it's always visible
+        if (!b.props.period) return true
+
+        const blockLevel = getBlockLevel(b)
+
+        // Case 1: Block has NO specific level (generic)
+        if (!blockLevel) {
+            // Use current active signature state
+            if (b.props.period === 'mid-year' && !signature) return false
+            if (b.props.period === 'end-year' && !signature) return false // Use signature for end-year in PDF context
+            return true
+        }
+
+        // Case 2: Block HAS a level
+        // Check if we have a signature for that level
+        let isSignedStandard = false
+        let isSignedFinal = false
+
+        // Check current props
+        if (student?.level === blockLevel) {
+            if (signature) isSignedStandard = true
+            // For end-year, also check signature (in saved gradebook context)
+            if (signature) isSignedFinal = true
+        }
+
+        // Check history
+        if (!isSignedStandard || !isSignedFinal) {
+            const history = assignment?.data?.signatures || []
+            const promotions = assignment?.data?.promotions || []
+
+            history.forEach((sig: any) => {
+                if (sig.schoolYearName) {
+                    const promo = promotions.find((p: any) => p.year === sig.schoolYearName)
+                    if (promo && promo.from === blockLevel) {
+                        if (sig.type === 'standard' || !sig.type) isSignedStandard = true
+                        if (sig.type === 'end_of_year') isSignedFinal = true
+                    }
+                }
+                // Also check direct level match
+                if (sig.level && sig.level === blockLevel) {
+                    if (sig.type === 'standard' || !sig.type) isSignedStandard = true
+                    if (sig.type === 'end_of_year') isSignedFinal = true
+                }
+            })
+        }
+
+        if (b.props.period === 'mid-year' && !isSignedStandard) return false
+        if (b.props.period === 'end-year' && !isSignedFinal) return false
+
+        return true
+    }
+
     useEffect(() => {
         // Initialize as not ready
         // @ts-ignore
@@ -656,175 +710,213 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                             {(b.props.labels || []).join(' / ')}
                                         </div>
                                     )}
-                                    {b.type === 'signature_box' && (
-                                        <div style={{ width: b.props.width || 200, height: b.props.height || 80, border: 'none', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#999' }}>
-                                            {b.props.label || 'Signature'}
-                                        </div>
-                                    )}
+                                    {b.type === 'signature_box' && (() => {
+                                        const blockLevel = getBlockLevel(b)
+                                        const history = assignment?.data?.signatures || []
+                                        const promotions = assignment?.data?.promotions || []
 
-                                    {b.type === 'dropdown' && (
-                                        <div style={{ width: b.props.width || 200 }}>
-                                            <div style={{ fontSize: 10, fontWeight: 'bold', color: '#6c5ce7', marginBottom: 2 }}>
-                                                {b.props.dropdownNumber && `Dropdown #${b.props.dropdownNumber}`}
+                                        // Check current signature
+                                        if (!blockLevel) {
+                                            if (signature) {
+                                                return (
+                                                    <div style={{ width: b.props.width || 200, height: b.props.height || 80, border: 'none', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#999' }}>
+                                                        {signature.signatureUrl ? <img src={signature.signatureUrl} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé'}
+                                                    </div>
+                                                )
+                                            }
+                                        } else {
+                                            // Block has specific level
+                                            const sigLevel = (signature as any)?.level
+                                            if (signature && ((sigLevel && sigLevel === blockLevel) || (!sigLevel && student?.level === blockLevel))) {
+                                                return (
+                                                    <div style={{ width: b.props.width || 200, height: b.props.height || 80, border: 'none', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#999' }}>
+                                                        {signature.signatureUrl ? <img src={signature.signatureUrl} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé'}
+                                                    </div>
+                                                )
+                                            }
+                                        }
+
+                                        // Check history for matching signature
+                                        if (blockLevel) {
+                                            const matchingSig = history.find((sig: any) => {
+                                                if (b.props.period === 'end-year' && sig.type !== 'end_of_year') return false
+                                                if ((!b.props.period || b.props.period === 'mid-year') && (sig.type === 'end_of_year')) return false
+
+                                                if (sig.level && sig.level === blockLevel) return true
+
+                                                if (sig.schoolYearName) {
+                                                    const promo = promotions.find((p: any) => p.year === sig.schoolYearName)
+                                                    if (promo && promo.from === blockLevel) return true
+                                                }
+                                                return false
+                                            })
+
+                                            if (matchingSig) {
+                                                return (
+                                                    <div style={{ width: b.props.width || 200, height: b.props.height || 80, border: 'none', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#999' }}>
+                                                        {matchingSig.signatureUrl ? <img src={matchingSig.signatureUrl} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : `✓ Signé (${matchingSig.schoolYearName || 'Ancien'})`}
+                                                    </div>
+                                                )
+                                            }
+                                        }
+
+                                        return null
+                                    })()}
+
+                                    {b.type === 'dropdown' && (() => {
+                                        // Only render if a value is selected
+                                        const currentValue = b.props.dropdownNumber
+                                            ? assignment?.data?.[`dropdown_${b.props.dropdownNumber}`]
+                                            : b.props.variableName ? assignment?.data?.[b.props.variableName] : ''
+                                        if (!currentValue) return null
+                                        return (
+                                            <div style={{ width: b.props.width || 200 }}>
+                                                {b.props.label && <div style={{ fontSize: 10, color: '#666', marginBottom: 2 }}>{b.props.label}</div>}
+                                                <div style={{
+                                                    width: '100%',
+                                                    minHeight: b.props.height || 32,
+                                                    fontSize: b.props.fontSize || 12,
+                                                    color: b.props.color || '#333',
+                                                    padding: '4px 8px',
+                                                    borderRadius: 4,
+                                                    border: '1px solid #ccc',
+                                                    background: '#fff',
+                                                    wordWrap: 'break-word',
+                                                    whiteSpace: 'pre-wrap'
+                                                }}>
+                                                    {currentValue}
+                                                </div>
                                             </div>
-                                            {b.props.label && <div style={{ fontSize: 10, color: '#666', marginBottom: 2 }}>{b.props.label}</div>}
+                                        )
+                                    })()}
+
+                                    {b.type === 'dropdown_reference' && (() => {
+                                        const dropdownNum = b.props.dropdownNumber || 1
+                                        const value = assignment?.data?.[`dropdown_${dropdownNum}`]
+                                        // Don't render if no value
+                                        if (!value) return null
+                                        return (
                                             <div style={{
-                                                width: '100%',
-                                                minHeight: b.props.height || 32,
-                                                fontSize: b.props.fontSize || 12,
                                                 color: b.props.color || '#333',
-                                                padding: '4px 8px',
-                                                borderRadius: 4,
-                                                border: '1px solid #ccc',
-                                                background: '#fff',
+                                                fontSize: b.props.fontSize || 12,
+                                                width: b.props.width || 200,
+                                                minHeight: b.props.height || 'auto',
                                                 wordWrap: 'break-word',
                                                 whiteSpace: 'pre-wrap'
                                             }}>
-                                                {(() => {
-                                                    const currentValue = b.props.dropdownNumber
-                                                        ? assignment?.data?.[`dropdown_${b.props.dropdownNumber}`]
-                                                        : b.props.variableName ? assignment?.data?.[b.props.variableName] : ''
-                                                    return currentValue || 'Sélectionner...'
-                                                })()}
+                                                {value}
                                             </div>
-                                        </div>
-                                    )}
+                                        )
+                                    })()}
 
-                                    {b.type === 'dropdown_reference' && (
-                                        <div style={{
-                                            color: b.props.color || '#333',
-                                            fontSize: b.props.fontSize || 12,
-                                            width: b.props.width || 200,
-                                            minHeight: b.props.height || 'auto',
-                                            wordWrap: 'break-word',
-                                            whiteSpace: 'pre-wrap'
-                                        }}>
-                                            {(() => {
-                                                const dropdownNum = b.props.dropdownNumber || 1
-                                                const value = assignment?.data?.[`dropdown_${dropdownNum}`]
-                                                return value || `[Dropdown #${dropdownNum}]`
-                                            })()}
-                                        </div>
-                                    )}
+                                    {b.type === 'promotion_info' && (() => {
+                                        // Check if block should be visible based on signature status
+                                        if (!isBlockVisible(b)) return null
 
-                                    {b.type === 'promotion_info' && (
-                                        <div style={{
-                                            width: b.props.width || (b.props.field ? 150 : 300),
-                                            height: b.props.height || (b.props.field ? 30 : 100),
-                                            border: b.props.field ? 'none' : '1px solid #6c5ce7',
-                                            padding: b.props.field ? 0 : 10,
-                                            borderRadius: 8,
-                                            fontSize: b.props.fontSize || 12,
-                                            color: b.props.color || '#2d3436',
-                                            display: 'flex',
-                                            flexDirection: 'column',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            textAlign: 'center'
-                                        }}>
-                                            {(() => {
-                                                const promotions = assignment?.data?.promotions || []
-                                                const blockLevel = getBlockLevel(b)
-                                                const explicitTarget = b.props.targetLevel as string | undefined
+                                        return (
+                                            <div style={{
+                                                width: b.props.width || (b.props.field ? 150 : 300),
+                                                height: b.props.height || (b.props.field ? 30 : 100),
+                                                border: b.props.field ? 'none' : '1px solid #6c5ce7',
+                                                padding: b.props.field ? 0 : 10,
+                                                borderRadius: 8,
+                                                fontSize: b.props.fontSize || 12,
+                                                color: b.props.color || '#2d3436',
+                                                display: 'flex',
+                                                flexDirection: 'column',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                textAlign: 'center'
+                                            }}>
+                                                {(() => {
+                                                    const promotions = assignment?.data?.promotions || []
+                                                    const blockLevel = getBlockLevel(b)
+                                                    const explicitTarget = b.props.targetLevel as string | undefined
 
-                                                if (b.props.field === 'student') return <div>{student?.firstName} {student?.lastName}</div>
-                                                if (b.props.field === 'studentFirstName') return <div>{student?.firstName}</div>
-                                                if (b.props.field === 'studentLastName') return <div>{student?.lastName}</div>
-                                                if (b.props.field === 'currentLevel') return <div>{student?.level}</div>
+                                                    if (b.props.field === 'student') return <div>{student?.firstName} {student?.lastName}</div>
+                                                    if (b.props.field === 'studentFirstName') return <div>{student?.firstName}</div>
+                                                    if (b.props.field === 'studentLastName') return <div>{student?.lastName}</div>
+                                                    if (b.props.field === 'currentLevel') return <div>{student?.level}</div>
 
-                                                let promo: any = null
+                                                    let promo: any = null
 
-                                                // Strategy 1: Match by explicit target level
-                                                if (explicitTarget) {
-                                                    promo = promotions.find((p: any) => p.to === explicitTarget)
-                                                }
-
-                                                // Strategy 2: Match by block level (from)
-                                                if (!promo && blockLevel) {
-                                                    promo = promotions.find((p: any) => p.from === blockLevel)
-                                                }
-
-                                                // Strategy 3: If only one promotion exists and no specific target/level
-                                                if (!promo && !explicitTarget && !blockLevel) {
-                                                    if (promotions.length === 1) {
-                                                        promo = { ...(promotions[0] as any) }
+                                                    // Strategy 1: Match by explicit target level
+                                                    if (explicitTarget) {
+                                                        promo = promotions.find((p: any) => p.to === explicitTarget)
                                                     }
-                                                }
 
-                                                // Strategy 4: Try to find from signature history
-                                                if (!promo && blockLevel) {
-                                                    const history = assignment?.data?.signatures || []
-                                                    const isMidYearBlock = b.props.period === 'mid-year'
-                                                    const wantEndOfYear = b.props.period === 'end-year'
-                                                    const candidates = history.filter((sig: any) => {
-                                                        if (wantEndOfYear) {
-                                                            if (sig.type !== 'end_of_year') return false
-                                                        } else if (isMidYearBlock) {
-                                                            if (sig.type && sig.type !== 'standard') return false
-                                                        }
-                                                        if (sig.level && sig.level !== blockLevel) return false
-                                                        return true
-                                                    }).sort((a: any, b: any) => {
-                                                        const ad = new Date(a.signedAt || 0).getTime()
-                                                        const bd = new Date(b.signedAt || 0).getTime()
-                                                        return bd - ad
-                                                    })
+                                                    // Strategy 2: Match by block level (from)
+                                                    if (!promo && blockLevel) {
+                                                        promo = promotions.find((p: any) => p.from === blockLevel)
+                                                    }
 
-                                                    const sig = candidates[0]
-                                                    if (sig) {
-                                                        let yearLabel = sig.schoolYearName as string | undefined
-                                                        if (!yearLabel && sig.signedAt) {
-                                                            const d = new Date(sig.signedAt)
-                                                            const y = d.getFullYear()
-                                                            const m = d.getMonth()
-                                                            const startYear = m >= 8 ? y : y - 1
-                                                            yearLabel = `${startYear}/${startYear + 1}`
-                                                        }
-                                                        if (!yearLabel) {
-                                                            const currentYear = new Date().getFullYear()
-                                                            const month = new Date().getMonth()
-                                                            const startYear = month >= 8 ? currentYear : currentYear - 1
-                                                            yearLabel = `${startYear}/${startYear + 1}`
-                                                        }
-
-                                                        const baseLevel = blockLevel
-                                                        const target = explicitTarget || getNextLevel(baseLevel || '') || ''
-
-                                                        promo = {
-                                                            year: yearLabel,
-                                                            from: baseLevel,
-                                                            to: target || '?',
-                                                            class: student?.className || ''
+                                                    // Strategy 3: If only one promotion exists and no specific target/level
+                                                    if (!promo && !explicitTarget && !blockLevel) {
+                                                        if (promotions.length === 1) {
+                                                            promo = { ...(promotions[0] as any) }
                                                         }
                                                     }
-                                                }
 
-                                                // Strategy 5: Fallback - create prediction based on current date
-                                                if (!promo) {
-                                                    const currentYear = new Date().getFullYear()
-                                                    const month = new Date().getMonth()
-                                                    const startYear = month >= 8 ? currentYear : currentYear - 1
-                                                    const displayYear = `${startYear}/${startYear + 1}`
+                                                    // Strategy 4: Try to find from signature history
+                                                    if (!promo && blockLevel) {
+                                                        const history = assignment?.data?.signatures || []
+                                                        const isMidYearBlock = b.props.period === 'mid-year'
+                                                        const wantEndOfYear = b.props.period === 'end-year'
+                                                        const candidates = history.filter((sig: any) => {
+                                                            if (wantEndOfYear) {
+                                                                if (sig.type !== 'end_of_year') return false
+                                                            } else if (isMidYearBlock) {
+                                                                if (sig.type && sig.type !== 'standard') return false
+                                                            }
+                                                            if (sig.level && sig.level !== blockLevel) return false
+                                                            return true
+                                                        }).sort((a: any, bb: any) => {
+                                                            const ad = new Date(a.signedAt || 0).getTime()
+                                                            const bd = new Date(bb.signedAt || 0).getTime()
+                                                            return bd - ad
+                                                        })
 
-                                                    const baseLevel = blockLevel || student?.level || ''
-                                                    const targetLevel = explicitTarget || getNextLevel(baseLevel) || '?'
+                                                        const sig = candidates[0]
+                                                        if (sig) {
+                                                            let yearLabel = sig.schoolYearName as string | undefined
+                                                            if (!yearLabel && sig.signedAt) {
+                                                                const d = new Date(sig.signedAt)
+                                                                const y = d.getFullYear()
+                                                                const m = d.getMonth()
+                                                                const startYear = m >= 8 ? y : y - 1
+                                                                yearLabel = `${startYear}/${startYear + 1}`
+                                                            }
+                                                            if (!yearLabel) {
+                                                                const currentYear = new Date().getFullYear()
+                                                                const month = new Date().getMonth()
+                                                                const startYear = month >= 8 ? currentYear : currentYear - 1
+                                                                yearLabel = `${startYear}/${startYear + 1}`
+                                                            }
 
-                                                    promo = {
-                                                        year: displayYear,
-                                                        from: baseLevel,
-                                                        to: targetLevel,
-                                                        class: student?.className || ''
+                                                            const baseLevel = blockLevel
+                                                            const target = explicitTarget || getNextLevel(baseLevel || '') || ''
+
+                                                            promo = {
+                                                                year: yearLabel,
+                                                                from: baseLevel,
+                                                                to: target || '?',
+                                                                class: student?.className || ''
+                                                            }
+                                                        }
                                                     }
-                                                } else {
+
+                                                    // No fallback - if no promo found, return null
+                                                    if (!promo) {
+                                                        return null
+                                                    }
+
                                                     // Enrich existing promo with current data if missing
                                                     if (!promo.class && student?.className) promo.class = student.className
                                                     if (!promo.from) {
                                                         if (blockLevel) promo.from = blockLevel
                                                         else if (student?.level) promo.from = student.level
                                                     }
-                                                }
 
-                                                if (promo) {
                                                     const yearLabel = getPromotionYearLabel(promo, blockLevel)
                                                     if (!b.props.field) {
                                                         return (
@@ -854,11 +946,11 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                                     } else if (b.props.field === 'currentLevel') {
                                                         return <div>{promo.from || ''}</div>
                                                     }
-                                                }
-                                                return null
-                                            })()}
-                                        </div>
-                                    )}
+                                                    return null
+                                                })()}
+                                            </div>
+                                        )
+                                    })()}
 
                                     {b.type === 'teacher_text' && (
                                         <div style={{
@@ -921,22 +1013,6 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                             style={{ width: b.props.width || 120, height: b.props.height || 120 }}
                                             alt="QR Code"
                                         />
-                                    )}
-
-                                    {b.type === 'signature_box' && (
-                                        <div style={{
-                                            width: b.props.width || 200,
-                                            height: b.props.height || 80,
-                                            border: 'none',
-                                            background: '#fff',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            fontSize: 10,
-                                            color: '#999'
-                                        }}>
-                                            {signature ? '✓ Signé' : (b.props.label || 'Signature')}
-                                        </div>
                                     )}
                                 </div>
                             )

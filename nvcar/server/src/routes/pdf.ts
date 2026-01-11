@@ -540,28 +540,21 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), asy
               }
             }
             doc.restore()
-          } else {
-            const x2 = px(b.props?.x || 50)
-            const y2 = py(b.props?.y || 50)
-            const width2 = sx(b.props?.width || 200)
-            const height2 = sy(b.props?.height || 80)
-            doc.rect(x2, y2, width2, height2).stroke('#000')
           }
-        } else {
-          const x2 = px(b.props?.x || 50)
-          const y2 = py(b.props?.y || 50)
-          const width2 = sx(b.props?.width || 200)
-          const height2 = sy(b.props?.height || 80)
-          doc.rect(x2, y2, width2, height2).stroke('#000')
+          // Do not render empty signature box when there's no signature
         }
+        // Do not render empty signature box when there's no templateAssignment
       } else if (b.type === 'dropdown') {
         // Check level
         if (b.props?.levels && b.props.levels.length > 0 && level && !b.props.levels.includes(level)) {
           return
         }
-        // Render dropdown with selected value or as empty box
+        // Render dropdown with selected value or skip if empty
         const dropdownNum = b.props?.dropdownNumber
         const selectedValue = dropdownNum ? assignmentData[`dropdown_${dropdownNum}`] : (b.props?.variableName ? assignmentData[b.props.variableName] : '')
+
+        // Skip rendering if no value is selected
+        if (!selectedValue) return
 
         const x = px(b.props?.x || 50)
         const y = py(b.props?.y || 50)
@@ -977,9 +970,12 @@ pdfRouter.get('/class/:classId/batch', requireAuth(['ADMIN', 'SUBADMIN']), async
                 }
               }
             } else if (b.type === 'dropdown') {
-              // Render dropdown with selected value or as empty box
+              // Render dropdown with selected value or skip if empty
               const dropdownNum = b.props?.dropdownNumber
               const selectedValue = dropdownNum ? assignmentData[`dropdown_${dropdownNum}`] : (b.props?.variableName ? assignmentData[b.props.variableName] : '')
+
+              // Skip rendering if no value is selected
+              if (!selectedValue) return
 
               const x = px(b.props?.x || 50)
               const y = py(b.props?.y || 50)
@@ -1256,20 +1252,10 @@ pdfRouter.get('/class/:classId/batch', requireAuth(['ADMIN', 'SUBADMIN']), async
                     }
                   }
                   doc.restore()
-                } else {
-                  const x2 = px(b.props?.x || 50)
-                  const y2 = py(b.props?.y || 50)
-                  const width2 = sx(b.props?.width || 200)
-                  const height2 = sy(b.props?.height || 80)
-                  doc.rect(x2, y2, width2, height2).stroke('#000')
                 }
-              } else {
-                const x2 = px(b.props?.x || 50)
-                const y2 = py(b.props?.y || 50)
-                const width2 = sx(b.props?.width || 200)
-                const height2 = sy(b.props?.height || 80)
-                doc.rect(x2, y2, width2, height2).stroke('#000')
+                // Do not render empty signature box when there's no signature
               }
+              // Do not render empty signature box when there's no templateAssignment
             } else if (b.type === 'promotion_info') {
               const targetLevel = b.props?.targetLevel
               const promotions = assignmentData.promotions || []
