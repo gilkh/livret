@@ -163,6 +163,7 @@ export default function SubAdminDashboard() {
     const sem1SignedCount = pending.filter(isSem1Signed).length
     const sem2SignedCount = pending.filter(isSem2Signed).length
 
+    // Per Level breakdown
     const levelStatsSem1 = Object.keys(groupedAllTemplates).reduce((acc, level) => {
         const templatesInLevel = Object.values(groupedAllTemplates[level]).flat()
         const total = templatesInLevel.length
@@ -171,7 +172,7 @@ export default function SubAdminDashboard() {
         return acc
     }, {} as Record<string, { total: number, signed: number }>)
 
-    const breakdownSem1 = Object.entries(levelStatsSem1)
+    const perLevelBreakdownSem1 = Object.entries(levelStatsSem1)
         .map(([level, stats]) => ({
             label: level,
             total: stats.total,
@@ -187,9 +188,66 @@ export default function SubAdminDashboard() {
         return acc
     }, {} as Record<string, { total: number, signed: number }>)
 
-    const breakdownSem2 = Object.entries(levelStatsSem2)
+    const perLevelBreakdownSem2 = Object.entries(levelStatsSem2)
         .map(([level, stats]) => ({
             label: level,
+            total: stats.total,
+            completed: stats.signed
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label))
+
+    // Per Class breakdown
+    const classStatsSem1: Record<string, { total: number, signed: number }> = {}
+    const classStatsSem2: Record<string, { total: number, signed: number }> = {}
+
+    Object.keys(groupedAllTemplates).forEach(level => {
+        Object.entries(groupedAllTemplates[level]).forEach(([className, templates]) => {
+            const classKey = `${className}`
+            if (!classStatsSem1[classKey]) classStatsSem1[classKey] = { total: 0, signed: 0 }
+            if (!classStatsSem2[classKey]) classStatsSem2[classKey] = { total: 0, signed: 0 }
+
+            classStatsSem1[classKey].total += templates.length
+            classStatsSem1[classKey].signed += templates.filter(isSem1Signed).length
+            classStatsSem2[classKey].total += templates.length
+            classStatsSem2[classKey].signed += templates.filter(isSem2Signed).length
+        })
+    })
+
+    const perClassBreakdownSem1 = Object.entries(classStatsSem1)
+        .map(([className, stats]) => ({
+            label: className,
+            total: stats.total,
+            completed: stats.signed
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label))
+
+    const perClassBreakdownSem2 = Object.entries(classStatsSem2)
+        .map(([className, stats]) => ({
+            label: className,
+            total: stats.total,
+            completed: stats.signed
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label))
+
+    // Promu breakdown (grouped by promotion path: fromLevel → toLevel)
+    const promuStats: Record<string, { total: number, signed: number }> = {}
+    promotedStudents.forEach(student => {
+        const key = `${student.fromLevel || '?'} → ${student.toLevel || '?'}`
+        if (!promuStats[key]) promuStats[key] = { total: 0, signed: 0 }
+        promuStats[key].total += 1
+        // Check if the promoted student has a signed carnet (assignmentId exists = has carnet)
+        if (student.assignmentId) {
+            // Find the corresponding pending template to check signature status
+            const matchingPending = pending.find(p => p._id === student.assignmentId)
+            if (matchingPending && isSem2Signed(matchingPending)) {
+                promuStats[key].signed += 1
+            }
+        }
+    })
+
+    const promuBreakdown = Object.entries(promuStats)
+        .map(([path, stats]) => ({
+            label: path,
             total: stats.total,
             completed: stats.signed
         }))
@@ -198,7 +256,8 @@ export default function SubAdminDashboard() {
     const activeSemester = activeYear?.activeSemester === 2 ? 2 : 1
     const activeSemesterLabel = activeSemester === 1 ? 'Semestre 1' : 'Semestre 2'
     const activeCompletedCount = activeSemester === 1 ? sem1SignedCount : sem2SignedCount
-    const activeBreakdown = activeSemester === 1 ? breakdownSem1 : breakdownSem2
+    const activePerLevelBreakdown = activeSemester === 1 ? perLevelBreakdownSem1 : perLevelBreakdownSem2
+    const activePerClassBreakdown = activeSemester === 1 ? perClassBreakdownSem1 : perClassBreakdownSem2
 
     return (
         <div className="container">
@@ -469,69 +528,6 @@ export default function SubAdminDashboard() {
                                 </div>
                             </a>
 
-                            {/* Carnet Card */}
-                            <a
-                                href="/aefe/gradebooks"
-                                style={{
-                                    textDecoration: 'none',
-                                    display: 'block',
-                                    background: 'linear-gradient(135deg, #ff6b6b 0%, #feca57 100%)',
-                                    borderRadius: 20,
-                                    padding: 28,
-                                    color: 'white',
-                                    position: 'relative',
-                                    overflow: 'hidden',
-                                    boxShadow: '0 10px 40px -10px rgba(255, 107, 107, 0.5)',
-                                    transition: 'all 0.3s ease',
-                                    cursor: 'pointer'
-                                }}
-                                onMouseEnter={(e) => {
-                                    e.currentTarget.style.transform = 'translateY(-4px)';
-                                    e.currentTarget.style.boxShadow = '0 20px 50px -10px rgba(255, 107, 107, 0.6)';
-                                }}
-                                onMouseLeave={(e) => {
-                                    e.currentTarget.style.transform = 'translateY(0)';
-                                    e.currentTarget.style.boxShadow = '0 10px 40px -10px rgba(255, 107, 107, 0.5)';
-                                }}
-                            >
-                                <div style={{
-                                    position: 'absolute',
-                                    top: -20,
-                                    right: -20,
-                                    width: 120,
-                                    height: 120,
-                                    background: 'rgba(255,255,255,0.1)',
-                                    borderRadius: '50%'
-                                }} />
-                                <div style={{
-                                    position: 'absolute',
-                                    bottom: -30,
-                                    right: 40,
-                                    width: 80,
-                                    height: 80,
-                                    background: 'rgba(255,255,255,0.08)',
-                                    borderRadius: '50%'
-                                }} />
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 16 }}>
-                                    <div style={{
-                                        background: 'rgba(255,255,255,0.2)',
-                                        borderRadius: 14,
-                                        padding: 12,
-                                        backdropFilter: 'blur(10px)'
-                                    }}>
-                                        <BookOpen size={28} strokeWidth={2} />
-                                    </div>
-                                    <h3 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>Carnet</h3>
-                                </div>
-                                <p style={{ margin: 0, fontSize: 14, opacity: 0.9, lineHeight: 1.6 }}>
-                                    Accédez aux carnets des élèves pour les consulter et les télécharger
-                                </p>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 20, opacity: 0.9 }}>
-                                    <span style={{ fontSize: 14, fontWeight: 600 }}>Accéder</span>
-                                    <ArrowRight size={18} />
-                                </div>
-                            </a>
-
                             {/* Suggestion Card */}
                             <a
                                 href="/aefe/suggestion"
@@ -607,7 +603,10 @@ export default function SubAdminDashboard() {
                                 title={`📊 Progression — ${activeSemesterLabel}`}
                                 total={totalStudents}
                                 completed={activeCompletedCount}
-                                breakdown={activeBreakdown}
+                                perLevelBreakdown={activePerLevelBreakdown}
+                                perClassBreakdown={activePerClassBreakdown}
+                                promuBreakdown={promuBreakdown}
+                                showPromu={activeSemester === 2 && promotedStudents.length > 0}
                             />
                         )}
 

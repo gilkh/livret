@@ -1,16 +1,16 @@
 import { useEffect, useState } from 'react'
 import api from '../api'
 import { useSchoolYear } from '../context/SchoolYearContext'
-import { 
-    BarChart, 
-    Bar, 
-    XAxis, 
-    YAxis, 
-    CartesianGrid, 
-    Tooltip, 
+import {
+    BarChart,
+    Bar,
+    XAxis,
+    YAxis,
+    CartesianGrid,
+    Tooltip,
     ResponsiveContainer,
-    PieChart, 
-    Pie, 
+    PieChart,
+    Pie,
     Cell
 } from 'recharts'
 
@@ -58,9 +58,9 @@ type ClassDetailedProgress = {
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d'];
 
 const ProgressSection = ({ title, subtitle, progress, byCategory, color = '#fff' }: any) => (
-    <div style={{ 
-        background: color, 
-        borderRadius: 12, 
+    <div style={{
+        background: color,
+        borderRadius: 12,
         border: '1px solid #e2e8f0',
         padding: 16,
         boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
@@ -98,10 +98,10 @@ const ProgressSection = ({ title, subtitle, progress, byCategory, color = '#fff'
                             <Tooltip />
                         </PieChart>
                     </ResponsiveContainer>
-                    <div style={{ 
-                        position: 'absolute', 
-                        top: '50%', 
-                        left: '50%', 
+                    <div style={{
+                        position: 'absolute',
+                        top: '50%',
+                        left: '50%',
                         transform: 'translate(-50%, -50%)',
                         textAlign: 'center'
                     }}>
@@ -123,10 +123,10 @@ const ProgressSection = ({ title, subtitle, progress, byCategory, color = '#fff'
                         >
                             <CartesianGrid strokeDasharray="3 3" horizontal={false} />
                             <XAxis type="number" domain={[0, 100]} unit="%" />
-                            <YAxis 
-                                dataKey="name" 
-                                type="category" 
-                                width={170} 
+                            <YAxis
+                                dataKey="name"
+                                type="category"
+                                width={170}
                                 tick={(props) => {
                                     const { x, y, payload } = props;
                                     const categoryData = byCategory.find((c: any) => c.name === payload.value);
@@ -145,7 +145,7 @@ const ProgressSection = ({ title, subtitle, progress, byCategory, color = '#fff'
                                     );
                                 }}
                             />
-                            <Tooltip 
+                            <Tooltip
                                 formatter={(value: number, name: string, props: any) => {
                                     const data = props.payload;
                                     return [
@@ -156,7 +156,7 @@ const ProgressSection = ({ title, subtitle, progress, byCategory, color = '#fff'
                                                     Enseignants: {data.teachers.join(', ')}
                                                 </div>
                                             )}
-                                        </div>, 
+                                        </div>,
                                         ''
                                     ]
                                 }}
@@ -176,9 +176,9 @@ const ProgressSection = ({ title, subtitle, progress, byCategory, color = '#fff'
 )
 
 const CompactProgressCard = ({ title, subtitle, progress, byCategory }: any) => (
-    <div style={{ 
-        background: '#fff', 
-        borderRadius: 12, 
+    <div style={{
+        background: '#fff',
+        borderRadius: 12,
         border: '1px solid #e2e8f0',
         padding: 20,
         boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
@@ -190,9 +190,9 @@ const CompactProgressCard = ({ title, subtitle, progress, byCategory }: any) => 
         <div style={{ marginBottom: 20 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <h4 style={{ fontSize: 16, fontWeight: 700, color: '#0f172a', margin: 0 }}>{title}</h4>
-                <span style={{ 
-                    fontSize: 13, 
-                    fontWeight: 600, 
+                <span style={{
+                    fontSize: 13,
+                    fontWeight: 600,
                     color: progress.percentage === 100 ? '#16a34a' : '#2563eb',
                     background: progress.percentage === 100 ? '#dcfce7' : '#dbeafe',
                     padding: '2px 8px',
@@ -212,9 +212,9 @@ const CompactProgressCard = ({ title, subtitle, progress, byCategory }: any) => 
                         <span style={{ color: '#64748b' }}>{cat.percentage}%</span>
                     </div>
                     <div style={{ height: 8, background: '#f1f5f9', borderRadius: 4, overflow: 'hidden' }}>
-                        <div style={{ 
-                            height: '100%', 
-                            width: `${cat.percentage}%`, 
+                        <div style={{
+                            height: '100%',
+                            width: `${cat.percentage}%`,
                             background: COLORS[idx % COLORS.length],
                             borderRadius: 4
                         }} />
@@ -242,7 +242,7 @@ export default function SubAdminTeacherProgress() {
         const loadData = async () => {
             // Wait for school year context to finish loading
             if (yearLoading) return
-            
+
             if (!activeYearId) {
                 setLoading(false)
                 return
@@ -279,7 +279,7 @@ export default function SubAdminTeacherProgress() {
         acc[cls.level].push(cls)
         return acc
     }, {} as Record<string, ClassDetailedProgress[]>)
-    
+
     const detailedSortedLevels = Object.keys(detailedGroupedByLevel).sort()
 
     const getLevelStats = (levelClasses: ClassProgress[]) => {
@@ -293,22 +293,22 @@ export default function SubAdminTeacherProgress() {
             stats.studentCount += cls.studentCount
             stats.progress.total += cls.progress.total
             stats.progress.filled += cls.progress.filled
-            
+
             cls.byCategory.forEach(cat => {
                 if (!stats.byCategory[cat.name]) {
                     stats.byCategory[cat.name] = { total: 0, filled: 0, name: cat.name, teachers: new Set() }
                 }
                 stats.byCategory[cat.name].total += cat.total
                 stats.byCategory[cat.name].filled += cat.filled
-                
+
                 if (cat.teachers && Array.isArray(cat.teachers)) {
                     cat.teachers.forEach(t => stats.byCategory[cat.name].teachers.add(t))
                 }
             })
         })
 
-        stats.progress.percentage = stats.progress.total > 0 
-            ? Math.round((stats.progress.filled / stats.progress.total) * 100) 
+        stats.progress.percentage = stats.progress.total > 0
+            ? Math.round((stats.progress.filled / stats.progress.total) * 100)
             : 0
 
         const byCategoryArray = Object.values(stats.byCategory).map(cat => ({
@@ -323,10 +323,10 @@ export default function SubAdminTeacherProgress() {
     return (
         <div className="container">
             <div className="card" style={{ maxWidth: 1200, margin: '0 auto', background: 'transparent', boxShadow: 'none', padding: 0 }}>
-                <div style={{ 
-                    display: 'flex', 
-                    justifyContent: 'space-between', 
-                    alignItems: 'center', 
+                <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
                     marginBottom: 32,
                     background: '#fff',
                     padding: '24px',
@@ -342,12 +342,12 @@ export default function SubAdminTeacherProgress() {
                             Suivez la progression du remplissage des livrets par classe et par enseignant
                         </p>
                     </div>
-                    
-                    <div style={{ 
-                        background: '#f1f5f9', 
-                        padding: '6px', 
-                        borderRadius: '12px', 
-                        display: 'flex', 
+
+                    <div style={{
+                        background: '#f1f5f9',
+                        padding: '6px',
+                        borderRadius: '12px',
+                        display: 'flex',
                         gap: '6px',
                         border: '1px solid #e2e8f0'
                     }}>
@@ -398,7 +398,7 @@ export default function SubAdminTeacherProgress() {
 
                 {(loading || yearLoading) && <div className="note" style={{ textAlign: 'center', padding: 24 }}>Chargement...</div>}
                 {error && <div className="note" style={{ color: '#dc2626', background: '#fef2f2', padding: 12, borderRadius: 8, border: '1px solid #fecaca' }}>{error}</div>}
-                
+
                 {!loading && !yearLoading && !activeYearId && (
                     <div className="note" style={{ textAlign: 'center', padding: 24, color: '#b45309', background: '#fef3c7', borderRadius: 8, border: '1px solid #fcd34d' }}>
                         Aucune année scolaire active trouvée. Veuillez sélectionner une année scolaire.
@@ -416,14 +416,14 @@ export default function SubAdminTeacherProgress() {
                         {sortedLevels.map(level => {
                             const levelClasses = groupedByLevel[level]
                             const levelStats = getLevelStats(levelClasses)
-                            
+
                             return (
                                 <div key={level} style={{ marginBottom: 40 }}>
-                                    <h3 style={{ 
-                                        fontSize: 20, 
-                                        color: '#334155', 
-                                        marginBottom: 20, 
-                                        borderBottom: '2px solid #e2e8f0', 
+                                    <h3 style={{
+                                        fontSize: 20,
+                                        color: '#334155',
+                                        marginBottom: 20,
+                                        borderBottom: '2px solid #e2e8f0',
                                         paddingBottom: 8,
                                         display: 'flex',
                                         alignItems: 'center',
@@ -436,7 +436,7 @@ export default function SubAdminTeacherProgress() {
 
                                     {/* Level Summary */}
                                     <div style={{ marginBottom: 64 }}>
-                                        <ProgressSection 
+                                        <ProgressSection
                                             title={`Résumé ${level}`}
                                             subtitle={`${levelStats.studentCount} élèves au total`}
                                             progress={levelStats.progress}
@@ -446,14 +446,14 @@ export default function SubAdminTeacherProgress() {
                                     </div>
 
                                     {/* Classes Grid */}
-                                    <div style={{ 
-                                        display: 'grid', 
-                                        gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', 
+                                    <div style={{
+                                        display: 'grid',
+                                        gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
                                         gap: 24,
                                         rowGap: 48
                                     }}>
                                         {levelClasses.map(cls => (
-                                            <CompactProgressCard 
+                                            <CompactProgressCard
                                                 key={cls.classId}
                                                 title={cls.className}
                                                 subtitle={`${cls.teachers.join(', ') || 'Aucun enseignant'} • ${cls.studentCount} élèves`}
@@ -478,11 +478,11 @@ export default function SubAdminTeacherProgress() {
                     <div>
                         {detailedSortedLevels.map(level => (
                             <div key={level} style={{ marginBottom: 40 }}>
-                                <h3 style={{ 
-                                    fontSize: 20, 
-                                    color: '#334155', 
-                                    marginBottom: 20, 
-                                    borderBottom: '2px solid #e2e8f0', 
+                                <h3 style={{
+                                    fontSize: 20,
+                                    color: '#334155',
+                                    marginBottom: 20,
+                                    borderBottom: '2px solid #e2e8f0',
                                     paddingBottom: 8,
                                     display: 'flex',
                                     alignItems: 'center',
@@ -492,7 +492,7 @@ export default function SubAdminTeacherProgress() {
                                         {level}
                                     </span>
                                 </h3>
-                                
+
                                 {detailedGroupedByLevel[level].map(cls => (
                                     <div key={cls.classId} style={{ marginBottom: 30 }}>
                                         <h4 style={{ fontSize: 18, fontWeight: 600, color: '#475569', marginBottom: 12 }}>{cls.className}</h4>

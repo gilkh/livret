@@ -83,7 +83,6 @@ export default function NavBar() {
             {canShow('AEFE', 'dashboard') && <Link to="/aefe/dashboard" className={`nav-link ${isActive('/aefe/dashboard') ? 'active' : ''}`}>Tableau de bord</Link>}
             {canShow('AEFE', 'progress') && <Link to="/aefe/progress" className={`nav-link ${isActive('/aefe/progress') ? 'active' : ''}`}>Progression</Link>}
             {canShow('AEFE', 'teacher-progress') && <Link to="/aefe/teacher-progress" className={`nav-link ${isActive('/aefe/teacher-progress') ? 'active' : ''}`}>Suivi Enseignants</Link>}
-            {canShow('AEFE', 'gradebooks') && <Link to="/aefe/gradebooks" className={`nav-link ${isActive('/aefe/gradebooks') ? 'active' : ''}`}>Carnet</Link>}
             <Link to="/aefe/suggestion" className={`nav-link ${isActive('/aefe/suggestion') ? 'active' : ''}`}>Suggestion</Link>
           </>
         )}

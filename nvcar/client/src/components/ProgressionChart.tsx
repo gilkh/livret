@@ -6,7 +6,6 @@ import {
     XAxis,
     YAxis,
     Tooltip,
-    Legend,
     CartesianGrid,
     Cell,
     PieChart,
@@ -14,11 +13,20 @@ import {
 } from 'recharts';
 import './ProgressionChart.css';
 
+interface BreakdownItem {
+    label: string;
+    total: number;
+    completed: number;
+}
+
 interface ProgressionChartProps {
     title: string;
     total: number;
     completed: number;
-    breakdown: { label: string; total: number; completed: number }[];
+    perLevelBreakdown: BreakdownItem[];
+    perClassBreakdown: BreakdownItem[];
+    promuBreakdown?: BreakdownItem[];
+    showPromu?: boolean;
 }
 
 const GRADIENT_COLORS = [
@@ -32,15 +40,24 @@ const GRADIENT_COLORS = [
     { start: '#ec4899', end: '#db2777' },  // Pink
 ];
 
-const ProgressionChart: React.FC<ProgressionChartProps> = ({ title, total, completed, breakdown }) => {
+type TabType = 'level' | 'class' | 'promu';
+
+const ProgressionChart: React.FC<ProgressionChartProps> = ({
+    title,
+    total,
+    completed,
+    perLevelBreakdown,
+    perClassBreakdown,
+    promuBreakdown = [],
+    showPromu = true
+}) => {
     const [animatedPercentage, setAnimatedPercentage] = useState(0);
+    const [activeTab, setActiveTab] = useState<TabType>('level');
     const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
     const remaining = total - completed;
-    const classCount = breakdown.length;
 
     // Animate the percentage on mount
     useEffect(() => {
-        let start = 0;
         const duration = 1200;
         const startTime = Date.now();
 
@@ -65,7 +82,22 @@ const ProgressionChart: React.FC<ProgressionChartProps> = ({ title, total, compl
         { name: 'Restant', value: remaining || 0.001 }, // Prevent empty chart
     ];
 
-    const barData = breakdown.map((item, idx) => ({
+    // Get the current breakdown based on active tab
+    const getCurrentBreakdown = (): BreakdownItem[] => {
+        switch (activeTab) {
+            case 'level':
+                return perLevelBreakdown;
+            case 'class':
+                return perClassBreakdown;
+            case 'promu':
+                return promuBreakdown;
+            default:
+                return perLevelBreakdown;
+        }
+    };
+
+    const currentBreakdown = getCurrentBreakdown();
+    const barData = currentBreakdown.map((item, idx) => ({
         name: item.label,
         Complété: item.completed,
         Restant: item.total - item.completed,
@@ -73,9 +105,6 @@ const ProgressionChart: React.FC<ProgressionChartProps> = ({ title, total, compl
         percentage: item.total > 0 ? Math.round((item.completed / item.total) * 100) : 0,
         colorIndex: idx % GRADIENT_COLORS.length
     }));
-
-    // Determine layout mode
-    const isCompactMode = classCount <= 3;
 
     // Get status color based on percentage
     const getStatusColor = (pct: number) => {
@@ -87,6 +116,13 @@ const ProgressionChart: React.FC<ProgressionChartProps> = ({ title, total, compl
     };
 
     const globalStatus = getStatusColor(percentage);
+
+    // Tab configuration
+    const tabs: { id: TabType; label: string; icon: string; count: number }[] = [
+        { id: 'level', label: 'Par Niveau', icon: '📊', count: perLevelBreakdown.length },
+        { id: 'class', label: 'Par Classe', icon: '📚', count: perClassBreakdown.length },
+        ...(showPromu ? [{ id: 'promu' as TabType, label: 'Promus', icon: '🎓', count: promuBreakdown.length }] : [])
+    ];
 
     // Custom radial gradient for the donut
     const renderGradientDefs = () => (
@@ -116,6 +152,15 @@ const ProgressionChart: React.FC<ProgressionChartProps> = ({ title, total, compl
             ))}
         </defs>
     );
+
+    // Calculate dynamic height for bar chart based on item count
+    const calculateChartHeight = () => {
+        const itemCount = barData.length;
+        if (itemCount <= 3) return 180;
+        if (itemCount <= 6) return 240;
+        if (itemCount <= 10) return Math.max(280, itemCount * 40);
+        return Math.min(500, itemCount * 36);
+    };
 
     return (
         <div className="progression-chart-container">
@@ -147,10 +192,10 @@ const ProgressionChart: React.FC<ProgressionChartProps> = ({ title, total, compl
                 </div>
             </div>
 
-            <div className={`progression-chart-content ${isCompactMode ? 'compact-mode' : 'full-mode'}`}>
+            <div className="progression-chart-content unified-mode">
                 {/* Radial Progress Section */}
                 <div className="progression-chart-radial">
-                    <div className="radial-container">
+                    <div className="radial-container compact">
                         <ResponsiveContainer width="100%" height="100%">
                             <PieChart>
                                 {renderGradientDefs()}
@@ -158,8 +203,8 @@ const ProgressionChart: React.FC<ProgressionChartProps> = ({ title, total, compl
                                     data={pieData}
                                     cx="50%"
                                     cy="50%"
-                                    innerRadius={isCompactMode ? 55 : 65}
-                                    outerRadius={isCompactMode ? 75 : 90}
+                                    innerRadius={50}
+                                    outerRadius={70}
                                     fill="#8884d8"
                                     paddingAngle={3}
                                     dataKey="value"
@@ -174,163 +219,171 @@ const ProgressionChart: React.FC<ProgressionChartProps> = ({ title, total, compl
                             </PieChart>
                         </ResponsiveContainer>
                         <div className="radial-center">
-                            <div className="radial-percentage">{animatedPercentage}%</div>
+                            <div className="radial-percentage compact">{animatedPercentage}%</div>
                             <div className="radial-label">Progression</div>
                         </div>
                     </div>
 
                     {/* Legend below donut */}
-                    <div className="radial-legend">
+                    <div className="radial-legend compact">
                         <div className="legend-item">
                             <span className="legend-dot completed"></span>
-                            <span className="legend-text">Complété ({completed})</span>
+                            <span className="legend-text">{completed}</span>
                         </div>
                         <div className="legend-item">
                             <span className="legend-dot remaining"></span>
-                            <span className="legend-text">Restant ({remaining})</span>
+                            <span className="legend-text">{remaining}</span>
                         </div>
                     </div>
                 </div>
 
-                {/* Breakdown Section - Adaptive based on class count */}
+                {/* Breakdown Section with Tabs */}
                 <div className="progression-chart-breakdown">
-                    <h4 className="breakdown-title">
-                        {classCount === 1 ? '📘 Votre Classe' : `📚 Détails par classe (${classCount})`}
-                    </h4>
+                    {/* Tab Navigation */}
+                    <div className="breakdown-tabs">
+                        {tabs.map(tab => (
+                            <button
+                                key={tab.id}
+                                className={`breakdown-tab ${activeTab === tab.id ? 'active' : ''}`}
+                                onClick={() => setActiveTab(tab.id)}
+                            >
+                                <span className="tab-icon">{tab.icon}</span>
+                                <span className="tab-label">{tab.label}</span>
+                                <span className="tab-count">{tab.count}</span>
+                            </button>
+                        ))}
+                    </div>
 
-                    {isCompactMode ? (
-                        // Compact Mode: Card-based layout for 1-3 classes
-                        <div className="breakdown-cards">
-                            {barData.map((item, idx) => {
-                                const itemStatus = getStatusColor(item.percentage);
-                                return (
-                                    <div
-                                        key={item.name}
-                                        className="breakdown-card"
-                                        style={{
-                                            '--card-gradient-start': GRADIENT_COLORS[idx % GRADIENT_COLORS.length].start,
-                                            '--card-gradient-end': GRADIENT_COLORS[idx % GRADIENT_COLORS.length].end,
-                                        } as React.CSSProperties}
+                    {/* Breakdown Content */}
+                    <div className="breakdown-content">
+                        {barData.length === 0 ? (
+                            <div className="breakdown-empty">
+                                <span className="empty-icon">📭</span>
+                                <span className="empty-text">Aucune donnée disponible</span>
+                            </div>
+                        ) : barData.length <= 4 ? (
+                            // Card layout for small number of items
+                            <div className="breakdown-cards compact">
+                                {barData.map((item, idx) => {
+                                    const itemStatus = getStatusColor(item.percentage);
+                                    return (
+                                        <div
+                                            key={item.name}
+                                            className="breakdown-card compact"
+                                            style={{
+                                                '--card-gradient-start': GRADIENT_COLORS[idx % GRADIENT_COLORS.length].start,
+                                                '--card-gradient-end': GRADIENT_COLORS[idx % GRADIENT_COLORS.length].end,
+                                            } as React.CSSProperties}
+                                        >
+                                            <div className="breakdown-card-header">
+                                                <span className="breakdown-card-name">{item.name}</span>
+                                                <span
+                                                    className="breakdown-card-percentage"
+                                                    style={{ color: itemStatus.text }}
+                                                >
+                                                    {item.percentage}%
+                                                </span>
+                                            </div>
+                                            <div className="breakdown-card-progress">
+                                                <div
+                                                    className="breakdown-card-progress-fill"
+                                                    style={{
+                                                        width: `${item.percentage}%`,
+                                                        background: `linear-gradient(90deg, ${GRADIENT_COLORS[idx % GRADIENT_COLORS.length].start}, ${GRADIENT_COLORS[idx % GRADIENT_COLORS.length].end})`
+                                                    }}
+                                                />
+                                            </div>
+                                            <div className="breakdown-card-stats">
+                                                <span className="card-stat">✓ {item.Complété}</span>
+                                                <span className="card-stat remaining">○ {item.Restant}</span>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        ) : (
+                            // Bar chart for larger number of items
+                            <div className="breakdown-chart">
+                                <ResponsiveContainer width="100%" height={calculateChartHeight()}>
+                                    <BarChart
+                                        data={barData}
+                                        layout="vertical"
+                                        margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
                                     >
-                                        <div className="breakdown-card-header">
-                                            <span className="breakdown-card-name">{item.name}</span>
-                                            <span
-                                                className="breakdown-card-percentage"
-                                                style={{ color: itemStatus.text }}
-                                            >
-                                                {item.percentage}%
-                                            </span>
-                                        </div>
-                                        <div className="breakdown-card-progress">
-                                            <div
-                                                className="breakdown-card-progress-fill"
-                                                style={{
-                                                    width: `${item.percentage}%`,
-                                                    background: `linear-gradient(90deg, ${GRADIENT_COLORS[idx % GRADIENT_COLORS.length].start}, ${GRADIENT_COLORS[idx % GRADIENT_COLORS.length].end})`
-                                                }}
-                                            />
-                                        </div>
-                                        <div className="breakdown-card-stats">
-                                            <span className="card-stat">
-                                                <span className="card-stat-icon">✓</span>
-                                                {item.Complété} terminés
-                                            </span>
-                                            <span className="card-stat remaining">
-                                                <span className="card-stat-icon">○</span>
-                                                {item.Restant} restants
-                                            </span>
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    ) : (
-                        // Full Mode: Enhanced bar chart for 4+ classes
-                        <div className="breakdown-chart">
-                            <ResponsiveContainer width="100%" height={Math.max(280, classCount * 48)}>
-                                <BarChart
-                                    data={barData}
-                                    layout="vertical"
-                                    margin={{ top: 5, right: 30, left: 60, bottom: 10 }}
-                                >
-                                    {renderGradientDefs()}
-                                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
-                                    <XAxis
-                                        type="number"
-                                        tick={{ fill: '#64748b', fontSize: 12 }}
-                                        axisLine={{ stroke: '#e2e8f0' }}
-                                    />
-                                    <YAxis
-                                        dataKey="name"
-                                        type="category"
-                                        width={80}
-                                        tick={{ fill: '#334155', fontSize: 13, fontWeight: 500 }}
-                                        axisLine={{ stroke: '#e2e8f0' }}
-                                    />
-                                    <Tooltip
-                                        cursor={{ fill: 'rgba(99, 102, 241, 0.05)' }}
-                                        content={({ active, payload, label }) => {
-                                            if (active && payload && payload.length) {
-                                                const data = payload[0].payload;
-                                                const tooltipStatus = getStatusColor(data.percentage);
-                                                return (
-                                                    <div className="custom-tooltip">
-                                                        <div className="tooltip-header">{label}</div>
-                                                        <div
-                                                            className="tooltip-percentage"
-                                                            style={{ color: tooltipStatus.text }}
-                                                        >
-                                                            {data.percentage}% complété
-                                                        </div>
-                                                        <div className="tooltip-stats">
-                                                            <div className="tooltip-stat completed">
-                                                                <span className="tooltip-dot"></span>
-                                                                Complété: {data.Complété}
+                                        {renderGradientDefs()}
+                                        <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
+                                        <XAxis
+                                            type="number"
+                                            tick={{ fill: '#64748b', fontSize: 11 }}
+                                            axisLine={{ stroke: '#e2e8f0' }}
+                                        />
+                                        <YAxis
+                                            dataKey="name"
+                                            type="category"
+                                            width={100}
+                                            tick={{ fill: '#334155', fontSize: 12, fontWeight: 500 }}
+                                            axisLine={{ stroke: '#e2e8f0' }}
+                                            tickFormatter={(value) => value.length > 14 ? value.substring(0, 14) + '…' : value}
+                                        />
+                                        <Tooltip
+                                            cursor={{ fill: 'rgba(99, 102, 241, 0.05)' }}
+                                            content={({ active, payload, label }) => {
+                                                if (active && payload && payload.length) {
+                                                    const data = payload[0].payload;
+                                                    const tooltipStatus = getStatusColor(data.percentage);
+                                                    return (
+                                                        <div className="custom-tooltip">
+                                                            <div className="tooltip-header">{label}</div>
+                                                            <div
+                                                                className="tooltip-percentage"
+                                                                style={{ color: tooltipStatus.text }}
+                                                            >
+                                                                {data.percentage}% complété
                                                             </div>
-                                                            <div className="tooltip-stat remaining">
-                                                                <span className="tooltip-dot"></span>
-                                                                Restant: {data.Restant}
+                                                            <div className="tooltip-stats">
+                                                                <div className="tooltip-stat completed">
+                                                                    <span className="tooltip-dot"></span>
+                                                                    Complété: {data.Complété}
+                                                                </div>
+                                                                <div className="tooltip-stat remaining">
+                                                                    <span className="tooltip-dot"></span>
+                                                                    Restant: {data.Restant}
+                                                                </div>
+                                                            </div>
+                                                            <div className="tooltip-total">
+                                                                Total: {data.Total} élèves
                                                             </div>
                                                         </div>
-                                                        <div className="tooltip-total">
-                                                            Total: {data.Total} élèves
-                                                        </div>
-                                                    </div>
-                                                );
-                                            }
-                                            return null;
-                                        }}
-                                    />
-                                    <Legend
-                                        wrapperStyle={{ paddingTop: '16px' }}
-                                        formatter={(value) => (
-                                            <span style={{ color: '#475569', fontSize: 13 }}>{value}</span>
-                                        )}
-                                    />
-                                    <Bar
-                                        dataKey="Complété"
-                                        stackId="a"
-                                        radius={[0, 0, 0, 0]}
-                                        animationDuration={1000}
-                                    >
-                                        {barData.map((entry, index) => (
-                                            <Cell
-                                                key={`cell-${index}`}
-                                                fill={`url(#barGradient${entry.colorIndex})`}
-                                            />
-                                        ))}
-                                    </Bar>
-                                    <Bar
-                                        dataKey="Restant"
-                                        stackId="a"
-                                        fill="#e2e8f0"
-                                        radius={[0, 4, 4, 0]}
-                                        animationDuration={1000}
-                                    />
-                                </BarChart>
-                            </ResponsiveContainer>
-                        </div>
-                    )}
+                                                    );
+                                                }
+                                                return null;
+                                            }}
+                                        />
+                                        <Bar
+                                            dataKey="Complété"
+                                            stackId="a"
+                                            radius={[0, 0, 0, 0]}
+                                            animationDuration={1000}
+                                        >
+                                            {barData.map((entry, index) => (
+                                                <Cell
+                                                    key={`cell-${index}`}
+                                                    fill={`url(#barGradient${entry.colorIndex})`}
+                                                />
+                                            ))}
+                                        </Bar>
+                                        <Bar
+                                            dataKey="Restant"
+                                            stackId="a"
+                                            fill="#e2e8f0"
+                                            radius={[0, 4, 4, 0]}
+                                            animationDuration={1000}
+                                        />
+                                    </BarChart>
+                                </ResponsiveContainer>
+                            </div>
+                        )}
+                    </div>
                 </div>
             </div>
         </div>
