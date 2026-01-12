@@ -56,7 +56,7 @@ microsoftRouter.post('/callback', async (req, res) => {
     }
 
     let redirectUri = redirect_uri
-    
+
     // Force clean domain if it matches ours (strip port 5173)
     if (redirectUri && redirectUri.includes('livret.champville.com:5173')) {
       redirectUri = 'https://livret.champville.com'
@@ -101,70 +101,97 @@ microsoftRouter.post('/callback', async (req, res) => {
     }
 
     // Check if user is authorized (match any alias)
-    // We check the main User collection first, then OutlookUser for legacy/specific config
-    // Actually, we should unify this. For now, let's assume we want to log in as a User.
-    
     // Strategy:
-    // 1. Find a User with this email.
-    // 2. If found, log them in.
-    // 3. If not found, check OutlookUser whitelist.
-    // 4. If in whitelist but not in User, create/update User? Or just use OutlookUser?
-    
-    // The auth middleware uses User.findById. So we MUST have a User document.
-    
-    let user = await User.findOne({ email: { $in: possibleEmails } })
-    
-    if (!user) {
-        // Check if authorized in OutlookUser whitelist
-        const outlookUser = await OutlookUser.findOne({ email: { $in: possibleEmails } })
-        
-        if (outlookUser) {
-            // Create a User record for them if it doesn't exist
-            // We need a dummy password hash since they use OAuth
-            user = await User.create({
-                email: outlookUser.email,
-                passwordHash: 'oauth-managed',
-            authProvider: 'microsoft',
-                role: outlookUser.role,
-                displayName: displayName || outlookUser.displayName || outlookUser.email,
-                tokenVersion: 0
-            })
-        } else {
-             return res.status(403).json({
-                error: 'Email not authorized. Please contact administrator.',
-                details: { receivedEmails: possibleEmails }
-            })
+    // 1. First check if authorized in OutlookUser whitelist (this is the primary source of truth)
+    // 2. If in OutlookUser whitelist, use the OutlookUser's _id for JWT to match TeacherClassAssignment
+    // 3. If not in OutlookUser, check User collection as fallback
+
+    let authUserId: string
+    let authRole: string
+    let authDisplayName: string
+    let authTokenVersion: number = 0
+
+    // Check OutlookUser whitelist first - this is where teacher class assignments reference
+    const outlookUser = await OutlookUser.findOne({ email: { $in: possibleEmails } })
+
+    if (outlookUser) {
+      // Use the OutlookUser's _id - this is what TeacherClassAssignment uses
+      authUserId = String(outlookUser._id)
+      authRole = outlookUser.role
+      authDisplayName = displayName || outlookUser.displayName || outlookUser.email
+
+      // Update OutlookUser last login
+      await OutlookUser.findByIdAndUpdate(outlookUser._id, {
+        lastLogin: new Date(),
+        displayName: authDisplayName
+      })
+
+      // Also create/update a shadow User record for compatibility with audit logs etc.
+      // But use the OutlookUser._id as the primary identity
+      let shadowUser = await User.findOne({ email: outlookUser.email })
+      if (!shadowUser) {
+        shadowUser = await User.create({
+          email: outlookUser.email,
+          passwordHash: 'oauth-managed',
+          authProvider: 'microsoft',
+          role: outlookUser.role,
+          displayName: authDisplayName,
+          tokenVersion: 0
+        })
+      } else {
+        // Update the existing shadow user
+        shadowUser.lastActive = new Date()
+        if (!shadowUser.displayName && displayName) {
+          shadowUser.displayName = displayName
         }
+        await shadowUser.save()
+      }
+    } else {
+      // Not in OutlookUser whitelist - check regular User collection
+      const user = await User.findOne({ email: { $in: possibleEmails } })
+
+      if (!user) {
+        return res.status(403).json({
+          error: 'Email not authorized. Please contact administrator.',
+          details: { receivedEmails: possibleEmails }
+        })
+      }
+
+      // Use the User's _id
+      authUserId = String(user._id)
+      authRole = user.role
+      authDisplayName = user.displayName || ''
+      authTokenVersion = user.tokenVersion || 0
+
+      // Update last login
+      user.lastActive = new Date()
+      if (!user.displayName && displayName) {
+        user.displayName = displayName
+      }
+      await user.save()
     }
 
-    // Update last login
-    user.lastActive = new Date()
-    if (!user.displayName && displayName) {
-      user.displayName = displayName
-    }
-    await user.save()
-
-    // Generate JWT token
-    const token = signToken({ userId: String(user._id), role: user.role as any, tokenVersion: user.tokenVersion })
+    // Generate JWT token using the OutlookUser's ID (if from whitelist) or User's ID
+    const token = signToken({ userId: authUserId, role: authRole as any, tokenVersion: authTokenVersion })
 
     // Log the login
     await logAudit({
-      userId: String(user._id),
+      userId: authUserId,
       action: 'LOGIN_MICROSOFT',
-      details: { email: user.email },
+      details: { email: outlookUser?.email || (await User.findById(authUserId))?.email },
       req
     })
 
     res.json({
       token,
-      role: user.role,
-      displayName: user.displayName || user.email
+      role: authRole,
+      displayName: authDisplayName
     })
 
   } catch (e: any) {
     console.error('Microsoft OAuth error:', e.response?.data || e.message)
     const errorData = e.response?.data || {}
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Authentication failed',
       details: errorData.error_description || e.message,
       fullError: errorData

@@ -386,6 +386,14 @@ export default function AdminResources() {
         <div className="resources-header-actions">
           <button
             className="feature-btn"
+            onClick={() => setShowImportModal(true)}
+            title={`Importer dans l'année active`}
+          >
+            <Upload className="btn-icon" size={18} />
+            <span>Importer élèves</span>
+          </button>
+          <button
+            className="feature-btn"
             onClick={() => navigate('/admin/students')}
           >
             <Users className="btn-icon" size={18} />
@@ -603,7 +611,7 @@ export default function AdminResources() {
                   )
                 })}
 
-                <button className="import-action-btn" onClick={() => setShowImportModal(true)}>
+                <button className="import-action-btn" onClick={() => setShowImportModal(true)} title={`Importer dans l'année active`}>
                   <Upload size={16} />
                   <span>Importer CSV</span>
                 </button>
@@ -804,30 +812,34 @@ export default function AdminResources() {
         </div>
       )}
 
-      {/* Modals */}
+      {/* Modals - Import always uses active year from context */}
+      <ImportStudentsModal
+        isOpen={showImportModal}
+        onClose={() => setShowImportModal(false)}
+        onSuccess={() => {
+          if (selectedYear) {
+            loadUnassignedStudents(selectedYear._id)
+            loadClasses(selectedYear._id)
+          }
+        }}
+      />
       {selectedYear && (
-        <>
-          <ImportStudentsModal
-            isOpen={showImportModal}
-            onClose={() => setShowImportModal(false)}
-            schoolYearId={selectedYear._id}
-          />
-          <BulkAssignModal
-            isOpen={showBulkAssignModal}
-            onClose={() => setShowBulkAssignModal(false)}
-            schoolYearId={selectedYear._id}
-            onSuccess={() => {
-              loadUnassignedStudents(selectedYear._id)
-              loadClasses(selectedYear._id)
-            }}
-          />
-        </>
+        <BulkAssignModal
+          isOpen={showBulkAssignModal}
+          onClose={() => setShowBulkAssignModal(false)}
+          schoolYearId={selectedYear._id}
+          onSuccess={() => {
+            loadUnassignedStudents(selectedYear._id)
+            loadClasses(selectedYear._id)
+          }}
+        />
       )}
     </div>
   )
 }
 
-function ImportStudentsModal({ isOpen, onClose, schoolYearId }: { isOpen: boolean; onClose: () => void; schoolYearId: string }) {
+function ImportStudentsModal({ isOpen, onClose, onSuccess }: { isOpen: boolean; onClose: () => void; onSuccess?: () => void }) {
+  const { activeYearId, activeYear } = useSchoolYear()
   const [csv, setCsv] = useState('')
   const [report, setReport] = useState<any>(null)
   const [loading, setLoading] = useState(false)
@@ -894,9 +906,18 @@ function ImportStudentsModal({ isOpen, onClose, schoolYearId }: { isOpen: boolea
       }
     } catch { }
 
+    if (!activeYearId) {
+      alert('Aucune année scolaire active. Veuillez d\'abord activer une année.')
+      setLoading(false)
+      return
+    }
+
     try {
-      const r = await api.post('/import/students', { csv: processedCsv, schoolYearId, dryRun: false })
+      const r = await api.post('/import/students', { csv: processedCsv, schoolYearId: activeYearId, dryRun: false })
       setReport(r.data)
+      if (r.data.added > 0 || r.data.updated > 0) {
+        onSuccess?.()
+      }
     } catch (e) {
       alert('Erreur lors de l\'import')
     } finally {
@@ -912,7 +933,14 @@ function ImportStudentsModal({ isOpen, onClose, schoolYearId }: { isOpen: boolea
         <div className="modal-header">
           <div className="modal-title">
             <Upload size={20} className="modal-icon" />
-            <h3>Importer des élèves</h3>
+            <div>
+              <h3>Importer des élèves</h3>
+              {activeYear && (
+                <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: '4px 0 0 0' }}>
+                  Année active: <strong>{activeYear.name}</strong>
+                </p>
+              )}
+            </div>
           </div>
           <button className="modal-close" onClick={onClose}><X size={20} /></button>
         </div>
@@ -941,14 +969,19 @@ function ImportStudentsModal({ isOpen, onClose, schoolYearId }: { isOpen: boolea
             Format attendu: <code>FirstName,LastName,level,section</code>
           </div>
 
+          <div className="format-hint" style={{ marginTop: '8px', color: 'var(--success-color)' }}>
+            <Check size={14} />
+            Les classes seront créées automatiquement si elles n'existent pas
+          </div>
+
           {report && (
-            <div className={`import-result ${report.created > 0 ? 'success' : 'warning'}`}>
+            <div className={`import-result ${report.added > 0 ? 'success' : 'warning'}`}>
               <h4 className="import-result-title">
-                {report.created > 0 ? 'Import réussi' : 'Résultat de l\'import'}
+                {report.added > 0 ? 'Import réussi' : 'Résultat de l\'import'}
               </h4>
               <div className="import-result-stats">
                 <div className="import-stat">
-                  <div className="import-stat-value">{report.created}</div>
+                  <div className="import-stat-value">{report.added}</div>
                   <div className="import-stat-label">Créés</div>
                 </div>
                 <div className="import-stat">
@@ -956,17 +989,13 @@ function ImportStudentsModal({ isOpen, onClose, schoolYearId }: { isOpen: boolea
                   <div className="import-stat-label">Mis à jour</div>
                 </div>
                 <div className="import-stat">
-                  <div className="import-stat-value">{report.ignored}</div>
-                  <div className="import-stat-label">Ignorés</div>
-                </div>
-                <div className="import-stat">
-                  <div className="import-stat-value">{report.errors?.length || 0}</div>
+                  <div className="import-stat-value">{report.errorCount || 0}</div>
                   <div className="import-stat-label">Erreurs</div>
                 </div>
               </div>
-              {report.errors && report.errors.length > 0 && (
+              {report.report && report.report.filter((r: any) => r.status === 'error').length > 0 && (
                 <div className="import-errors">
-                  {report.errors.map((e: any, i: number) => <div key={i}>{JSON.stringify(e)}</div>)}
+                  {report.report.filter((r: any) => r.status === 'error').map((e: any, i: number) => <div key={i}>{e.message || JSON.stringify(e)}</div>)}
                 </div>
               )}
             </div>

@@ -191,13 +191,17 @@ const OutlookUserCard = ({
   roleStyle,
   onUpdateName,
   onDelete,
-  onUpdateRole
+  onUpdateRole,
+  onImpersonate,
+  impersonatingId
 }: {
   user: OutlookUser,
   roleStyle: any,
   onUpdateName: (id: string, name: string) => void,
   onDelete: (id: string) => void,
-  onUpdateRole: (id: string, role: string) => void
+  onUpdateRole: (id: string, role: string) => void,
+  onImpersonate: (user: OutlookUser) => void,
+  impersonatingId: string | null
 }) => {
   const [name, setName] = useState(user.displayName || '')
   const [copied, setCopied] = useState(false)
@@ -277,14 +281,28 @@ const OutlookUserCard = ({
             <option value="ADMIN">⚡ Admin</option>
           </select>
 
-          <button
-            className="btn-action danger"
-            onClick={() => onDelete(user._id)}
-            title="Supprimer cet utilisateur"
-            aria-label="Supprimer l'utilisateur"
-          >
-            <Trash2 size={16} />
-          </button>
+          <div className="card-buttons">
+            {user.role !== 'ADMIN' && (
+              <button
+                className={`btn-action ${impersonatingId === user._id ? 'active' : ''}`}
+                onClick={() => onImpersonate(user)}
+                disabled={impersonatingId === user._id}
+                title="Se connecter en tant que cet utilisateur"
+                aria-label="Imiter cet utilisateur"
+              >
+                <LogIn size={16} />
+              </button>
+            )}
+
+            <button
+              className="btn-action danger"
+              onClick={() => onDelete(user._id)}
+              title="Supprimer cet utilisateur"
+              aria-label="Supprimer l'utilisateur"
+            >
+              <Trash2 size={16} />
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -378,6 +396,8 @@ export default function Users() {
                 onUpdateName={updateOutlookUserDisplayName}
                 onDelete={deleteOutlookUser}
                 onUpdateRole={updateOutlookUserRole}
+                onImpersonate={viewAsOutlookUser}
+                impersonatingId={impersonating}
               />
             ) : (
               <UserCard
@@ -600,6 +620,44 @@ export default function Users() {
     }
   }
 
+  const viewAsOutlookUser = async (user: OutlookUser) => {
+    if (user.role === 'ADMIN') {
+      showToast('Impossible d\'imiter un autre administrateur', 'error')
+      return
+    }
+
+    try {
+      setImpersonating(user._id)
+      const data = await impersonationApi.start(user._id)
+
+      // Determine the URL based on user role
+      let targetUrl = '/'
+      if (user.role === 'TEACHER') {
+        targetUrl = '/teacher/classes'
+      } else if (user.role === 'SUBADMIN') {
+        targetUrl = '/subadmin/dashboard'
+      } else if (user.role === 'AEFE') {
+        targetUrl = '/aefe/dashboard'
+      }
+
+      // Open in new tab with the impersonation token
+      const newWindow = window.open('about:blank', '_blank')
+      if (newWindow) {
+        newWindow.sessionStorage.setItem('token', data.token)
+        newWindow.sessionStorage.setItem('role', user.role)
+        newWindow.sessionStorage.setItem('displayName', user.displayName || user.email)
+
+        newWindow.location.href = window.location.origin + targetUrl
+      }
+
+      setImpersonating(null)
+    } catch (error) {
+      console.error('Failed to impersonate Outlook user:', error)
+      showToast('Échec de l\'imitation', 'error')
+      setImpersonating(null)
+    }
+  }
+
   return (
     <div className="users-page">
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
@@ -702,10 +760,10 @@ export default function Users() {
             <div className="form-grid">
               <div className="form-group">
                 <label className="form-label">Email</label>
-                <input 
-                  className="form-input" 
-                  placeholder="utilisateur@ecole.com" 
-                  value={email} 
+                <input
+                  className="form-input"
+                  placeholder="utilisateur@ecole.com"
+                  value={email}
                   onChange={e => setEmail(e.target.value)}
                   type="email"
                   autoComplete="email"
@@ -713,21 +771,21 @@ export default function Users() {
               </div>
               <div className="form-group">
                 <label className="form-label">Mot de passe</label>
-                <input 
-                  className="form-input" 
-                  placeholder="••••••••" 
-                  type="password" 
-                  value={password} 
+                <input
+                  className="form-input"
+                  placeholder="••••••••"
+                  type="password"
+                  value={password}
                   onChange={e => setPassword(e.target.value)}
                   autoComplete="new-password"
                 />
               </div>
               <div className="form-group">
                 <label className="form-label">Nom affiché</label>
-                <input 
-                  className="form-input" 
-                  placeholder="Jean Dupont" 
-                  value={displayName} 
+                <input
+                  className="form-input"
+                  placeholder="Jean Dupont"
+                  value={displayName}
                   onChange={e => setDisplayName(e.target.value)}
                   autoComplete="name"
                 />
@@ -771,20 +829,20 @@ export default function Users() {
             <div className="form-grid">
               <div className="form-group">
                 <label className="form-label">Email Microsoft</label>
-                <input 
-                  className="form-input" 
-                  placeholder="utilisateur@outlook.com" 
-                  value={outlookEmail} 
+                <input
+                  className="form-input"
+                  placeholder="utilisateur@outlook.com"
+                  value={outlookEmail}
                   onChange={e => setOutlookEmail(e.target.value)}
                   type="email"
                 />
               </div>
               <div className="form-group">
                 <label className="form-label">Nom (optionnel)</label>
-                <input 
-                  className="form-input" 
-                  placeholder="Jean Dupont" 
-                  value={outlookDisplayName} 
+                <input
+                  className="form-input"
+                  placeholder="Jean Dupont"
+                  value={outlookDisplayName}
                   onChange={e => setOutlookDisplayName(e.target.value)}
                 />
               </div>
@@ -862,9 +920,9 @@ export default function Users() {
                           <span className="user-email-text">{user.email}</span>
                         </div>
                         {user.deletedAt && (
-                          <div style={{ 
-                            fontSize: '0.8rem', 
-                            color: '#ef4444', 
+                          <div style={{
+                            fontSize: '0.8rem',
+                            color: '#ef4444',
                             marginTop: 12,
                             display: 'flex',
                             alignItems: 'center',

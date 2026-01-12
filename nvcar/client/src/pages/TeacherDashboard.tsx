@@ -189,7 +189,9 @@ export default function TeacherDashboard() {
             title="📊 Progression Globale"
             total={globalStats.total}
             completed={globalStats.completed}
-            breakdown={breakdown}
+            perLevelBreakdown={breakdown}
+            perClassBreakdown={breakdown}
+            showPromu={false}
           />
         )}
 
