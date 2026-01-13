@@ -1364,7 +1364,20 @@ export default function SubAdminTemplateReview() {
                                                 {b.type === 'dynamic_text' && <div style={{ color: b.props.color, fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden', whiteSpace: 'pre-wrap' }}>{(() => {
                                                     let text = b.props.text || ''
                                                     if (student) {
-                                                        text = text.replace(/{student.firstName}/g, student.firstName).replace(/{student.lastName}/g, student.lastName)
+                                                        const fatherName = String((student as any)?.fatherName || (student as any)?.parentName || '').trim()
+                                                        const fatherInitial = fatherName ? fatherName.charAt(0).toUpperCase() : ''
+                                                        const fatherInitialWithDot = fatherInitial ? `${fatherInitial}.` : ''
+                                                        const fullNameFatherInitial = [student.firstName, fatherInitialWithDot, student.lastName].filter(Boolean).join(' ')
+                                                        const dob = new Date(student.dateOfBirth)
+                                                        const dobDdMmYyyy = isNaN(dob.getTime()) ? '' : `${String(dob.getUTCDate()).padStart(2, '0')}/${String(dob.getUTCMonth() + 1).padStart(2, '0')}/${String(dob.getUTCFullYear())}`
+
+                                                        text = text
+                                                            .replace(/{student.firstName}/g, student.firstName)
+                                                            .replace(/{student.lastName}/g, student.lastName)
+                                                            .replace(/{student.dob}/g, student.dateOfBirth ? new Date(student.dateOfBirth).toLocaleDateString() : '')
+                                                            .replace(/{student.fatherInitial}/g, fatherInitialWithDot)
+                                                            .replace(/{student.fullNameFatherInitial}/g, fullNameFatherInitial)
+                                                            .replace(/{student.dob_ddmmyyyy}/g, dobDdMmYyyy)
                                                     }
                                                     if (assignment?.data) {
                                                         Object.entries(assignment.data).forEach(([k, v]) => {

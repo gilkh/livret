@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useLevels } from '../context/LevelContext'
 import { useSchoolYear } from '../context/SchoolYearContext'
 import { GradebookPocket } from './GradebookPocket'
+import { formatDdMmYyyyColon } from '../utils/dateFormat'
 
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
@@ -112,6 +113,54 @@ export default function TemplateReviewPreview({ template, student, assignment, s
         if (/\bKG2\b/.test(label)) return 'KG2'
         if (/\bKG3\b/.test(label)) return 'KG3'
         return null
+    }
+
+    const getSemesterNumber = (b: Block): 1 | 2 | null => {
+        const raw = (b.props as any)?.semester ?? (b.props as any)?.semestre ?? null
+        if (raw === 1 || raw === '1') return 1
+        if (raw === 2 || raw === '2') return 2
+
+        // Back-compat: allow using period to imply semester
+        const p = String((b.props as any)?.period || '')
+        if (p === 'mid-year') return 1
+        if (p === 'end-year') return 2
+        return null
+    }
+
+    const pickSignatureForLevelAndSemester = (opts: { level: string | null; semester: 1 | 2 | null }) => {
+        const { level, semester } = opts
+        const sigs: any[] = []
+
+        const history = (assignment as any)?.data?.signatures
+        if (Array.isArray(history)) sigs.push(...history)
+        if (signature) sigs.push(signature as any)
+        if (finalSignature) sigs.push(finalSignature as any)
+
+        const normLevel = (level || '').trim()
+
+        const matchesSemester = (s: any) => {
+            const spid = String(s?.signaturePeriodId || '')
+            const t = String(s?.type || 'standard')
+            if (semester === 1) return spid.endsWith('_sem1') || t === 'standard'
+            if (semester === 2) return spid.endsWith('_sem2') || spid.endsWith('_end_of_year') || t === 'end_of_year'
+            return true
+        }
+
+        const matchesLevel = (s: any) => {
+            if (!normLevel) return true
+            const sLevel = String(s?.level || '').trim()
+            // Some historical signatures may not have level; in that case only match if student's current level matches.
+            if (!sLevel) return String(student?.level || '').trim() === normLevel
+            return sLevel === normLevel
+        }
+
+        const filtered = sigs
+            .filter(s => s && s?.signedAt)
+            .filter(matchesSemester)
+            .filter(matchesLevel)
+            .sort((a, b) => new Date(b.signedAt).getTime() - new Date(a.signedAt).getTime())
+
+        return filtered[0] || null
     }
 
     const computeNextSchoolYearName = (year: string | undefined) => {
@@ -452,7 +501,20 @@ export default function TemplateReviewPreview({ template, student, assignment, s
                                         {b.type === 'dynamic_text' && <div style={{ color: b.props.color, fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden', whiteSpace: 'pre-wrap' }}>{(() => {
                                             let text = b.props.text || ''
                                             if (student) {
-                                                text = text.replace(/{student.firstName}/g, student.firstName).replace(/{student.lastName}/g, student.lastName)
+                                                const fatherName = String((student as any)?.fatherName || (student as any)?.parentName || '').trim()
+                                                const fatherInitial = fatherName ? fatherName.charAt(0).toUpperCase() : ''
+                                                const fatherInitialWithDot = fatherInitial ? `${fatherInitial}.` : ''
+                                                const fullNameFatherInitial = [student.firstName, fatherInitialWithDot, student.lastName].filter(Boolean).join(' ')
+                                                const dob = new Date(student.dateOfBirth)
+                                                const dobDdMmYyyy = isNaN(dob.getTime()) ? '' : `${String(dob.getUTCDate()).padStart(2, '0')}/${String(dob.getUTCMonth() + 1).padStart(2, '0')}/${String(dob.getUTCFullYear())}`
+
+                                                text = text
+                                                    .replace(/{student.firstName}/g, student.firstName)
+                                                    .replace(/{student.lastName}/g, student.lastName)
+                                                    .replace(/{student.dob}/g, student.dateOfBirth ? new Date(student.dateOfBirth).toLocaleDateString() : '')
+                                                    .replace(/{student.fatherInitial}/g, fatherInitialWithDot)
+                                                    .replace(/{student.fullNameFatherInitial}/g, fullNameFatherInitial)
+                                                    .replace(/{student.dob_ddmmyyyy}/g, dobDdMmYyyy)
                                             }
                                             if (assignment?.data) {
                                                 Object.entries(assignment.data).forEach(([k, v]) => {
@@ -1007,6 +1069,36 @@ export default function TemplateReviewPreview({ template, student, assignment, s
                                             />
                                         )}
                                         {b.type === 'signature' && <div style={{ fontSize: b.props.fontSize }}>{(b.props.labels || []).join(' / ')}</div>}
+                                        {b.type === 'signature_date' && (() => {
+                                            const configuredLevel = String((b.props as any)?.level || getBlockLevel(b) || '').trim() || null
+                                            const semester = getSemesterNumber(b)
+                                            const found = pickSignatureForLevelAndSemester({ level: configuredLevel, semester })
+                                            if (!found) return null
+
+                                            const dateStr = formatDdMmYyyyColon(found.signedAt)
+                                            const showMeta = (b.props as any)?.showMeta !== false
+                                            const label = String((b.props as any)?.label || '').trim()
+                                            const semLabel = semester ? `S${semester}` : ''
+                                            const levelLabel = configuredLevel || ''
+
+                                            return (
+                                                <div style={{
+                                                    width: b.props.width || 220,
+                                                    height: b.props.height || 34,
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: b.props.align || 'flex-start',
+                                                    fontSize: b.props.fontSize || 12,
+                                                    color: b.props.color || '#111',
+                                                    overflow: 'hidden',
+                                                    whiteSpace: 'nowrap'
+                                                }}>
+                                                    {showMeta
+                                                        ? `${label ? `${label} ` : ''}${levelLabel}${levelLabel && semLabel ? ' ' : ''}${semLabel}${(levelLabel || semLabel) ? ' : ' : ''}${dateStr}`
+                                                        : dateStr}
+                                                </div>
+                                            )
+                                        })()}
                                         {b.type === 'final_signature_box' && (
                                             <div style={{
                                                 width: b.props.width || 200,

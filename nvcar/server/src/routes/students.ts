@@ -392,7 +392,18 @@ studentsRouter.get('/by-class/:classId', requireAuth(['ADMIN', 'SUBADMIN', 'TEAC
 })
 
 studentsRouter.post('/', requireAuth(['ADMIN', 'SUBADMIN']), async (req, res) => {
-  const { firstName, lastName, dateOfBirth, parentName, parentPhone, classId } = req.body
+  const {
+    firstName,
+    lastName,
+    dateOfBirth,
+    parentName,
+    parentPhone,
+    fatherName,
+    fatherEmail,
+    motherEmail,
+    studentEmail,
+    classId
+  } = req.body
   if (!firstName || !lastName || !classId) return res.status(400).json({ error: 'missing_payload' })
   const dob = dateOfBirth ? new Date(dateOfBirth) : new Date('2000-01-01')
 
@@ -421,7 +432,18 @@ studentsRouter.post('/', requireAuth(['ADMIN', 'SUBADMIN']), async (req, res) =>
     existing = await Student.findOne({ logicalKey: key })
   }
 
-  const student = await Student.create({ logicalKey: key, firstName, lastName, dateOfBirth: dob, parentName, parentPhone })
+  const student = await Student.create({
+    logicalKey: key,
+    firstName,
+    lastName,
+    dateOfBirth: dob,
+    parentName,
+    parentPhone,
+    fatherName: fatherName ?? parentName,
+    fatherEmail,
+    motherEmail,
+    studentEmail
+  })
 
   const existsEnroll = await Enrollment.findOne({ studentId: String(student!._id), classId })
   if (!existsEnroll) {

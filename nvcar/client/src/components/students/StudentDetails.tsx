@@ -1,4 +1,4 @@
-import { User, Calendar, Hash, Phone, Clock, Trash2 } from 'lucide-react'
+import { User, Calendar, Hash, Phone, Clock, Trash2, Mail } from 'lucide-react'
 import { useRef, useState } from 'react'
 
 interface StudentDetailsProps {
@@ -99,8 +99,20 @@ export default function StudentDetails({ student, history, onPhotoUpload, onDele
                 <div>
                   <div style={{ fontSize: 11, color: '#64748b' }}>Parent / Contact</div>
                   <div style={{ fontSize: 14, fontWeight: 500, color: '#1e293b' }}>
-                    {student.parentName || 'Non renseigné'}
+                    {student.fatherName || student.parentName || 'Non renseigné'}
                     {student.parentPhone && <span style={{ color: '#64748b', fontWeight: 400, marginLeft: 4 }}>({student.parentPhone})</span>}
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ background: 'white', padding: 8, borderRadius: 8, boxShadow: '0 1px 2px 0 rgba(0,0,0,0.05)' }}><Mail size={16} color="#6c5ce7" /></div>
+                <div>
+                  <div style={{ fontSize: 11, color: '#64748b' }}>Emails</div>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: '#1e293b', display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <div>Père: {student.fatherEmail || '—'}</div>
+                    <div>Mère: {student.motherEmail || '—'}</div>
+                    <div>Élève: {student.studentEmail || '—'}</div>
                   </div>
                 </div>
               </div>

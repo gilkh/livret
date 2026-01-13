@@ -12,6 +12,7 @@ import { ClassModel } from '../models/Class'
 import { User } from '../models/User'
 import path from 'path'
 import fs from 'fs'
+import { formatDdMmYyyyColon } from '../utils/dateFormat'
 // eslint-disable-next-line
 const archiver = require('archiver')
 import { requireAuth } from '../auth'
@@ -544,6 +545,54 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), asy
           // Do not render empty signature box when there's no signature
         }
         // Do not render empty signature box when there's no templateAssignment
+      } else if (b.type === 'signature_date') {
+        const templateAssignment = await (await import('../models/TemplateAssignment')).TemplateAssignment.findOne({
+          studentId: id,
+          templateId: tplId
+        }).lean()
+
+        if (!templateAssignment) return
+
+        const TemplateSignature = (await import('../models/TemplateSignature')).TemplateSignature
+        const signatures = await TemplateSignature.find({ templateAssignmentId: String(templateAssignment._id) }).lean()
+
+        const targetLevel = String(b.props?.level || '').trim()
+        const semesterRaw = b.props?.semester ?? b.props?.semestre
+        const semester = (semesterRaw === 2 || semesterRaw === '2') ? 2 : 1
+
+        const matches = (signatures || [])
+          .filter((s: any) => s?.signedAt)
+          .filter((s: any) => {
+            if (!targetLevel) return true
+            const sLevel = String(s?.level || '').trim()
+            return sLevel === targetLevel
+          })
+          .filter((s: any) => {
+            const spid = String(s?.signaturePeriodId || '')
+            const t = String(s?.type || 'standard')
+            if (semester === 1) return spid.endsWith('_sem1') || t === 'standard'
+            return spid.endsWith('_sem2') || spid.endsWith('_end_of_year') || t === 'end_of_year'
+          })
+          .sort((a: any, b: any) => new Date(b.signedAt).getTime() - new Date(a.signedAt).getTime())
+
+        const found: any = matches[0]
+        if (!found) return
+
+        const x = px(b.props?.x || 50)
+        const y = py(b.props?.y || 50)
+        const width = sx(b.props?.width || 220)
+        const height = sy(b.props?.height || 34)
+
+        const showMeta = b.props?.showMeta !== false
+        const label = String(b.props?.label || '').trim()
+        const dateStr = formatDdMmYyyyColon(found.signedAt)
+        const meta = showMeta ? `${label ? `${label} ` : ''}${targetLevel ? `${targetLevel} ` : ''}S${semester} : ` : ''
+        const text = `${meta}${dateStr}`
+
+        doc.save()
+        doc.fontSize(b.props?.fontSize || 12).fillColor(b.props?.color || '#111')
+        doc.text(text, x, y, { width, height, align: (b.props?.align === 'center' ? 'center' : (b.props?.align === 'flex-end' ? 'right' : 'left')) })
+        doc.restore()
       } else if (b.type === 'dropdown') {
         // Check level
         if (b.props?.levels && b.props.levels.length > 0 && level && !b.props.levels.includes(level)) {
@@ -1256,6 +1305,54 @@ pdfRouter.get('/class/:classId/batch', requireAuth(['ADMIN', 'SUBADMIN']), async
                 // Do not render empty signature box when there's no signature
               }
               // Do not render empty signature box when there's no templateAssignment
+            } else if (b.type === 'signature_date') {
+              const TemplateAssignment = (await import('../models/TemplateAssignment')).TemplateAssignment
+              const templateAssignment = await TemplateAssignment.findOne({
+                studentId: String(s._id),
+                templateId: String(templateId)
+              }).lean()
+
+              if (!templateAssignment) return
+
+              const TemplateSignature = (await import('../models/TemplateSignature')).TemplateSignature
+              const signatures = await TemplateSignature.find({ templateAssignmentId: String(templateAssignment._id) }).lean()
+
+              const targetLevel = String(b.props?.level || '').trim()
+              const semesterRaw = b.props?.semester ?? b.props?.semestre
+              const semester = (semesterRaw === 2 || semesterRaw === '2') ? 2 : 1
+
+              const matches = (signatures || [])
+                .filter((sig: any) => sig?.signedAt)
+                .filter((sig: any) => {
+                  if (!targetLevel) return true
+                  return String(sig?.level || '').trim() === targetLevel
+                })
+                .filter((sig: any) => {
+                  const spid = String(sig?.signaturePeriodId || '')
+                  const t = String(sig?.type || 'standard')
+                  if (semester === 1) return spid.endsWith('_sem1') || t === 'standard'
+                  return spid.endsWith('_sem2') || spid.endsWith('_end_of_year') || t === 'end_of_year'
+                })
+                .sort((a: any, b: any) => new Date(b.signedAt).getTime() - new Date(a.signedAt).getTime())
+
+              const found: any = matches[0]
+              if (!found) return
+
+              const x = px(b.props?.x || 50)
+              const y = py(b.props?.y || 50)
+              const width = sx(b.props?.width || 220)
+              const height = sy(b.props?.height || 34)
+
+              const showMeta = b.props?.showMeta !== false
+              const label = String(b.props?.label || '').trim()
+              const dateStr = formatDdMmYyyyColon(found.signedAt)
+              const meta = showMeta ? `${label ? `${label} ` : ''}${targetLevel ? `${targetLevel} ` : ''}S${semester} : ` : ''
+              const text = `${meta}${dateStr}`
+
+              doc.save()
+              doc.fontSize(b.props?.fontSize || 12).fillColor(b.props?.color || '#111')
+              doc.text(text, x, y, { width, height, align: (b.props?.align === 'center' ? 'center' : (b.props?.align === 'flex-end' ? 'right' : 'left')) })
+              doc.restore()
             } else if (b.type === 'promotion_info') {
               const targetLevel = b.props?.targetLevel
               const promotions = assignmentData.promotions || []

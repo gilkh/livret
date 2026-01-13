@@ -36,6 +36,10 @@ type StudentDoc = {
   dateOfBirth: string;
   parentName?: string;
   parentPhone?: string;
+  fatherName?: string;
+  fatherEmail?: string;
+  motherEmail?: string;
+  studentEmail?: string;
   level?: string;
   promotion?: { from: string; to: string; date: string; year: string }
   previousClassName?: string
@@ -68,6 +72,11 @@ export default function AdminResources() {
   const [unassignedStudents, setUnassignedStudents] = useState<StudentDoc[]>([])
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
+  const [dateOfBirth, setDateOfBirth] = useState('')
+  const [fatherName, setFatherName] = useState('')
+  const [fatherEmail, setFatherEmail] = useState('')
+  const [motherEmail, setMotherEmail] = useState('')
+  const [studentEmail, setStudentEmail] = useState('')
   const [targetClassId, setTargetClassId] = useState('')
   const [editingStudentId, setEditingStudentId] = useState<string | null>(null)
   const [showImportModal, setShowImportModal] = useState(false)
@@ -318,6 +327,11 @@ export default function AdminResources() {
     setEditingStudentId(s._id)
     setFirstName(s.firstName)
     setLastName(s.lastName)
+    setDateOfBirth(s.dateOfBirth ? String(s.dateOfBirth).slice(0, 10) : '')
+    setFatherName(s.fatherName || s.parentName || '')
+    setFatherEmail(s.fatherEmail || '')
+    setMotherEmail(s.motherEmail || '')
+    setStudentEmail(s.studentEmail || '')
     setTargetClassId(selectedClassId)
   }
 
@@ -325,9 +339,27 @@ export default function AdminResources() {
     const clsId = targetClassId || selectedClassId
     if (!clsId) return
     if (editingStudentId) {
-      await api.patch(`/students/${editingStudentId}`, { firstName, lastName, classId: clsId })
+      await api.patch(`/students/${editingStudentId}`, {
+        firstName,
+        lastName,
+        dateOfBirth,
+        fatherName,
+        fatherEmail,
+        motherEmail,
+        studentEmail,
+        classId: clsId
+      })
     } else {
-      await api.post('/students', { firstName, lastName, classId: clsId })
+      await api.post('/students', {
+        firstName,
+        lastName,
+        dateOfBirth,
+        fatherName,
+        fatherEmail,
+        motherEmail,
+        studentEmail,
+        classId: clsId
+      })
     }
     resetStudentForm(selectedClassId)
     await loadStudents(selectedClassId)
@@ -337,6 +369,11 @@ export default function AdminResources() {
     setEditingStudentId(null)
     setFirstName('')
     setLastName('')
+    setDateOfBirth('')
+    setFatherName('')
+    setFatherEmail('')
+    setMotherEmail('')
+    setStudentEmail('')
     setTargetClassId(defaultClassId || selectedClassId)
   }
 
@@ -654,6 +691,47 @@ export default function AdminResources() {
                     />
                   </div>
 
+                  <div className="student-form-row">
+                    <input
+                      className="clean-input"
+                      type="date"
+                      value={dateOfBirth}
+                      onChange={e => setDateOfBirth(e.target.value)}
+                      title="Date de naissance"
+                    />
+                    <input
+                      className="clean-input"
+                      placeholder="Nom du père"
+                      value={fatherName}
+                      onChange={e => setFatherName(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="student-form-row">
+                    <input
+                      className="clean-input"
+                      placeholder="Email du père"
+                      value={fatherEmail}
+                      onChange={e => setFatherEmail(e.target.value)}
+                    />
+                    <input
+                      className="clean-input"
+                      placeholder="Email de la mère"
+                      value={motherEmail}
+                      onChange={e => setMotherEmail(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="student-form-row">
+                    <input
+                      className="clean-input"
+                      placeholder="Email de l'élève"
+                      value={studentEmail}
+                      onChange={e => setStudentEmail(e.target.value)}
+                    />
+                    <div />
+                  </div>
+
                   {/* Class select only if creating new/editing */}
                   {editingStudentId && (
                     <select
@@ -671,7 +749,7 @@ export default function AdminResources() {
                     <button
                       className={`action-btn primary ${editingStudentId ? 'warning' : ''}`}
                       onClick={saveStudent}
-                      disabled={!firstName.trim() || !lastName.trim()}
+                      disabled={!firstName.trim() || !lastName.trim() || !dateOfBirth.trim()}
                     >
                       {editingStudentId ? <Save size={16} /> : <Plus size={16} />}
                       <span>{editingStudentId ? 'Mettre à jour' : 'Ajouter'}</span>
@@ -846,7 +924,7 @@ function ImportStudentsModal({ isOpen, onClose, onSuccess }: { isOpen: boolean; 
 
   useEffect(() => {
     if (isOpen) {
-      setCsv('FirstName,LastName,level,section\n')
+      setCsv('FirstName,LastName,DateOfBirth,FatherName,FatherEmail,MotherEmail,StudentEmail,level,section\n')
       setReport(null)
       setLoading(false)
     }
@@ -966,7 +1044,7 @@ function ImportStudentsModal({ isOpen, onClose, onSuccess }: { isOpen: boolean; 
 
           <div className="format-hint">
             <AlertCircle size={14} />
-            Format attendu: <code>FirstName,LastName,level,section</code>
+            Format attendu: <code>FirstName,LastName,DateOfBirth,level,section</code> (colonnes optionnelles: <code>FatherName,FatherEmail,MotherEmail,StudentEmail,StudentId,LogicalKey</code>)
           </div>
 
           <div className="format-hint" style={{ marginTop: '8px', color: 'var(--success-color)' }}>

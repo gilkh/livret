@@ -3,6 +3,7 @@ import { useParams, useSearchParams } from 'react-router-dom'
 import api from '../api'
 import { useLevels } from '../context/LevelContext'
 import { GradebookPocket } from '../components/GradebookPocket'
+import { formatDdMmYyyyColon } from '../utils/dateFormat'
 
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
@@ -153,6 +154,49 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
         if (b.props.period === 'end-year' && !isSignedFinal) return false
 
         return true
+    }
+
+    const getSemesterNumber = (b: Block): 1 | 2 | null => {
+        const raw = (b.props as any)?.semester ?? (b.props as any)?.semestre ?? null
+        if (raw === 1 || raw === '1') return 1
+        if (raw === 2 || raw === '2') return 2
+        const p = String((b.props as any)?.period || '')
+        if (p === 'mid-year') return 1
+        if (p === 'end-year') return 2
+        return null
+    }
+
+    const pickSignatureForLevelAndSemester = (opts: { level: string | null; semester: 1 | 2 | null }) => {
+        const { level, semester } = opts
+        const sigs: any[] = []
+        const history = assignment?.data?.signatures
+        if (Array.isArray(history)) sigs.push(...history)
+        if (signature) sigs.push(signature)
+
+        const normLevel = (level || '').trim()
+
+        const matchesSemester = (s: any) => {
+            const spid = String(s?.signaturePeriodId || '')
+            const t = String(s?.type || 'standard')
+            if (semester === 1) return spid.endsWith('_sem1') || t === 'standard'
+            if (semester === 2) return spid.endsWith('_sem2') || spid.endsWith('_end_of_year') || t === 'end_of_year'
+            return true
+        }
+
+        const matchesLevel = (s: any) => {
+            if (!normLevel) return true
+            const sLevel = String(s?.level || '').trim()
+            if (!sLevel) return String(student?.level || '').trim() === normLevel
+            return sLevel === normLevel
+        }
+
+        const filtered = sigs
+            .filter(s => s && s?.signedAt)
+            .filter(matchesSemester)
+            .filter(matchesLevel)
+            .sort((a, b) => new Date(b.signedAt).getTime() - new Date(a.signedAt).getTime())
+
+        return filtered[0] || null
     }
 
     useEffect(() => {
@@ -710,6 +754,38 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                             {(b.props.labels || []).join(' / ')}
                                         </div>
                                     )}
+
+                                    {b.type === 'signature_date' && (() => {
+                                        const configuredLevel = String((b.props as any)?.level || getBlockLevel(b) || '').trim() || null
+                                        const semester = getSemesterNumber(b)
+                                        const found = pickSignatureForLevelAndSemester({ level: configuredLevel, semester })
+                                        if (!found) return null
+
+                                        const dateStr = formatDdMmYyyyColon(found.signedAt)
+                                        const showMeta = (b.props as any)?.showMeta !== false
+                                        const label = String((b.props as any)?.label || '').trim()
+                                        const semLabel = semester ? `S${semester}` : ''
+                                        const levelLabel = configuredLevel || ''
+
+                                        return (
+                                            <div style={{
+                                                width: b.props.width || 220,
+                                                height: b.props.height || 34,
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: b.props.align || 'flex-start',
+                                                fontSize: b.props.fontSize || 12,
+                                                color: b.props.color || '#111',
+                                                overflow: 'hidden',
+                                                whiteSpace: 'nowrap'
+                                            }}>
+                                                {showMeta
+                                                    ? `${label ? `${label} ` : ''}${levelLabel}${levelLabel && semLabel ? ' ' : ''}${semLabel}${(levelLabel || semLabel) ? ' : ' : ''}${dateStr}`
+                                                    : dateStr}
+                                            </div>
+                                        )
+                                    })()}
+
                                     {b.type === 'signature_box' && (() => {
                                         const blockLevel = getBlockLevel(b)
                                         const history = assignment?.data?.signatures || []

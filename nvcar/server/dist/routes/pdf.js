@@ -51,6 +51,7 @@ const Class_1 = require("../models/Class");
 const User_1 = require("../models/User");
 const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
+const dateFormat_1 = require("../utils/dateFormat");
 // eslint-disable-next-line
 const archiver = require('archiver');
 const auth_1 = require("../auth");
@@ -682,6 +683,51 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
                     // Do not render empty signature box when there's no signature
                 }
                 // Do not render empty signature box when there's no templateAssignment
+            }
+            else if (b.type === 'signature_date') {
+                const templateAssignment = await (await Promise.resolve().then(() => __importStar(require('../models/TemplateAssignment')))).TemplateAssignment.findOne({
+                    studentId: id,
+                    templateId: tplId
+                }).lean();
+                if (!templateAssignment)
+                    return;
+                const TemplateSignature = (await Promise.resolve().then(() => __importStar(require('../models/TemplateSignature')))).TemplateSignature;
+                const signatures = await TemplateSignature.find({ templateAssignmentId: String(templateAssignment._id) }).lean();
+                const targetLevel = String(b.props?.level || '').trim();
+                const semesterRaw = b.props?.semester ?? b.props?.semestre;
+                const semester = (semesterRaw === 2 || semesterRaw === '2') ? 2 : 1;
+                const matches = (signatures || [])
+                    .filter((s) => s?.signedAt)
+                    .filter((s) => {
+                    if (!targetLevel)
+                        return true;
+                    const sLevel = String(s?.level || '').trim();
+                    return sLevel === targetLevel;
+                })
+                    .filter((s) => {
+                    const spid = String(s?.signaturePeriodId || '');
+                    const t = String(s?.type || 'standard');
+                    if (semester === 1)
+                        return spid.endsWith('_sem1') || t === 'standard';
+                    return spid.endsWith('_sem2') || spid.endsWith('_end_of_year') || t === 'end_of_year';
+                })
+                    .sort((a, b) => new Date(b.signedAt).getTime() - new Date(a.signedAt).getTime());
+                const found = matches[0];
+                if (!found)
+                    return;
+                const x = px(b.props?.x || 50);
+                const y = py(b.props?.y || 50);
+                const width = sx(b.props?.width || 220);
+                const height = sy(b.props?.height || 34);
+                const showMeta = b.props?.showMeta !== false;
+                const label = String(b.props?.label || '').trim();
+                const dateStr = (0, dateFormat_1.formatDdMmYyyyColon)(found.signedAt);
+                const meta = showMeta ? `${label ? `${label} ` : ''}${targetLevel ? `${targetLevel} ` : ''}S${semester} : ` : '';
+                const text = `${meta}${dateStr}`;
+                doc.save();
+                doc.fontSize(b.props?.fontSize || 12).fillColor(b.props?.color || '#111');
+                doc.text(text, x, y, { width, height, align: (b.props?.align === 'center' ? 'center' : (b.props?.align === 'flex-end' ? 'right' : 'left')) });
+                doc.restore();
             }
             else if (b.type === 'dropdown') {
                 // Check level
@@ -1497,6 +1543,51 @@ exports.pdfRouter.get('/class/:classId/batch', (0, auth_1.requireAuth)(['ADMIN',
                                 // Do not render empty signature box when there's no signature
                             }
                             // Do not render empty signature box when there's no templateAssignment
+                        }
+                        else if (b.type === 'signature_date') {
+                            const TemplateAssignment = (await Promise.resolve().then(() => __importStar(require('../models/TemplateAssignment')))).TemplateAssignment;
+                            const templateAssignment = await TemplateAssignment.findOne({
+                                studentId: String(s._id),
+                                templateId: String(templateId)
+                            }).lean();
+                            if (!templateAssignment)
+                                return;
+                            const TemplateSignature = (await Promise.resolve().then(() => __importStar(require('../models/TemplateSignature')))).TemplateSignature;
+                            const signatures = await TemplateSignature.find({ templateAssignmentId: String(templateAssignment._id) }).lean();
+                            const targetLevel = String(b.props?.level || '').trim();
+                            const semesterRaw = b.props?.semester ?? b.props?.semestre;
+                            const semester = (semesterRaw === 2 || semesterRaw === '2') ? 2 : 1;
+                            const matches = (signatures || [])
+                                .filter((sig) => sig?.signedAt)
+                                .filter((sig) => {
+                                if (!targetLevel)
+                                    return true;
+                                return String(sig?.level || '').trim() === targetLevel;
+                            })
+                                .filter((sig) => {
+                                const spid = String(sig?.signaturePeriodId || '');
+                                const t = String(sig?.type || 'standard');
+                                if (semester === 1)
+                                    return spid.endsWith('_sem1') || t === 'standard';
+                                return spid.endsWith('_sem2') || spid.endsWith('_end_of_year') || t === 'end_of_year';
+                            })
+                                .sort((a, b) => new Date(b.signedAt).getTime() - new Date(a.signedAt).getTime());
+                            const found = matches[0];
+                            if (!found)
+                                return;
+                            const x = px(b.props?.x || 50);
+                            const y = py(b.props?.y || 50);
+                            const width = sx(b.props?.width || 220);
+                            const height = sy(b.props?.height || 34);
+                            const showMeta = b.props?.showMeta !== false;
+                            const label = String(b.props?.label || '').trim();
+                            const dateStr = (0, dateFormat_1.formatDdMmYyyyColon)(found.signedAt);
+                            const meta = showMeta ? `${label ? `${label} ` : ''}${targetLevel ? `${targetLevel} ` : ''}S${semester} : ` : '';
+                            const text = `${meta}${dateStr}`;
+                            doc.save();
+                            doc.fontSize(b.props?.fontSize || 12).fillColor(b.props?.color || '#111');
+                            doc.text(text, x, y, { width, height, align: (b.props?.align === 'center' ? 'center' : (b.props?.align === 'flex-end' ? 'right' : 'left')) });
+                            doc.restore();
                         }
                         else if (b.type === 'promotion_info') {
                             const targetLevel = b.props?.targetLevel;

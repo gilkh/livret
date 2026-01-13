@@ -11,6 +11,17 @@ import { withTransaction } from '../utils/transactionUtils'
 
 export const importRouter = Router()
 
+const normalizeText = (v: any) => String(v ?? '').trim().toLowerCase()
+
+const dobUtcDayRange = (dob: Date) => {
+  const y = dob.getUTCFullYear()
+  const m = dob.getUTCMonth()
+  const d = dob.getUTCDate()
+  const start = new Date(Date.UTC(y, m, d))
+  const end = new Date(Date.UTC(y, m, d + 1))
+  return { start, end }
+}
+
 importRouter.post('/students', requireAuth(['ADMIN', 'SUBADMIN']), async (req, res) => {
   const { csv, schoolYearId, dryRun, mapping } = req.body
   if (!csv || !schoolYearId) return res.status(400).json({ error: 'missing_payload' })
@@ -37,12 +48,27 @@ importRouter.post('/students', requireAuth(['ADMIN', 'SUBADMIN']), async (req, r
         const dob = new Date(col('dateOfBirth', 'DateOfBirth'))
         const className = col('className', 'ClassName')
 
-        // Check for existing student by name pattern (any year)
-        const baseKeyPattern = `${firstName.toLowerCase()}_${lastName.toLowerCase()}_`
-        const existing = await Student.findOne({
-          logicalKey: { $regex: `^${baseKeyPattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}` }
-        })
+        const studentId = col('studentId', 'StudentId')
+        const logicalKey = col('logicalKey', 'LogicalKey')
+        const fatherName = col('fatherName', 'FatherName')
 
+        if (isNaN(dob.getTime())) throw new Error('invalid_dateOfBirth')
+
+        let existing: any = null
+        if (studentId) {
+          existing = await Student.findById(String(studentId))
+        } else if (logicalKey) {
+          existing = await Student.findOne({ logicalKey: String(logicalKey) })
+        } else {
+          const { start, end } = dobUtcDayRange(dob)
+          const matches = await Student.find({ firstName, lastName, dateOfBirth: { $gte: start, $lt: end } }).limit(10).lean()
+          const narrowed = fatherName
+            ? matches.filter((m: any) => normalizeText(m.fatherName) === normalizeText(fatherName) || normalizeText(m.parentName) === normalizeText(fatherName))
+            : matches
+
+          if (narrowed.length === 1) existing = narrowed[0]
+          else if (narrowed.length > 1) throw new Error('ambiguous_student_match')
+        }
         if (existing) {
           updated += 1
           report.push({ status: 'would_update', studentId: String(existing._id) })
@@ -76,18 +102,46 @@ importRouter.post('/students', requireAuth(['ADMIN', 'SUBADMIN']), async (req, r
         const parentName = col('parentName', 'ParentName')
         const parentPhone = col('parentPhone', 'ParentPhone')
 
-        // Check for existing student by name pattern (any year)
-        const baseKeyPattern = `${firstName.toLowerCase()}_${lastName.toLowerCase()}_`
-        const existing = await Student.findOne({
-          logicalKey: { $regex: `^${baseKeyPattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}` }
-        }).session(session)
+        const studentId = col('studentId', 'StudentId')
+        const logicalKey = col('logicalKey', 'LogicalKey')
+        const fatherName = col('fatherName', 'FatherName')
+        const fatherEmail = col('fatherEmail', 'FatherEmail')
+        const motherEmail = col('motherEmail', 'MotherEmail')
+        const studentEmail = col('studentEmail', 'StudentEmail')
+
+        if (isNaN(dob.getTime())) throw new Error('invalid_dateOfBirth')
+
+        let existing: any = null
+        if (studentId) {
+          existing = await Student.findById(String(studentId)).session(session)
+        } else if (logicalKey) {
+          existing = await Student.findOne({ logicalKey: String(logicalKey) }).session(session)
+        } else {
+          const { start, end } = dobUtcDayRange(dob)
+          const matches = await Student.find({ firstName, lastName, dateOfBirth: { $gte: start, $lt: end } }).session(session).limit(10)
+          const narrowed = fatherName
+            ? matches.filter((m: any) => normalizeText(m.fatherName) === normalizeText(fatherName) || normalizeText(m.parentName) === normalizeText(fatherName))
+            : matches
+          if (narrowed.length === 1) existing = narrowed[0]
+          else if (narrowed.length > 1) throw new Error('ambiguous_student_match')
+        }
 
         let student
 
         if (existing) {
           student = await Student.findByIdAndUpdate(
             existing._id,
-            { firstName, lastName, dateOfBirth: dob, parentName, parentPhone },
+            {
+              firstName,
+              lastName,
+              dateOfBirth: dob,
+              parentName,
+              parentPhone,
+              fatherName: fatherName || parentName,
+              fatherEmail,
+              motherEmail,
+              studentEmail
+            },
             { new: true, session }
           )
           updated += 1
@@ -109,7 +163,11 @@ importRouter.post('/students', requireAuth(['ADMIN', 'SUBADMIN']), async (req, r
             lastName,
             dateOfBirth: dob,
             parentName,
-            parentPhone
+            parentPhone,
+            fatherName: fatherName || parentName,
+            fatherEmail,
+            motherEmail,
+            studentEmail
           }], { session })
           student = created[0]
           added += 1

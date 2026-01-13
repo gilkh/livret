@@ -704,6 +704,7 @@ export default function TemplateBuilder() {
 
     // Signatures
     { type: 'signature_box', props: { width: 200, height: 80, label: 'Signature', period: 'mid-year' } },
+    { type: 'signature_date', props: { width: 220, height: 34, fontSize: 12, color: '#2d3436', label: 'Date Signature', level: 'PS', semester: 1, showMeta: true, align: 'flex-start' } },
     { type: 'signature', props: { labels: ['Directeur', 'Enseignant', 'Parent'], fontSize: 12 } },
 
     // Interactive
@@ -728,6 +729,8 @@ export default function TemplateBuilder() {
     { type: 'dropdown', props: { label: 'Menu déroulant', options: ['Option 1', 'Option 2'], variableName: 'var1', width: 200, height: 40, fontSize: 12, color: '#333', semesters: [1, 2] } },
     { type: 'dropdown_reference', props: { dropdownNumber: 1, text: 'Référence dropdown #{number}', fontSize: 12, color: '#2d3436' } },
     { type: 'dynamic_text', props: { text: '{student.firstName} {student.lastName}', fontSize: 14, color: '#2d3436' } },
+    { type: 'dynamic_text', props: { text: '{student.fullNameFatherInitial}', fontSize: 14, color: '#2d3436' } },
+    { type: 'dynamic_text', props: { text: '{student.dob_ddmmyyyy}', fontSize: 14, color: '#2d3436' } },
 
     // Title Pocket (pocket with text/image)
     {
@@ -739,6 +742,22 @@ export default function TemplateBuilder() {
       }
     },
   ]), [])
+
+  const formatDobDdMmYyyy = (value: any) => {
+    if (!value) return ''
+    const d = new Date(value)
+    if (isNaN(d.getTime())) return ''
+    const dd = String(d.getUTCDate()).padStart(2, '0')
+    const mm = String(d.getUTCMonth() + 1).padStart(2, '0')
+    const yyyy = String(d.getUTCFullYear())
+    return `${dd}/${mm}/${yyyy}`
+  }
+
+  const fatherInitialFromStudent = (s: any) => {
+    const raw = String(s?.fatherName || s?.parentName || '').trim()
+    if (!raw) return ''
+    return raw.charAt(0).toUpperCase()
+  }
 
   // Get all dropdowns across all pages to determine next dropdown number
   const getAllDropdowns = () => {
@@ -2996,7 +3015,7 @@ export default function TemplateBuilder() {
             {
               title: 'Promotion & Signatures',
               items: [
-                ...blocksPalette.filter(b => ['promotion_info', 'teacher_text', 'signature_box', 'signature', 'student_photo'].includes(b.type))
+                ...blocksPalette.filter(b => ['promotion_info', 'teacher_text', 'signature_box', 'signature_date', 'signature', 'student_photo'].includes(b.type))
               ]
             },
             {
@@ -3057,6 +3076,7 @@ export default function TemplateBuilder() {
                       {b.type === 'promotion_info' && '🎓'}
                       {b.type === 'teacher_text' && '📝'}
                       {b.type === 'signature_box' && '✍️'}
+                      {b.type === 'signature_date' && '📅'}
                       {b.type === 'signature' && '👥'}
                       {b.type === 'student_photo' && '📸'}
                       {b.type === 'language_toggle' && '🌐'}
@@ -3079,6 +3099,7 @@ export default function TemplateBuilder() {
                                         b.type === 'promotion_info' ? 'Info Passage' :
                                           b.type === 'teacher_text' ? 'Zone Texte Prof' :
                                             b.type === 'signature_box' ? 'Signature Box' :
+                                                b.type === 'signature_date' ? 'Date Signature (Subadmin)' :
                                               b.type === 'signature' ? 'Signatures (Noms)' :
                                                 b.type === 'student_photo' ? 'Photo Élève' :
                                                   b.type === 'language_toggle' ? 'Langues (V1)' :
@@ -3384,7 +3405,16 @@ export default function TemplateBuilder() {
                             if (studentId) {
                               const s = students.find(st => st._id === studentId)
                               if (s) {
-                                text = text.replace(/{student.firstName}/g, s.firstName).replace(/{student.lastName}/g, s.lastName)
+                                const fatherInitial = fatherInitialFromStudent(s)
+                                const fatherInitialWithDot = fatherInitial ? `${fatherInitial}.` : ''
+                                const fullNameFatherInitial = [s.firstName, fatherInitialWithDot, s.lastName].filter(Boolean).join(' ')
+                                text = text
+                                  .replace(/{student.firstName}/g, s.firstName)
+                                  .replace(/{student.lastName}/g, s.lastName)
+                                  .replace(/{student.fatherInitial}/g, fatherInitialWithDot)
+                                  .replace(/{student.fullNameFatherInitial}/g, fullNameFatherInitial)
+                                  .replace(/{student.dob}/g, s.dateOfBirth ? new Date(s.dateOfBirth).toLocaleDateString() : '')
+                                  .replace(/{student.dob_ddmmyyyy}/g, formatDobDdMmYyyy(s.dateOfBirth))
                               }
                             }
                             Object.entries(previewData).forEach(([k, v]) => {
@@ -3415,6 +3445,24 @@ export default function TemplateBuilder() {
                               color: '#999'
                             }}>
                               {b.props.label || 'Signature'}
+                            </div>
+                          )}
+                          {b.type === 'signature_date' && (
+                            <div style={{
+                              width: b.props.width || 220,
+                              height: b.props.height || 34,
+                              border: '1px dashed #94a3b8',
+                              background: '#f8fafc',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: b.props.align || 'flex-start',
+                              padding: '0 8px',
+                              fontSize: b.props.fontSize || 12,
+                              color: b.props.color || '#2d3436',
+                              overflow: 'hidden',
+                              whiteSpace: 'nowrap'
+                            }}>
+                              {`${b.props.level || ''} S${b.props.semester || 1} : 14:01:2026`}
                             </div>
                           )}
                           {b.type === 'promotion_info' && (
@@ -3970,7 +4018,7 @@ export default function TemplateBuilder() {
                               )
                             })()
                           )}
-                          {['image', 'text', 'dynamic_text', 'student_info', 'student_photo', 'category_title', 'competency_list', 'signature', 'signature_box', 'promotion_info', 'teacher_text', 'language_toggle', 'language_toggle_v2', 'gradebook_pocket', 'rect'].includes(b.type) && selectedIndex === idx && selectedPage === pageIndex && (
+                          {['image', 'text', 'dynamic_text', 'student_info', 'student_photo', 'category_title', 'competency_list', 'signature', 'signature_box', 'signature_date', 'promotion_info', 'teacher_text', 'language_toggle', 'language_toggle_v2', 'gradebook_pocket', 'rect'].includes(b.type) && selectedIndex === idx && selectedPage === pageIndex && (
                             <>
                               {['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'].map((dir) => {
                                 const style: React.CSSProperties = {
@@ -4143,6 +4191,7 @@ export default function TemplateBuilder() {
                         {b.type === 'rect' && <div style={{ width: (b.props.width || 80) * 0.3, height: (b.props.height || 80) * 0.3, background: b.props.color, borderRadius: 2 }} />}
                         {b.type === 'gradebook_pocket' && <div style={{ width: (b.props.width || 120) * 0.3, height: (b.props.width || 120) * 0.33, background: b.props.pocketFillColor || '#3498db', borderRadius: '2px 2px 8px 8px' }} />}
                         {b.type === 'signature_box' && <div style={{ width: (b.props.width || 200) * 0.3, height: (b.props.height || 80) * 0.3, border: 'none', background: '#fff' }} />}
+                        {b.type === 'signature_date' && <div style={{ width: (b.props.width || 220) * 0.3, height: (b.props.height || 34) * 0.3, border: '1px dashed #94a3b8', background: '#f8fafc' }} />}
                       </div>
                     ))}
                   </div>
@@ -5962,6 +6011,72 @@ export default function TemplateBuilder() {
 
                       <input placeholder="Largeur" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.width || 200} onChange={e => updateSelected({ width: Number(e.target.value) })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
                       <input placeholder="Hauteur" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.height || 80} onChange={e => updateSelected({ height: Number(e.target.value) })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+                    </div>
+                  )}
+
+                  {tpl.pages[selectedPage].blocks[selectedIndex].type === 'signature_date' && (
+                    <div style={{ display: 'grid', gap: 8 }}>
+                      <div className="note">Date de signature (Subadmin)</div>
+
+                      <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Niveau</label>
+                      <select
+                        value={tpl.pages[selectedPage].blocks[selectedIndex].props.level || ''}
+                        onChange={e => updateSelected({ level: e.target.value })}
+                        style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', width: '100%' }}
+                      >
+                        <option value="">Tous les niveaux</option>
+                        <option value="PS">PS</option>
+                        <option value="MS">MS</option>
+                        <option value="GS">GS</option>
+                      </select>
+
+                      <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Semestre</label>
+                      <select
+                        value={tpl.pages[selectedPage].blocks[selectedIndex].props.semester || 1}
+                        onChange={e => updateSelected({ semester: Number(e.target.value) })}
+                        style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', width: '100%' }}
+                      >
+                        <option value={1}>Semestre 1</option>
+                        <option value={2}>Semestre 2</option>
+                      </select>
+
+                      <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Label (optionnel)</label>
+                      <input
+                        placeholder="Label"
+                        value={tpl.pages[selectedPage].blocks[selectedIndex].props.label || ''}
+                        onChange={e => updateSelected({ label: e.target.value })}
+                        style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }}
+                      />
+
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={tpl.pages[selectedPage].blocks[selectedIndex].props.showMeta !== false}
+                          onChange={(e) => updateSelected({ showMeta: e.target.checked })}
+                        />
+                        Afficher niveau + semestre
+                      </label>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                        <input placeholder="Largeur" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.width || 220} onChange={e => updateSelected({ width: Number(e.target.value) })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+                        <input placeholder="Hauteur" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.height || 34} onChange={e => updateSelected({ height: Number(e.target.value) })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                        <input placeholder="Taille" type="number" value={tpl.pages[selectedPage].blocks[selectedIndex].props.fontSize || 12} onChange={e => updateSelected({ fontSize: Number(e.target.value) })} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
+                        <input type="color" value={tpl.pages[selectedPage].blocks[selectedIndex].props.color || '#2d3436'} onChange={e => updateSelected({ color: e.target.value })} style={{ height: 38, padding: 4, borderRadius: 8, border: '1px solid #ddd', width: '100%' }} />
+                      </div>
+
+                      <label style={{ display: 'block', fontSize: 11, color: '#6c757d', marginBottom: 4, fontWeight: 600 }}>Alignement</label>
+                      <select
+                        value={tpl.pages[selectedPage].blocks[selectedIndex].props.align || 'flex-start'}
+                        onChange={e => updateSelected({ align: e.target.value })}
+                        style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', width: '100%' }}
+                      >
+                        <option value="flex-start">Gauche</option>
+                        <option value="center">Centre</option>
+                        <option value="flex-end">Droite</option>
+                      </select>
                     </div>
                   )}
                   {tpl.pages[selectedPage].blocks[selectedIndex].type === 'promotion_info' && (

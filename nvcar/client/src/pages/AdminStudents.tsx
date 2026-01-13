@@ -18,6 +18,10 @@ type Student = {
   logicalKey?: string
   parentName?: string
   parentPhone?: string
+  fatherName?: string
+  fatherEmail?: string
+  motherEmail?: string
+  studentEmail?: string
   status?: string
 }
 

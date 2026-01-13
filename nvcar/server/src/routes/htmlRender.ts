@@ -3,6 +3,7 @@ import { Student } from '../models/Student'
 import { GradebookTemplate } from '../models/GradebookTemplate'
 import { TemplateAssignment } from '../models/TemplateAssignment'
 import { requireAuth } from '../auth'
+import { formatDdMmYyyyColon } from '../utils/dateFormat'
 
 export const htmlRenderRouter = Router()
 
@@ -154,6 +155,43 @@ function renderBlock(block: any, student: any, assignmentData: any): string {
   const props = block.props || {}
   const style = `left: ${props.x || 0}px; top: ${props.y || 0}px; z-index: ${props.z ?? 0};`
 
+  const getSemesterNumber = () => {
+    const raw = props.semester ?? props.semestre
+    if (raw === 1 || raw === '1') return 1
+    if (raw === 2 || raw === '2') return 2
+    if (props.period === 'mid-year') return 1
+    if (props.period === 'end-year') return 2
+    return null
+  }
+
+  const matchesSemester = (signature: any, semester: 1 | 2) => {
+    const signaturePeriodId = String(signature?.signaturePeriodId || '')
+    if (semester === 1) {
+      if (signaturePeriodId.endsWith('_sem1')) return true
+      return signature?.type === 'standard'
+    }
+    if (signaturePeriodId.endsWith('_sem2')) return true
+    return signature?.type === 'end_of_year'
+  }
+
+  const pickSignatureForLevelAndSemester = (level: string | null, semester: 1 | 2) => {
+    const history = Array.isArray(assignmentData?.signatures) ? assignmentData.signatures : []
+    const candidates = history
+      .filter((s: any) => matchesSemester(s, semester))
+      .filter((s: any) => {
+        if (!level) return true
+        if (s?.level) return String(s.level) === level
+        return false
+      })
+      .sort((a: any, b: any) => {
+        const ta = new Date(a?.signedAt || 0).getTime()
+        const tb = new Date(b?.signedAt || 0).getTime()
+        return tb - ta
+      })
+
+    return candidates[0] || null
+  }
+
   switch (block.type) {
     case 'text':
       return `<div class="block" style="${style} color: ${props.color || '#000'}; font-size: ${props.fontSize || 12}px; width: ${props.width || 'auto'}px;">${props.text || ''}</div>`
@@ -245,6 +283,36 @@ function renderBlock(block: any, student: any, assignmentData: any): string {
           ${props.label || 'Signature'}
         </div>
       </div>`
+
+    case 'signature_date': {
+      const level = props.level ? String(props.level) : null
+      const semester = getSemesterNumber()
+      if (semester !== 1 && semester !== 2) return ''
+
+      const signature = pickSignatureForLevelAndSemester(level, semester)
+      const signedAt = signature?.signedAt
+      const dateStr = formatDdMmYyyyColon(signedAt)
+      if (!dateStr) return ''
+
+      const align = props.align || 'center'
+      const showMeta = Boolean(props.showMeta)
+      const metaParts: string[] = []
+      if (showMeta) {
+        if (level) metaParts.push(level)
+        metaParts.push(semester === 1 ? 'S1' : 'S2')
+      }
+      const meta = metaParts.length ? ` <span style="font-size: ${(props.fontSize || 12) * 0.85}px; color: #666;">(${metaParts.join(' ')})</span>` : ''
+      const label = props.label ? String(props.label) : ''
+
+      return `<div class="block" style="${style}">
+        <div class="signature-box" style="width: ${props.width || 200}px; height: ${props.height || 80}px; font-size: ${props.fontSize || 12}px; color: ${props.color || '#000'}; justify-content: ${align === 'left' ? 'flex-start' : align === 'right' ? 'flex-end' : 'center'}; padding: 6px; text-align: ${align};">
+          <div style="width: 100%;">
+            ${label ? `<div style=\"font-size: ${(props.fontSize || 12) * 0.9}px; margin-bottom: 4px;\">${label}${meta}</div>` : meta ? `<div style=\"margin-bottom: 4px;\">${meta}</div>` : ''}
+            <div style="font-weight: 600;">${dateStr}</div>
+          </div>
+        </div>
+      </div>`
+    }
 
     case 'language_toggle':
       const items = props.items || []
