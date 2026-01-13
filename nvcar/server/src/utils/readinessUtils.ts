@@ -434,7 +434,7 @@ export function buildSavedGradebookMeta(params: {
     signaturePeriodId: string
     schoolYearId: string
     level: string
-    snapshotReason: 'promotion' | 'year_end' | 'manual' | 'sem1' | 'transfer' | 'exit'
+    snapshotReason: 'promotion' | 'year_end' | 'manual' | 'sem1' | 'transfer' | 'exit' | 'class_complete'
 }): {
     templateVersion: number
     dataVersion: number

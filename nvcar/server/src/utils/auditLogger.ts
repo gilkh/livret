@@ -49,6 +49,7 @@ type AuditAction =
     | 'CREATE_CLASS'
     | 'UPDATE_CLASS'
     | 'DELETE_CLASS'
+    | 'COMPLETE_CLASS'
 
 interface LogParams {
     userId: string

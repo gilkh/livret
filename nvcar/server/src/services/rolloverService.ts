@@ -97,7 +97,7 @@ export function getCompleteRolloverUpdate(
 /**
  * Snapshot reasons supported by the system
  */
-export type SnapshotReason = 'promotion' | 'year_end' | 'sem1' | 'transfer' | 'manual'
+export type SnapshotReason = 'promotion' | 'year_end' | 'sem1' | 'transfer' | 'manual' | 'exit' | 'class_complete'
 
 /**
  * Creates a snapshot of the current state of a TemplateAssignment.

@@ -89,38 +89,38 @@ studentsRouter.post('/:id/snapshot', requireAuth(['ADMIN', 'SUBADMIN']), async (
     if (!assignment) return res.status(404).json({ error: 'assignment_not_found' })
 
     const cls = enrollment.classId ? await ClassModel.findById(enrollment.classId).lean() : null
-    
+
     // Gather snapshot data
     const statuses = await StudentCompetencyStatus.find({ studentId: id }).lean()
     const signatures = await TemplateSignature.find({ templateAssignmentId: String(assignment._id) }).lean()
 
     const snapshotData = {
-        student: student,
-        enrollment: enrollment,
-        statuses: statuses,
-        assignment: assignment,
-        className: cls ? cls.name : '',
-        signatures: signatures,
-        signature: signatures.find((s: any) => (s as any).type === 'standard') || null,
-        finalSignature: signatures.find((s: any) => (s as any).type === 'end_of_year') || null,
+      student: student,
+      enrollment: enrollment,
+      statuses: statuses,
+      assignment: assignment,
+      className: cls ? cls.name : '',
+      signatures: signatures,
+      signature: signatures.find((s: any) => (s as any).type === 'standard') || null,
+      finalSignature: signatures.find((s: any) => (s as any).type === 'end_of_year') || null,
     }
 
     const { createAssignmentSnapshot } = await import('../services/rolloverService')
-    
+
     await createAssignmentSnapshot(
-        assignment,
-        reason,
-        {
-            schoolYearId: String(activeYear._id),
-            level: cls?.level || 'Sans niveau',
-            classId: enrollment.classId || undefined,
-            data: snapshotData
-        }
+      assignment,
+      reason,
+      {
+        schoolYearId: String(activeYear._id),
+        level: cls?.level || 'Sans niveau',
+        classId: enrollment.classId || undefined,
+        data: snapshotData
+      }
     )
 
     // If reason is exit or transfer, update enrollment status
     if (reason === 'exit') {
-        await Enrollment.findByIdAndUpdate(enrollment._id, { status: 'left' })
+      await Enrollment.findByIdAndUpdate(enrollment._id, { status: 'left' })
     }
 
     res.json({ ok: true })
@@ -395,7 +395,7 @@ studentsRouter.post('/', requireAuth(['ADMIN', 'SUBADMIN']), async (req, res) =>
   const { firstName, lastName, dateOfBirth, parentName, parentPhone, classId } = req.body
   if (!firstName || !lastName || !classId) return res.status(400).json({ error: 'missing_payload' })
   const dob = dateOfBirth ? new Date(dateOfBirth) : new Date('2000-01-01')
-  
+
   // Get the school year from the class to determine the join year
   const clsDoc = await ClassModel.findById(classId).lean()
   let joinYear = new Date().getFullYear().toString()
@@ -407,10 +407,10 @@ studentsRouter.post('/', requireAuth(['ADMIN', 'SUBADMIN']), async (req, res) =>
       if (match) joinYear = match[1]
     }
   }
-  
+
   // Generate logicalKey as firstName_lastName_yearJoined
   const baseKey = `${String(firstName).toLowerCase()}_${String(lastName).toLowerCase()}_${joinYear}`
-  
+
   // Check for duplicates and add suffix if needed
   let key = baseKey
   let suffix = 1
@@ -420,9 +420,9 @@ studentsRouter.post('/', requireAuth(['ADMIN', 'SUBADMIN']), async (req, res) =>
     key = `${baseKey}_${suffix}`
     existing = await Student.findOne({ logicalKey: key })
   }
-  
+
   const student = await Student.create({ logicalKey: key, firstName, lastName, dateOfBirth: dob, parentName, parentPhone })
-  
+
   const existsEnroll = await Enrollment.findOne({ studentId: String(student!._id), classId })
   if (!existsEnroll) {
     await Enrollment.create({ studentId: String(student!._id), classId, schoolYearId: clsDoc ? clsDoc.schoolYearId : '' })
@@ -465,6 +465,127 @@ studentsRouter.patch('/:id', requireAuth(['ADMIN', 'SUBADMIN']), async (req, res
     }
   }
   res.json(updated)
+})
+
+// Delete a student and all related data
+studentsRouter.delete('/:id', requireAuth(['ADMIN']), async (req, res) => {
+  const { id } = req.params
+  const adminId = (req as any).user.userId
+
+  try {
+    const student = await Student.findById(id).lean()
+    if (!student) return res.status(404).json({ error: 'student_not_found' })
+
+    // Delete all related data
+    await Enrollment.deleteMany({ studentId: id })
+    await StudentCompetencyStatus.deleteMany({ studentId: id })
+
+    // Get template assignments to delete related signatures
+    const assignments = await TemplateAssignment.find({ studentId: id }).lean()
+    const assignmentIds = assignments.map(a => String(a._id))
+    await TemplateSignature.deleteMany({ templateAssignmentId: { $in: assignmentIds } })
+    await TemplateAssignment.deleteMany({ studentId: id })
+    await SavedGradebook.deleteMany({ studentId: id })
+
+    // Finally delete the student
+    await Student.findByIdAndDelete(id)
+
+    await logAudit({
+      userId: adminId,
+      action: 'DELETE_STUDENT',
+      details: { studentId: id, studentName: `${student.firstName} ${student.lastName}` },
+      req
+    })
+
+    res.json({ ok: true })
+  } catch (e: any) {
+    console.error('Delete student error:', e)
+    res.status(500).json({ error: 'delete_failed', message: e.message })
+  }
+})
+
+// Complete a class (create snapshots for all students in a class)
+studentsRouter.post('/complete-class/:classId', requireAuth(['ADMIN', 'SUBADMIN']), async (req, res) => {
+  const { classId } = req.params
+  const adminId = (req as any).user.userId
+
+  try {
+    const cls = await ClassModel.findById(classId).lean()
+    if (!cls) return res.status(404).json({ error: 'class_not_found' })
+
+    const activeYear = await SchoolYear.findOne({ active: true }).lean()
+    if (!activeYear) return res.status(400).json({ error: 'no_active_year' })
+
+    // Get all enrollments for this class
+    const enrollments = await Enrollment.find({ classId, status: 'active' }).lean()
+    const studentIds = enrollments.map(e => e.studentId)
+
+    const { createAssignmentSnapshot } = await import('../services/rolloverService')
+
+    const results = {
+      success: 0,
+      errors: [] as any[]
+    }
+
+    for (const studentId of studentIds) {
+      try {
+        const student = await Student.findById(studentId).lean()
+        if (!student) {
+          results.errors.push({ studentId, error: 'student_not_found' })
+          continue
+        }
+
+        const enrollment = enrollments.find(e => e.studentId === studentId)
+        const assignment = await TemplateAssignment.findOne({ studentId }).lean()
+
+        if (!assignment) {
+          results.errors.push({ studentId, error: 'no_assignment' })
+          continue
+        }
+
+        const statuses = await StudentCompetencyStatus.find({ studentId }).lean()
+        const signatures = await TemplateSignature.find({ templateAssignmentId: String(assignment._id) }).lean()
+
+        const snapshotData = {
+          student: student,
+          enrollment: enrollment,
+          statuses: statuses,
+          assignment: assignment,
+          className: cls.name,
+          signatures: signatures,
+          signature: signatures.find((s: any) => s.type === 'standard') || null,
+          finalSignature: signatures.find((s: any) => s.type === 'end_of_year') || null,
+        }
+
+        await createAssignmentSnapshot(
+          assignment,
+          'class_complete',
+          {
+            schoolYearId: String(activeYear._id),
+            level: cls.level || 'Sans niveau',
+            classId: classId,
+            data: snapshotData
+          }
+        )
+
+        results.success++
+      } catch (e: any) {
+        results.errors.push({ studentId, error: e.message })
+      }
+    }
+
+    await logAudit({
+      userId: adminId,
+      action: 'COMPLETE_CLASS',
+      details: { classId, className: cls.name, successCount: results.success, errorCount: results.errors.length },
+      req
+    })
+
+    res.json(results)
+  } catch (e: any) {
+    console.error('Complete class error:', e)
+    res.status(500).json({ error: 'complete_failed', message: e.message })
+  }
 })
 
 studentsRouter.post('/:studentId/promote', requireAuth(['ADMIN']), async (req, res) => {
