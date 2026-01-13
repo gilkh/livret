@@ -53,16 +53,16 @@ export default function SearchableSelect({
     const filteredOptions = useMemo(() => {
         if (!search) return options
         const lowerSearch = search.toLowerCase()
-        return options.filter(o => 
-            o.label.toLowerCase().includes(lowerSearch) || 
+        return options.filter(o =>
+            o.label.toLowerCase().includes(lowerSearch) ||
             (o.subLabel && o.subLabel.toLowerCase().includes(lowerSearch))
         )
     }, [options, search])
 
     return (
-        <div 
-            ref={containerRef} 
-            className={`searchable-select-container ${className || ''}`} 
+        <div
+            ref={containerRef}
+            className={`searchable-select-container ${className || ''}`}
             style={{ position: 'relative', width: '100%' }}
         >
             <div
@@ -82,9 +82,9 @@ export default function SearchableSelect({
                     boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
                 }}
             >
-                <span style={{ 
-                    whiteSpace: 'nowrap', 
-                    overflow: 'hidden', 
+                <span style={{
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     marginRight: 8
                 }}>
@@ -103,7 +103,7 @@ export default function SearchableSelect({
                     border: '1px solid #cbd5e1',
                     borderRadius: 8,
                     boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
-                    zIndex: 50,
+                    zIndex: 9999,
                     maxHeight: 300,
                     display: 'flex',
                     flexDirection: 'column',
@@ -126,18 +126,18 @@ export default function SearchableSelect({
                             onClick={e => e.stopPropagation()}
                         />
                         {search && (
-                            <X 
-                                size={14} 
-                                color="#94a3b8" 
-                                style={{ cursor: 'pointer' }} 
+                            <X
+                                size={14}
+                                color="#94a3b8"
+                                style={{ cursor: 'pointer' }}
                                 onClick={(e) => {
                                     e.stopPropagation()
                                     setSearch('')
-                                }} 
+                                }}
                             />
                         )}
                     </div>
-                    
+
                     <div style={{ overflowY: 'auto', flex: 1 }}>
                         {filteredOptions.length === 0 ? (
                             <div style={{ padding: '12px', fontSize: 13, color: '#94a3b8', textAlign: 'center' }}>
@@ -156,13 +156,13 @@ export default function SearchableSelect({
                                         cursor: 'pointer',
                                         fontSize: 14,
                                         color: '#334155',
-                                        background: option.value === value ? '#f1f5f9' : 'transparent',
+                                        background: option.value === value ? '#f1f5f9' : 'white',
                                         display: 'flex',
                                         flexDirection: 'column',
                                         transition: 'background 0.15s'
                                     }}
-                                    onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
-                                    onMouseLeave={e => e.currentTarget.style.background = option.value === value ? '#f1f5f9' : 'transparent'}
+                                    onMouseEnter={e => e.currentTarget.style.background = '#e8ecf8'}
+                                    onMouseLeave={e => e.currentTarget.style.background = option.value === value ? '#f1f5f9' : 'white'}
                                 >
                                     <span>{option.label}</span>
                                     {option.subLabel && (

@@ -253,6 +253,32 @@ body {
   box-shadow: 0 0 0 3px rgba(108, 92, 231, 0.12);
 }
 
+/* Native select and option styling for cross-browser consistency */
+select {
+  background-color: white;
+  cursor: pointer;
+}
+
+select option {
+  background-color: white;
+  color: var(--text);
+  padding: 8px 12px;
+}
+
+select option:hover,
+select option:focus,
+select option:checked {
+  background-color: #e8ecf8;
+  color: var(--text);
+}
+
+/* Custom dropdown menu z-index fix */
+[style*="position: absolute"][style*="top: 100%"],
+.dropdown-menu,
+.dropdown-list {
+  z-index: 9999 !important;
+}
+
 .chip {
   display: inline-flex;
   align-items: center;

@@ -1445,7 +1445,7 @@ export default function SubAdminTemplateReview() {
                                                                         border: '1px solid #ccc',
                                                                         borderRadius: 4,
                                                                         marginTop: 2,
-                                                                        zIndex: 1000,
+                                                                        zIndex: 9999,
                                                                         boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
                                                                     }}
                                                                     onClick={(e) => e.stopPropagation()}
@@ -1496,7 +1496,7 @@ export default function SubAdminTemplateReview() {
                                                                                 }
                                                                                 setOpenDropdown(null)
                                                                             }}
-                                                                            onMouseEnter={(e) => e.currentTarget.style.background = '#f0f4ff'}
+                                                                            onMouseEnter={(e) => e.currentTarget.style.background = '#e8ecf8'}
                                                                             onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}
                                                                         >
                                                                             <span>{opt}</span>
