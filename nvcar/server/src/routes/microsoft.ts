@@ -126,26 +126,6 @@ microsoftRouter.post('/callback', async (req, res) => {
         displayName: authDisplayName
       })
 
-      // Also create/update a shadow User record for compatibility with audit logs etc.
-      // But use the OutlookUser._id as the primary identity
-      let shadowUser = await User.findOne({ email: outlookUser.email })
-      if (!shadowUser) {
-        shadowUser = await User.create({
-          email: outlookUser.email,
-          passwordHash: 'oauth-managed',
-          authProvider: 'microsoft',
-          role: outlookUser.role,
-          displayName: authDisplayName,
-          tokenVersion: 0
-        })
-      } else {
-        // Update the existing shadow user
-        shadowUser.lastActive = new Date()
-        if (!shadowUser.displayName && displayName) {
-          shadowUser.displayName = displayName
-        }
-        await shadowUser.save()
-      }
     } else {
       // Not in OutlookUser whitelist - check regular User collection
       const user = await User.findOne({ email: { $in: possibleEmails } })

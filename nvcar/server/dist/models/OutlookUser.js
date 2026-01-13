@@ -4,7 +4,7 @@ exports.OutlookUser = void 0;
 const mongoose_1 = require("mongoose");
 const schema = new mongoose_1.Schema({
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
-    role: { type: String, required: true, enum: ['ADMIN', 'SUBADMIN', 'TEACHER'] },
+    role: { type: String, required: true, enum: ['ADMIN', 'SUBADMIN', 'TEACHER', 'AEFE'] },
     displayName: { type: String },
     createdAt: { type: Date, default: Date.now },
     lastLogin: { type: Date },

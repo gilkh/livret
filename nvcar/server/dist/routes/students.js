@@ -460,6 +460,107 @@ exports.studentsRouter.patch('/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN
     }
     res.json(updated);
 });
+// Delete a student and all related data
+exports.studentsRouter.delete('/:id', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
+    const { id } = req.params;
+    const adminId = req.user.userId;
+    try {
+        const student = await Student_1.Student.findById(id).lean();
+        if (!student)
+            return res.status(404).json({ error: 'student_not_found' });
+        // Delete all related data
+        await Enrollment_1.Enrollment.deleteMany({ studentId: id });
+        await StudentCompetencyStatus_1.StudentCompetencyStatus.deleteMany({ studentId: id });
+        // Get template assignments to delete related signatures
+        const assignments = await TemplateAssignment_1.TemplateAssignment.find({ studentId: id }).lean();
+        const assignmentIds = assignments.map(a => String(a._id));
+        await TemplateSignature_1.TemplateSignature.deleteMany({ templateAssignmentId: { $in: assignmentIds } });
+        await TemplateAssignment_1.TemplateAssignment.deleteMany({ studentId: id });
+        await SavedGradebook_1.SavedGradebook.deleteMany({ studentId: id });
+        // Finally delete the student
+        await Student_1.Student.findByIdAndDelete(id);
+        await (0, auditLogger_1.logAudit)({
+            userId: adminId,
+            action: 'DELETE_STUDENT',
+            details: { studentId: id, studentName: `${student.firstName} ${student.lastName}` },
+            req
+        });
+        res.json({ ok: true });
+    }
+    catch (e) {
+        console.error('Delete student error:', e);
+        res.status(500).json({ error: 'delete_failed', message: e.message });
+    }
+});
+// Complete a class (create snapshots for all students in a class)
+exports.studentsRouter.post('/complete-class/:classId', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN']), async (req, res) => {
+    const { classId } = req.params;
+    const adminId = req.user.userId;
+    try {
+        const cls = await Class_1.ClassModel.findById(classId).lean();
+        if (!cls)
+            return res.status(404).json({ error: 'class_not_found' });
+        const activeYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
+        if (!activeYear)
+            return res.status(400).json({ error: 'no_active_year' });
+        // Get all enrollments for this class
+        const enrollments = await Enrollment_1.Enrollment.find({ classId, status: 'active' }).lean();
+        const studentIds = enrollments.map(e => e.studentId);
+        const { createAssignmentSnapshot } = await Promise.resolve().then(() => __importStar(require('../services/rolloverService')));
+        const results = {
+            success: 0,
+            errors: []
+        };
+        for (const studentId of studentIds) {
+            try {
+                const student = await Student_1.Student.findById(studentId).lean();
+                if (!student) {
+                    results.errors.push({ studentId, error: 'student_not_found' });
+                    continue;
+                }
+                const enrollment = enrollments.find(e => e.studentId === studentId);
+                const assignment = await TemplateAssignment_1.TemplateAssignment.findOne({ studentId }).lean();
+                if (!assignment) {
+                    results.errors.push({ studentId, error: 'no_assignment' });
+                    continue;
+                }
+                const statuses = await StudentCompetencyStatus_1.StudentCompetencyStatus.find({ studentId }).lean();
+                const signatures = await TemplateSignature_1.TemplateSignature.find({ templateAssignmentId: String(assignment._id) }).lean();
+                const snapshotData = {
+                    student: student,
+                    enrollment: enrollment,
+                    statuses: statuses,
+                    assignment: assignment,
+                    className: cls.name,
+                    signatures: signatures,
+                    signature: signatures.find((s) => s.type === 'standard') || null,
+                    finalSignature: signatures.find((s) => s.type === 'end_of_year') || null,
+                };
+                await createAssignmentSnapshot(assignment, 'class_complete', {
+                    schoolYearId: String(activeYear._id),
+                    level: cls.level || 'Sans niveau',
+                    classId: classId,
+                    data: snapshotData
+                });
+                results.success++;
+            }
+            catch (e) {
+                results.errors.push({ studentId, error: e.message });
+            }
+        }
+        await (0, auditLogger_1.logAudit)({
+            userId: adminId,
+            action: 'COMPLETE_CLASS',
+            details: { classId, className: cls.name, successCount: results.success, errorCount: results.errors.length },
+            req
+        });
+        res.json(results);
+    }
+    catch (e) {
+        console.error('Complete class error:', e);
+        res.status(500).json({ error: 'complete_failed', message: e.message });
+    }
+});
 exports.studentsRouter.post('/:studentId/promote', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
     try {
         const adminId = req.user.userId;

@@ -112,6 +112,41 @@ export default function SubAdminTemplateReview() {
     const { activeYear } = useSchoolYear()
     const socket = useSocket()
 
+    // Helper function to check if an item's level is at or below the student's current level
+    // This allows sub-admins to edit toggles for PS, MS, GS based on student's current level
+    // PS students: can only edit PS toggles
+    // MS students: can edit PS and MS toggles
+    // GS students: can edit PS, MS, and GS toggles
+    const isLevelAtOrBelow = (itemLevel: string | undefined, itemLevels: string[] | undefined, studentLevel: string | undefined) => {
+        if (!studentLevel) return true
+
+        // Create a map of level name to order
+        const levelOrderMap: Record<string, number> = {}
+        levels.forEach(l => { levelOrderMap[l.name.toUpperCase()] = l.order })
+
+        const studentOrder = levelOrderMap[studentLevel.toUpperCase()]
+        if (studentOrder === undefined) return true // Unknown level, allow
+
+        // Check single level property
+        if (itemLevel) {
+            const itemOrder = levelOrderMap[itemLevel.toUpperCase()]
+            if (itemOrder === undefined) return true // Unknown item level, allow
+            return itemOrder <= studentOrder
+        }
+
+        // Check levels array - item is accessible if ANY of its levels are at or below student level
+        if (itemLevels && itemLevels.length > 0) {
+            return itemLevels.some(lvl => {
+                const itemOrder = levelOrderMap[lvl.toUpperCase()]
+                if (itemOrder === undefined) return true // Unknown item level, allow
+                return itemOrder <= studentOrder
+            })
+        }
+
+        // No level restrictions, allow
+        return true
+    }
+
     const showToast = (message: string, type: ToastType = 'info') => {
         setToast({ message, type })
     }
@@ -1345,8 +1380,8 @@ export default function SubAdminTemplateReview() {
                                                     // Check visibility first
                                                     if (!isBlockVisible(b)) return null
 
-                                                    // Check if dropdown is allowed for current level
-                                                    const isLevelAllowed = !(b.props.levels && b.props.levels.length > 0 && student?.level && !b.props.levels.includes(student.level))
+                                                    // Check if dropdown is allowed for current level - allow if at or below student's level
+                                                    const isLevelAllowed = isLevelAtOrBelow(undefined, b.props.levels, student?.level)
                                                     // Check if dropdown is allowed for current semester (default to both semesters if not specified)
                                                     const dropdownSemesters = b.props.semesters || [1, 2]
                                                     const isSemesterAllowed = dropdownSemesters.includes(activeSemester)
@@ -1872,7 +1907,8 @@ export default function SubAdminTemplateReview() {
                                                                                                 rowLangs
 
                                                                                             return currentItems.map((lang: any, li: number) => {
-                                                                                                const isLevelAllowed = !lang.level || (student?.level && lang.level === student.level);
+                                                                                                // Allow editing if item's level is at or below student's current level
+                                                                                                const isLevelAllowed = isLevelAtOrBelow(lang.level, lang.levels, student?.level);
                                                                                                 // Check if subadmin has permission based on assigned levels
                                                                                                 const hasSubadminLevelPermission = subadminAssignedLevels.length === 0 ||
                                                                                                     !lang.level ||

@@ -6,6 +6,7 @@ import { User } from '../models/User'
 import { OutlookUser } from '../models/OutlookUser'
 import { Enrollment } from '../models/Enrollment'
 import { TemplateAssignment } from '../models/TemplateAssignment'
+import { SchoolYear } from '../models/SchoolYear'
 
 export const teacherAssignmentsRouter = Router()
 
@@ -56,10 +57,21 @@ teacherAssignmentsRouter.post('/', requireAuth(['ADMIN']), async (req, res) => {
             const studentIds = enrollments.map(e => e.studentId)
             
             // Add teacher to assignedTeachers for active templates
+            const yearDoc = await SchoolYear.findById(String(classDoc.schoolYearId)).lean()
+            const yearScopeFilter: any = yearDoc?.startDate
+                ? {
+                    $or: [
+                        { completionSchoolYearId: String(classDoc.schoolYearId) },
+                        { completionSchoolYearId: { $exists: false }, assignedAt: { $gte: new Date(yearDoc.startDate) } }
+                    ]
+                }
+                : { completionSchoolYearId: String(classDoc.schoolYearId) }
+
             await TemplateAssignment.updateMany(
                 { 
                     studentId: { $in: studentIds }, 
-                    status: { $in: ['draft', 'in_progress', 'completed', 'signed'] } 
+                    status: { $in: ['draft', 'in_progress', 'completed', 'signed'] },
+                    ...yearScopeFilter
                 },
                 { $addToSet: { assignedTeachers: teacherId } }
             )
@@ -105,10 +117,21 @@ teacherAssignmentsRouter.delete('/:id', requireAuth(['ADMIN']), async (req, res)
                 const studentIds = enrollments.map(e => e.studentId)
                 
                 // Remove teacher from assignedTeachers for active templates
+                const yearDoc = await SchoolYear.findById(String(assignment.schoolYearId)).lean()
+                const yearScopeFilter: any = yearDoc?.startDate
+                    ? {
+                        $or: [
+                            { completionSchoolYearId: String(assignment.schoolYearId) },
+                            { completionSchoolYearId: { $exists: false }, assignedAt: { $gte: new Date(yearDoc.startDate) } }
+                        ]
+                    }
+                    : { completionSchoolYearId: String(assignment.schoolYearId) }
+
                 await TemplateAssignment.updateMany(
                     { 
                         studentId: { $in: studentIds }, 
-                        status: { $in: ['draft', 'in_progress', 'completed', 'signed'] } 
+                        status: { $in: ['draft', 'in_progress', 'completed', 'signed'] },
+                        ...yearScopeFilter
                     },
                     { $pull: { assignedTeachers: assignment.teacherId } }
                 )

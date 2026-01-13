@@ -107,7 +107,17 @@ exports.importRouter.post('/students', (0, auth_1.requireAuth)(['ADMIN', 'SUBADM
                 // Find or create class
                 let cls = await Class_1.ClassModel.findOne({ name: className, schoolYearId }).session(session);
                 if (!cls) {
-                    const created = await Class_1.ClassModel.create([{ name: className, schoolYearId }], { session });
+                    // Extract level from class name (e.g., "PS A" -> "PS", "MS B" -> "MS", "GS C" -> "GS")
+                    let classLevel;
+                    const levelMatch = className.match(/^(PS|MS|GS)/i);
+                    if (levelMatch) {
+                        classLevel = levelMatch[1].toUpperCase();
+                    }
+                    const created = await Class_1.ClassModel.create([{
+                            name: className,
+                            schoolYearId,
+                            level: classLevel
+                        }], { session });
                     cls = created[0];
                 }
                 // Create enrollment if not exists

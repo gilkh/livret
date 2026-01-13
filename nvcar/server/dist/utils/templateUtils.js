@@ -44,6 +44,7 @@ const Enrollment_1 = require("../models/Enrollment");
 const TemplateAssignment_1 = require("../models/TemplateAssignment");
 const TeacherClassAssignment_1 = require("../models/TeacherClassAssignment");
 const GradebookTemplate_1 = require("../models/GradebookTemplate");
+const SchoolYear_1 = require("../models/SchoolYear");
 const crypto_1 = require("crypto");
 function getVersionedTemplate(template, templateVersion) {
     if (!templateVersion || templateVersion === template.currentVersion)
@@ -187,6 +188,16 @@ function mergeAssignmentDataIntoTemplate(template, assignment) {
 }
 async function checkAndAssignTemplates(studentId, level, schoolYearId, classId, userId) {
     try {
+        const targetSchoolYear = await SchoolYear_1.SchoolYear.findById(schoolYearId).lean();
+        const targetSchoolYearId = String(schoolYearId);
+        const targetStartDate = targetSchoolYear?.startDate ? new Date(targetSchoolYear.startDate) : null;
+        let cachedSchoolYears = null;
+        const getSchoolYears = async () => {
+            if (cachedSchoolYears)
+                return cachedSchoolYears;
+            cachedSchoolYears = await SchoolYear_1.SchoolYear.find({}).sort({ startDate: 1 }).lean();
+            return cachedSchoolYears;
+        };
         // 1. Find other students in the same level for this school year
         const classesInLevel = await Class_1.ClassModel.find({ level, schoolYearId }).lean();
         const classIdsInLevel = classesInLevel.map(c => String(c._id));
@@ -265,29 +276,51 @@ async function checkAndAssignTemplates(studentId, level, schoolYearId, classId, 
                     updates.templateVersion = template.currentVersion;
                 }
                 const completionYearId = String(exists.completionSchoolYearId || '');
-                const shouldResetForNewYear = completionYearId && completionYearId !== String(schoolYearId);
+                const assignedAt = exists.assignedAt ? new Date(exists.assignedAt) : null;
+                let inferredFromYearId = completionYearId || null;
+                if (!inferredFromYearId && assignedAt) {
+                    const years = await getSchoolYears();
+                    const within = years.find((y) => {
+                        if (!y?.startDate || !y?.endDate)
+                            return false;
+                        const start = new Date(y.startDate);
+                        const end = new Date(y.endDate);
+                        return assignedAt >= start && assignedAt <= end;
+                    });
+                    if (within) {
+                        inferredFromYearId = String(within._id);
+                    }
+                    else {
+                        const prior = [...years].reverse().find((y) => {
+                            if (!y?.startDate)
+                                return false;
+                            const start = new Date(y.startDate);
+                            return assignedAt >= start;
+                        });
+                        if (prior)
+                            inferredFromYearId = String(prior._id);
+                    }
+                }
+                const likelyTargetYearByDate = !completionYearId &&
+                    !!targetStartDate &&
+                    !!assignedAt &&
+                    assignedAt >= targetStartDate;
+                const belongsToTargetYear = completionYearId === targetSchoolYearId ||
+                    (!completionYearId && inferredFromYearId === targetSchoolYearId) ||
+                    (!completionYearId && !inferredFromYearId && likelyTargetYearByDate);
+                const shouldResetForNewYear = !belongsToTargetYear;
                 if (shouldResetForNewYear) {
                     // Import archiveYearCompletions to preserve historical data
-                    const { archiveYearCompletions } = await Promise.resolve().then(() => __importStar(require('../services/rolloverService')));
+                    const { archiveYearCompletions, getRolloverUpdate } = await Promise.resolve().then(() => __importStar(require('../services/rolloverService')));
                     // Archive current year's completions BEFORE resetting
-                    const archiveUpdates = archiveYearCompletions(exists, completionYearId);
-                    Object.assign(updates, archiveUpdates);
-                    // Now reset for the new year
-                    updates.status = 'draft';
-                    updates.isCompleted = false;
-                    updates.completedAt = null;
-                    updates.completedBy = null;
-                    updates.isCompletedSem1 = false;
-                    updates.completedAtSem1 = null;
-                    updates.isCompletedSem2 = false;
-                    updates.completedAtSem2 = null;
-                    updates.teacherCompletions = [];
-                    updates.assignedAt = new Date();
-                    updates.assignedBy = userId;
-                    updates.completionSchoolYearId = schoolYearId;
+                    if (inferredFromYearId) {
+                        const archiveUpdates = archiveYearCompletions(exists, inferredFromYearId);
+                        Object.assign(updates, archiveUpdates);
+                    }
+                    Object.assign(updates, getRolloverUpdate(targetSchoolYearId, userId));
                 }
                 else if (!completionYearId) {
-                    updates.completionSchoolYearId = schoolYearId;
+                    updates.completionSchoolYearId = targetSchoolYearId;
                 }
                 // Always update teachers to the new class teachers
                 updates.assignedTeachers = teacherIds;

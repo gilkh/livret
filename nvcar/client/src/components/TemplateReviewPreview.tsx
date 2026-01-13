@@ -26,6 +26,41 @@ export default function TemplateReviewPreview({ template, student, assignment, s
     const [continuousScroll, setContinuousScroll] = useState(true)
     const [openDropdown, setOpenDropdown] = useState<string | null>(null)
 
+    // Helper function to check if an item's level is at or below the student's current level
+    // This allows viewing toggles for PS, MS, GS based on student's current level
+    // PS students: show PS toggles only
+    // MS students: show PS and MS toggles
+    // GS students: show PS, MS, and GS toggles
+    const isLevelAtOrBelow = (itemLevel: string | undefined, itemLevels: string[] | undefined, studentLevel: string | undefined) => {
+        if (!studentLevel) return true
+
+        // Create a map of level name to order
+        const levelOrderMap: Record<string, number> = {}
+        levels.forEach(l => { levelOrderMap[l.name.toUpperCase()] = l.order })
+
+        const studentOrder = levelOrderMap[studentLevel.toUpperCase()]
+        if (studentOrder === undefined) return true // Unknown level, allow
+
+        // Check single level property
+        if (itemLevel) {
+            const itemOrder = levelOrderMap[itemLevel.toUpperCase()]
+            if (itemOrder === undefined) return true // Unknown item level, allow
+            return itemOrder <= studentOrder
+        }
+
+        // Check levels array - item is accessible if ANY of its levels are at or below student level
+        if (itemLevels && itemLevels.length > 0) {
+            return itemLevels.some(lvl => {
+                const itemOrder = levelOrderMap[lvl.toUpperCase()]
+                if (itemOrder === undefined) return true // Unknown item level, allow
+                return itemOrder <= studentOrder
+            })
+        }
+
+        // No level restrictions, allow
+        return true
+    }
+
     // Determine active semester
     // If passed as prop, use it. Otherwise infer from signatures/status.
     const activeSemester = propActiveSemester || ((finalSignature || assignment?.isCompletedSem2) ? 2 : 1)
@@ -326,8 +361,8 @@ export default function TemplateReviewPreview({ template, student, assignment, s
                                                 ...((!isBlockVisible(b)) ? { display: 'none' } : {})
                                             }}>
                                                 {(b.props.items || []).map((it: any, i: number) => {
-                                                    // Check level
-                                                    const isAllowed = !(it.levels && it.levels.length > 0 && student?.level && !it.levels.includes(student.level));
+                                                    // Check level - show if at or below student's current level
+                                                    const isAllowed = isLevelAtOrBelow(undefined, it.levels, student?.level);
 
                                                     const size = 40
                                                     const getEmoji = (item: any) => {
@@ -387,8 +422,8 @@ export default function TemplateReviewPreview({ template, student, assignment, s
                                         {b.type === 'language_toggle' && (
                                             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: b.props.spacing || 12 }}>
                                                 {(b.props.items || []).map((it: any, i: number) => {
-                                                    // Check level
-                                                    const isAllowed = !(it.levels && it.levels.length > 0 && student?.level && !it.levels.includes(student.level));
+                                                    // Check level - show if at or below student's current level
+                                                    const isAllowed = isLevelAtOrBelow(undefined, it.levels, student?.level);
 
                                                     const r = b.props.radius || 40
                                                     const size = r * 2
@@ -433,8 +468,8 @@ export default function TemplateReviewPreview({ template, student, assignment, s
                                             // Check visibility first
                                             if (!isBlockVisible(b)) return null
 
-                                            // Check if dropdown is allowed for current level
-                                            const isLevelAllowed = !(b.props.levels && b.props.levels.length > 0 && student?.level && !b.props.levels.includes(student.level))
+                                            // Check if dropdown is allowed for current level - show if at or below student's level
+                                            const isLevelAllowed = isLevelAtOrBelow(undefined, b.props.levels, student?.level)
                                             // Check if dropdown is allowed for current semester (default to both semesters if not specified)
                                             const dropdownSemesters = b.props.semesters || [1, 2]
                                             const isSemesterAllowed = dropdownSemesters.includes(activeSemester)
@@ -668,8 +703,8 @@ export default function TemplateReviewPreview({ template, student, assignment, s
                                                     const textValue = assignment?.data?.[blockId] || ''
 
                                                     return (
-                                                        <div style={{ 
-                                                            width: '100%', 
+                                                        <div style={{
+                                                            width: '100%',
                                                             height: '100%',
                                                             color: textValue ? 'inherit' : '#999'
                                                         }}>
@@ -870,7 +905,8 @@ export default function TemplateReviewPreview({ template, student, assignment, s
                                                                                         rowLangs
 
                                                                                     return currentItems.map((lang: any, li: number) => {
-                                                                                        const isLevelAllowed = !lang.level || (student?.level && lang.level === student.level);
+                                                                                        // Check level - show if at or below student's current level
+                                                                                        const isLevelAllowed = isLevelAtOrBelow(lang.level, lang.levels, student?.level);
                                                                                         const isAllowed = isLevelAllowed;
                                                                                         const canToggle = editMode && canEdit && isAllowed;
 

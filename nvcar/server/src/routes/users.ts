@@ -45,7 +45,12 @@ usersRouter.get('/', requireAuth(['ADMIN']), async (req, res) => {
   }))
 
   // Merge and normalize
-  const allUsers = [...normalizedUsers, ...normalizedOutlookUsers]
+  // Deduplicate: If a user exists in OutlookUsers, prioritize that entry
+  // (OutlookUser ID is used for authentication for these users)
+  const outlookEmails = new Set(normalizedOutlookUsers.map(u => u.email.toLowerCase()))
+  const uniqueLocalUsers = normalizedUsers.filter(u => !outlookEmails.has(u.email.toLowerCase()))
+
+  const allUsers = [...uniqueLocalUsers, ...normalizedOutlookUsers]
 
   res.json(allUsers)
 })

@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom'
 import api from '../api'
 import { useSocket } from '../context/SocketContext'
 import { useSchoolYear } from '../context/SchoolYearContext'
+import { useLevels } from '../context/LevelContext'
 import ScrollToTopButton from '../components/ScrollToTopButton'
 import Toast, { ToastType } from '../components/Toast'
 import './TeacherQuickGrading.css'
@@ -67,6 +68,42 @@ export default function TeacherQuickGrading() {
 
     const { activeYear } = useSchoolYear()
     const socket = useSocket()
+    const { levels } = useLevels()
+
+    // Helper function to check if an item's level is at or below the student's current level
+    // This allows teachers to edit toggles for PS, MS, GS based on student's current level
+    // PS students: can only edit PS toggles
+    // MS students: can edit PS and MS toggles
+    // GS students: can edit PS, MS, and GS toggles
+    const isLevelAtOrBelow = useCallback((itemLevel: string | undefined, itemLevels: string[] | undefined, studentLevel: string) => {
+        if (!studentLevel) return true
+
+        // Create a map of level name to order
+        const levelOrderMap: Record<string, number> = {}
+        levels.forEach(l => { levelOrderMap[l.name.toUpperCase()] = l.order })
+
+        const studentOrder = levelOrderMap[studentLevel.toUpperCase()]
+        if (studentOrder === undefined) return true // Unknown level, allow
+
+        // Check single level property
+        if (itemLevel) {
+            const itemOrder = levelOrderMap[itemLevel.toUpperCase()]
+            if (itemOrder === undefined) return true // Unknown item level, allow
+            return itemOrder <= studentOrder
+        }
+
+        // Check levels array - item is accessible if ANY of its levels are at or below student level
+        if (itemLevels && itemLevels.length > 0) {
+            return itemLevels.some(lvl => {
+                const itemOrder = levelOrderMap[lvl.toUpperCase()]
+                if (itemOrder === undefined) return true // Unknown item level, allow
+                return itemOrder <= studentOrder
+            })
+        }
+
+        // No level restrictions, allow
+        return true
+    }, [levels])
 
     // Extract text rows from template
     const extractTextRows = useCallback((template: any, assignmentData: any, studentLevel: string) => {
@@ -133,9 +170,9 @@ export default function TeacherQuickGrading() {
                         sourceIndex: i
                     }))
 
-                    // Filter items by student level if they have level restrictions
+                    // Filter items by student level - show items at or below student's current level
                     const filteredItems = allItems.filter(item =>
-                        !item.levels || item.levels.length === 0 || (studentLevel && item.levels.includes(studentLevel))
+                        isLevelAtOrBelow(undefined, item.levels, studentLevel)
                     )
 
                     if (filteredItems.length > 0) {
@@ -222,13 +259,11 @@ export default function TeacherQuickGrading() {
                             sourceIndex: i
                         }))
 
-                        // Filter items by student level if they have level restrictions (check both level and levels)
+                        // Filter items by student level - show items at or below student's current level
                         const filteredItems = allItems.filter(item => {
                             const itemLevel = (item as any).level
                             const itemLevels = item.levels
-                            if (itemLevel && studentLevel && itemLevel !== studentLevel) return false
-                            if (itemLevels && itemLevels.length > 0 && studentLevel && !itemLevels.includes(studentLevel)) return false
-                            return true
+                            return isLevelAtOrBelow(itemLevel, itemLevels, studentLevel)
                         })
 
                         if (filteredItems.length > 0) {

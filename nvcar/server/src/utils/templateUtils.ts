@@ -155,6 +155,16 @@ export function mergeAssignmentDataIntoTemplate(template: any, assignment: any) 
 
 export async function checkAndAssignTemplates(studentId: string, level: string, schoolYearId: string, classId: string, userId: string) {
   try {
+    const targetSchoolYear = await SchoolYear.findById(schoolYearId).lean()
+    const targetSchoolYearId = String(schoolYearId)
+    const targetStartDate = targetSchoolYear?.startDate ? new Date(targetSchoolYear.startDate) : null
+    let cachedSchoolYears: any[] | null = null
+    const getSchoolYears = async () => {
+      if (cachedSchoolYears) return cachedSchoolYears
+      cachedSchoolYears = await SchoolYear.find({}).sort({ startDate: 1 }).lean()
+      return cachedSchoolYears
+    }
+
     // 1. Find other students in the same level for this school year
     const classesInLevel = await ClassModel.find({ level, schoolYearId }).lean()
     const classIdsInLevel = classesInLevel.map(c => String(c._id))
@@ -248,31 +258,56 @@ export async function checkAndAssignTemplates(studentId: string, level: string, 
         }
 
         const completionYearId = String((exists as any).completionSchoolYearId || '')
-        const shouldResetForNewYear = completionYearId && completionYearId !== String(schoolYearId)
+        const assignedAt = (exists as any).assignedAt ? new Date((exists as any).assignedAt) : null
+
+        let inferredFromYearId: string | null = completionYearId || null
+
+        if (!inferredFromYearId && assignedAt) {
+          const years = await getSchoolYears()
+          const within = years.find((y: any) => {
+            if (!y?.startDate || !y?.endDate) return false
+            const start = new Date(y.startDate)
+            const end = new Date(y.endDate)
+            return assignedAt >= start && assignedAt <= end
+          })
+          if (within) {
+            inferredFromYearId = String(within._id)
+          } else {
+            const prior = [...years].reverse().find((y: any) => {
+              if (!y?.startDate) return false
+              const start = new Date(y.startDate)
+              return assignedAt >= start
+            })
+            if (prior) inferredFromYearId = String(prior._id)
+          }
+        }
+
+        const likelyTargetYearByDate =
+          !completionYearId &&
+          !!targetStartDate &&
+          !!assignedAt &&
+          assignedAt >= targetStartDate
+
+        const belongsToTargetYear =
+          completionYearId === targetSchoolYearId ||
+          (!completionYearId && inferredFromYearId === targetSchoolYearId) ||
+          (!completionYearId && !inferredFromYearId && likelyTargetYearByDate)
+
+        const shouldResetForNewYear = !belongsToTargetYear
 
         if (shouldResetForNewYear) {
           // Import archiveYearCompletions to preserve historical data
-          const { archiveYearCompletions } = await import('../services/rolloverService')
+          const { archiveYearCompletions, getRolloverUpdate } = await import('../services/rolloverService')
 
           // Archive current year's completions BEFORE resetting
-          const archiveUpdates = archiveYearCompletions(exists, completionYearId)
-          Object.assign(updates, archiveUpdates)
+          if (inferredFromYearId) {
+            const archiveUpdates = archiveYearCompletions(exists, inferredFromYearId)
+            Object.assign(updates, archiveUpdates)
+          }
 
-          // Now reset for the new year
-          updates.status = 'draft'
-          updates.isCompleted = false
-          updates.completedAt = null
-          updates.completedBy = null
-          updates.isCompletedSem1 = false
-          updates.completedAtSem1 = null
-          updates.isCompletedSem2 = false
-          updates.completedAtSem2 = null
-          updates.teacherCompletions = []
-          updates.assignedAt = new Date()
-          updates.assignedBy = userId
-          updates.completionSchoolYearId = schoolYearId
+          Object.assign(updates, getRolloverUpdate(targetSchoolYearId, userId))
         } else if (!completionYearId) {
-          updates.completionSchoolYearId = schoolYearId
+          updates.completionSchoolYearId = targetSchoolYearId
         }
 
         // Always update teachers to the new class teachers
