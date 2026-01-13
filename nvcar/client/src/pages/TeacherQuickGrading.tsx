@@ -522,7 +522,7 @@ export default function TeacherQuickGrading() {
 
     // Update dropdown
     const updateDropdown = async (dropdown: any, value: string) => {
-        if (!canEdit || !isProfPolyvalent) return
+        if (!canEdit || (!isProfPolyvalent && allowedLanguages.length > 0)) return
 
         try {
             const newData = { [dropdown.dataKey]: value }
@@ -818,8 +818,8 @@ export default function TeacherQuickGrading() {
                 </div>
 
 
-                {/* Dropdowns for Prof Polyvalent */}
-                {isProfPolyvalent && filteredDropdowns.length > 0 && (
+                {/* Dropdowns for Prof Polyvalent or teachers with all languages */}
+                {(isProfPolyvalent || allowedLanguages.length === 0) && filteredDropdowns.length > 0 && (
                     <div style={{
                         marginBottom: 24,
                         padding: 16,

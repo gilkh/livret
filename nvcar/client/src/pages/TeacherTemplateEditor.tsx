@@ -884,6 +884,7 @@ export default function TeacherTemplateEditor() {
                                                     const dropdownSemesters = b.props.semesters || [1, 2]
                                                     const isSemesterAllowed = dropdownSemesters.includes(activeSemester)
                                                     const isDropdownAllowed = isLevelAllowed && isSemesterAllowed
+                                                    const canEditDropdown = canEdit && (isProfPolyvalent || allowedLanguages.length === 0) && isDropdownAllowed
 
                                                     return (
                                                         <div style={{
@@ -901,8 +902,9 @@ export default function TeacherTemplateEditor() {
                                                                     padding: '4px 24px 4px 8px',
                                                                     borderRadius: 4,
                                                                     border: '1px solid #ccc',
-                                                                    background: (canEdit && isProfPolyvalent && isDropdownAllowed) ? '#fff' : '#f9f9f9',
-                                                                    cursor: (canEdit && isProfPolyvalent && isDropdownAllowed) ? 'pointer' : 'not-allowed',
+                                                                    borderLeft: canEditDropdown ? '4px solid #10b981' : '1px solid #ccc',
+                                                                    background: canEditDropdown ? '#fff' : '#f9f9f9',
+                                                                    cursor: canEditDropdown ? 'pointer' : 'not-allowed',
                                                                     opacity: isDropdownAllowed ? 1 : 0.7,
                                                                     position: 'relative',
                                                                     display: 'flex',
@@ -912,7 +914,7 @@ export default function TeacherTemplateEditor() {
                                                                 }}
                                                                 onClick={(e) => {
                                                                     e.stopPropagation()
-                                                                    if (!canEdit || !isProfPolyvalent || !isDropdownAllowed) return
+                                                                    if (!canEditDropdown) return
                                                                     const key = `dropdown_${actualPageIndex}_${idx}`
                                                                     setOpenDropdown(openDropdown === key ? null : key)
                                                                 }}
@@ -1010,28 +1012,25 @@ export default function TeacherTemplateEditor() {
                                                         </div>
                                                     )
                                                 })()}
-                                                {b.type === 'dropdown_reference' && (
-                                                    <div style={{
-                                                        width: b.props.width || 200,
-                                                        minHeight: b.props.height || 'auto',
-                                                        color: b.props.color || '#2d3436',
-                                                        fontSize: b.props.fontSize || 12,
-                                                        padding: '8px',
-                                                        background: '#f0f4ff',
-                                                        border: '1px dashed #6c5ce7',
-                                                        borderRadius: 4,
-                                                        wordWrap: 'break-word',
-                                                        whiteSpace: 'pre-wrap',
-                                                        overflow: 'hidden'
-                                                    }}>
-                                                        {(() => {
-                                                            const dropdownNum = b.props.dropdownNumber || 1
-                                                            const value = assignment?.data?.[`dropdown_${dropdownNum}`] || ''
-                                                            const displayText = value || `[Dropdown #${dropdownNum}]`
-                                                            return displayText
-                                                        })()}
-                                                    </div>
-                                                )}
+                                                {b.type === 'dropdown_reference' && (() => {
+                                                    const dropdownNum = b.props.dropdownNumber || 1
+                                                    const raw = assignment?.data?.[`dropdown_${dropdownNum}`]
+                                                    const value = typeof raw === 'string' ? raw.trim() : raw
+                                                    // Hide if no value selected (same as SubAdmin view)
+                                                    if (!value) return null
+                                                    return (
+                                                        <div style={{
+                                                            color: b.props.color || '#333',
+                                                            fontSize: b.props.fontSize || 12,
+                                                            width: b.props.width || 200,
+                                                            minHeight: b.props.height || 'auto',
+                                                            wordWrap: 'break-word',
+                                                            whiteSpace: 'pre-wrap'
+                                                        }}>
+                                                            {String(value)}
+                                                        </div>
+                                                    )
+                                                })()}
                                                 {b.type === 'table' && (
                                                     (() => {
                                                         const parseNum = (v: any) => {

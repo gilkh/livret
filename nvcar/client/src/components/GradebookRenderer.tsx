@@ -666,8 +666,8 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                                 const textValue = assignment?.data?.[blockId] || ''
 
                                                 return (
-                                                    <div style={{ 
-                                                        width: '100%', 
+                                                    <div style={{
+                                                        width: '100%',
                                                         height: '100%',
                                                         color: textValue ? 'inherit' : '#999'
                                                     }}>
@@ -964,12 +964,12 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                                         }
                                                         return false
                                                     })
-                                                if (matchingSig) return `✓ Signé (${matchingSig.schoolYearName || 'Ancien'})`
-                                            }
-                                            return null
-                                        })()}
-                                    </div>
-                                )}
+                                                    if (matchingSig) return `✓ Signé (${matchingSig.schoolYearName || 'Ancien'})`
+                                                }
+                                                return null
+                                            })()}
+                                        </div>
+                                    )}
                                     {b.type === 'final_signature_info' && (
                                         <div style={{
                                             width: b.props.width || 150,

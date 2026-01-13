@@ -32,12 +32,12 @@ function getPromotionYearLabel(promo: any, assignmentData: any, blockLevel: stri
   const level = String(promo?.from || blockLevel || '')
   const endSig = Array.isArray(history)
     ? history
-        .filter((s: any) => (s?.type === 'end_of_year') && s?.schoolYearName)
-        .find((s: any) => {
-          if (!level) return true
-          if (s?.level) return String(s.level) === level
-          return false
-        })
+      .filter((s: any) => (s?.type === 'end_of_year') && s?.schoolYearName)
+      .find((s: any) => {
+        if (!level) return true
+        if (s?.level) return String(s.level) === level
+        return false
+      })
     : null
 
   if (endSig?.schoolYearName) return String(endSig.schoolYearName)
@@ -47,22 +47,22 @@ function getPromotionYearLabel(promo: any, assignmentData: any, blockLevel: stri
 }
 
 // HTML template for rendering the carnet
-htmlRenderRouter.get('/carnet/:assignmentId', requireAuth(['ADMIN','SUBADMIN','TEACHER']), async (req, res) => {
+htmlRenderRouter.get('/carnet/:assignmentId', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), async (req, res) => {
   try {
     const { assignmentId } = req.params
     const { token } = req.query
-    
+
     // Get assignment data
     const assignment = await TemplateAssignment.findById(assignmentId).lean()
     if (!assignment) return res.status(404).send('Assignment not found')
-    
+
     const template = await GradebookTemplate.findById(assignment.templateId).lean()
     const student = await Student.findById(assignment.studentId).lean()
-    
+
     if (!template || !student) return res.status(404).send('Template or student not found')
-    
+
     const assignmentData = assignment.data || {}
-    
+
     // Generate HTML with inline styles
     const html = `
 <!DOCTYPE html>
@@ -140,10 +140,10 @@ htmlRenderRouter.get('/carnet/:assignmentId', requireAuth(['ADMIN','SUBADMIN','T
 </body>
 </html>
 `
-    
+
     res.setHeader('Content-Type', 'text/html')
     res.send(html)
-    
+
   } catch (error) {
     console.error('HTML render error:', error)
     res.status(500).send('Error rendering HTML')
@@ -153,34 +153,34 @@ htmlRenderRouter.get('/carnet/:assignmentId', requireAuth(['ADMIN','SUBADMIN','T
 function renderBlock(block: any, student: any, assignmentData: any): string {
   const props = block.props || {}
   const style = `left: ${props.x || 0}px; top: ${props.y || 0}px; z-index: ${props.z ?? 0};`
-  
+
   switch (block.type) {
     case 'text':
       return `<div class="block" style="${style} color: ${props.color || '#000'}; font-size: ${props.fontSize || 12}px; width: ${props.width || 'auto'}px;">${props.text || ''}</div>`
-    
+
     case 'dynamic_text':
       const text = (props.text || '')
         .replace(/\{student\.firstName\}/g, student.firstName)
         .replace(/\{student\.lastName\}/g, student.lastName)
         .replace(/\{student\.dob\}/g, new Date(student.dateOfBirth).toLocaleDateString())
       return `<div class="block" style="${style} color: ${props.color || '#000'}; font-size: ${props.fontSize || 12}px;">${text}</div>`
-    
+
     case 'image':
       return `<div class="block" style="${style}"><img src="${props.url}" style="width: ${props.width || 120}px; height: ${props.height || 120}px; border-radius: 8px;" /></div>`
-    
+
     case 'rect':
       return `<div class="block" style="${style} width: ${props.width || 100}px; height: ${props.height || 50}px; background: ${props.color || 'transparent'}; border: ${props.stroke ? `${props.strokeWidth || 1}px solid ${props.stroke}` : 'none'}; border-radius: ${props.radius || 0}px;"></div>`
-    
+
     case 'circle':
       const radius = props.radius || 40
       return `<div class="block" style="${style} width: ${radius * 2}px; height: ${radius * 2}px; background: ${props.color || '#ddd'}; border-radius: 50%; border: ${props.stroke ? `${props.strokeWidth || 1}px solid ${props.stroke}` : 'none'};"></div>`
-    
+
     case 'line':
       return `<div class="block" style="${style} width: ${props.x2 || 100}px; height: ${props.strokeWidth || 2}px; background: ${props.stroke || '#b2bec3'};"></div>`
-    
+
     case 'arrow':
       return `<div class="block" style="${style} width: ${props.x2 || 100}px; height: ${props.strokeWidth || 2}px; background: ${props.stroke || '#6c5ce7'}; position: relative;"><div style="position: absolute; right: 0; top: -6px; width: 0; height: 0; border-top: 8px solid transparent; border-bottom: 8px solid transparent; border-left: 12px solid ${props.stroke || '#6c5ce7'};"></div></div>`
-    
+
     case 'dropdown':
       const dropdownNum = props.dropdownNumber
       const selectedValue = dropdownNum ? assignmentData[`dropdown_${dropdownNum}`] : ''
@@ -191,12 +191,12 @@ function renderBlock(block: any, student: any, assignmentData: any): string {
           <div style="clear: both;">${selectedValue || 'Sélectionner...'}</div>
         </div>
       </div>`
-    
+
     case 'dropdown_reference':
       const refDropdownNum = props.dropdownNumber || 1
       const refValue = assignmentData[`dropdown_${refDropdownNum}`] || `[Dropdown #${refDropdownNum}]`
       return `<div class="block" style="${style} color: ${props.color || '#333'}; font-size: ${props.fontSize || 12}px; width: ${props.width || 200}px; white-space: pre-wrap; word-wrap: break-word;">${refValue}</div>`
-    
+
     case 'promotion_info':
       const targetLevel = props.targetLevel
       const promotions = assignmentData.promotions || []
@@ -220,7 +220,7 @@ function renderBlock(block: any, student: any, assignmentData: any): string {
         }
       }
       return ''
-    
+
     case 'table':
       const cells = props.cells || []
       const columnWidths = props.columnWidths || []
@@ -235,17 +235,17 @@ function renderBlock(block: any, student: any, assignmentData: any): string {
       })
       tableHtml += '</table></div>'
       return tableHtml
-    
+
     case 'qr':
       return `<div class="block" style="${style}"><img src="https://api.qrserver.com/v1/create-qr-code/?size=${props.width || 120}x${props.height || 120}&data=${encodeURIComponent(props.url || '')}" style="width: ${props.width || 120}px; height: ${props.height || 120}px;" /></div>`
-    
+
     case 'signature_box':
       return `<div class="block" style="${style}">
         <div class="signature-box" style="width: ${props.width || 200}px; height: ${props.height || 80}px; font-size: 10px; color: #999;">
           ${props.label || 'Signature'}
         </div>
       </div>`
-    
+
     case 'language_toggle':
       const items = props.items || []
       const toggleRadius = props.radius || 40
@@ -259,7 +259,7 @@ function renderBlock(block: any, student: any, assignmentData: any): string {
       })
       toggleHtml += '</div>'
       return toggleHtml
-    
+
     default:
       return ''
   }
