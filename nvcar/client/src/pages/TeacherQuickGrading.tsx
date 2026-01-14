@@ -288,10 +288,20 @@ export default function TeacherQuickGrading() {
                 // Extract dropdowns for prof polyvalent
                 if (block.type === 'dropdown') {
                     const dropdownSemesters = block.props.semesters || [1, 2]
-                    const dropdownLevels = block.props.levels || []
+                    const dropdownLevels: string[] = block.props.levels || []
 
-                    // Check level match
-                    if (dropdownLevels.length > 0 && studentLevel && !dropdownLevels.includes(studentLevel)) return
+                    // For dropdowns: ONLY show if it's exclusively for the student's current level
+                    // (not shared with other levels like language toggles)
+                    // This means: levels must be empty (no restriction) OR contain ONLY the student's current level
+                    if (dropdownLevels.length > 0 && studentLevel) {
+                        const studentLevelUpper = studentLevel.toUpperCase()
+                        const levelsUpper = dropdownLevels.map((l: string) => l.toUpperCase())
+
+                        // Dropdown must be EXCLUSIVELY for the student's current level
+                        // i.e., levels array should only contain the student's level
+                        const isExclusivelyForCurrentLevel = levelsUpper.length === 1 && levelsUpper[0] === studentLevelUpper
+                        if (!isExclusivelyForCurrentLevel) return
+                    }
 
                     const dataKey = block.props.dropdownNumber
                         ? `dropdown_${block.props.dropdownNumber}`
@@ -305,6 +315,7 @@ export default function TeacherQuickGrading() {
                         options: block.props.options || [],
                         dataKey,
                         semesters: dropdownSemesters,
+                        levels: dropdownLevels, // Store levels for filtering
                         currentValue: assignmentData?.[dataKey] || ''
                     })
                 }
@@ -614,10 +625,30 @@ export default function TeacherQuickGrading() {
         return result
     }, [textRows, search])
 
-    // Filtered dropdowns by semester
+    // Filtered dropdowns by semester AND exact current level only
+    // Teachers can only edit dropdowns for the student's EXACT current level (not previous levels)
+    // Unlike language toggles, dropdowns are restricted to the current level only
     const filteredDropdowns = useMemo(() => {
-        return dropdowns.filter(d => d.semesters.includes(activeSemester))
-    }, [dropdowns, activeSemester])
+        const studentLevel = student?.level || ''
+        const studentLevelUpper = studentLevel.toUpperCase()
+
+        return dropdowns.filter(d => {
+            // Must match active semester
+            if (!d.semesters.includes(activeSemester)) return false
+
+            // For dropdowns with level restrictions:
+            // Only show if the dropdown is EXCLUSIVELY for the student's current level
+            // (dropdowns with levels: ['PS', 'MS'] will NOT show for an MS student)
+            if (d.levels && d.levels.length > 0 && studentLevel) {
+                const levelsUpper = d.levels.map((l: string) => l.toUpperCase())
+                // Dropdown must be exclusively for the student's level (only 1 level that matches)
+                return levelsUpper.length === 1 && levelsUpper[0] === studentLevelUpper
+            }
+
+            // Dropdowns without level restrictions are always shown
+            return true
+        })
+    }, [dropdowns, activeSemester, student?.level])
 
     if (loading) {
         return (

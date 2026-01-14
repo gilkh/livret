@@ -84,6 +84,23 @@ export default function TeacherTemplateEditor() {
         return true
     }
 
+    // Helper function to check if an item is EXCLUSIVELY for the student's current level
+    // This is stricter than isLevelAtOrBelow - used for dropdowns where teachers
+    // should only edit the current level's dropdown, not previous levels
+    const isLevelExactMatch = (itemLevels: string[] | undefined, studentLevel: string | undefined) => {
+        if (!studentLevel) return true
+
+        // No level restrictions means it's available to all
+        if (!itemLevels || itemLevels.length === 0) return true
+
+        const studentLevelUpper = studentLevel.toUpperCase()
+        const levelsUpper = itemLevels.map(l => l.toUpperCase())
+
+        // Dropdown must be EXCLUSIVELY for the student's current level
+        // i.e., levels array should only contain the student's level
+        return levelsUpper.length === 1 && levelsUpper[0] === studentLevelUpper
+    }
+
     const visiblePages = useMemo(() => {
         if (!template) return []
         return template.pages.map((p, i) => ({ page: p, originalIndex: i }))
@@ -891,8 +908,9 @@ export default function TeacherTemplateEditor() {
                                                 {b.type === 'signature' && <div style={{ fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden' }}>{(b.props.labels || []).join(' / ')}</div>}
                                                 {b.type === 'dropdown' && (() => {
                                                     // Check if dropdown is allowed for current level
-                                                    // Allow editing if dropdown's level is at or below student's current level
-                                                    const isLevelAllowed = isLevelAtOrBelow(undefined, b.props.levels, student?.level)
+                                                    // For dropdowns: ONLY allow editing if it's exclusively for the student's current level
+                                                    // (unlike language toggles which allow previous levels)
+                                                    const isLevelAllowed = isLevelExactMatch(b.props.levels, student?.level)
                                                     // Check if dropdown is allowed for current semester (default to both semesters if not specified)
                                                     const dropdownSemesters = b.props.semesters || [1, 2]
                                                     const isSemesterAllowed = dropdownSemesters.includes(activeSemester)
