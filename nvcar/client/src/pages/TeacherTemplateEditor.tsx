@@ -11,7 +11,7 @@ import { GradebookPocket } from '../components/GradebookPocket'
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
 type Template = { _id?: string; name: string; pages: Page[]; signingPage?: number }
-type Student = { _id: string; firstName: string; lastName: string; level?: string; className?: string }
+type Student = { _id: string; firstName: string; lastName: string; level?: string; className?: string; dateOfBirth?: Date }
 type Assignment = { _id: string; status: string; data?: Record<string, any> }
 
 const pageWidth = 800
@@ -37,6 +37,7 @@ export default function TeacherTemplateEditor() {
     const [activeSemester, setActiveSemester] = useState<number>(1)
     const [zoomLevel, setZoomLevel] = useState(1)
     const [isFitToScreen, setIsFitToScreen] = useState(false)
+    const [quickGradingEnabled, setQuickGradingEnabled] = useState(true)
     const containerRef = useRef<HTMLDivElement | null>(null)
 
     const computeFitScale = () => {
@@ -194,7 +195,11 @@ export default function TeacherTemplateEditor() {
         const loadData = async () => {
             try {
                 setLoading(true)
-                const r = await api.get(`/teacher/template-assignments/${assignmentId}`)
+                const [assignmentRes, settingsRes] = await Promise.all([
+                    api.get(`/teacher/template-assignments/${assignmentId}`),
+                    api.get('/settings/public').catch(() => ({ data: {} }))
+                ])
+                const r = assignmentRes
                 setTemplate(r.data.template)
                 setStudent(r.data.student)
                 setAssignment(r.data.assignment)
@@ -205,6 +210,11 @@ export default function TeacherTemplateEditor() {
                 setIsMyWorkCompletedSem1(r.data.isMyWorkCompletedSem1 || false)
                 setIsMyWorkCompletedSem2(r.data.isMyWorkCompletedSem2 || false)
                 setActiveSemester(r.data.activeSemester || 1)
+
+                // Check if quick grading is enabled
+                if (settingsRes.data.teacher_quick_grading_enabled !== undefined) {
+                    setQuickGradingEnabled(settingsRes.data.teacher_quick_grading_enabled)
+                }
             } catch (e: any) {
                 setError('Impossible de charger le carnet')
                 console.error(e)
@@ -406,16 +416,18 @@ export default function TeacherTemplateEditor() {
                         fontWeight: 500,
                         border: '1px solid #e2e8f0'
                     }}>← Retour</button>
-                    <a href={`/teacher/templates/${assignmentId}/quick`} className="btn secondary" style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 8,
-                        background: '#fef3c7',
-                        color: '#92400e',
-                        fontWeight: 500,
-                        border: '1px solid #fcd34d',
-                        textDecoration: 'none'
-                    }}>⚡ Notation rapide</a>
+                    {quickGradingEnabled && (
+                        <a href={`/teacher/templates/${assignmentId}/quick`} className="btn secondary" style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            background: '#fef3c7',
+                            color: '#92400e',
+                            fontWeight: 500,
+                            border: '1px solid #fcd34d',
+                            textDecoration: 'none'
+                        }}>⚡ Notation rapide</a>
+                    )}
                 </div>
 
                 <div style={{ marginBottom: 20 }}>
@@ -884,7 +896,7 @@ export default function TeacherTemplateEditor() {
                                                         const fatherInitial = fatherName ? fatherName.charAt(0).toUpperCase() : ''
                                                         const fatherInitialWithDot = fatherInitial ? `${fatherInitial}.` : ''
                                                         const fullNameFatherInitial = [student.firstName, fatherInitialWithDot, student.lastName].filter(Boolean).join(' ')
-                                                        const dob = new Date(student.dateOfBirth)
+                                                        const dob = student.dateOfBirth ? new Date(student.dateOfBirth) : new Date(NaN)
                                                         const dobDdMmYyyy = isNaN(dob.getTime()) ? '' : `${String(dob.getUTCDate()).padStart(2, '0')}/${String(dob.getUTCMonth() + 1).padStart(2, '0')}/${String(dob.getUTCFullYear())}`
 
                                                         text = text

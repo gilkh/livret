@@ -12,6 +12,7 @@ const CLIENT_SECRET = process.env.MICROSOFT_CLIENT_SECRET || ''
 const DEFAULT_REDIRECT_URI = process.env.MICROSOFT_REDIRECT_URI || 'https://localhost'
 const ALLOWED_REDIRECT_URIS = [
   DEFAULT_REDIRECT_URI,
+  'https://192.168.1.11',
   'https://192.168.1.74',
   'https://192.168.17.10',
   'https://localhost',
