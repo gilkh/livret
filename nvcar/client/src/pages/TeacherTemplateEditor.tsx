@@ -1253,6 +1253,7 @@ export default function TeacherTemplateEditor() {
 
                                                                                             return currentItems.map((lang: any, li: number) => {
                                                                                                 // Allow editing if item's level is at or below student's current level
+                                                                                                // (e.g. MS student can edit PS toggles)
                                                                                                 const isLevelAllowed = isLevelAtOrBelow(lang.level, lang.levels, student?.level);
 
                                                                                                 const isLanguageAllowed = (() => {
@@ -1331,7 +1332,11 @@ export default function TeacherTemplateEditor() {
                                                                                                 return (
                                                                                                     <div
                                                                                                         key={li}
-                                                                                                        title={lang.label}
+                                                                                                        title={
+                                                                                                            isAllowed
+                                                                                                                ? lang.label
+                                                                                                                : `${lang.label}${lang?.level && student?.level ? ` (niveau ${lang.level} ≠ ${student.level})` : ''}`
+                                                                                                        }
                                                                                                         style={{
                                                                                                             width: size,
                                                                                                             height: size,

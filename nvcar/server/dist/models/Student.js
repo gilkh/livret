@@ -10,6 +10,10 @@ const studentSchema = new mongoose_1.Schema({
     avatarUrl: { type: String },
     parentName: { type: String },
     parentPhone: { type: String },
+    fatherName: { type: String },
+    fatherEmail: { type: String },
+    motherEmail: { type: String },
+    studentEmail: { type: String },
     level: { type: String }, // Current level if not in a class, or cached level
     nextLevel: { type: String }, // Staging for next level
     schoolYearId: { type: String }, // Current school year association

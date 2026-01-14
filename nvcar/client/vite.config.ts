@@ -14,8 +14,22 @@ export default defineConfig({
       key: fs.readFileSync(path.resolve(__dirname, '../certs/key.pem')),
       cert: fs.readFileSync(path.resolve(__dirname, '../certs/cert.pem')),
     },
+    // Allow accessing the dev server via a custom hostname (e.g. through a hosts entry or reverse proxy)
+    // without tripping Vite's host check.
+    allowedHosts: true,
     host: true, // Listen on all addresses
     port: 443,
+    // When the page is opened via a hostname different from "localhost", the default HMR client
+    // may try to connect to the wrong websocket host/port. These env vars let you pin it.
+    // Examples:
+    //   set VITE_HMR_HOST=livret.champville.com
+    //   set VITE_HMR_CLIENT_PORT=443
+    //   set VITE_HMR_PROTOCOL=wss
+    hmr: {
+      host: process.env.VITE_HMR_HOST,
+      clientPort: process.env.VITE_HMR_CLIENT_PORT ? Number(process.env.VITE_HMR_CLIENT_PORT) : undefined,
+      protocol: (process.env.VITE_HMR_PROTOCOL as any) || undefined,
+    },
     proxy: {
       '/socket.io': {
         target: 'https://localhost:4000',

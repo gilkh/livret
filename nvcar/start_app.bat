@@ -109,7 +109,7 @@ if %ATTEMPT% gtr %MAX_ATTEMPTS% (
 timeout /t 2 /nobreak >nul
 
 :: Check if server is responding using PowerShell
-powershell -NoProfile -Command "try { $null = Invoke-WebRequest -Uri 'https://localhost:443/settings/public' -UseBasicParsing -TimeoutSec 2 -SkipCertificateCheck; exit 0 } catch { exit 1 }" >nul 2>&1
+powershell -NoProfile -Command "try { $null = Invoke-WebRequest -Uri 'https://localhost:4000/settings/public' -UseBasicParsing -TimeoutSec 2 -SkipCertificateCheck; exit 0 } catch { exit 1 }" >nul 2>&1
 if %ERRORLEVEL% equ 0 (
     echo       Server is ready! (took ~%ATTEMPT%x2 seconds)
     goto start_client

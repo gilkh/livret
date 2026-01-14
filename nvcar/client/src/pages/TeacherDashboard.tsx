@@ -4,7 +4,14 @@ import api from '../api'
 import { useSchoolYear } from '../context/SchoolYearContext'
 import ProgressionChart from '../components/ProgressionChart'
 
-type ClassDoc = { _id: string; name: string; level?: string; schoolYearId: string }
+type ClassDoc = { 
+  _id: string; 
+  name: string; 
+  level?: string; 
+  schoolYearId: string;
+  languages?: string[];
+  isProfPolyvalent?: boolean;
+}
 type CompletionStats = {
   totalAssignments: number
   completedAssignments: number
@@ -252,6 +259,14 @@ export default function TeacherDashboard() {
                           {c.name}
                         </div>
                         {c.level && <div className="note" style={{ fontSize: 13, color: '#64748b' }}>📖 Niveau: {c.level}</div>}
+                        <div className="note" style={{ fontSize: 13, color: '#64748b', marginTop: 4 }}>
+                          🎯 {(() => {
+                            if (c.isProfPolyvalent) return 'Polyvalent'
+                            if (!c.languages || c.languages.length === 0) return 'Toutes les matières'
+                            const langMap: Record<string, string> = { 'ar': 'Arabe', 'en': 'Anglais', 'fr': 'Français' }
+                            return c.languages.map(l => langMap[l.toLowerCase()] || l.toUpperCase()).join(', ')
+                          })()}
+                        </div>
                         {stats && (
                           <div style={{ marginTop: 12 }}>
                             <div className="note" style={{ fontSize: 13, marginBottom: 6, fontWeight: 500, color: '#475569' }}>

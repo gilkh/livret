@@ -18,6 +18,30 @@ export const teacherTemplatesRouter = Router()
 
 const normalizeLevel = (v: any) => String(v || '').trim().toUpperCase()
 
+// For maternelle, allow teachers to edit toggles for previous levels.
+// Example: an MS student can still have PS toggles edited.
+// For unknown levels, we keep the conservative (exact-match) behavior.
+const isLevelAtOrBelow = (itemLevelRaw: any, studentLevelRaw: any) => {
+    const itemLevel = normalizeLevel(itemLevelRaw)
+    const studentLevel = normalizeLevel(studentLevelRaw)
+    if (!itemLevel || !studentLevel) return true
+
+    const order: Record<string, number> = {
+        TPS: 0,
+        PS: 1,
+        MS: 2,
+        GS: 3,
+    }
+
+    const itemOrder = order[itemLevel]
+    const studentOrder = order[studentLevel]
+    if (itemOrder === undefined || studentOrder === undefined) {
+        return itemLevel === studentLevel
+    }
+
+    return itemOrder <= studentOrder
+}
+
 const getBlockLevel = (block: any) => {
     const direct = block?.props?.level
     if (direct) return normalizeLevel(direct)
@@ -152,7 +176,16 @@ teacherTemplatesRouter.get('/classes', requireAuth(['TEACHER', 'ADMIN', 'SUBADMI
 
         const classes = await ClassModel.find(query).lean()
 
-        res.json(classes)
+        const results = classes.map(c => {
+            const assignment = assignments.find(a => a.classId === String(c._id))
+            return {
+                ...c,
+                languages: assignment?.languages || [],
+                isProfPolyvalent: !!assignment?.isProfPolyvalent
+            }
+        })
+
+        res.json(results)
     } catch (e: any) {
         res.status(500).json({ error: 'fetch_failed', message: e.message })
     }
@@ -1013,7 +1046,7 @@ teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data', require
                 }
 
                 const blockLevel = getBlockLevel(block)
-                if (blockLevel && studentLevel && blockLevel !== studentLevel) {
+                if (blockLevel && studentLevel && !isLevelAtOrBelow(blockLevel, studentLevel)) {
                     return res.status(403).json({ error: 'level_mismatch', details: { studentLevel, blockLevel } })
                 }
 
@@ -1052,7 +1085,7 @@ teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data', require
                 }
 
                 const blockLevel = getBlockLevel(block)
-                if (blockLevel && studentLevel && blockLevel !== studentLevel) {
+                if (blockLevel && studentLevel && !isLevelAtOrBelow(blockLevel, studentLevel)) {
                     return res.status(403).json({ error: 'level_mismatch', details: { studentLevel, blockLevel } })
                 }
 
@@ -1092,7 +1125,7 @@ teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data', require
                 }
 
                 const blockLevel = getBlockLevel(block)
-                if (blockLevel && studentLevel && blockLevel !== studentLevel) {
+                if (blockLevel && studentLevel && !isLevelAtOrBelow(blockLevel, studentLevel)) {
                     return res.status(403).json({ error: 'level_mismatch', details: { studentLevel, blockLevel } })
                 }
 
@@ -1110,7 +1143,7 @@ teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data', require
                     const oldItem = (previousItems as any)?.[i] || sourceItems[i]
                     if (newItem && oldItem && newItem.active !== oldItem.active) {
                         const itemLevel = normalizeLevel(sourceItems?.[i]?.level)
-                        if (itemLevel && studentLevel && itemLevel !== studentLevel) {
+                        if (itemLevel && studentLevel && !isLevelAtOrBelow(itemLevel, studentLevel)) {
                             return res.status(403).json({ error: 'level_mismatch', details: { studentLevel, itemLevel } })
                         }
                         const langCode = sourceItems?.[i]?.code
@@ -1143,7 +1176,7 @@ teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data', require
                 if (rowIdx < 0) return res.status(400).json({ error: 'invalid_table_key', details: key })
 
                 const blockLevel = getBlockLevel(block)
-                if (blockLevel && studentLevel && blockLevel !== studentLevel) {
+                if (blockLevel && studentLevel && !isLevelAtOrBelow(blockLevel, studentLevel)) {
                     return res.status(403).json({ error: 'level_mismatch', details: { studentLevel, blockLevel } })
                 }
 
@@ -1161,7 +1194,7 @@ teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data', require
                     const oldItem = (previousItems as any)?.[i] || sourceItems[i]
                     if (newItem && oldItem && newItem.active !== oldItem.active) {
                         const itemLevel = normalizeLevel(sourceItems?.[i]?.level)
-                        if (itemLevel && studentLevel && itemLevel !== studentLevel) {
+                        if (itemLevel && studentLevel && !isLevelAtOrBelow(itemLevel, studentLevel)) {
                             return res.status(403).json({ error: 'level_mismatch', details: { studentLevel, itemLevel } })
                         }
                         const langCode = sourceItems?.[i]?.code

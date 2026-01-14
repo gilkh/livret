@@ -23,6 +23,21 @@ api.interceptors.response.use(
       return Promise.reject(error)
     }
 
+    // Helpful diagnostics for permission issues (common during dev when roles/assignments differ)
+    if (error.response && error.response.status === 403) {
+      const method = String(error.config?.method || 'GET').toUpperCase()
+      const url = error.config?.url || '(unknown url)'
+      const data = error.response.data
+      const errCode = data?.error ? String(data.error) : ''
+      const errMsg = data?.message ? String(data.message) : ''
+      const errDetails = data?.details !== undefined ? data.details : undefined
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[api] 403 ${method} ${url}${errCode ? ` (${errCode})` : ''}${errMsg ? `: ${errMsg}` : ''}`,
+        errDetails ?? data
+      )
+    }
+
     if (error.response && error.response.status === 401) {
       if (sessionStorage.getItem('token')) {
         sessionStorage.removeItem('token')
