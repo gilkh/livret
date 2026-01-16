@@ -7,6 +7,7 @@ const envBase = (import.meta as any)?.env?.VITE_API_URL as string | undefined
 // This avoids CORS issues and certificate trust issues across different ports
 const baseURL = envBase || '/' 
 const api = axios.create({ baseURL })
+const logApi = axios.create({ baseURL })
 
 api.interceptors.request.use(config => {
   const token = sessionStorage.getItem('token') || localStorage.getItem('token')
@@ -17,6 +18,42 @@ api.interceptors.request.use(config => {
 api.interceptors.response.use(
   response => response,
   error => {
+    const url = error?.config?.url ? String(error.config.url) : ''
+    const method = String(error?.config?.method || 'GET').toUpperCase()
+
+    // Avoid logging errors caused by the error logging endpoint itself
+    if (url.includes('/error-logs')) {
+      return Promise.reject(error)
+    }
+
+    // Send error logs for authenticated users
+    try {
+      const token = sessionStorage.getItem('token') || localStorage.getItem('token')
+      if (token) {
+        const role = sessionStorage.getItem('role') || localStorage.getItem('role')
+        const payload = {
+          message: error?.message || 'unknown_error',
+          status: error?.response?.status,
+          url,
+          method,
+          stack: error?.stack,
+          source: 'client',
+          details: {
+            role,
+            path: typeof window !== 'undefined' ? window.location.pathname : undefined,
+            responseData: error?.response?.data,
+            code: error?.code,
+          },
+        }
+
+        logApi.post('/error-logs', payload, {
+          headers: { Authorization: `Bearer ${token}` },
+        }).catch(() => null)
+      }
+    } catch {
+      // ignore logging failures
+    }
+
     // Don't redirect if it's the Microsoft callback endpoint that failed
     // This allows the Login component to handle the error and show a message
     if (error.config && error.config.url && error.config.url.includes('/microsoft/callback')) {
@@ -25,7 +62,6 @@ api.interceptors.response.use(
 
     // Helpful diagnostics for permission issues (common during dev when roles/assignments differ)
     if (error.response && error.response.status === 403) {
-      const method = String(error.config?.method || 'GET').toUpperCase()
       const url = error.config?.url || '(unknown url)'
       const data = error.response.data
       const errCode = data?.error ? String(data.error) : ''
