@@ -16,7 +16,7 @@ type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks
 type Template = { _id?: string; name: string; pages: Page[]; updatedAt?: string; signingPage?: number }
 type Year = { _id: string; name: string; active?: boolean }
 type ClassDoc = { _id: string; name: string; schoolYearId: string; level?: string }
-type StudentDoc = { _id: string; firstName: string; lastName: string; level?: string; nextLevel?: string; className?: string }
+type StudentDoc = { _id: string; firstName: string; lastName: string; level?: string; nextLevel?: string; className?: string; dateOfBirth?: Date | string }
 type TextRun = { text: string; bold?: boolean; underline?: boolean; color?: string }
 
 const pageWidth = 800

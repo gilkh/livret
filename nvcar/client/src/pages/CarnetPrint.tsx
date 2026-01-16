@@ -8,7 +8,7 @@ import { formatDdMmYyyyColon } from '../utils/dateFormat'
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
 type Template = { _id?: string; name: string; pages: Page[] }
-type Student = { _id: string; firstName: string; lastName: string; level?: string; dateOfBirth: Date; className?: string; avatarUrl?: string }
+type Student = { _id: string; firstName: string; lastName: string; level?: string; dateOfBirth?: Date | string; className?: string; avatarUrl?: string }
 type Assignment = { _id: string; status: string; data?: any }
 
 const pageWidth = 800
@@ -467,7 +467,7 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                                 .replace(/\{student\.lastName\}/g, student.lastName)
                                                 .replace(/\{student\.className\}/g, student.className || '')
                                                 .replace(/\{student\.level\}/g, student.level || '')
-                                                .replace(/\{student\.dob\}/g, new Date(student.dateOfBirth).toLocaleDateString())
+                                                .replace(/\{student\.dob\}/g, student.dateOfBirth ? new Date(student.dateOfBirth).toLocaleDateString() : '')
                                             }
                                         </div>
                                     )}

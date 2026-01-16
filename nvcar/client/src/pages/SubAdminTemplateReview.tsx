@@ -14,7 +14,7 @@ import { openPdfExport, buildStudentPdfUrl } from '../utils/pdfExport'
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
 type Template = { _id?: string; name: string; pages: Page[]; signingPage?: number }
-type Student = { _id: string; firstName: string; lastName: string; level?: string; className?: string }
+type Student = { _id: string; firstName: string; lastName: string; level?: string; className?: string; dateOfBirth?: Date | string }
 type TeacherStatusCategory = {
     teachers: { id: string; name: string }[]
     doneSem1: boolean
@@ -1368,7 +1368,7 @@ export default function SubAdminTemplateReview() {
                                                         const fatherInitial = fatherName ? fatherName.charAt(0).toUpperCase() : ''
                                                         const fatherInitialWithDot = fatherInitial ? `${fatherInitial}.` : ''
                                                         const fullNameFatherInitial = [student.firstName, fatherInitialWithDot, student.lastName].filter(Boolean).join(' ')
-                                                        const dob = new Date(student.dateOfBirth)
+                                                        const dob = student.dateOfBirth ? new Date(student.dateOfBirth) : new Date(NaN)
                                                         const dobDdMmYyyy = isNaN(dob.getTime()) ? '' : `${String(dob.getUTCDate()).padStart(2, '0')}/${String(dob.getUTCMonth() + 1).padStart(2, '0')}/${String(dob.getUTCFullYear())}`
 
                                                         text = text

@@ -30,7 +30,7 @@ const Icons = {
   Monitor: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" /></svg>,
 }
 
-type SectionId = 'status' | 'monitoring' | 'year' | 'access' | 'device' | 'teacher' | 'smtp' | 'signature' | 'database' | 'maintenance' | 'sandbox' | 'notiftest'
+type SectionId = 'status' | 'monitoring' | 'errors' | 'year' | 'access' | 'device' | 'teacher' | 'smtp' | 'signature' | 'database' | 'maintenance' | 'sandbox' | 'notiftest'
 
 interface NavItem {
   id: SectionId
@@ -40,10 +40,27 @@ interface NavItem {
   description: string
 }
 
+interface ErrorLogEntry {
+  _id: string
+  userId: string
+  role: string
+  displayName?: string
+  email?: string
+  source?: string
+  message: string
+  method?: string
+  url?: string
+  status?: number
+  resolved?: boolean
+  createdAt?: string
+  resolvedAt?: string
+}
+
 const navItems: NavItem[] = [
   { id: 'sandbox', label: 'Simulation Lab', icon: 'Grid', color: '#00b894', description: 'Environnement de test' },
   { id: 'status', label: 'État du Système', icon: 'Activity', color: '#00b894', description: 'Statut des services' },
   { id: 'monitoring', label: 'Diagnostics', icon: 'Box', color: '#ff7675', description: 'Surveillance & logs' },
+  { id: 'errors', label: 'Erreurs Utilisateurs', icon: 'AlertTriangle', color: '#ef4444', description: 'Suivi des erreurs' },
   { id: 'year', label: 'Année Scolaire', icon: 'Calendar', color: '#6c5ce7', description: 'Session admin' },
   { id: 'access', label: 'Accès & Sécurité', icon: 'Lock', color: '#6c5ce7', description: 'Connexions utilisateurs' },
   { id: 'device', label: 'Appareils', icon: 'Monitor', color: '#e17055', description: 'Restrictions écran' },
@@ -104,6 +121,11 @@ export default function AdminSettings() {
   const [mobileAccessLogs, setMobileAccessLogs] = useState<any[]>([])
   const [mobileLogsLoading, setMobileLogsLoading] = useState(false)
 
+  // Error logs
+  const [errorLogs, setErrorLogs] = useState<ErrorLogEntry[]>([])
+  const [errorLogsLoading, setErrorLogsLoading] = useState(false)
+  const [errorLogFilter, setErrorLogFilter] = useState<'open' | 'resolved' | 'all'>('open')
+
   const showMsg = (text: string, type: 'success' | 'error' = 'success') => {
     setMsg(text)
     setMsgType(type)
@@ -131,6 +153,7 @@ export default function AdminSettings() {
 
   // API calls
   useEffect(() => { loadSettings(); checkStatus(); loadBackups(); loadMobileAccessLogs() }, [])
+  useEffect(() => { loadErrorLogs(errorLogFilter) }, [errorLogFilter])
   useEffect(() => { if (msg) { const t = setTimeout(() => setMsg(''), 4000); return () => clearTimeout(t) } }, [msg])
 
   const loadBackups = async () => { try { const res = await api.get('/backup/list'); setBackups(res.data) } catch (e) { console.error(e) } }
@@ -193,6 +216,49 @@ export default function AdminSettings() {
     } catch (err) {
       console.error('Failed to clear mobile access logs:', err)
       showMsg('Erreur lors de la suppression', 'error')
+    }
+  }
+
+  // Error logs functions
+  const loadErrorLogs = async (status: 'open' | 'resolved' | 'all') => {
+    setErrorLogsLoading(true)
+    try {
+      const res = await api.get(`/error-logs?status=${status}&limit=200`)
+      setErrorLogs(res.data.logs || [])
+    } catch (err) {
+      console.error('Failed to load error logs:', err)
+      showMsg('Erreur lors du chargement des erreurs', 'error')
+    } finally {
+      setErrorLogsLoading(false)
+    }
+  }
+
+  const resolveErrorLog = async (id: string) => {
+    try {
+      await api.patch(`/error-logs/${id}/resolve`)
+      setErrorLogs(prev => {
+        if (errorLogFilter === 'open') return prev.filter(l => l._id !== id)
+        return prev.map(l => l._id === id ? { ...l, resolved: true, resolvedAt: new Date().toISOString() } : l)
+      })
+      showMsg('Erreur marquée comme résolue')
+    } catch (err) {
+      console.error('Failed to resolve error log:', err)
+      showMsg('Erreur lors de la mise à jour', 'error')
+    }
+  }
+
+  const resolveAllErrorLogs = async () => {
+    if (!confirm('Marquer toutes les erreurs comme résolues ?')) return
+    try {
+      await api.patch('/error-logs/resolve-all')
+      setErrorLogs(prev => {
+        if (errorLogFilter === 'open') return []
+        return prev.map(l => ({ ...l, resolved: true, resolvedAt: new Date().toISOString() }))
+      })
+      showMsg('Toutes les erreurs sont résolues')
+    } catch (err) {
+      console.error('Failed to resolve all error logs:', err)
+      showMsg('Erreur lors de la mise à jour', 'error')
     }
   }
 
@@ -345,7 +411,7 @@ export default function AdminSettings() {
         {navItems.map(item => {
           const Icon = Icons[item.icon]
           return (
-            <button key={item.id} className={`settings-nav-item ${activeSection === item.id ? 'active' : ''}`} onClick={() => scrollToSection(item.id)}>
+            <button type="button" key={item.id} className={`settings-nav-item ${activeSection === item.id ? 'active' : ''}`} onClick={() => scrollToSection(item.id)}>
               <span className="settings-nav-icon"><Icon /></span>
               {item.label}
             </button>
@@ -358,7 +424,7 @@ export default function AdminSettings() {
         <div className="settings-header">
           <div className="settings-header-top">
             <div>
-              <button className="mobile-menu-btn" onClick={() => setMobileMenuOpen(true)} style={{ display: 'none' }}><Icons.Menu /> Menu</button>
+              <button type="button" className="mobile-menu-btn" onClick={() => setMobileMenuOpen(true)} style={{ display: 'none' }}><Icons.Menu /> Menu</button>
               <h1 className="settings-title">Paramètres Globaux</h1>
               <p className="settings-subtitle">Gérez les configurations et accès de l'application</p>
             </div>
@@ -377,7 +443,7 @@ export default function AdminSettings() {
                 <h3>🧪 Ouvrir Simulation Lab</h3>
                 <p>Environnement isolé pour tester les fonctionnalités sans affecter les données réelles.</p>
               </div>
-              <button className="settings-btn primary" onClick={openSimulationLab}>Ouvrir dans un nouvel onglet</button>
+              <button type="button" className="settings-btn primary" onClick={openSimulationLab}>Ouvrir dans un nouvel onglet</button>
             </div>
           </SectionCard>
 
@@ -407,8 +473,116 @@ export default function AdminSettings() {
                 <h3>🔍 État de Surveillance</h3>
                 <p>Consulter le bilan des fonctionnalités de monitoring et de sécurité.</p>
               </div>
-              <button className="settings-btn" style={{ background: '#ff7675', color: 'white' }} onClick={() => navigate('/admin/monitoring')}>Ouvrir les Diagnostics</button>
+              <button type="button" className="settings-btn" style={{ background: '#ff7675', color: 'white' }} onClick={() => navigate('/admin/monitoring')}>Ouvrir les Diagnostics</button>
             </div>
+          </SectionCard>
+
+          {/* Error Logs */}
+          <SectionCard id="errors">
+            <div className="setting-item">
+              <div className="setting-info">
+                <h3>🧯 Erreurs utilisateurs ({errorLogs.filter(l => !l.resolved).length})</h3>
+                <p>Liste des erreurs rencontrées par les utilisateurs (enseignants, préfets, AEFE, admin).</p>
+              </div>
+              <div className="settings-btn-group">
+                <select className="settings-select" value={errorLogFilter} onChange={e => setErrorLogFilter(e.target.value as any)}>
+                  <option value="open">Non résolues</option>
+                  <option value="resolved">Résolues</option>
+                  <option value="all">Toutes</option>
+                </select>
+                <button type="button" className="settings-btn secondary" onClick={() => loadErrorLogs(errorLogFilter)} disabled={errorLogsLoading}>
+                  {errorLogsLoading ? '⏳' : '🔄'} Rafraîchir
+                </button>
+                {errorLogs.some(l => !l.resolved) && (
+                  <button type="button" className="settings-btn danger" onClick={resolveAllErrorLogs}>
+                    ✅ Tout résoudre
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {errorLogsLoading && errorLogs.length === 0 && (
+              <div style={{ padding: '24px', textAlign: 'center', color: '#64748b' }}>
+                ⏳ Chargement des erreurs...
+              </div>
+            )}
+
+            {!errorLogsLoading && errorLogs.length === 0 && (
+              <div style={{
+                padding: '24px',
+                textAlign: 'center',
+                color: '#64748b',
+                background: '#f8fafc',
+                borderRadius: 12,
+                marginTop: '1rem'
+              }}>
+                ✅ Aucune erreur enregistrée
+              </div>
+            )}
+
+            {errorLogs.length > 0 && (
+              <div className="backup-table-wrapper" style={{ marginTop: '1rem' }}>
+                <table className="backup-table">
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Utilisateur</th>
+                      <th>Rôle</th>
+                      <th>Endpoint</th>
+                      <th>Message</th>
+                      <th>Statut</th>
+                      <th style={{ textAlign: 'right' }}>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {errorLogs.map(log => (
+                      <tr key={log._id}>
+                        <td>
+                          <div style={{ fontSize: 13, fontWeight: 500 }}>
+                            {log.createdAt ? new Date(log.createdAt).toLocaleDateString('fr-FR') : '-'}
+                          </div>
+                          <div style={{ fontSize: 11, color: '#64748b' }}>
+                            {log.createdAt ? new Date(log.createdAt).toLocaleTimeString('fr-FR') : ''}
+                          </div>
+                        </td>
+                        <td>
+                          <div style={{ fontSize: 13, fontWeight: 500 }}>{log.displayName || 'Utilisateur'}</div>
+                          <div style={{ fontSize: 11, color: '#64748b' }}>{log.email || log.userId}</div>
+                        </td>
+                        <td>
+                          <span className={`error-log-badge ${log.role?.toLowerCase() || 'role'}`}>
+                            {log.role || '-'}
+                          </span>
+                        </td>
+                        <td style={{ fontSize: 12 }}>
+                          <div style={{ fontWeight: 600 }}>{log.method || 'GET'}</div>
+                          <div style={{ color: '#64748b' }}>{log.url || '-'}</div>
+                        </td>
+                        <td style={{ fontSize: 12, color: '#0f172a' }}>
+                          {log.message || '-'}
+                          {log.status ? <div style={{ color: '#64748b' }}>HTTP {log.status}</div> : null}
+                        </td>
+                        <td>
+                          <span className={`error-log-status ${log.resolved ? 'resolved' : 'open'}`}>
+                            {log.resolved ? 'Résolue' : 'Ouverte'}
+                          </span>
+                        </td>
+                        <td style={{ textAlign: 'right' }}>
+                          {!log.resolved && (
+                            <button type="button" className="settings-btn success" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => resolveErrorLog(log._id)}>
+                              ✅ Résoudre
+                            </button>
+                          )}
+                          {log.resolved && (
+                            <span style={{ fontSize: 12, color: '#64748b' }}>✔</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </SectionCard>
 
           {/* School Year */}
@@ -654,8 +828,8 @@ export default function AdminSettings() {
               </div>
             </div>
             <div className="settings-btn-group" style={{ marginTop: '1rem' }}>
-              <button className="settings-btn primary" onClick={saveSmtpSettings}>💾 Sauvegarder</button>
-              <button className="settings-btn secondary" onClick={() => testSmtpConnection(false)} disabled={smtpTesting || !smtpHost || !smtpUser || !smtpPass}>
+              <button type="button" className="settings-btn primary" onClick={saveSmtpSettings}>💾 Sauvegarder</button>
+              <button type="button" className="settings-btn secondary" onClick={() => testSmtpConnection(false)} disabled={smtpTesting || !smtpHost || !smtpUser || !smtpPass}>
                 {smtpTesting ? '⏳ Test...' : '🔌 Tester la connexion'}
               </button>
             </div>
@@ -663,7 +837,7 @@ export default function AdminSettings() {
               <label style={{ display: 'block', marginBottom: 8, fontWeight: 500, color: '#475569' }}>Envoyer un email de test</label>
               <div className="email-test-row">
                 <input type="email" className="settings-input" value={smtpTestEmail} onChange={e => setSmtpTestEmail(e.target.value)} placeholder="destinataire@email.com" />
-                <button className="settings-btn success" onClick={() => testSmtpConnection(true)} disabled={smtpTesting || !smtpHost || !smtpUser || !smtpPass || !smtpTestEmail}>
+                <button type="button" className="settings-btn success" onClick={() => testSmtpConnection(true)} disabled={smtpTesting || !smtpHost || !smtpUser || !smtpPass || !smtpTestEmail}>
                   {smtpTesting ? '⏳' : '📧'} Envoyer
                 </button>
               </div>
@@ -712,7 +886,7 @@ export default function AdminSettings() {
                 <h3>💾 Créer une sauvegarde</h3>
                 <p>Sauvegarder l'état actuel de la base de données sur le serveur.</p>
               </div>
-              <button className="settings-btn primary" onClick={createBackup} disabled={backupLoading}>{backupLoading ? 'Création...' : '💾 Créer Sauvegarde'}</button>
+              <button type="button" className="settings-btn primary" onClick={createBackup} disabled={backupLoading}>{backupLoading ? 'Création...' : '💾 Créer Sauvegarde'}</button>
             </div>
             {backups.length > 0 && (
               <div className="backup-table-wrapper">
@@ -725,8 +899,8 @@ export default function AdminSettings() {
                         <td className="backup-size">{(b.size / 1024 / 1024).toFixed(2)} MB</td>
                         <td>
                           <div className="backup-actions">
-                            <button className="settings-btn secondary" onClick={() => restoreBackup(b.name)} disabled={backupLoading}>Restaurer</button>
-                            <button className="settings-btn danger" onClick={() => deleteBackup(b.name)} disabled={backupLoading}>🗑️</button>
+                            <button type="button" className="settings-btn secondary" onClick={() => restoreBackup(b.name)} disabled={backupLoading}>Restaurer</button>
+                            <button type="button" className="settings-btn danger" onClick={() => deleteBackup(b.name)} disabled={backupLoading}>🗑️</button>
                           </div>
                         </td>
                       </tr>
@@ -739,7 +913,7 @@ export default function AdminSettings() {
               <div className="danger-zone-header"><Icons.AlertTriangle /><h3>Zone de Danger</h3></div>
               <div className="setting-item" style={{ background: '#fef2f2' }}>
                 <div className="setting-info"><h3 style={{ color: '#ef4444' }}>Vider la base de données</h3><p>Action irréversible. Supprime toutes les données sauf admin et niveaux par défaut.</p></div>
-                <button className="settings-btn danger" onClick={emptyDb} disabled={backupLoading} style={{ background: emptyClickCount > 0 ? '#b91c1c' : undefined }}>
+                <button type="button" className="settings-btn danger" onClick={emptyDb} disabled={backupLoading} style={{ background: emptyClickCount > 0 ? '#b91c1c' : undefined }}>
                   {emptyClickCount > 0 ? (emptyClickCount === 4 ? '⚠️ DERNIÈRE CHANCE !' : `⚠️ Confirmer (${emptyClickCount}/5)`) : '⚠️ Vider la BDD'}
                 </button>
               </div>
@@ -750,11 +924,11 @@ export default function AdminSettings() {
           <SectionCard id="maintenance">
             <div className="setting-item">
               <div className="setting-info"><h3>⬇️ Sauvegarde complète</h3><p>Télécharger une archive ZIP contenant tout le code source et la base de données</p></div>
-              <button className="settings-btn secondary" onClick={downloadBackup} disabled={backupLoading}>{backupLoading ? 'Création...' : '⬇️ Télécharger Backup Complet'}</button>
+              <button type="button" className="settings-btn secondary" onClick={downloadBackup} disabled={backupLoading}>{backupLoading ? 'Création...' : '⬇️ Télécharger Backup Complet'}</button>
             </div>
             <div className="setting-item">
               <div className="setting-info"><h3>🔄 Redémarrer le serveur</h3><p>Redémarrer le backend pour appliquer les nouvelles fonctionnalités</p></div>
-              <button className="settings-btn danger" onClick={async () => { if (!confirm('Redémarrer le serveur ?')) return; try { await api.post('/settings/restart'); showMsg('Redémarrage en cours...') } catch { showMsg('Erreur', 'error') } }}>🔄 Redémarrer</button>
+              <button type="button" className="settings-btn danger" onClick={async () => { if (!confirm('Redémarrer le serveur ?')) return; try { await api.post('/settings/restart'); showMsg('Redémarrage en cours...') } catch { showMsg('Erreur', 'error') } }}>🔄 Redémarrer</button>
             </div>
             <div className="auto-backup-card">
               <div className="auto-backup-header">
@@ -777,7 +951,7 @@ export default function AdminSettings() {
                 </div>
                 <div className="settings-form-group">
                   <label>Destination</label>
-                  <button className="settings-btn secondary" onClick={pickFolder} style={{ background: dirHandle ? '#e0f2fe' : 'white', borderColor: dirHandle ? '#7dd3fc' : '#e2e8f0', color: dirHandle ? '#0284c7' : '#475569' }}>
+                  <button type="button" className="settings-btn secondary" onClick={pickFolder} style={{ background: dirHandle ? '#e0f2fe' : 'white', borderColor: dirHandle ? '#7dd3fc' : '#e2e8f0', color: dirHandle ? '#0284c7' : '#475569' }}>
                     <Icons.Folder /> {dirHandle ? 'Dossier sélectionné' : 'Choisir le dossier'}
                   </button>
                 </div>
@@ -796,6 +970,7 @@ export default function AdminSettings() {
                 <p>Simulez la notification d'expiration de session qui apparaît 5 minutes avant la fin. Cela vous permet de voir l'apparence et de tester le bouton "+30 min".</p>
               </div>
               <button
+                type="button"
                 className="settings-btn primary"
                 onClick={() => {
                   setTestToast({
