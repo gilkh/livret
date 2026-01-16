@@ -69,6 +69,49 @@ const isLanguageAllowedForTeacher = (code: any, allowedLanguages: any, isProfPol
     return false
 }
 
+const normalizeLanguageCode = (code: any) => {
+    const c = String(code || '').toLowerCase()
+    if (!c) return ''
+    if (c === 'lb' || c === 'ar') return 'ar'
+    if (c === 'en' || c === 'uk' || c === 'gb') return 'en'
+    if (c === 'fr') return 'fr'
+    return c
+}
+
+const normalizeLanguageCodes = (codes: any[]) => {
+    const normalized = (Array.isArray(codes) ? codes : []).map(normalizeLanguageCode).filter(Boolean)
+    return [...new Set(normalized)]
+}
+
+const getCompletionLanguagesForTeacher = (teacherClassAssignment: any | null | undefined) => {
+    const langs = normalizeLanguageCodes(teacherClassAssignment?.languages || [])
+    if (langs.length > 0) return langs
+    if (teacherClassAssignment?.isProfPolyvalent) return ['fr']
+    return ['ar', 'en', 'fr']
+}
+
+const buildLanguageCompletionMap = (languageCompletions: any[]) => {
+    const map: Record<string, any> = {}
+    ;(Array.isArray(languageCompletions) ? languageCompletions : []).forEach((entry: any) => {
+        const code = normalizeLanguageCode(entry?.code)
+        if (!code) return
+        map[code] = { ...(entry || {}), code }
+    })
+    return map
+}
+
+const isLanguageCompletedForSemester = (languageCompletionMap: Record<string, any>, code: string, semester: number) => {
+    const entry = languageCompletionMap[normalizeLanguageCode(code)]
+    if (!entry) return false
+    if (semester === 1) return !!(entry.completedSem1 || entry.completed)
+    return !!entry.completedSem2
+}
+
+const computeTeacherCompletionForSemester = (languageCompletionMap: Record<string, any>, languages: string[], semester: number) => {
+    if (!Array.isArray(languages) || languages.length === 0) return false
+    return languages.every(code => isLanguageCompletedForSemester(languageCompletionMap, code, semester))
+}
+
 const findEnrollmentForStudent = async (studentId: string) => {
     const activeYear = await withCache('school-years-active', () =>
         SchoolYear.findOne({ active: true }).lean()
@@ -224,6 +267,12 @@ teacherTemplatesRouter.get('/students/:studentId/templates', requireAuth(['TEACH
             assignedTeachers: teacherId,
         }).lean()
 
+        const { enrollment } = await findEnrollmentForStudent(studentId)
+        const teacherClassAssignment = enrollment?.classId
+            ? await TeacherClassAssignment.findOne({ teacherId, classId: enrollment.classId }).lean()
+            : null
+        const completionLanguages = getCompletionLanguagesForTeacher(teacherClassAssignment)
+
         // Fetch template details
         const templateIds = assignments.map(a => a.templateId)
         const templates = await Promise.all(templateIds.map(id =>
@@ -234,12 +283,38 @@ teacherTemplatesRouter.get('/students/:studentId/templates', requireAuth(['TEACH
         const result = assignments.map(assignment => {
             const template = templates.find(t => t && String((t as any)._id) === assignment.templateId)
             const myCompletion = (assignment as any).teacherCompletions?.find((tc: any) => tc.teacherId === teacherId)
+            const languageCompletionMap = buildLanguageCompletionMap((assignment as any).languageCompletions || [])
+
+            if (Object.keys(languageCompletionMap).length === 0 && myCompletion) {
+                if (myCompletion.completedSem1 || myCompletion.completed) {
+                    completionLanguages.forEach(code => {
+                        languageCompletionMap[code] = {
+                            code,
+                            completed: true,
+                            completedSem1: true
+                        }
+                    })
+                }
+                if (myCompletion.completedSem2) {
+                    completionLanguages.forEach(code => {
+                        const existing = languageCompletionMap[code] || { code }
+                        languageCompletionMap[code] = {
+                            ...existing,
+                            completedSem2: true
+                        }
+                    })
+                }
+            }
+
+            const isMyWorkCompletedSem1 = computeTeacherCompletionForSemester(languageCompletionMap, completionLanguages, 1)
+            const isMyWorkCompletedSem2 = computeTeacherCompletionForSemester(languageCompletionMap, completionLanguages, 2)
+
             return {
                 ...assignment,
                 template,
-                isMyWorkCompleted: !!myCompletion?.completed,
-                isMyWorkCompletedSem1: !!myCompletion?.completedSem1,
-                isMyWorkCompletedSem2: !!myCompletion?.completedSem2
+                isMyWorkCompleted: isMyWorkCompletedSem1,
+                isMyWorkCompletedSem1,
+                isMyWorkCompletedSem2
             }
         })
 
@@ -405,6 +480,8 @@ teacherTemplatesRouter.get('/template-assignments/:assignmentId', requireAuth(['
             return res.status(403).json({ error: 'student_not_enrolled' })
         }
 
+        let teacherClassAssignment: any = null
+
         if (enrollment && enrollment.classId) {
             const classDoc = await ClassModel.findById(enrollment.classId).lean()
             if (classDoc) {
@@ -413,7 +490,7 @@ teacherTemplatesRouter.get('/template-assignments/:assignmentId', requireAuth(['
             }
 
             // Strict check: Teacher MUST be assigned to this class
-            const teacherClassAssignment = await TeacherClassAssignment.findOne({
+            teacherClassAssignment = await TeacherClassAssignment.findOne({
                 teacherId,
                 classId: enrollment.classId
             }).lean()
@@ -431,15 +508,38 @@ teacherTemplatesRouter.get('/template-assignments/:assignmentId', requireAuth(['
         const isSigned = await isAssignmentSigned(assignmentId)
         const canEdit = !isSigned // Teachers cannot edit signed gradebooks
 
-        const isProfPolyvalent = (enrollment && enrollment.classId)
-            ? (await TeacherClassAssignment.findOne({ teacherId, classId: enrollment.classId }).lean() as any)?.isProfPolyvalent
-            : false
+        const isProfPolyvalent = teacherClassAssignment ? !!(teacherClassAssignment as any).isProfPolyvalent : false
+
+        const completionLanguages = getCompletionLanguagesForTeacher(teacherClassAssignment)
 
         // Check my completion status
         const myCompletion = (assignment as any).teacherCompletions?.find((tc: any) => tc.teacherId === teacherId)
-        const isMyWorkCompleted = !!myCompletion?.completed
-        const isMyWorkCompletedSem1 = !!myCompletion?.completedSem1
-        const isMyWorkCompletedSem2 = !!myCompletion?.completedSem2
+        const languageCompletionMap = buildLanguageCompletionMap((assignment as any).languageCompletions || [])
+
+        if (Object.keys(languageCompletionMap).length === 0 && myCompletion) {
+            if (myCompletion.completedSem1 || myCompletion.completed) {
+                completionLanguages.forEach(code => {
+                    languageCompletionMap[code] = {
+                        code,
+                        completed: true,
+                        completedSem1: true
+                    }
+                })
+            }
+            if (myCompletion.completedSem2) {
+                completionLanguages.forEach(code => {
+                    const existing = languageCompletionMap[code] || { code }
+                    languageCompletionMap[code] = {
+                        ...existing,
+                        completedSem2: true
+                    }
+                })
+            }
+        }
+
+        const isMyWorkCompletedSem1 = computeTeacherCompletionForSemester(languageCompletionMap, completionLanguages, 1)
+        const isMyWorkCompletedSem2 = computeTeacherCompletionForSemester(languageCompletionMap, completionLanguages, 2)
+        const isMyWorkCompleted = isMyWorkCompletedSem1
 
         // Get active semester from the active school year
         const activeSemester = (activeYear as any)?.activeSemester || 1
@@ -455,6 +555,8 @@ teacherTemplatesRouter.get('/template-assignments/:assignmentId', requireAuth(['
             isMyWorkCompleted,
             isMyWorkCompletedSem1,
             isMyWorkCompletedSem2,
+            completionLanguages,
+            languageCompletion: languageCompletionMap,
             activeSemester
         })
     } catch (e: any) {
@@ -654,7 +756,49 @@ teacherTemplatesRouter.post('/templates/:assignmentId/mark-done', requireAuth(['
             return res.status(403).json({ error: 'gradebook_signed', message: 'Cannot modify a signed gradebook' })
         }
 
-        // Update teacher completion
+        const { enrollment } = await findEnrollmentForStudent(assignment.studentId)
+        const teacherClassAssignment = enrollment?.classId
+            ? await TeacherClassAssignment.findOne({ teacherId, classId: enrollment.classId }).lean()
+            : null
+        const completionLanguages = getCompletionLanguagesForTeacher(teacherClassAssignment)
+
+        const requestedLanguages = normalizeLanguageCodes(
+            Array.isArray(req.body.languages) ? req.body.languages : (req.body.language ? [req.body.language] : [])
+        )
+        const targetLanguages = requestedLanguages.length > 0 ? requestedLanguages : completionLanguages
+        const allowedSet = new Set(completionLanguages)
+        const filteredTargets = targetLanguages.filter(code => allowedSet.has(code))
+
+        if (filteredTargets.length === 0) {
+            return res.status(403).json({ error: 'language_not_allowed' })
+        }
+
+        let languageCompletions = Array.isArray((assignment as any).languageCompletions)
+            ? [...(assignment as any).languageCompletions]
+            : []
+
+        const now = new Date()
+        filteredTargets.forEach(code => {
+            const normalized = normalizeLanguageCode(code)
+            if (!normalized) return
+            let entry = languageCompletions.find((lc: any) => normalizeLanguageCode(lc?.code) === normalized)
+            if (!entry) {
+                entry = { code: normalized }
+                languageCompletions.push(entry)
+            }
+            if (targetSemester === 1) {
+                entry.completedSem1 = true
+                entry.completedAtSem1 = now
+                entry.completed = true
+                entry.completedAt = now
+            } else {
+                entry.completedSem2 = true
+                entry.completedAtSem2 = now
+            }
+        })
+
+        const languageCompletionMap = buildLanguageCompletionMap(languageCompletions)
+
         let teacherCompletions = (assignment as any).teacherCompletions || []
 
         // Find existing entry or create new
@@ -664,25 +808,37 @@ teacherTemplatesRouter.post('/templates/:assignmentId/mark-done', requireAuth(['
             entryIndex = teacherCompletions.length - 1
         }
 
-        // Update specific semester
-        if (targetSemester === 1) {
-            teacherCompletions[entryIndex].completedSem1 = true
-            teacherCompletions[entryIndex].completedAtSem1 = new Date()
-            // Legacy/Backward compatibility
-            teacherCompletions[entryIndex].completed = true
-            teacherCompletions[entryIndex].completedAt = new Date()
-        } else {
-            teacherCompletions[entryIndex].completedSem2 = true
-            teacherCompletions[entryIndex].completedAtSem2 = new Date()
+        const teacherCompletedSem1 = computeTeacherCompletionForSemester(languageCompletionMap, completionLanguages, 1)
+        const teacherCompletedSem2 = computeTeacherCompletionForSemester(languageCompletionMap, completionLanguages, 2)
+
+        teacherCompletions[entryIndex].completedSem1 = teacherCompletedSem1
+        teacherCompletions[entryIndex].completedAtSem1 = teacherCompletedSem1 ? (teacherCompletions[entryIndex].completedAtSem1 || now) : null
+        teacherCompletions[entryIndex].completedSem2 = teacherCompletedSem2
+        teacherCompletions[entryIndex].completedAtSem2 = teacherCompletedSem2 ? (teacherCompletions[entryIndex].completedAtSem2 || now) : null
+        teacherCompletions[entryIndex].completed = teacherCompletedSem1
+        teacherCompletions[entryIndex].completedAt = teacherCompletedSem1 ? (teacherCompletions[entryIndex].completedAt || now) : null
+
+        const classAssignments = enrollment?.classId
+            ? await TeacherClassAssignment.find({ classId: enrollment.classId }).lean()
+            : []
+
+        const teacherLanguagesMap = new Map<string, string[]>()
+        ;(classAssignments || []).forEach((ta: any) => {
+            teacherLanguagesMap.set(String(ta.teacherId), getCompletionLanguagesForTeacher(ta))
+        })
+
+        const getLanguagesForTeacher = (tid: string) => {
+            return teacherLanguagesMap.get(String(tid)) || ['ar', 'en', 'fr']
         }
 
-        // Check if all teachers have completed THIS semester
-        const allCompletedSem = assignment.assignedTeachers.every((tid: string) =>
-            teacherCompletions.some((tc: any) => tc.teacherId === tid && (targetSemester === 1 ? tc.completedSem1 : tc.completedSem2))
+        // Check if all teachers have completed THIS semester based on language completion
+        const allCompletedSem = (assignment.assignedTeachers || []).every((tid: string) =>
+            computeTeacherCompletionForSemester(languageCompletionMap, getLanguagesForTeacher(tid), targetSemester)
         )
 
         const updateData: any = {
             teacherCompletions,
+            languageCompletions,
         }
 
         if (targetSemester === 1) {
@@ -693,12 +849,12 @@ teacherTemplatesRouter.post('/templates/:assignmentId/mark-done', requireAuth(['
             // Or should main status depend on both? 
             // For now, let's link legacy 'isCompleted' to Sem1 as it was the only semester before.
             updateData.isCompleted = allCompletedSem
-            updateData.completedAt = allCompletedSem ? new Date() : undefined
+            updateData.completedAt = allCompletedSem ? now : undefined
             updateData.completedBy = allCompletedSem ? teacherId : undefined // Approximate
             updateData.status = allCompletedSem ? 'completed' : 'in_progress'
         } else {
             updateData.isCompletedSem2 = allCompletedSem
-            if (allCompletedSem) updateData.completedAtSem2 = new Date()
+            if (allCompletedSem) updateData.completedAtSem2 = now
             // Don't change main status for Sem2 yet, unless we want a new status
         }
 
@@ -754,7 +910,48 @@ teacherTemplatesRouter.post('/templates/:assignmentId/unmark-done', requireAuth(
             return res.status(403).json({ error: 'gradebook_signed', message: 'Cannot modify a signed gradebook' })
         }
 
-        // Update teacher completion
+        const { enrollment } = await findEnrollmentForStudent(assignment.studentId)
+        const teacherClassAssignment = enrollment?.classId
+            ? await TeacherClassAssignment.findOne({ teacherId, classId: enrollment.classId }).lean()
+            : null
+        const completionLanguages = getCompletionLanguagesForTeacher(teacherClassAssignment)
+
+        const requestedLanguages = normalizeLanguageCodes(
+            Array.isArray(req.body.languages) ? req.body.languages : (req.body.language ? [req.body.language] : [])
+        )
+        const targetLanguages = requestedLanguages.length > 0 ? requestedLanguages : completionLanguages
+        const allowedSet = new Set(completionLanguages)
+        const filteredTargets = targetLanguages.filter(code => allowedSet.has(code))
+
+        if (filteredTargets.length === 0) {
+            return res.status(403).json({ error: 'language_not_allowed' })
+        }
+
+        let languageCompletions = Array.isArray((assignment as any).languageCompletions)
+            ? [...(assignment as any).languageCompletions]
+            : []
+
+        filteredTargets.forEach(code => {
+            const normalized = normalizeLanguageCode(code)
+            if (!normalized) return
+            let entry = languageCompletions.find((lc: any) => normalizeLanguageCode(lc?.code) === normalized)
+            if (!entry) {
+                entry = { code: normalized }
+                languageCompletions.push(entry)
+            }
+            if (targetSemester === 1) {
+                entry.completedSem1 = false
+                entry.completedAtSem1 = null
+                entry.completed = false
+                entry.completedAt = null
+            } else {
+                entry.completedSem2 = false
+                entry.completedAtSem2 = null
+            }
+        })
+
+        const languageCompletionMap = buildLanguageCompletionMap(languageCompletions)
+
         let teacherCompletions = (assignment as any).teacherCompletions || []
 
         let entryIndex = teacherCompletions.findIndex((tc: any) => tc.teacherId === teacherId)
@@ -763,31 +960,48 @@ teacherTemplatesRouter.post('/templates/:assignmentId/unmark-done', requireAuth(
             entryIndex = teacherCompletions.length - 1
         }
 
-        if (targetSemester === 1) {
-            teacherCompletions[entryIndex].completedSem1 = false
-            teacherCompletions[entryIndex].completedAtSem1 = null
-            // Legacy
-            teacherCompletions[entryIndex].completed = false
-            teacherCompletions[entryIndex].completedAt = null
-        } else {
-            teacherCompletions[entryIndex].completedSem2 = false
-            teacherCompletions[entryIndex].completedAtSem2 = null
+        const now = new Date()
+        const teacherCompletedSem1 = computeTeacherCompletionForSemester(languageCompletionMap, completionLanguages, 1)
+        const teacherCompletedSem2 = computeTeacherCompletionForSemester(languageCompletionMap, completionLanguages, 2)
+
+        teacherCompletions[entryIndex].completedSem1 = teacherCompletedSem1
+        teacherCompletions[entryIndex].completedAtSem1 = teacherCompletedSem1 ? (teacherCompletions[entryIndex].completedAtSem1 || now) : null
+        teacherCompletions[entryIndex].completedSem2 = teacherCompletedSem2
+        teacherCompletions[entryIndex].completedAtSem2 = teacherCompletedSem2 ? (teacherCompletions[entryIndex].completedAtSem2 || now) : null
+        teacherCompletions[entryIndex].completed = teacherCompletedSem1
+        teacherCompletions[entryIndex].completedAt = teacherCompletedSem1 ? (teacherCompletions[entryIndex].completedAt || now) : null
+
+        const classAssignments = enrollment?.classId
+            ? await TeacherClassAssignment.find({ classId: enrollment.classId }).lean()
+            : []
+
+        const teacherLanguagesMap = new Map<string, string[]>()
+        ;(classAssignments || []).forEach((ta: any) => {
+            teacherLanguagesMap.set(String(ta.teacherId), getCompletionLanguagesForTeacher(ta))
+        })
+
+        const getLanguagesForTeacher = (tid: string) => {
+            return teacherLanguagesMap.get(String(tid)) || ['ar', 'en', 'fr']
         }
+
+        const allCompletedSem = (assignment.assignedTeachers || []).every((tid: string) =>
+            computeTeacherCompletionForSemester(languageCompletionMap, getLanguagesForTeacher(tid), targetSemester)
+        )
 
         const updateData: any = {
             teacherCompletions,
+            languageCompletions,
         }
 
         if (targetSemester === 1) {
-            updateData.isCompletedSem1 = false
-            updateData.completedAtSem1 = null
-            // Legacy
-            updateData.isCompleted = false
-            updateData.completedAt = null
-            updateData.status = 'in_progress'
+            updateData.isCompletedSem1 = allCompletedSem
+            updateData.completedAtSem1 = allCompletedSem ? now : null
+            updateData.isCompleted = allCompletedSem
+            updateData.completedAt = allCompletedSem ? now : null
+            updateData.status = allCompletedSem ? 'completed' : 'in_progress'
         } else {
-            updateData.isCompletedSem2 = false
-            updateData.completedAtSem2 = null
+            updateData.isCompletedSem2 = allCompletedSem
+            updateData.completedAtSem2 = allCompletedSem ? now : null
         }
 
         // Update assignment
@@ -829,6 +1043,7 @@ teacherTemplatesRouter.get('/classes/:classId/assignments', requireAuth(['TEACHE
         // Verify teacher is assigned to this class
         const classAssignment = await TeacherClassAssignment.findOne({ teacherId, classId }).lean()
         if (!classAssignment) return res.status(403).json({ error: 'not_assigned_to_class' })
+        const completionLanguages = getCompletionLanguagesForTeacher(classAssignment)
 
         // Get students in class
         const enrollments = await Enrollment.find({ classId }).lean()
@@ -870,9 +1085,32 @@ teacherTemplatesRouter.get('/classes/:classId/assignments', requireAuth(['TEACHE
             const myCompletion = (assignment as any).teacherCompletions?.find(
                 (tc: any) => tc.teacherId === teacherId
             )
-            const isMyWorkCompleted = !!myCompletion?.completed
-            const isMyWorkCompletedSem1 = !!myCompletion?.completedSem1
-            const isMyWorkCompletedSem2 = !!myCompletion?.completedSem2
+            const languageCompletionMap = buildLanguageCompletionMap((assignment as any).languageCompletions || [])
+
+            if (Object.keys(languageCompletionMap).length === 0 && myCompletion) {
+                if (myCompletion.completedSem1 || myCompletion.completed) {
+                    completionLanguages.forEach(code => {
+                        languageCompletionMap[code] = {
+                            code,
+                            completed: true,
+                            completedSem1: true
+                        }
+                    })
+                }
+                if (myCompletion.completedSem2) {
+                    completionLanguages.forEach(code => {
+                        const existing = languageCompletionMap[code] || { code }
+                        languageCompletionMap[code] = {
+                            ...existing,
+                            completedSem2: true
+                        }
+                    })
+                }
+            }
+
+            const isMyWorkCompletedSem1 = computeTeacherCompletionForSemester(languageCompletionMap, completionLanguages, 1)
+            const isMyWorkCompletedSem2 = computeTeacherCompletionForSemester(languageCompletionMap, completionLanguages, 2)
+            const isMyWorkCompleted = isMyWorkCompletedSem1
 
             return {
                 ...assignment,
@@ -900,6 +1138,7 @@ teacherTemplatesRouter.get('/classes/:classId/completion-stats', requireAuth(['T
         // Verify teacher is assigned to this class
         const classAssignment = await TeacherClassAssignment.findOne({ teacherId, classId }).lean()
         if (!classAssignment) return res.status(403).json({ error: 'not_assigned_to_class' })
+        const completionLanguages = getCompletionLanguagesForTeacher(classAssignment)
 
         // Get students in class
         const enrollments = await Enrollment.find({ classId }).lean()
@@ -934,11 +1173,30 @@ teacherTemplatesRouter.get('/classes/:classId/completion-stats', requireAuth(['T
             const myCompletion = assignment.teacherCompletions?.find(
                 (tc: any) => tc.teacherId === teacherId
             )
-            if (!myCompletion) return false
-            if (semester === 2) {
-                return !!myCompletion.completedSem2
+            const languageCompletionMap = buildLanguageCompletionMap((assignment as any).languageCompletions || [])
+
+            if (Object.keys(languageCompletionMap).length === 0 && myCompletion) {
+                if (myCompletion.completedSem1 || myCompletion.completed) {
+                    completionLanguages.forEach((code: string) => {
+                        languageCompletionMap[code] = {
+                            code,
+                            completed: true,
+                            completedSem1: true
+                        }
+                    })
+                }
+                if (myCompletion.completedSem2) {
+                    completionLanguages.forEach((code: string) => {
+                        const existing = languageCompletionMap[code] || { code }
+                        languageCompletionMap[code] = {
+                            ...existing,
+                            completedSem2: true
+                        }
+                    })
+                }
             }
-            return !!myCompletion.completedSem1 || !!myCompletion.completed
+
+            return computeTeacherCompletionForSemester(languageCompletionMap, completionLanguages, semester)
         }
 
         for (const assignment of assignments) {

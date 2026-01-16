@@ -18,6 +18,18 @@ const templateAssignmentSchema = new Schema({
         }],
         default: []
     },
+    languageCompletions: {
+        type: [{
+            code: String,
+            completed: Boolean,
+            completedAt: Date,
+            completedSem1: Boolean,
+            completedAtSem1: Date,
+            completedSem2: Boolean,
+            completedAtSem2: Date
+        }],
+        default: []
+    },
     // Historical teacher completions per school year (never deleted)
     // Key: schoolYearId, Value: array of teacher completions for that year
     teacherCompletionsByYear: {

@@ -12,7 +12,17 @@ type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
 type Template = { _id?: string; name: string; pages: Page[]; signingPage?: number }
 type Student = { _id: string; firstName: string; lastName: string; level?: string; className?: string; dateOfBirth?: Date }
-type Assignment = { _id: string; status: string; data?: Record<string, any> }
+type Assignment = {
+    _id: string
+    status: string
+    data?: Record<string, any>
+    languageCompletions?: {
+        code: string
+        completed?: boolean
+        completedSem1?: boolean
+        completedSem2?: boolean
+    }[]
+}
 
 const pageWidth = 800
 const pageHeight = 1120
@@ -31,6 +41,8 @@ export default function TeacherTemplateEditor() {
     const [canEdit, setCanEdit] = useState(false)
     const [allowedLanguages, setAllowedLanguages] = useState<string[]>([])
     const [isProfPolyvalent, setIsProfPolyvalent] = useState(false)
+    const [completionLanguages, setCompletionLanguages] = useState<string[]>([])
+    const [languageCompletion, setLanguageCompletion] = useState<Record<string, { completed?: boolean; completedSem1?: boolean; completedSem2?: boolean }>>({})
     const [isMyWorkCompleted, setIsMyWorkCompleted] = useState(false) // Keep for backward compat if needed, or remove?
     const [isMyWorkCompletedSem1, setIsMyWorkCompletedSem1] = useState(false)
     const [isMyWorkCompletedSem2, setIsMyWorkCompletedSem2] = useState(false)
@@ -206,6 +218,8 @@ export default function TeacherTemplateEditor() {
                 setCanEdit(r.data.canEdit)
                 setAllowedLanguages(r.data.allowedLanguages || [])
                 setIsProfPolyvalent(r.data.isProfPolyvalent || false)
+                setCompletionLanguages(r.data.completionLanguages || [])
+                setLanguageCompletion(r.data.languageCompletion || buildLanguageCompletionMap(r.data.assignment))
                 setIsMyWorkCompleted(r.data.isMyWorkCompleted || false)
                 setIsMyWorkCompletedSem1(r.data.isMyWorkCompletedSem1 || false)
                 setIsMyWorkCompletedSem2(r.data.isMyWorkCompletedSem2 || false)
@@ -294,21 +308,88 @@ export default function TeacherTemplateEditor() {
         }
     }
 
-    const toggleCompletionSem = async (semester: number) => {
+    const normalizeLanguageCode = (code?: string) => {
+        const c = (code || '').toLowerCase()
+        if (!c) return ''
+        if (c === 'lb' || c === 'ar') return 'ar'
+        if (c === 'en' || c === 'uk' || c === 'gb') return 'en'
+        if (c === 'fr') return 'fr'
+        return c
+    }
+
+    const getLanguageLabel = (code?: string) => {
+        const c = normalizeLanguageCode(code)
+        if (c === 'ar') return 'Arabe'
+        if (c === 'en') return 'Anglais'
+        if (c === 'fr') return 'Polyvalent'
+        return code || 'Langue'
+    }
+
+    const buildLanguageCompletionMap = (assignmentValue?: Assignment | null) => {
+        const map: Record<string, { completed?: boolean; completedSem1?: boolean; completedSem2?: boolean }> = {}
+        const entries = assignmentValue?.languageCompletions || []
+        entries.forEach(entry => {
+            const code = normalizeLanguageCode(entry.code)
+            if (!code) return
+            map[code] = {
+                completed: entry.completed,
+                completedSem1: entry.completedSem1,
+                completedSem2: entry.completedSem2
+            }
+        })
+        return map
+    }
+
+    const isLanguageCompletedForSemester = (semester: number, code: string) => {
+        const entry = languageCompletion[normalizeLanguageCode(code)]
+        if (!entry) return false
+        if (semester === 1) return !!(entry.completedSem1 || entry.completed)
+        return !!entry.completedSem2
+    }
+
+    const areAllLanguagesCompleted = (
+        semester: number,
+        mapOverride?: Record<string, { completed?: boolean; completedSem1?: boolean; completedSem2?: boolean }>,
+        languagesOverride?: string[]
+    ) => {
+        const map = mapOverride || languageCompletion
+        const langs = (languagesOverride && languagesOverride.length > 0) ? languagesOverride : completionLanguages
+        if (langs.length === 0) return false
+        return langs.every(code => {
+            const entry = map[normalizeLanguageCode(code)]
+            if (!entry) return false
+            if (semester === 1) return !!(entry.completedSem1 || entry.completed)
+            return !!entry.completedSem2
+        })
+    }
+
+    const toggleCompletionSem = async (semester: number, languages?: string[]) => {
         if (!assignment) return
         try {
             setSaveStatus('Enregistrement...')
-            const isCompleted = semester === 1 ? isMyWorkCompletedSem1 : isMyWorkCompletedSem2
+            const targetLanguages = (languages && languages.length > 0) ? languages : completionLanguages
+            const isCompleted = targetLanguages.length > 0
+                ? targetLanguages.every(code => isLanguageCompletedForSemester(semester, code))
+                : (semester === 1 ? isMyWorkCompletedSem1 : isMyWorkCompletedSem2)
             const action = isCompleted ? 'unmark-done' : 'mark-done'
-            const r = await api.post(`/teacher/templates/${assignmentId}/${action}`, { semester })
+            const r = await api.post(`/teacher/templates/${assignmentId}/${action}`, { semester, languages: targetLanguages })
             setAssignment(r.data)
 
+            const nextMap = buildLanguageCompletionMap(r.data)
+            setLanguageCompletion(nextMap)
+            if (completionLanguages.length === 0 && targetLanguages.length > 0) {
+                setCompletionLanguages(targetLanguages.map(normalizeLanguageCode).filter(Boolean))
+            }
+
+            const nextSem1 = areAllLanguagesCompleted(1, nextMap, targetLanguages)
+            const nextSem2 = areAllLanguagesCompleted(2, nextMap, targetLanguages)
+
             if (semester === 1) {
-                setIsMyWorkCompletedSem1(!isCompleted)
+                setIsMyWorkCompletedSem1(nextSem1)
                 // Sync legacy
-                setIsMyWorkCompleted(!isCompleted)
+                setIsMyWorkCompleted(nextSem1)
             } else {
-                setIsMyWorkCompletedSem2(!isCompleted)
+                setIsMyWorkCompletedSem2(nextSem2)
             }
 
             setSaveStatus(!isCompleted ? 'Terminé avec succès ✓' : 'Rouvert avec succès')
@@ -430,7 +511,8 @@ export default function TeacherTemplateEditor() {
                     )}
                 </div>
 
-                <div style={{ marginBottom: 20 }}>
+                <div style={{ marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
+                    <div>
                     <h2 className="title" style={{ fontSize: 28, marginBottom: 8, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 12 }}>
                         <span>✏️ Édition du carnet - {student ? `${student.firstName} ${student.lastName}` : 'Élève'}</span>
                         {student?.level && (
@@ -476,49 +558,119 @@ export default function TeacherTemplateEditor() {
                         {assignment?.status === 'signed' && '✔️ Signé'}
                         {!['draft', 'in_progress', 'completed', 'signed'].includes(assignment?.status || '') && assignment?.status}
                     </div>
+                    </div>
                     {canEdit && (
-                        <>
-                            <button
-                                className="btn"
-                                onClick={() => toggleCompletionSem(1)}
-                                disabled={activeSemester !== 1}
-                                style={{
-                                    marginLeft: 12,
-                                    padding: '6px 12px',
-                                    fontSize: 13,
-                                    background: activeSemester !== 1 ? '#e2e8f0' : (isMyWorkCompletedSem1 ? '#fff' : '#10b981'),
-                                    color: activeSemester !== 1 ? '#94a3b8' : (isMyWorkCompletedSem1 ? '#ef4444' : '#fff'),
-                                    border: activeSemester !== 1 ? '1px solid #cbd5e1' : (isMyWorkCompletedSem1 ? '1px solid #ef4444' : 'none'),
-                                    cursor: activeSemester !== 1 ? 'not-allowed' : 'pointer',
-                                    borderRadius: 6,
-                                    fontWeight: 500,
-                                    opacity: activeSemester !== 1 ? 0.7 : 1
-                                }}
-                                title={activeSemester !== 1 ? "Le semestre 1 n'est pas actif" : ""}
-                            >
-                                {isMyWorkCompletedSem1 ? '❌ Rouvrir Sem 1' : '✅ Terminer Sem 1'}
-                            </button>
-                            <button
-                                className="btn"
-                                onClick={() => toggleCompletionSem(2)}
-                                disabled={activeSemester !== 2}
-                                style={{
-                                    marginLeft: 8,
-                                    padding: '6px 12px',
-                                    fontSize: 13,
-                                    background: activeSemester !== 2 ? '#e2e8f0' : (isMyWorkCompletedSem2 ? '#fff' : '#10b981'),
-                                    color: activeSemester !== 2 ? '#94a3b8' : (isMyWorkCompletedSem2 ? '#ef4444' : '#fff'),
-                                    border: activeSemester !== 2 ? '1px solid #cbd5e1' : (isMyWorkCompletedSem2 ? '1px solid #ef4444' : 'none'),
-                                    cursor: activeSemester !== 2 ? 'not-allowed' : 'pointer',
-                                    borderRadius: 6,
-                                    fontWeight: 500,
-                                    opacity: activeSemester !== 2 ? 0.7 : 1
-                                }}
-                                title={activeSemester !== 2 ? "Le semestre 2 n'est pas actif" : ""}
-                            >
-                                {isMyWorkCompletedSem2 ? '❌ Rouvrir Sem 2' : '✅ Terminer Sem 2'}
-                            </button>
-                        </>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            {[1, 2].map(sem => {
+                                const isActive = activeSemester === sem
+                                const disabled = !isActive
+                                const allCompleted = completionLanguages.length > 0
+                                    ? completionLanguages.every(code => isLanguageCompletedForSemester(sem, code))
+                                    : (sem === 1 ? isMyWorkCompletedSem1 : isMyWorkCompletedSem2)
+
+                                return (
+                                    <div key={sem} style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 12,
+                                        padding: '6px 10px',
+                                        background: disabled ? 'transparent' : '#f0f9ff',
+                                        borderRadius: 8,
+                                        border: disabled ? '1px solid transparent' : '1px solid #bae6fd'
+                                    }}>
+                                        <div style={{
+                                            fontWeight: 800,
+                                            fontSize: 13,
+                                            color: disabled ? '#94a3b8' : '#0369a1',
+                                            minWidth: 50
+                                        }}>
+                                            SEM {sem}
+                                        </div>
+
+                                        {!disabled && (
+                                            <div style={{ height: 20, width: 1, background: '#cbd5e1' }}></div>
+                                        )}
+
+                                        {completionLanguages.length > 1 && (
+                                            <button
+                                                className="btn"
+                                                onClick={() => toggleCompletionSem(sem, completionLanguages)}
+                                                disabled={disabled}
+                                                style={{
+                                                    padding: '4px 10px',
+                                                    fontSize: 12,
+                                                    borderRadius: 6,
+                                                    border: '1px solid #e2e8f0',
+                                                    background: disabled ? '#f1f5f9' : (allCompleted ? '#dcfce7' : '#fff'),
+                                                    color: disabled ? '#94a3b8' : (allCompleted ? '#166534' : '#475569'),
+                                                    cursor: disabled ? 'not-allowed' : 'pointer',
+                                                    fontWeight: 600,
+                                                    boxShadow: disabled ? 'none' : '0 1px 2px rgba(0,0,0,0.05)',
+                                                    transition: 'all 0.2s',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: 6
+                                                }}
+                                                title={disabled ? `Semestre ${sem} inactif` : (allCompleted ? "Tout rouvrir" : "Tout terminer")}
+                                            >
+                                                {allCompleted ? '✅ Tout Terminé' : '⚡ Tout Valider'}
+                                            </button>
+                                        )}
+
+                                        {completionLanguages.length === 0 && (
+                                            <button
+                                                className="btn"
+                                                onClick={() => toggleCompletionSem(sem)}
+                                                disabled={disabled}
+                                                style={{
+                                                    padding: '5px 12px',
+                                                    fontSize: 13,
+                                                    borderRadius: 6,
+                                                    border: '1px solid #e2e8f0',
+                                                    background: disabled ? '#f1f5f9' : (allCompleted ? '#dcfce7' : '#fff'),
+                                                    color: disabled ? '#94a3b8' : (allCompleted ? '#166534' : '#0f172a'),
+                                                    cursor: disabled ? 'not-allowed' : 'pointer',
+                                                    fontWeight: 600,
+                                                    boxShadow: disabled ? 'none' : '0 1px 2px rgba(0,0,0,0.05)',
+                                                    transition: 'all 0.2s'
+                                                }}
+                                            >
+                                                {allCompleted ? `✅ Semestre ${sem} Terminé` : `Valider Semestre ${sem}`}
+                                            </button>
+                                        )}
+
+                                        {completionLanguages.length > 0 && completionLanguages.map(code => {
+                                            const done = isLanguageCompletedForSemester(sem, code)
+                                            return (
+                                                <button
+                                                    key={code}
+                                                    onClick={() => toggleCompletionSem(sem, [code])}
+                                                    disabled={disabled}
+                                                    className="btn"
+                                                    style={{
+                                                        padding: '4px 10px',
+                                                        fontSize: 12,
+                                                        borderRadius: 100, // Pill shape
+                                                        border: `1px solid ${done ? '#22c55e' : '#cbd5e1'}`,
+                                                        background: disabled ? '#f1f5f9' : (done ? '#22c55e' : '#fff'),
+                                                        color: disabled ? '#94a3b8' : (done ? '#fff' : '#475569'),
+                                                        cursor: disabled ? 'not-allowed' : 'pointer',
+                                                        fontWeight: 600,
+                                                        transition: 'all 0.2s',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: 6
+                                                    }}
+                                                >
+                                                    {done && <span>✓</span>}
+                                                    {getLanguageLabel(code)}
+                                                </button>
+                                            )
+                                        })}
+                                    </div>
+                                )
+                            })}
+                        </div>
                     )}
                 </div>
 

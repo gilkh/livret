@@ -728,9 +728,9 @@ export default function TemplateBuilder() {
     },
     { type: 'dropdown', props: { label: 'Menu déroulant', options: ['Option 1', 'Option 2'], variableName: 'var1', width: 200, height: 40, fontSize: 12, color: '#333', semesters: [1, 2] } },
     { type: 'dropdown_reference', props: { dropdownNumber: 1, text: 'Référence dropdown #{number}', fontSize: 12, color: '#2d3436' } },
-    { type: 'dynamic_text', props: { text: '{student.firstName} {student.lastName}', fontSize: 14, color: '#2d3436' } },
-    { type: 'dynamic_text', props: { text: '{student.fullNameFatherInitial}', fontSize: 14, color: '#2d3436' } },
-    { type: 'dynamic_text', props: { text: '{student.dob_ddmmyyyy}', fontSize: 14, color: '#2d3436' } },
+    { type: 'dynamic_text', props: { text: '{student.firstName} {student.lastName}', fontSize: 14, color: '#2d3436', label: 'Nom complet (Prénom + Nom)' } },
+    { type: 'dynamic_text', props: { text: '{student.fullNameFatherInitial}', fontSize: 14, color: '#2d3436', label: 'Nom complet (Prénom + initiale père + nom)' } },
+    { type: 'dynamic_text', props: { text: '{student.dob_ddmmyyyy}', fontSize: 14, color: '#2d3436', label: 'Date de naissance (JJ/MM/AAAA)' } },
 
     // Title Pocket (pocket with text/image)
     {
@@ -3019,9 +3019,15 @@ export default function TemplateBuilder() {
               ]
             },
             {
+              title: 'Élève',
+              items: [
+                ...blocksPalette.filter(b => ['dynamic_text'].includes(b.type))
+              ]
+            },
+            {
               title: 'Interactif',
               items: [
-                ...blocksPalette.filter(b => ['language_toggle', 'language_toggle_v2', 'dropdown', 'dropdown_reference', 'dynamic_text'].includes(b.type))
+                ...blocksPalette.filter(b => ['language_toggle', 'language_toggle_v2', 'dropdown', 'dropdown_reference'].includes(b.type))
               ]
             }
           ].map((group, groupIndex) => (
@@ -3099,16 +3105,16 @@ export default function TemplateBuilder() {
                                         b.type === 'promotion_info' ? 'Info Passage' :
                                           b.type === 'teacher_text' ? 'Zone Texte Prof' :
                                             b.type === 'signature_box' ? 'Signature Box' :
-                                                b.type === 'signature_date' ? 'Date Signature (Subadmin)' :
-                                              b.type === 'signature' ? 'Signatures (Noms)' :
-                                                b.type === 'student_photo' ? 'Photo Élève' :
-                                                  b.type === 'language_toggle' ? 'Langues (V1)' :
-                                                    b.type === 'language_toggle_v2' ? 'Langues (V2)' :
-                                                      b.type === 'dropdown' ? 'Menu déroulant' :
-                                                        b.type === 'dropdown_reference' ? 'Référence Dropdown' :
-                                                          b.type === 'dynamic_text' ? 'Texte Dynamique' :
-                                                            b.type === 'gradebook_pocket' ? 'Title' :
-                                                              b.type
+                                              b.type === 'signature_date' ? 'Date Signature (Subadmin)' :
+                                                b.type === 'signature' ? 'Signatures (Noms)' :
+                                                  b.type === 'student_photo' ? 'Photo Élève' :
+                                                    b.type === 'language_toggle' ? 'Langues (V1)' :
+                                                      b.type === 'language_toggle_v2' ? 'Langues (V2)' :
+                                                        b.type === 'dropdown' ? 'Menu déroulant' :
+                                                          b.type === 'dropdown_reference' ? 'Référence Dropdown' :
+                                                            b.type === 'dynamic_text' ? 'Texte Dynamique' :
+                                                              b.type === 'gradebook_pocket' ? 'Title' :
+                                                                b.type
                       )}
                     </span>
                   </div>

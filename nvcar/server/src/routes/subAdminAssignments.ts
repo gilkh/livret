@@ -810,6 +810,14 @@ subAdminAssignmentsRouter.get('/teacher-progress', requireAuth(['SUBADMIN', 'AEF
 
                 // Determine completion status for categories based on teacher completion
                 const teacherCompletions = (assignment as any).teacherCompletions || []
+                const languageCompletions = (assignment as any).languageCompletions || []
+                const languageCompletionMap: Record<string, any> = {}
+                ;(Array.isArray(languageCompletions) ? languageCompletions : []).forEach((entry: any) => {
+                    const codeRaw = String(entry?.code || '').toLowerCase()
+                    const normalized = codeRaw === 'lb' || codeRaw === 'ar' ? 'ar' : (codeRaw === 'en' || codeRaw === 'uk' || codeRaw === 'gb') ? 'en' : codeRaw === 'fr' ? 'fr' : codeRaw
+                    if (!normalized) return
+                    languageCompletionMap[normalized] = { ...(entry || {}), code: normalized }
+                })
 
                 // Helper to check if a category is "done" by checking if any assigned teacher for that category has completed
                 const isCategoryCompleted = (categoryName: string, langCode?: string) => {
@@ -817,6 +825,10 @@ subAdminAssignmentsRouter.get('/teacher-progress', requireAuth(['SUBADMIN', 'AEF
                     const code = (langCode || '').toLowerCase()
                     const isArabic = code === 'ar' || code === 'lb' || l.includes('arabe') || l.includes('arabic') || l.includes('العربية')
                     const isEnglish = code === 'en' || code === 'uk' || code === 'gb' || l.includes('anglais') || l.includes('english')
+
+                    const normalized = isArabic ? 'ar' : isEnglish ? 'en' : 'fr'
+                    const lc = languageCompletionMap[normalized]
+                    if (lc && (lc.completedSem1 || lc.completedSem2 || lc.completed)) return true
 
                     // Find teachers responsible for this category in this class
                     let responsibleTeachers = teacherAssignments

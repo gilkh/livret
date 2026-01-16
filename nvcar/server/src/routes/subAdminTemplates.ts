@@ -1600,6 +1600,14 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
         }
 
         const teacherCompletions = (assignment as any).teacherCompletions || []
+        const languageCompletions = (assignment as any).languageCompletions || []
+        const languageCompletionMap: Record<string, any> = {}
+        ;(Array.isArray(languageCompletions) ? languageCompletions : []).forEach((entry: any) => {
+            const codeRaw = String(entry?.code || '').toLowerCase()
+            const normalized = codeRaw === 'lb' || codeRaw === 'ar' ? 'ar' : (codeRaw === 'en' || codeRaw === 'uk' || codeRaw === 'gb') ? 'en' : codeRaw === 'fr' ? 'fr' : codeRaw
+            if (!normalized) return
+            languageCompletionMap[normalized] = { ...(entry || {}), code: normalized }
+        })
         const teacherAssignments = resolvedClassId
             ? await TeacherClassAssignment.find({
                 classId: resolvedClassId,
@@ -1649,17 +1657,30 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
             .filter((ta: any) => isResponsibleTeacherFor(ta, 'poly'))
             .map((ta: any) => String(ta.teacherId))
 
-        const groupStatus = (ids: string[]) => {
-            const uniqueIds = [...new Set(ids)]
-            const doneSem1 = uniqueIds.some(tid =>
-                (teacherCompletions || []).some((tc: any) => String(tc.teacherId) === String(tid) && (tc.completedSem1 || tc.completed))
-            )
-            const doneSem2 = uniqueIds.some(tid =>
+        const isLanguageDone = (langCode: string, semester: number, teacherIds: string[]) => {
+            const entry = languageCompletionMap[langCode]
+            if (entry) {
+                if (semester === 1) return !!(entry.completedSem1 || entry.completed)
+                return !!entry.completedSem2
+            }
+
+            const uniqueIds = [...new Set(teacherIds)]
+            if (semester === 1) {
+                return uniqueIds.some(tid =>
+                    (teacherCompletions || []).some((tc: any) => String(tc.teacherId) === String(tid) && (tc.completedSem1 || tc.completed))
+                )
+            }
+
+            return uniqueIds.some(tid =>
                 (teacherCompletions || []).some((tc: any) => String(tc.teacherId) === String(tid) && tc.completedSem2)
             )
-            const doneOverall = uniqueIds.some(tid =>
-                (teacherCompletions || []).some((tc: any) => String(tc.teacherId) === String(tid) && (tc.completedSem2 || tc.completedSem1 || tc.completed))
-            )
+        }
+
+        const groupStatus = (ids: string[], langCode: string) => {
+            const uniqueIds = [...new Set(ids)]
+            const doneSem1 = isLanguageDone(langCode, 1, uniqueIds)
+            const doneSem2 = isLanguageDone(langCode, 2, uniqueIds)
+            const doneOverall = doneSem1 || doneSem2
             return {
                 teachers: uniqueIds.map(id => ({ id, name: getTeacherName(id) })),
                 doneSem1,
@@ -1669,9 +1690,9 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
         }
 
         const teacherStatus = {
-            arabic: groupStatus(arabicTeacherIds),
-            english: groupStatus(englishTeacherIds),
-            polyvalent: groupStatus(polyvalentTeacherIds)
+            arabic: groupStatus(arabicTeacherIds, 'ar'),
+            english: groupStatus(englishTeacherIds, 'en'),
+            polyvalent: groupStatus(polyvalentTeacherIds, 'fr')
         }
 
         if (!assignment.data) assignment.data = {}
