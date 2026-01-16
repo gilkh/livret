@@ -16,7 +16,7 @@ type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks
 type Template = { _id?: string; name: string; pages: Page[]; updatedAt?: string; signingPage?: number }
 type Year = { _id: string; name: string; active?: boolean }
 type ClassDoc = { _id: string; name: string; schoolYearId: string; level?: string }
-type StudentDoc = { _id: string; firstName: string; lastName: string; level?: string; nextLevel?: string; className?: string }
+type StudentDoc = { _id: string; firstName: string; lastName: string; level?: string; nextLevel?: string; className?: string; dateOfBirth?: Date | string }
 type TextRun = { text: string; bold?: boolean; underline?: boolean; color?: string }
 
 const pageWidth = 800
@@ -3099,16 +3099,16 @@ export default function TemplateBuilder() {
                                         b.type === 'promotion_info' ? 'Info Passage' :
                                           b.type === 'teacher_text' ? 'Zone Texte Prof' :
                                             b.type === 'signature_box' ? 'Signature Box' :
-                                                b.type === 'signature_date' ? 'Date Signature (Subadmin)' :
-                                              b.type === 'signature' ? 'Signatures (Noms)' :
-                                                b.type === 'student_photo' ? 'Photo Élève' :
-                                                  b.type === 'language_toggle' ? 'Langues (V1)' :
-                                                    b.type === 'language_toggle_v2' ? 'Langues (V2)' :
-                                                      b.type === 'dropdown' ? 'Menu déroulant' :
-                                                        b.type === 'dropdown_reference' ? 'Référence Dropdown' :
-                                                          b.type === 'dynamic_text' ? 'Texte Dynamique' :
-                                                            b.type === 'gradebook_pocket' ? 'Title' :
-                                                              b.type
+                                              b.type === 'signature_date' ? 'Date Signature (Subadmin)' :
+                                                b.type === 'signature' ? 'Signatures (Noms)' :
+                                                  b.type === 'student_photo' ? 'Photo Élève' :
+                                                    b.type === 'language_toggle' ? 'Langues (V1)' :
+                                                      b.type === 'language_toggle_v2' ? 'Langues (V2)' :
+                                                        b.type === 'dropdown' ? 'Menu déroulant' :
+                                                          b.type === 'dropdown_reference' ? 'Référence Dropdown' :
+                                                            b.type === 'dynamic_text' ? 'Texte Dynamique' :
+                                                              b.type === 'gradebook_pocket' ? 'Title' :
+                                                                b.type
                       )}
                     </span>
                   </div>

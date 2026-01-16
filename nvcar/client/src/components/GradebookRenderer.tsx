@@ -6,7 +6,7 @@ import { GradebookPocket } from './GradebookPocket'
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
 type Template = { _id?: string; name: string; pages: Page[] }
-type Student = { _id: string; firstName: string; lastName: string; level?: string; dateOfBirth: Date; className?: string }
+type Student = { _id: string; firstName: string; lastName: string; level?: string; dateOfBirth?: Date | string; className?: string }
 type Assignment = { _id: string; status: string; data?: any }
 
 const pageWidth = 800
@@ -310,11 +310,11 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                                     const fatherInitial = fatherName ? fatherName.charAt(0).toUpperCase() : ''
                                                     const fatherInitialWithDot = fatherInitial ? `${fatherInitial}.` : ''
                                                     const fullNameFatherInitial = [student.firstName, fatherInitialWithDot, student.lastName].filter(Boolean).join(' ')
-                                                    const dob = new Date(student.dateOfBirth)
+                                                    const dob = student.dateOfBirth ? new Date(student.dateOfBirth) : new Date(NaN)
                                                     const dobDdMmYyyy = isNaN(dob.getTime()) ? '' : `${String(dob.getUTCDate()).padStart(2, '0')}/${String(dob.getUTCMonth() + 1).padStart(2, '0')}/${String(dob.getUTCFullYear())}`
                                                     text = text.replace(/{student.firstName}/g, student.firstName)
                                                         .replace(/{student.lastName}/g, student.lastName)
-                                                        .replace(/{student.dob}/g, new Date(student.dateOfBirth).toLocaleDateString())
+                                                        .replace(/{student.dob}/g, student.dateOfBirth ? new Date(student.dateOfBirth).toLocaleDateString() : '')
                                                         .replace(/{student.fatherInitial}/g, fatherInitialWithDot)
                                                         .replace(/{student.fullNameFatherInitial}/g, fullNameFatherInitial)
                                                         .replace(/{student.dob_ddmmyyyy}/g, dobDdMmYyyy)
