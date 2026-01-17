@@ -4,7 +4,7 @@ import StudentSidebar from '../components/students/StudentSidebar'
 import StudentGrid from '../components/students/StudentGrid'
 import StudentDetails from '../components/students/StudentDetails'
 import FileDropZone from '../components/students/FileDropZone'
-import { Upload, CheckCircle, Trash2 } from 'lucide-react'
+import { Upload, CheckCircle, Trash2, Search, X, AlertTriangle, ImageOff, Copy } from 'lucide-react'
 
 type Student = {
   _id: string
@@ -44,6 +44,13 @@ export default function AdminStudents() {
   const [importReport, setImportReport] = useState<any>(null)
   const [dragActive, setDragActive] = useState(false)
   const [loading, setLoading] = useState(false)
+
+  // Photo check state
+  const [showPhotoCheck, setShowPhotoCheck] = useState(false)
+  const [photoCheckResult, setPhotoCheckResult] = useState<{ duplicates: any[]; missing: any[] } | null>(null)
+  const [checkingPhotos, setCheckingPhotos] = useState(false)
+  const [targetedImportReport, setTargetedImportReport] = useState<any>(null)
+  const [importingTargeted, setImportingTargeted] = useState(false)
 
   // Complete class state
   const [showCompleteConfirm, setShowCompleteConfirm] = useState(false)
@@ -96,6 +103,83 @@ export default function AdminStudents() {
     const r = await api.get('/students', { params: { schoolYearId: yearId } })
     setStudents(r.data)
     setLoading(false)
+  }
+
+  // Recalculate photo check from current students (used for refresh)
+  const recalculatePhotoCheck = (studentList: Student[]) => {
+    const byPhoto = new Map<string, Student[]>()
+    const missing: Student[] = []
+
+    for (const s of studentList) {
+      if (!s.avatarUrl) {
+        missing.push(s)
+      } else {
+        const key = s.avatarUrl
+        if (!byPhoto.has(key)) byPhoto.set(key, [])
+        byPhoto.get(key)!.push(s)
+      }
+    }
+
+    const duplicates: { avatarUrl: string; students: Student[] }[] = []
+    for (const [url, list] of byPhoto.entries()) {
+      if (list.length > 1) {
+        duplicates.push({ avatarUrl: url, students: list })
+      }
+    }
+
+    return { duplicates, missing }
+  }
+
+  const checkPhotos = async () => {
+    setCheckingPhotos(true)
+    setShowPhotoCheck(true)
+    setPhotoCheckResult(null)
+    setTargetedImportReport(null)
+
+    const result = recalculatePhotoCheck(students)
+    setPhotoCheckResult(result)
+    setCheckingPhotos(false)
+  }
+
+  // Refresh only the missing list without clearing import report
+  const refreshPhotoCheckOnly = async () => {
+    const r = await api.get('/students', { params: { schoolYearId: selectedYearId } })
+    setStudents(r.data)
+    const result = recalculatePhotoCheck(r.data)
+    setPhotoCheckResult(result)
+  }
+
+  const handleTargetedImport = async (file: File, targetIds: string[]) => {
+    if (!file || targetIds.length === 0) return
+
+    const ext = file.name.toLowerCase().split('.').pop()
+    if (!['zip', 'rar'].includes(ext || '')) {
+      alert('Format non supporté. Utilisez un fichier ZIP ou RAR.')
+      return
+    }
+
+    setImportingTargeted(true)
+    setTargetedImportReport(null)
+
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('targetStudentIds', JSON.stringify(targetIds))
+
+    try {
+      const res = await api.post('/media/import-photos', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      })
+      setTargetedImportReport(res.data)
+
+      // Refresh photo check after import (without clearing report)
+      if (res.data.success > 0) {
+        await refreshPhotoCheckOnly()
+      }
+    } catch (err: any) {
+      setTargetedImportReport({ error: err.response?.data?.error || 'Import failed' })
+    } finally {
+      setImportingTargeted(false)
+    }
   }
 
   // Get class ID from class name
@@ -155,8 +239,9 @@ export default function AdminStudents() {
   }
 
   const processBatchFile = async (file: File) => {
-    if (!file.name.endsWith('.zip')) {
-      alert("Veuillez télécharger un fichier ZIP")
+    const lowerName = file.name.toLowerCase()
+    if (!lowerName.endsWith('.zip') && !lowerName.endsWith('.rar')) {
+      alert("Veuillez télécharger un fichier ZIP ou RAR")
       return
     }
 
@@ -321,6 +406,14 @@ export default function AdminStudents() {
             <Upload size={18} />
             <span>Import Photos (Batch)</span>
           </button>
+          <button
+            className="btn"
+            onClick={checkPhotos}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', background: '#8b5cf6', borderColor: '#8b5cf6' }}
+          >
+            <Search size={18} />
+            <span>Vérifier Photos</span>
+          </button>
         </div>
       </div>
 
@@ -367,6 +460,260 @@ export default function AdminStudents() {
         />
       </div>
 
+      {/* MODAL: Photo Check Results */}
+      {showPhotoCheck && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000,
+          display: 'flex', alignItems: 'center', justifyContent: 'center'
+        }}>
+          <div style={{
+            background: '#fff', borderRadius: 12, width: '90%', maxWidth: 700, maxHeight: '80vh',
+            display: 'flex', flexDirection: 'column', boxShadow: '0 25px 50px rgba(0,0,0,0.25)'
+          }}>
+            <div style={{ padding: '20px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600 }}>Vérification des Photos</h2>
+              <button onClick={() => setShowPhotoCheck(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}>
+                <X size={20} color="#64748b" />
+              </button>
+            </div>
+
+            <div style={{ padding: 24, overflowY: 'auto', flex: 1 }}>
+              {checkingPhotos ? (
+                <div style={{ textAlign: 'center', padding: 40, color: '#64748b' }}>Vérification en cours...</div>
+              ) : photoCheckResult ? (
+                <>
+                  {/* Summary */}
+                  <div style={{ display: 'flex', gap: 16, marginBottom: 24 }}>
+                    <div style={{ flex: 1, padding: 16, background: photoCheckResult.duplicates.length > 0 ? '#fef3c7' : '#d1fae5', borderRadius: 8 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                        <Copy size={18} color={photoCheckResult.duplicates.length > 0 ? '#b45309' : '#059669'} />
+                        <span style={{ fontWeight: 600, color: photoCheckResult.duplicates.length > 0 ? '#92400e' : '#065f46' }}>
+                          {photoCheckResult.duplicates.length} photo(s) en double
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 12, color: photoCheckResult.duplicates.length > 0 ? '#a16207' : '#047857' }}>
+                        {photoCheckResult.duplicates.reduce((sum, d) => sum + d.students.length, 0)} élèves concernés
+                      </div>
+                    </div>
+                    <div style={{ flex: 1, padding: 16, background: photoCheckResult.missing.length > 0 ? '#fee2e2' : '#d1fae5', borderRadius: 8 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                        <ImageOff size={18} color={photoCheckResult.missing.length > 0 ? '#dc2626' : '#059669'} />
+                        <span style={{ fontWeight: 600, color: photoCheckResult.missing.length > 0 ? '#991b1b' : '#065f46' }}>
+                          {photoCheckResult.missing.length} élève(s) sans photo
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Duplicates */}
+                  {photoCheckResult.duplicates.length > 0 && (
+                    <div style={{ marginBottom: 24 }}>
+                      <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <AlertTriangle size={16} color="#b45309" /> Photos en double
+                      </h3>
+                      {photoCheckResult.duplicates.map((dup, i) => (
+                        <div key={i} style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: 12, marginBottom: 8 }}>
+                          <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                            <img
+                              src={dup.avatarUrl}
+                              alt=""
+                              style={{ width: 48, height: 48, borderRadius: 8, objectFit: 'cover', border: '2px solid #fbbf24' }}
+                              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                            />
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize: 12, color: '#92400e', marginBottom: 6 }}>
+                                Cette photo est utilisée par {dup.students.length} élèves :
+                              </div>
+                              {dup.students.map((s: Student) => (
+                                <div key={s._id} style={{ fontSize: 13, color: '#78350f', padding: '2px 0' }}>
+                                  • {s.firstName} {s.lastName} {s.className ? `(${s.className})` : ''}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Missing */}
+                  {photoCheckResult.missing.length > 0 && (
+                    <div>
+                      <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <ImageOff size={16} color="#dc2626" /> Élèves sans photo ({photoCheckResult.missing.length})
+                      </h3>
+
+                      {/* Import for missing students */}
+                      <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: 12, marginBottom: 12 }}>
+                        <div style={{ fontSize: 13, color: '#1e40af', marginBottom: 8, fontWeight: 500 }}>
+                          Importer les photos pour ces élèves :
+                        </div>
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                          <input
+                            type="file"
+                            accept=".zip,.rar"
+                            id="targeted-import-input"
+                            style={{ display: 'none' }}
+                            onChange={(e) => {
+                              const file = e.target.files?.[0]
+                              if (file) {
+                                handleTargetedImport(file, photoCheckResult.missing.map((s: Student) => s._id))
+                              }
+                              e.target.value = ''
+                            }}
+                          />
+                          <label
+                            htmlFor="targeted-import-input"
+                            className="btn"
+                            style={{
+                              display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px',
+                              cursor: importingTargeted ? 'wait' : 'pointer',
+                              opacity: importingTargeted ? 0.7 : 1
+                            }}
+                          >
+                            <Upload size={16} />
+                            {importingTargeted ? 'Import en cours...' : 'Choisir fichier ZIP/RAR'}
+                          </label>
+                        </div>
+                        <div style={{ fontSize: 11, color: '#64748b', marginTop: 6 }}>
+                          Seuls les élèves sans photo seront mis à jour.
+                        </div>
+                      </div>
+
+                      {/* Targeted import report */}
+                      {targetedImportReport && !targetedImportReport.error && (
+                        <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: 12, marginBottom: 12 }}>
+                          <div style={{ color: '#166534', fontSize: 13, fontWeight: 500, marginBottom: 8 }}>
+                            ✓ {targetedImportReport.success} photo(s) importée(s), {targetedImportReport.failed} échec(s)
+                          </div>
+
+                          {/* Detailed report - only show items needing review (hide matched + already fixed) */}
+                          {targetedImportReport.report && (() => {
+                            const missingIds = new Set((photoCheckResult?.missing || []).map((s: Student) => String(s._id)))
+                            const filteredReport = targetedImportReport.report.filter((r: any) => {
+                              if (r.status === 'matched') return false
+                              // Only show items that have at least one actionable similar student (in missing list)
+                              const actionableSuggestions = (r.similarStudents || []).filter((s: any) => missingIds.has(String(s._id)))
+                              if (actionableSuggestions.length === 0) return false
+                              return true
+                            })
+
+                            if (filteredReport.length === 0) return null
+
+                            return (
+                              <div style={{ maxHeight: 250, overflowY: 'auto', background: '#fff', borderRadius: 6, border: '1px solid #e2e8f0' }}>
+                                {filteredReport.map((r: any, i: number) => (
+                                  <div key={i} style={{ padding: '10px 12px', borderBottom: '1px solid #f1f5f9', fontSize: 12 }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                      <span style={{ color: '#334155' }}>{r.filename}</span>
+                                      {r.status === 'needs_review' ? (
+                                        <span style={{ fontSize: 11, padding: '2px 8px', background: '#fef3c7', color: '#92400e', borderRadius: 4 }}>À valider</span>
+                                      ) : (
+                                        <span style={{ fontSize: 11, padding: '2px 8px', background: '#fee2e2', color: '#991b1b', borderRadius: 4 }}>Non trouvé</span>
+                                      )}
+                                    </div>
+
+                                    {/* Show reason */}
+                                    {r.reason && (
+                                      <div style={{ marginTop: 4, fontSize: 11, color: '#64748b' }}>
+                                        Raison: {r.reason === 'no_match_in_class' ? 'Non trouvé dans la classe' : 
+                                                 r.reason === 'class_mismatch' ? 'Classe différente' :
+                                                 r.reason === 'multiple_matches' ? 'Plusieurs élèves possibles' : r.reason}
+                                      </div>
+                                    )}
+
+                                    {/* Similar students with confirm buttons - filter out those who now have photos */}
+                                    {r.similarStudents?.length > 0 && (
+                                      <div style={{ marginTop: 8, padding: '8px 10px', background: '#fef3c7', borderRadius: 6 }}>
+                                        <div style={{ color: '#92400e', fontWeight: 500, marginBottom: 6, fontSize: 11 }}>Élèves similaires :</div>
+                                        {r.similarStudents
+                                          .filter((s: any) => missingIds.has(String(s._id)))
+                                          .map((s: any, j: number) => (
+                                          <div key={j} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 0' }}>
+                                            <span style={{ color: '#78350f', fontSize: 11 }}>
+                                              • {s.name}{s.birthYear ? ` (${s.birthYear})` : ''}{s.className ? ` — ${s.className}` : ''}
+                                            </span>
+                                            {r.pendingId && (
+                                              <button
+                                                onClick={async () => {
+                                                  try {
+                                                    await api.post('/media/confirm-photo', { pendingId: r.pendingId, studentId: s._id })
+                                                    // Mark as matched (will be filtered out of display)
+                                                    setTargetedImportReport((prev: any) => {
+                                                      if (!prev?.report) return prev
+                                                      const nextReport = prev.report.map((item: any) => 
+                                                        item.pendingId === r.pendingId ? { ...item, status: 'matched', student: s.name } : item
+                                                      )
+                                                      return { ...prev, success: prev.success + 1, failed: prev.failed - 1, report: nextReport }
+                                                    })
+                                                    // Refresh students and re-check (without clearing report)
+                                                    await refreshPhotoCheckOnly()
+                                                  } catch (err) {
+                                                    console.error('Confirm failed', err)
+                                                  }
+                                                }}
+                                                style={{
+                                                  padding: '2px 8px', fontSize: 10, background: '#3b82f6', color: '#fff',
+                                                  border: 'none', borderRadius: 4, cursor: 'pointer'
+                                                }}
+                                              >
+                                                Confirmer
+                                              </button>
+                                            )}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            )
+                          })()}
+                        </div>
+                      )}
+
+                      {targetedImportReport?.error && (
+                        <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: 12, marginBottom: 12 }}>
+                          <div style={{ color: '#dc2626', fontSize: 13 }}>Erreur: {targetedImportReport.error}</div>
+                        </div>
+                      )}
+
+                      <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: 12 }}>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                          {photoCheckResult.missing.map((s: Student) => (
+                            <span
+                              key={s._id}
+                              style={{
+                                background: '#fee2e2', padding: '4px 10px', borderRadius: 6,
+                                fontSize: 12, color: '#991b1b', border: '1px solid #fca5a5'
+                              }}
+                            >
+                              {s.firstName} {s.lastName} {s.className ? `(${s.className})` : ''}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {photoCheckResult.duplicates.length === 0 && photoCheckResult.missing.length === 0 && (
+                    <div style={{ textAlign: 'center', padding: 40, color: '#059669' }}>
+                      <CheckCircle size={48} style={{ marginBottom: 16 }} />
+                      <div style={{ fontSize: 16, fontWeight: 500 }}>Toutes les photos sont correctes !</div>
+                      <div style={{ fontSize: 13, color: '#64748b', marginTop: 8 }}>Aucun doublon et tous les élèves ont une photo.</div>
+                    </div>
+                  )}
+                </>
+              ) : null}
+            </div>
+
+            <div style={{ padding: '16px 24px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end' }}>
+              <button className="btn" onClick={() => setShowPhotoCheck(false)}>Fermer</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* MODAL: Batch Import */}
       {showPhotoImport && (
         <FileDropZone
@@ -378,6 +725,7 @@ export default function AdminStudents() {
           onDrop={handleDrop}
           loading={loading}
           importReport={importReport}
+          onUpdateReport={setImportReport}
           onClose={() => setShowPhotoImport(false)}
         />
       )}

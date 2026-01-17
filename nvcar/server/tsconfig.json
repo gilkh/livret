@@ -9,7 +9,7 @@
     "skipLibCheck": true,
     "moduleResolution": "node",
     "types": ["node"],
-    "typeRoots": ["./node_modules/@types", "./src/test"]
+    "typeRoots": ["./node_modules/@types", "./src/test", "./src/types"]
   },
   "include": ["src"],
   "files": ["src/test/types.d.ts"]

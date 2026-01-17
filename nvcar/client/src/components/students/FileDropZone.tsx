@@ -1,5 +1,6 @@
 import { UploadCloud, FileArchive, CheckCircle, XCircle, File } from 'lucide-react'
 import { useRef } from 'react'
+import api from '../../api'
 
 interface FileDropZoneProps {
   onFileSelect: (file: File) => void
@@ -10,6 +11,7 @@ interface FileDropZoneProps {
   onDrop: (e: React.DragEvent) => void
   loading: boolean
   importReport: any
+  onUpdateReport?: React.Dispatch<React.SetStateAction<any>>
   onClose: () => void
 }
 
@@ -22,6 +24,7 @@ export default function FileDropZone({
   onDrop,
   loading,
   importReport,
+  onUpdateReport,
   onClose
 }: FileDropZoneProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -59,6 +62,7 @@ export default function FileDropZone({
                       </h4>
                       <ol style={{ margin: 0, paddingLeft: 20, fontSize: 14, color: '#334155', lineHeight: 1.6 }}>
                           <li>Préparez vos photos au format <strong>.jpg</strong> ou <strong>.png</strong>.</li>
+                          <li>Placez-les dans des dossiers <strong>niveau</strong> puis <strong>classe</strong> (ex: <code>Photos Maternelles/Maternelles/MS/MS A</code>).</li>
                           <li>Nommez chaque fichier selon l'un de ces formats :
                               <ul style={{ marginTop: 4, marginBottom: 4, color: '#475569' }}>
                                   <li><code>Prénom Nom.jpg</code></li>
@@ -66,7 +70,7 @@ export default function FileDropZone({
                                   <li><code>ID_Unique.jpg</code></li>
                               </ul>
                           </li>
-                          <li>Compressez les fichiers dans une archive <strong>ZIP</strong>.</li>
+                          <li>Compressez les fichiers dans une archive <strong>ZIP</strong> ou <strong>RAR</strong>.</li>
                       </ol>
                   </div>
 
@@ -105,7 +109,7 @@ export default function FileDropZone({
                             <UploadCloud size={32} />
                           </div>
                           <div style={{ fontSize: 18, fontWeight: 600, marginBottom: 8, color: '#1e293b' }}>
-                              Glissez-déposez votre fichier ZIP
+                              Glissez-déposez votre fichier ZIP/RAR
                           </div>
                           <div style={{ color: '#64748b', fontSize: 14 }}>ou cliquez pour parcourir vos fichiers</div>
                         </>
@@ -113,7 +117,7 @@ export default function FileDropZone({
                       
                       <input 
                           type="file" 
-                          accept=".zip" 
+                          accept=".zip,.rar" 
                           ref={fileInputRef} 
                           style={{ display: 'none' }} 
                           disabled={loading}
@@ -159,16 +163,65 @@ export default function FileDropZone({
                                       </div>
                                       {r.status === 'matched' ? (
                                         <span className="pill green" style={{ fontSize: 11, padding: '2px 8px' }}>✓ {r.student}</span>
+                                      ) : r.status === 'needs_review' && r.reason === 'multiple_matches' ? (
+                                        <span className="pill orange" style={{ fontSize: 11, padding: '2px 8px', background: '#fef3c7', color: '#b45309' }}>Plusieurs élèves</span>
+                                      ) : r.status === 'needs_review' ? (
+                                        <span className="pill orange" style={{ fontSize: 11, padding: '2px 8px', background: '#ffedd5', color: '#9a3412' }}>À valider</span>
+                                      ) : r.status === 'invalid_class' ? (
+                                        <span className="pill red" style={{ fontSize: 11, padding: '2px 8px' }}>Classe introuvable</span>
                                       ) : (
                                         <span className="pill red" style={{ fontSize: 11, padding: '2px 8px' }}>Introuvable</span>
                                       )}
                                     </div>
-                                    {r.status === 'no_match' && r.similarStudents && r.similarStudents.length > 0 && (
+                                    {(r.className || r.level || r.reason || r.expectedClass || r.foundClass) && (
+                                      <div style={{ marginTop: 6, marginLeft: 24, fontSize: 12, color: '#64748b' }}>
+                                        {r.level && <div>Niveau: <strong>{r.level}</strong></div>}
+                                        {r.className && <div>Classe: <strong>{r.className}</strong></div>}
+                                        {r.reason && <div>Raison: <strong>{r.reason}</strong></div>}
+                                        {r.expectedClass && <div>Classe attendue: <strong>{r.expectedClass}</strong></div>}
+                                        {r.foundClass && <div>Classe trouvée: <strong>{r.foundClass}</strong></div>}
+                                      </div>
+                                    )}
+                                    {(r.status === 'no_match' || r.status === 'needs_review') && r.similarStudents && r.similarStudents.length > 0 && (
                                       <div style={{ marginTop: 8, marginLeft: 24, padding: '8px 12px', background: '#fef3c7', borderRadius: 6, fontSize: 12 }}>
                                         <div style={{ color: '#92400e', fontWeight: 500, marginBottom: 4 }}>Élèves similaires :</div>
                                         {r.similarStudents.map((s: any, j: number) => (
                                           <div key={j} style={{ color: '#78350f', padding: '2px 0' }}>
-                                            • {s.name}
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                              <span>• {s.name}{s.birthYear ? ` (${s.birthYear})` : ''}{s.className ? ` — ${s.className}` : ''}</span>
+                                              {r.pendingId && (
+                                                <button
+                                                  onClick={async () => {
+                                                    try {
+                                                      await api.post('/media/confirm-photo', { pendingId: r.pendingId, studentId: s._id })
+                                                      onUpdateReport?.((prev: any) => {
+                                                        if (!prev?.report) return prev
+                                                        const nextReport = [...prev.report]
+                                                        const current = { ...nextReport[i] }
+                                                        current.status = 'matched'
+                                                        current.student = s.name
+                                                        current.similarStudents = []
+                                                        nextReport[i] = current
+                                                        return { ...prev, report: nextReport }
+                                                      })
+                                                    } catch (e) {
+                                                      alert('Erreur lors de la validation')
+                                                    }
+                                                  }}
+                                                  style={{
+                                                    padding: '2px 8px',
+                                                    borderRadius: 6,
+                                                    border: '1px solid #f59e0b',
+                                                    background: '#fff7ed',
+                                                    color: '#9a3412',
+                                                    fontSize: 11,
+                                                    cursor: 'pointer'
+                                                  }}
+                                                >
+                                                  Utiliser
+                                                </button>
+                                              )}
+                                            </div>
                                           </div>
                                         ))}
                                       </div>

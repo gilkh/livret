@@ -13,6 +13,19 @@ export const importRouter = Router()
 
 const normalizeText = (v: any) => String(v ?? '').trim().toLowerCase()
 
+const parseDateValue = (value: any) => {
+  const raw = String(value ?? '').trim()
+  if (!raw) return new Date('')
+  const match = raw.match(/^(\d{2})[\/-](\d{2})[\/-](\d{4})$/)
+  if (match) {
+    const day = Number(match[1])
+    const month = Number(match[2])
+    const year = Number(match[3])
+    return new Date(Date.UTC(year, month - 1, day))
+  }
+  return new Date(raw)
+}
+
 const dobUtcDayRange = (dob: Date) => {
   const y = dob.getUTCFullYear()
   const m = dob.getUTCMonth()
@@ -45,7 +58,7 @@ importRouter.post('/students', requireAuth(['ADMIN', 'SUBADMIN']), async (req, r
         const col = (k: string, def: string) => r[(mapping && mapping[k]) || def]
         const firstName = col('firstName', 'FirstName')
         const lastName = col('lastName', 'LastName')
-        const dob = new Date(col('dateOfBirth', 'DateOfBirth'))
+        const dob = parseDateValue(col('dateOfBirth', 'DateOfBirth'))
         const className = col('className', 'ClassName')
 
         const studentId = col('studentId', 'StudentId')
@@ -97,7 +110,7 @@ importRouter.post('/students', requireAuth(['ADMIN', 'SUBADMIN']), async (req, r
         const col = (k: string, def: string) => r[(mapping && mapping[k]) || def]
         const firstName = col('firstName', 'FirstName')
         const lastName = col('lastName', 'LastName')
-        const dob = new Date(col('dateOfBirth', 'DateOfBirth'))
+        const dob = parseDateValue(col('dateOfBirth', 'DateOfBirth'))
         const className = col('className', 'ClassName')
         const parentName = col('parentName', 'ParentName')
         const parentPhone = col('parentPhone', 'ParentPhone')

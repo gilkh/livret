@@ -924,7 +924,7 @@ function ImportStudentsModal({ isOpen, onClose, onSuccess }: { isOpen: boolean; 
 
   useEffect(() => {
     if (isOpen) {
-      setCsv('FirstName,LastName,DateOfBirth,FatherName,FatherEmail,MotherEmail,StudentEmail,level,section\n')
+      setCsv('FirstName,LastName,level,section,DateOfBirth,FatherName,FatherEmail,MotherEmail,StudentEmail\n')
       setReport(null)
       setLoading(false)
     }
@@ -948,7 +948,7 @@ function ImportStudentsModal({ isOpen, onClose, onSuccess }: { isOpen: boolean; 
       if (lines.length > 0) {
         const firstLine = lines[0].toLowerCase()
         if (!firstLine.includes('firstname') && !firstLine.includes('nom') && !firstLine.includes('prenom')) {
-          lines = ['FirstName,LastName,level,section', ...lines]
+          lines = ['FirstName,LastName,level,section,DateOfBirth,FatherName,FatherEmail,MotherEmail,StudentEmail', ...lines]
         }
       }
 
@@ -1039,12 +1039,12 @@ function ImportStudentsModal({ isOpen, onClose, onSuccess }: { isOpen: boolean; 
             value={csv}
             onChange={e => setCsv(e.target.value)}
             rows={8}
-            placeholder="FirstName,LastName,level,section..."
+            placeholder="FirstName,LastName,level,section,DateOfBirth,FatherName,FatherEmail,MotherEmail,StudentEmail"
           />
 
           <div className="format-hint">
             <AlertCircle size={14} />
-            Format attendu: <code>FirstName,LastName,DateOfBirth,level,section</code> (colonnes optionnelles: <code>FatherName,FatherEmail,MotherEmail,StudentEmail,StudentId,LogicalKey</code>)
+            Format attendu: <code>FirstName,LastName,level,section,DateOfBirth,FatherName,FatherEmail,MotherEmail,StudentEmail</code> (DateOfBirth: <code>dd-mm-yyyy</code>, colonnes optionnelles: <code>StudentId,LogicalKey</code>)
           </div>
 
           <div className="format-hint" style={{ marginTop: '8px', color: 'var(--success-color)' }}>
