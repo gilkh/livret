@@ -7,6 +7,7 @@ import { useSchoolYear } from '../context/SchoolYearContext'
 import ScrollToTopButton from '../components/ScrollToTopButton'
 import ScrollPageDownButton from '../components/ScrollPageDownButton'
 import { GradebookPocket } from '../components/GradebookPocket'
+import { CroppedImage } from '../components/CroppedImage'
 
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
@@ -900,7 +901,7 @@ export default function TeacherTemplateEditor() {
                                                         )}
                                                     </div>
                                                 )}
-                                                {b.type === 'image' && <img src={fixUrl(b.props.url)} style={{ width: b.props.width || 120, height: b.props.height || 120, borderRadius: 8 }} alt="" />}
+                                                {b.type === 'image' && <CroppedImage src={fixUrl(b.props.url)} displayWidth={b.props.width || 120} displayHeight={b.props.height || 120} cropData={b.props.cropData} borderRadius={8} />}
                                                 {b.type === 'student_photo' && (
                                                     student?.avatarUrl ? (
                                                         <img src={fixUrl(student.avatarUrl)} style={{ width: b.props.width || 100, height: b.props.height || 100, objectFit: 'cover', borderRadius: 8 }} alt="Student" />

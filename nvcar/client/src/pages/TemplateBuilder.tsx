@@ -10,6 +10,8 @@ import { TemplatePropagationModal } from '../components/TemplatePropagationModal
 import { TemplateHistoryModal } from '../components/TemplateHistoryModal'
 import { TemplateStateHistoryModal } from '../components/TemplateStateHistoryModal'
 import { openPdfExport, buildPreviewPdfUrl } from '../utils/pdfExport'
+import { ImageCropOverlay } from '../components/ImageCropOverlay'
+import { CroppedImage } from '../components/CroppedImage'
 
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
@@ -127,6 +129,7 @@ export default function TemplateBuilder() {
   const [textSelection, setTextSelection] = useState<{ start: number; end: number } | null>(null)
   const lastCanvasPointerRef = useRef<{ pageIndex: number; x: number; y: number } | null>(null)
   const imagePasteHandledRef = useRef(false)
+  const [cropModeBlockId, setCropModeBlockId] = useState<string | null>(null)
 
   // Auto-save state
   const [autoSaveEnabled, setAutoSaveEnabled] = useState(true)
@@ -3298,7 +3301,36 @@ export default function TemplateBuilder() {
                               )}
                             </div>
                           )}
-                          {b.type === 'image' && <img src={b.props.url} style={{ width: b.props.width || 120, height: b.props.height || 120, borderRadius: 8 }} />}
+                          {b.type === 'image' && (
+                            <>
+                              {cropModeBlockId === b.props.blockId ? (
+                                <div style={{ position: 'relative', width: b.props.width || 120, height: b.props.height || 120 }}>
+                                  <img src={b.props.url} style={{ width: b.props.width || 120, height: b.props.height || 120, borderRadius: 8 }} />
+                                  <ImageCropOverlay
+                                    imageUrl={b.props.url}
+                                    imageWidth={b.props.width || 120}
+                                    imageHeight={b.props.height || 120}
+                                    initialCrop={b.props.cropData}
+                                    onApply={(cropData) => {
+                                      const currentWidth = b.props.width || 120
+                                      const currentHeight = b.props.height || 120
+                                      const naturalWidth = cropData.naturalWidth || currentWidth
+                                      const naturalHeight = cropData.naturalHeight || currentHeight
+                                      const scaleX = currentWidth / naturalWidth
+                                      const scaleY = currentHeight / naturalHeight
+                                      const nextWidth = Math.max(20, Math.round(cropData.width * scaleX))
+                                      const nextHeight = Math.max(20, Math.round(cropData.height * scaleY))
+                                      updateSelected({ cropData, width: nextWidth, height: nextHeight })
+                                      setCropModeBlockId(null)
+                                    }}
+                                    onCancel={() => setCropModeBlockId(null)}
+                                  />
+                                </div>
+                              ) : (
+                                <CroppedImage src={b.props.url} displayWidth={b.props.width || 120} displayHeight={b.props.height || 120} cropData={b.props.cropData} borderRadius={8} />
+                              )}
+                            </>
+                          )}
                           {b.type === 'student_photo' && (() => {
                             let url = ''
                             if (studentId) {
@@ -4193,7 +4225,7 @@ export default function TemplateBuilder() {
                             })()}
                           </div>
                         )}
-                        {b.type === 'image' && <img src={b.props.url} style={{ width: (b.props.width || 120) * 0.3, height: (b.props.height || 120) * 0.3, borderRadius: 2 }} />}
+                        {b.type === 'image' && <CroppedImage src={b.props.url} displayWidth={(b.props.width || 120) * 0.3} displayHeight={(b.props.height || 120) * 0.3} cropData={b.props.cropData} borderRadius={2} />}
                         {b.type === 'rect' && <div style={{ width: (b.props.width || 80) * 0.3, height: (b.props.height || 80) * 0.3, background: b.props.color, borderRadius: 2 }} />}
                         {b.type === 'gradebook_pocket' && <div style={{ width: (b.props.width || 120) * 0.3, height: (b.props.width || 120) * 0.33, background: b.props.pocketFillColor || '#3498db', borderRadius: '2px 2px 8px 8px' }} />}
                         {b.type === 'signature_box' && <div style={{ width: (b.props.width || 200) * 0.3, height: (b.props.height || 80) * 0.3, border: 'none', background: '#fff' }} />}
@@ -4914,6 +4946,48 @@ export default function TemplateBuilder() {
                             }}
                           />
                         </label>
+                        {tpl.pages[selectedPage].blocks[selectedIndex].props.url && (
+                          <button
+                            onClick={() => setCropModeBlockId(tpl.pages[selectedPage].blocks[selectedIndex].props.blockId || null)}
+                            style={{
+                              display: 'block',
+                              width: '100%',
+                              padding: '10px 14px',
+                              background: cropModeBlockId === tpl.pages[selectedPage].blocks[selectedIndex].props.blockId ? '#dc3545' : '#28a745',
+                              color: '#fff',
+                              border: 'none',
+                              borderRadius: 6,
+                              textAlign: 'center',
+                              cursor: 'pointer',
+                              fontSize: 13,
+                              fontWeight: 600,
+                              marginTop: 8
+                            }}
+                          >
+                            {cropModeBlockId === tpl.pages[selectedPage].blocks[selectedIndex].props.blockId ? '✕ Annuler le recadrage' : '✂️ Recadrer l\'image'}
+                          </button>
+                        )}
+                        {tpl.pages[selectedPage].blocks[selectedIndex].props.cropData && (
+                          <button
+                            onClick={() => updateSelected({ cropData: undefined })}
+                            style={{
+                              display: 'block',
+                              width: '100%',
+                              padding: '8px 14px',
+                              background: '#dc3545',
+                              color: '#fff',
+                              border: 'none',
+                              borderRadius: 6,
+                              textAlign: 'center',
+                              cursor: 'pointer',
+                              fontSize: 12,
+                              fontWeight: 500,
+                              marginTop: 4
+                            }}
+                          >
+                            ✕ Supprimer le recadrage
+                          </button>
+                        )}
                       </div>
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
                         {gallery.filter(u => u.type === 'file').map(u => (
@@ -6627,6 +6701,7 @@ export default function TemplateBuilder() {
           />
         )
       }
-    </div >
+
+          </div >
   )
 }

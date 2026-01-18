@@ -2,6 +2,7 @@ import React from 'react'
 import { useLevels } from '../context/LevelContext'
 import { useSchoolYear } from '../context/SchoolYearContext'
 import { GradebookPocket } from './GradebookPocket'
+import { CroppedImage } from './CroppedImage'
 
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
@@ -396,7 +397,7 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                             })()}
                                         </div>
                                     )}
-                                    {b.type === 'image' && <img src={b.props.url} style={{ width: b.props.width || 120, height: b.props.height || 120, borderRadius: 8 }} alt="" />}
+                                    {b.type === 'image' && <CroppedImage src={b.props.url} displayWidth={b.props.width || 120} displayHeight={b.props.height || 120} cropData={b.props.cropData} borderRadius={8} />}
                                     {b.type === 'student_photo' && (
                                         student?.avatarUrl ? (
                                             <img src={student.avatarUrl} style={{ width: b.props.width || 100, height: b.props.height || 100, objectFit: 'cover', borderRadius: 8 }} alt="Student" />
