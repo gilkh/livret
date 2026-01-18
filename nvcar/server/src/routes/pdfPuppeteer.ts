@@ -503,6 +503,7 @@ pdfPuppeteerRouter.post('/assignments/zip', requireAuth(['ADMIN', 'SUBADMIN', 'A
   try {
     const assignmentIds = Array.isArray(req.body?.assignmentIds) ? req.body.assignmentIds.filter(Boolean) : []
     const groupLabel = String(req.body?.groupLabel || '').trim()
+    const hideSignatures = req.body?.hideSignatures === true
 
     if (assignmentIds.length === 0) {
       return res.status(400).json({ error: 'missing_assignment_ids' })
@@ -580,7 +581,7 @@ pdfPuppeteerRouter.post('/assignments/zip', requireAuth(['ADMIN', 'SUBADMIN', 'A
           const templateName = template?.name || 'Carnet'
           const pdfName = sanitizeFileName(`${studentLast}-${studentFirst}-${templateName}.pdf`)
 
-          const printUrl = `${frontendUrl}/print/carnet/${assignment._id}?token=${token}`
+          const printUrl = `${frontendUrl}/print/carnet/${assignment._id}?token=${token}${hideSignatures ? '&hideSignatures=true' : ''}`
           const safePrintUrl = String(printUrl || '').replace(/([?&])token=[^&]*/, '$1token=***')
           console.log(`[PDF ZIP] (worker ${workerIdx}) Generating PDF for assignment ${assignmentId} (${safePrintUrl})`)
           const assignStart = Date.now()

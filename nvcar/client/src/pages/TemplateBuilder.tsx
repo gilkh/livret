@@ -4940,7 +4940,7 @@ export default function TemplateBuilder() {
                               if (!f) return
                               const fd = new FormData()
                               fd.append('file', f)
-                              const r = await fetch('http://localhost:4000/media/upload', { method: 'POST', headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` }, body: fd })
+                              const r = await fetch('/media/upload', { method: 'POST', headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` }, body: fd })
                               const data = await r.json()
                               if (data?.url) { updateSelected({ url: data.url }); await refreshGallery() }
                             }}

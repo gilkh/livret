@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import api from '../api'
 import ToggleIndicator from '../components/ToggleIndicator'
 import { useQuery } from '@tanstack/react-query'
+import { openPdfExport, buildStudentPdfUrl } from '../utils/pdfExport'
 
 type Category = { _id: string; name: string; competencies: Competency[] }
 type Competency = { _id: string; label: string }
@@ -14,22 +15,20 @@ export default function StudentPage() {
   const [categories, setCategories] = useState<Category[]>([])
   const [statuses, setStatuses] = useState<Record<string, Status>>({})
   const [saving, setSaving] = useState(false)
-  const [templates, setTemplates] = useState<any[]>([])
-  const [templateId, setTemplateId] = useState<string | undefined>(undefined)
-  const [exportPwd, setExportPwd] = useState('')
+  const [assignments, setAssignments] = useState<any[]>([])
 
   useEffect(() => {
     const load = async () => {
       const s = await api.get(`/students/${id}`)
       const c = await api.get(`/categories`)
       const st = await api.get(`/students/${id}/competencies`)
-      const tpls = await api.get('/templates')
+      const assigns = await api.get(`/template-assignments/student/${id}`)
       setStudent(s.data)
       setCategories(c.data)
       const map: Record<string, Status> = {}
       for (const m of st.data) map[m.competencyId] = m
       setStatuses(map)
-      setTemplates(tpls.data)
+      setAssignments(assigns.data || [])
     }
     load()
   }, [id])
@@ -56,12 +55,18 @@ export default function StudentPage() {
               <div className="title">{student.firstName} {student.lastName}</div>
               <div className="note">Classe: {(student.enrollments?.[0]?.classId) || '—'} • {saving ? 'Sauvegarde…' : 'Enregistré'}</div>
               <div className="toolbar">
-                <select value={templateId || ''} onChange={e => setTemplateId(e.target.value || undefined)} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }}>
-                  <option value="">Template par défaut</option>
-                  {templates.map(t => <option key={t._id} value={t._id}>{t.name}</option>)}
-                </select>
-                <input placeholder="Mot de passe export" value={exportPwd} onChange={e => setExportPwd(e.target.value)} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
-                <a className="btn" href={`http://localhost:4000/pdf/student/${id}${templateId ? (`?templateId=${templateId}${exportPwd ? `&pwd=${encodeURIComponent(exportPwd)}` : ''}`) : ''}`} target="_blank">📄 Exporter le Carnet</a>
+                {assignments.length > 0 ? (
+                  <button className="btn" onClick={() => {
+                    const assignment = assignments[0]
+                    const base = (api.defaults.baseURL || '').replace(/\/$/, '')
+                    const pdfUrl = buildStudentPdfUrl(base, id!, assignment.templateId)
+                    openPdfExport(pdfUrl, `${student.firstName} ${student.lastName}`, 'single', 1)
+                  }}>📄 Exporter le Carnet ({assignments[0]?.template?.name || 'Template assigné'})</button>
+                ) : (
+                  <div style={{ padding: '8px 12px', background: '#fef3c7', color: '#92400e', borderRadius: 8, fontSize: 13 }}>
+                    ⚠️ Aucun carnet assigné à cet élève. Veuillez d'abord assigner un template à sa classe.
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -110,10 +115,10 @@ function SignatureEditor({ studentId }: { studentId: string }) {
         <div key={idx} className="competency">
           <input placeholder="Label" value={it.label} onChange={e => { const c = [...items]; c[idx] = { ...it, label: e.target.value }; setItems(c) }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }} />
           <input placeholder="Data URL image" value={it.dataUrl || ''} onChange={e => { const c = [...items]; c[idx] = { ...it, dataUrl: e.target.value }; setItems(c) }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd', flex: 1 }} />
-          <input type="file" accept="image/*" onChange={async e => { const f = e.target.files?.[0]; if (!f) return; const fd = new FormData(); fd.append('file', f); const r = await fetch('http://localhost:4000/media/upload', { method: 'POST', headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` }, body: fd }); const data = await r.json(); if (data?.url) { const c = [...items]; c[idx] = { ...it, dataUrl: data.url.startsWith('http') ? data.url : `http://localhost:4000${data.url}` }; setItems(c) } }} />
+          <input type="file" accept="image/*" onChange={async e => { const f = e.target.files?.[0]; if (!f) return; const fd = new FormData(); fd.append('file', f); const r = await fetch('/media/upload', { method: 'POST', headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` }, body: fd }); const data = await r.json(); if (data?.url) { const c = [...items]; c[idx] = { ...it, dataUrl: data.url.startsWith('http') ? data.url : data.url }; setItems(c) } }} />
           <button className="btn" onClick={async () => { const r = await api.get('/media/list'); if (Array.isArray(r.data)) { /* no-op, gallery automatically updates via query */ } }}>Rafraîchir la galerie</button>
           {Array.isArray(gallery) && (
-            <select value={(it as any).dataUrl || ''} onChange={e => { const c = [...items]; c[idx] = { ...it, dataUrl: `http://localhost:4000/uploads${e.target.value}` }; setItems(c) }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }}>
+            <select value={(it as any).dataUrl || ''} onChange={e => { const c = [...items]; c[idx] = { ...it, dataUrl: `/uploads${e.target.value}` }; setItems(c) }} style={{ padding: 8, borderRadius: 8, border: '1px solid #ddd' }}>
               <option value="">Choisir depuis la galerie</option>
               {gallery.filter((u: any) => u.type === 'file').map((u: any) => <option key={u.path} value={u.path}>{u.name}</option>)}
             </select>

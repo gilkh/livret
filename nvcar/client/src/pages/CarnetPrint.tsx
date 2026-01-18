@@ -19,6 +19,7 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
     const { assignmentId, savedId, templateId, studentId } = useParams<{ assignmentId: string, savedId: string, templateId: string, studentId: string }>()
     const [searchParams] = useSearchParams()
     const token = searchParams.get('token')
+    const hideSignatures = searchParams.get('hideSignatures') === 'true'
 
     const [template, setTemplate] = useState<Template | null>(null)
     const [student, setStudent] = useState<Student | null>(null)
@@ -105,6 +106,11 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
 
     // Check if a block should be visible based on signature status
     const isBlockVisible = (b: Block) => {
+        // Hide signature blocks entirely when hideSignatures is true
+        if (hideSignatures && (b.type === 'signature_block' || b.type === 'signature_date')) {
+            return false
+        }
+        
         // If block has no period, it's always visible
         if (!b.props.period) return true
 
@@ -468,26 +474,47 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                             )}
                                         </div>
                                     )}
-                                    {b.type === 'dynamic_text' && (
-                                        <div style={{
-                                            color: b.props.color,
-                                            fontSize: b.props.fontSize,
-                                            fontWeight: b.props.bold ? 700 : 400,
-                                            textDecoration: b.props.underline ? 'underline' : 'none',
-                                            width: b.props.width,
-                                            height: b.props.height,
-                                            overflow: 'hidden',
-                                            whiteSpace: 'pre-wrap'
-                                        }}>
-                                            {(b.props.text || '')
-                                                .replace(/\{student\.firstName\}/g, student.firstName)
-                                                .replace(/\{student\.lastName\}/g, student.lastName)
-                                                .replace(/\{student\.className\}/g, student.className || '')
-                                                .replace(/\{student\.level\}/g, student.level || '')
-                                                .replace(/\{student\.dob\}/g, student.dateOfBirth ? new Date(student.dateOfBirth).toLocaleDateString() : '')
-                                            }
-                                        </div>
-                                    )}
+                                    {b.type === 'dynamic_text' && (() => {
+                                        const fatherName = String((student as any)?.fatherName || (student as any)?.parentName || '').trim()
+                                        const fatherInitial = fatherName ? fatherName.charAt(0).toUpperCase() : ''
+                                        const fatherInitialWithDot = fatherInitial ? `${fatherInitial}.` : ''
+                                        const fullNameFatherInitial = [student.firstName, fatherInitialWithDot, student.lastName].filter(Boolean).join(' ')
+                                        const dob = student.dateOfBirth ? new Date(student.dateOfBirth) : new Date(NaN)
+                                        const dobDdMmYyyy = isNaN(dob.getTime()) ? '' : `${String(dob.getUTCDate()).padStart(2, '0')}/${String(dob.getUTCMonth() + 1).padStart(2, '0')}/${String(dob.getUTCFullYear())}`
+                                        
+                                        let text = (b.props.text || '')
+                                            .replace(/\{student\.firstName\}/g, student.firstName)
+                                            .replace(/\{student\.lastName\}/g, student.lastName)
+                                            .replace(/\{student\.className\}/g, student.className || '')
+                                            .replace(/\{student\.level\}/g, student.level || '')
+                                            .replace(/\{student\.dob\}/g, student.dateOfBirth ? new Date(student.dateOfBirth).toLocaleDateString() : '')
+                                            .replace(/\{student\.fatherInitial\}/g, fatherInitialWithDot)
+                                            .replace(/\{student\.fullNameFatherInitial\}/g, fullNameFatherInitial)
+                                            .replace(/\{student\.dob_ddmmyyyy\}/g, dobDdMmYyyy)
+                                        
+                                        if (assignment?.data) {
+                                            Object.entries(assignment.data).forEach(([k, v]) => {
+                                                if (typeof v === 'string' || typeof v === 'number') {
+                                                    text = text.replace(new RegExp(`\\{${k}\\}`, 'g'), String(v))
+                                                }
+                                            })
+                                        }
+                                        
+                                        return (
+                                            <div style={{
+                                                color: b.props.color,
+                                                fontSize: b.props.fontSize,
+                                                fontWeight: b.props.bold ? 700 : 400,
+                                                textDecoration: b.props.underline ? 'underline' : 'none',
+                                                width: b.props.width,
+                                                height: b.props.height,
+                                                overflow: 'hidden',
+                                                whiteSpace: 'pre-wrap'
+                                            }}>
+                                                {text}
+                                            </div>
+                                        )
+                                    })()}
                                     {b.type === 'image' && <CroppedImage src={b.props.url} displayWidth={b.props.width || 120} displayHeight={b.props.height || 120} cropData={b.props.cropData} borderRadius={8} />}
                                     {b.type === 'student_photo' && (
                                         student?.avatarUrl ? (

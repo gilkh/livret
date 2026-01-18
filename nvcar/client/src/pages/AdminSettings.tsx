@@ -126,6 +126,11 @@ export default function AdminSettings() {
   const [errorLogsLoading, setErrorLogsLoading] = useState(false)
   const [errorLogFilter, setErrorLogFilter] = useState<'open' | 'resolved' | 'all'>('open')
 
+  // Previous year dropdown editability per level
+  const [dropdownEditablePS, setDropdownEditablePS] = useState(false)
+  const [dropdownEditableMS, setDropdownEditableMS] = useState(false)
+  const [dropdownEditableGS, setDropdownEditableGS] = useState(false)
+
   const showMsg = (text: string, type: 'success' | 'error' = 'success') => {
     setMsg(text)
     setMsgType(type)
@@ -179,6 +184,10 @@ export default function AdminSettings() {
       // Mobile blocking
       setMobileBlockEnabled(res.data.mobile_block_enabled === true)
       setMobileMinWidth(res.data.mobile_min_width || 1024)
+      // Previous year dropdown editability
+      setDropdownEditablePS(res.data.previous_year_dropdown_editable_PS === true)
+      setDropdownEditableMS(res.data.previous_year_dropdown_editable_MS === true)
+      setDropdownEditableGS(res.data.previous_year_dropdown_editable_GS === true)
     } catch (err) { console.error(err) } finally { setLoading(false) }
   }
 
@@ -781,7 +790,7 @@ export default function AdminSettings() {
             )}
           </SectionCard>
 
-          {/* Teacher Options */}
+          {/* Previous Year Dropdown Editability */}
           <SectionCard id="teacher">
             <div className="setting-item">
               <div className="setting-info">
@@ -791,6 +800,36 @@ export default function AdminSettings() {
               <div className="setting-actions">
                 <StatusIndicator active={teacherQuickGrading} activeText="Les deux vues" inactiveText="Vue normale uniquement" />
                 <Toggle checked={teacherQuickGrading} onChange={() => toggleSetting('teacher_quick_grading_enabled', teacherQuickGrading, setTeacherQuickGrading)} />
+              </div>
+            </div>
+            <div className="setting-item" style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid #e2e8f0' }}>
+              <div className="setting-info">
+                <h3>🔓 Dropdowns PS - Année Précédente</h3>
+                <p>Permettre la modification des menus déroulants pour les données PS des années précédentes</p>
+              </div>
+              <div className="setting-actions">
+                <StatusIndicator active={dropdownEditablePS} />
+                <Toggle checked={dropdownEditablePS} onChange={() => toggleSetting('previous_year_dropdown_editable_PS', dropdownEditablePS, setDropdownEditablePS)} />
+              </div>
+            </div>
+            <div className="setting-item">
+              <div className="setting-info">
+                <h3>🔓 Dropdowns MS - Année Précédente</h3>
+                <p>Permettre la modification des menus déroulants pour les données MS des années précédentes</p>
+              </div>
+              <div className="setting-actions">
+                <StatusIndicator active={dropdownEditableMS} />
+                <Toggle checked={dropdownEditableMS} onChange={() => toggleSetting('previous_year_dropdown_editable_MS', dropdownEditableMS, setDropdownEditableMS)} />
+              </div>
+            </div>
+            <div className="setting-item">
+              <div className="setting-info">
+                <h3>🔓 Dropdowns GS - Année Précédente</h3>
+                <p>Permettre la modification des menus déroulants pour les données GS des années précédentes</p>
+              </div>
+              <div className="setting-actions">
+                <StatusIndicator active={dropdownEditableGS} />
+                <Toggle checked={dropdownEditableGS} onChange={() => toggleSetting('previous_year_dropdown_editable_GS', dropdownEditableGS, setDropdownEditableGS)} />
               </div>
             </div>
           </SectionCard>
@@ -1005,28 +1044,32 @@ export default function AdminSettings() {
             </div>
           </SectionCard>
         </div>
-      </main>
+      </main >
 
       {/* Toast */}
-      {msg && (
-        <div className={`toast-message ${msgType === 'error' ? 'error' : ''}`}>
-          {msgType === 'success' ? <Icons.Check /> : <Icons.AlertTriangle />}
-          <span>{msg}</span>
-        </div>
-      )}
+      {
+        msg && (
+          <div className={`toast-message ${msgType === 'error' ? 'error' : ''}`}>
+            {msgType === 'success' ? <Icons.Check /> : <Icons.AlertTriangle />}
+            <span>{msg}</span>
+          </div>
+        )
+      }
 
       {/* Test Toast for Session Notification */}
-      {testToast && (
-        <Toast
-          message={testToast.message}
-          type={testToast.type}
-          duration={59000}
-          onClose={() => setTestToast(null)}
-          actionLabel={testToast.actionLabel}
-          onAction={testToast.onAction}
-          actionDisabled={testExtending}
-        />
-      )}
-    </div>
+      {
+        testToast && (
+          <Toast
+            message={testToast.message}
+            type={testToast.type}
+            duration={59000}
+            onClose={() => setTestToast(null)}
+            actionLabel={testToast.actionLabel}
+            onAction={testToast.onAction}
+            actionDisabled={testExtending}
+          />
+        )
+      }
+    </div >
   )
 }

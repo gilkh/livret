@@ -669,6 +669,783 @@ adminExtrasRouter.get('/templates/:templateAssignmentId/review', requireAuth(['A
     }
 })
 
+// ============================================================================
+// PS-TO-MS ONBOARDING ENDPOINTS
+// ============================================================================
+
+import { Level } from '../models/Level'
+import { logAudit } from '../utils/auditLogger'
+import { computeSignaturePeriodId } from '../utils/readinessUtils'
+
+// Helper: Get next level based on order
+const getNextLevelName = async (currentLevel: string): Promise<string | null> => {
+    const currentDoc = await Level.findOne({ name: currentLevel }).lean()
+    if (!currentDoc) return null
+    const nextDoc = await Level.findOne({ order: (currentDoc as any).order + 1 }).lean()
+    return nextDoc ? (nextDoc as any).name : null
+}
+
+// PS Onboarding: Get PS students for the previous school year
+adminExtrasRouter.get('/ps-onboarding/students', requireAuth(['ADMIN']), async (req, res) => {
+    try {
+        // Find active school year (for reference)
+        const activeYear = await SchoolYear.findOne({ active: true }).lean()
+
+        // If schoolYearId is provided, use that; otherwise try to find previous year
+        const { schoolYearId } = req.query
+        let selectedYear: any = null
+
+        if (schoolYearId && typeof schoolYearId === 'string') {
+            // User selected a specific year
+            selectedYear = await SchoolYear.findById(schoolYearId).lean()
+            if (!selectedYear) {
+                return res.status(400).json({ error: 'year_not_found', message: 'Selected school year not found' })
+            }
+        } else {
+            // Auto-detect previous year
+            if (!activeYear) return res.status(400).json({ error: 'no_active_year' })
+
+            if ((activeYear as any).sequence && (activeYear as any).sequence > 1) {
+                selectedYear = await SchoolYear.findOne({ sequence: (activeYear as any).sequence - 1 }).lean()
+            }
+            if (!selectedYear && activeYear.startDate) {
+                selectedYear = await SchoolYear.findOne({ endDate: { $lt: activeYear.startDate } })
+                    .sort({ endDate: -1 }).lean()
+            }
+            if (!selectedYear) {
+                // Try parsing from name
+                const match = String(activeYear.name || '').match(/(\d{4})([-/.])(\d{4})/)
+                if (match) {
+                    const startYear = parseInt(match[1], 10)
+                    const sep = match[2]
+                    const endYear = parseInt(match[3], 10)
+                    const prevName = `${startYear - 1}${sep}${endYear - 1}`
+                    selectedYear = await SchoolYear.findOne({ name: prevName }).lean()
+                }
+            }
+            if (!selectedYear) {
+                return res.status(400).json({ error: 'no_previous_year', message: 'Cannot find previous school year' })
+            }
+        }
+
+        const selectedYearId = String(selectedYear._id)
+        const activeYearId = activeYear ? String(activeYear._id) : ''
+
+        // Get ALL classes from the selected year
+        const allClasses = await ClassModel.find({ schoolYearId: selectedYearId }).lean()
+        console.log(`[PS-Onboarding] Year ${selectedYear.name}: Found ${allClasses.length} classes`)
+
+        // Debug: show all class levels
+        const classLevels = [...new Set(allClasses.map(c => c.level || 'undefined'))]
+        console.log(`[PS-Onboarding] Unique levels in classes: ${classLevels.join(', ')}`)
+
+        // Filter for PS classes - use simple matching like the rest of the app
+        const psClasses = allClasses.filter(c => {
+            const level = (c.level || '').toUpperCase()
+            return level === 'PS' || level === 'TPS'
+        })
+        console.log(`[PS-Onboarding] Found ${psClasses.length} PS classes: ${psClasses.map(c => c.name).join(', ')}`)
+
+        const psClassIds = psClasses.map(c => String(c._id))
+
+        // Get ALL enrollments from the selected year
+        const allEnrollments = await Enrollment.find({
+            schoolYearId: selectedYearId
+        }).lean()
+        console.log(`[PS-Onboarding] Found ${allEnrollments.length} total enrollments`)
+
+        // Filter to find PS enrollments (students in PS classes)
+        const psEnrollments = allEnrollments.filter(e => psClassIds.includes(String(e.classId)))
+        console.log(`[PS-Onboarding] Found ${psEnrollments.length} PS enrollments`)
+        const enrolledPsStudentIds = psEnrollments.map(e => String(e.studentId))
+
+        // Get students: either enrolled in PS classes OR currently at PS level  
+        const psStudents = await Student.find({
+            $or: [
+                { _id: { $in: enrolledPsStudentIds } },
+                { level: { $in: ['PS', 'TPS', 'ps', 'tps'] } }
+            ]
+        }).lean()
+        console.log(`[PS-Onboarding] Found ${psStudents.length} PS students`)
+
+        // Map: studentId -> enrollment in selected year (use PS enrollments for accurate mapping)
+        const enrollmentMap = new Map(psEnrollments.map(e => [String(e.studentId), e]))
+        const classMap = new Map(psClasses.map(c => [String(c._id), c]))
+
+        // Get template assignments for these students
+        const studentIds = psStudents.map(s => String(s._id))
+        const assignments = await TemplateAssignment.find({ studentId: { $in: studentIds } }).lean()
+        const assignmentMap = new Map(assignments.map(a => [String(a.studentId), a]))
+
+        // Get signatures
+        const assignmentIds = assignments.map(a => String(a._id))
+        const signatures = assignmentIds.length > 0
+            ? await TemplateSignature.find({ templateAssignmentId: { $in: assignmentIds } }).lean()
+            : []
+
+        // Build signature lookup by assignmentId
+        const sigByAssignment = new Map<string, any[]>()
+        signatures.forEach(s => {
+            const key = String(s.templateAssignmentId)
+            if (!sigByAssignment.has(key)) sigByAssignment.set(key, [])
+            sigByAssignment.get(key)!.push(s)
+        })
+
+        // Compute signaturePeriodIds for selected year
+        const sem1PeriodId = computeSignaturePeriodId(selectedYearId, 'sem1')
+        const endOfYearPeriodId = computeSignaturePeriodId(selectedYearId, 'end_of_year')
+
+        // Build student list
+        const studentList = psStudents.map(student => {
+            const sid = String(student._id)
+            const enrollment = enrollmentMap.get(sid)
+            const cls = enrollment?.classId ? classMap.get(String(enrollment.classId)) : null
+            const assignment = assignmentMap.get(sid)
+            const assignmentId = assignment ? String(assignment._id) : null
+            const sigs = assignmentId ? sigByAssignment.get(assignmentId) || [] : []
+
+            // Find sem1 and end_of_year signatures
+            const sem1Sig = sigs.find(s =>
+                s.type !== 'end_of_year' &&
+                (!s.signaturePeriodId || s.signaturePeriodId === sem1PeriodId)
+            )
+            const sem2Sig = sigs.find(s =>
+                s.type === 'end_of_year' &&
+                (!s.signaturePeriodId || s.signaturePeriodId === endOfYearPeriodId)
+            )
+
+            // Check if promoted from this year
+            const isPromoted = Array.isArray(student.promotions) &&
+                student.promotions.some((p: any) => String(p.schoolYearId) === selectedYearId)
+
+            const promotionInfo = isPromoted
+                ? student.promotions?.find((p: any) => String(p.schoolYearId) === selectedYearId)
+                : null
+
+            return {
+                _id: sid,
+                firstName: student.firstName,
+                lastName: student.lastName,
+                dateOfBirth: student.dateOfBirth,
+                avatarUrl: student.avatarUrl,
+                previousClassName: cls?.name || null,
+                previousClassId: cls ? String(cls._id) : null,
+                hasEnrollment: !!enrollment,
+                assignmentId,
+                isCompletedSem1: assignment?.isCompletedSem1 || assignment?.isCompleted || false,
+                isCompletedSem2: (assignment as any)?.isCompletedSem2 || false,
+                signatures: {
+                    sem1: sem1Sig ? { signedAt: sem1Sig.signedAt, signedBy: sem1Sig.subAdminId } : null,
+                    sem2: sem2Sig ? { signedAt: sem2Sig.signedAt, signedBy: sem2Sig.subAdminId } : null
+                },
+                isPromoted,
+                promotedAt: promotionInfo?.date || null
+            }
+        })
+
+        res.json({
+            students: studentList,
+            selectedYear: { _id: selectedYearId, name: selectedYear.name },
+            activeYear: activeYear ? { _id: activeYearId, name: activeYear.name } : null,
+            previousYearClasses: psClasses.map(c => ({ _id: String(c._id), name: c.name, level: c.level }))
+        })
+    } catch (e: any) {
+        console.error('ps-onboarding/students error:', e)
+        res.status(500).json({ error: 'fetch_failed', message: e.message })
+    }
+})
+
+// PS Onboarding: Assign a student to a PS class in the previous year
+adminExtrasRouter.post('/ps-onboarding/assign-class', requireAuth(['ADMIN']), async (req, res) => {
+    try {
+        const adminId = (req as any).user.userId
+        const { studentId, classId, schoolYearId } = req.body
+
+        if (!studentId || !classId || !schoolYearId) {
+            return res.status(400).json({ error: 'missing_params' })
+        }
+
+        // Verify class exists and is PS level
+        const cls = await ClassModel.findById(classId).lean()
+        if (!cls) return res.status(404).json({ error: 'class_not_found' })
+        if (cls.level !== 'PS') return res.status(400).json({ error: 'class_not_ps', message: 'Class must be PS level' })
+
+        // Check for existing enrollment
+        let enrollment = await Enrollment.findOne({ studentId, schoolYearId }).lean()
+
+        if (enrollment) {
+            // Update existing enrollment
+            await Enrollment.findByIdAndUpdate(enrollment._id, { classId, status: 'active' })
+        } else {
+            // Create new enrollment
+            await Enrollment.create({ studentId, schoolYearId, classId, status: 'active' })
+        }
+
+        await logAudit({
+            userId: adminId,
+            action: 'PS_ONBOARDING_ASSIGN_CLASS',
+            details: { studentId, classId, schoolYearId, className: cls.name },
+            req
+        })
+
+        res.json({ success: true, className: cls.name })
+    } catch (e: any) {
+        console.error('ps-onboarding/assign-class error:', e)
+        res.status(500).json({ error: 'assign_failed', message: e.message })
+    }
+})
+
+// PS Onboarding: Batch sign gradebooks
+adminExtrasRouter.post('/ps-onboarding/batch-sign', requireAuth(['ADMIN']), async (req, res) => {
+    try {
+        const adminId = (req as any).user.userId
+        const {
+            scope, // 'student' | 'class' | 'all'
+            studentIds = [],
+            classId,
+            signatureType, // 'sem1' | 'sem2' | 'both'
+            signatureSource, // 'admin' | 'subadmin'
+            subadminId,
+            schoolYearId,
+            sem1SignedAt, // optional custom date for sem1
+            sem2SignedAt  // optional custom date for sem2
+        } = req.body
+
+        if (!schoolYearId) return res.status(400).json({ error: 'missing_school_year' })
+        if (!signatureType) return res.status(400).json({ error: 'missing_signature_type' })
+        if (!signatureSource) return res.status(400).json({ error: 'missing_signature_source' })
+        if (signatureSource === 'subadmin' && !subadminId) {
+            return res.status(400).json({ error: 'missing_subadmin_id' })
+        }
+
+        // Get signer ID and signature URL
+        const signerId = signatureSource === 'subadmin' ? subadminId : adminId
+        let signatureUrl: string | undefined
+
+        if (signatureSource === 'admin') {
+            const adminSig = await AdminSignature.findOne({ isActive: true }).lean()
+            signatureUrl = adminSig?.dataUrl
+        } else {
+            // Get subadmin signature
+            let subadmin = await User.findById(subadminId).lean() as any
+            if (!subadmin) {
+                subadmin = await OutlookUser.findById(subadminId).lean()
+            }
+            signatureUrl = subadmin?.signatureUrl
+        }
+
+        // Get PS classes for the school year
+        const psClasses = await ClassModel.find({ schoolYearId, level: 'PS' }).lean()
+        const psClassIds = psClasses.map(c => String(c._id))
+
+        // Get enrollments
+        let targetEnrollments: any[]
+        if (scope === 'student' && studentIds.length > 0) {
+            targetEnrollments = await Enrollment.find({
+                studentId: { $in: studentIds },
+                schoolYearId,
+                classId: { $in: psClassIds }
+            }).lean()
+        } else if (scope === 'class' && classId) {
+            targetEnrollments = await Enrollment.find({ schoolYearId, classId }).lean()
+        } else {
+            // All PS students
+            targetEnrollments = await Enrollment.find({
+                schoolYearId,
+                classId: { $in: psClassIds }
+            }).lean()
+        }
+
+        const targetStudentIds = targetEnrollments.map(e => String(e.studentId))
+
+        // Get assignments for these students
+        const assignments = await TemplateAssignment.find({ studentId: { $in: targetStudentIds } }).lean()
+
+        // Get school year name for signature data
+        const schoolYear = await SchoolYear.findById(schoolYearId).lean()
+        const schoolYearName = schoolYear?.name || ''
+
+        // Compute signature period IDs
+        const sem1PeriodId = computeSignaturePeriodId(schoolYearId, 'sem1')
+        const endOfYearPeriodId = computeSignaturePeriodId(schoolYearId, 'end_of_year')
+
+        const results = { success: 0, failed: 0, errors: [] as any[] }
+
+        for (const assignment of assignments) {
+            const assignmentId = String(assignment._id)
+
+            // Get student to determine level and class
+            const student = await Student.findById(assignment.studentId).lean()
+            const level = 'PS' // We know these are PS students
+
+            // Get student's enrollment to find class name
+            const enrollment = targetEnrollments.find(e => String(e.studentId) === String(assignment.studentId))
+            let className = ''
+            if (enrollment?.classId) {
+                const cls = psClasses.find(c => String(c._id) === String(enrollment.classId))
+                className = (cls as any)?.name || ''
+            }
+
+            const typesToSign: { type: 'standard' | 'end_of_year', periodId: string }[] = []
+            if (signatureType === 'sem1' || signatureType === 'both') {
+                typesToSign.push({ type: 'standard', periodId: sem1PeriodId })
+            }
+            if (signatureType === 'sem2' || signatureType === 'both') {
+                typesToSign.push({ type: 'end_of_year', periodId: endOfYearPeriodId })
+            }
+
+            for (const { type, periodId } of typesToSign) {
+                try {
+                    // Check if already signed
+                    const existing = await TemplateSignature.findOne({
+                        templateAssignmentId: assignmentId,
+                        type,
+                        signaturePeriodId: periodId
+                    }).lean()
+
+                    if (existing) {
+                        // Skip, already signed
+                        continue
+                    }
+
+                    // Use custom date if provided, otherwise use current date
+                    let signedAt: Date
+                    if (type === 'standard' && sem1SignedAt) {
+                        signedAt = new Date(sem1SignedAt)
+                    } else if (type === 'end_of_year' && sem2SignedAt) {
+                        signedAt = new Date(sem2SignedAt)
+                    } else {
+                        signedAt = new Date()
+                    }
+
+                    // Create signature
+                    await TemplateSignature.create({
+                        templateAssignmentId: assignmentId,
+                        subAdminId: signerId,
+                        signedAt,
+                        status: 'signed',
+                        type,
+                        signatureUrl,
+                        level,
+                        signaturePeriodId: periodId,
+                        schoolYearId,
+                        schoolYearName
+                    })
+
+                    // Also add signature to assignment.data.signatures for CarnetPrint to find
+                    const assignmentDoc = await TemplateAssignment.findById(assignmentId)
+                    if (assignmentDoc) {
+                        if (!assignmentDoc.data) assignmentDoc.data = {}
+                        if (!assignmentDoc.data.signatures) assignmentDoc.data.signatures = []
+                        assignmentDoc.data.signatures.push({
+                            type,
+                            signedAt,
+                            signatureUrl,
+                            level,
+                            schoolYearName,
+                            schoolYearId,
+                            signaturePeriodId: periodId
+                        })
+                        assignmentDoc.status = 'signed'
+                        assignmentDoc.dataVersion = (assignmentDoc.dataVersion || 0) + 1
+                        assignmentDoc.markModified('data')
+                        await assignmentDoc.save()
+                    } else {
+                        // Fallback if doc not found
+                        await TemplateAssignment.findByIdAndUpdate(assignmentId, {
+                            $set: { status: 'signed' },
+                            $inc: { dataVersion: 1 }
+                        })
+                    }
+
+                    results.success++
+                } catch (signError: any) {
+                    if (!signError.message?.includes('E11000')) {
+                        results.failed++
+                        results.errors.push({
+                            studentId: assignment.studentId,
+                            type,
+                            error: signError.message
+                        })
+                    }
+                }
+            }
+        }
+
+        await logAudit({
+            userId: adminId,
+            action: 'PS_ONBOARDING_BATCH_SIGN',
+            details: {
+                scope,
+                signatureType,
+                signatureSource,
+                subadminId: signatureSource === 'subadmin' ? subadminId : undefined,
+                schoolYearId,
+                success: results.success,
+                failed: results.failed
+            },
+            req
+        })
+
+        res.json(results)
+    } catch (e: any) {
+        console.error('ps-onboarding/batch-sign error:', e)
+        res.status(500).json({ error: 'batch_sign_failed', message: e.message })
+    }
+})
+
+// PS Onboarding: Batch unsign gradebooks (undo)
+adminExtrasRouter.post('/ps-onboarding/batch-unsign', requireAuth(['ADMIN']), async (req, res) => {
+    try {
+        const adminId = (req as any).user.userId
+        const {
+            scope,
+            studentIds = [],
+            classId,
+            signatureType,
+            schoolYearId
+        } = req.body
+
+        if (!schoolYearId) return res.status(400).json({ error: 'missing_school_year' })
+        if (!signatureType) return res.status(400).json({ error: 'missing_signature_type' })
+
+        // Get PS classes for the school year
+        const psClasses = await ClassModel.find({ schoolYearId, level: 'PS' }).lean()
+        const psClassIds = psClasses.map(c => String(c._id))
+
+        // Get enrollments
+        let targetEnrollments: any[]
+        if (scope === 'student' && studentIds.length > 0) {
+            targetEnrollments = await Enrollment.find({
+                studentId: { $in: studentIds },
+                schoolYearId,
+                classId: { $in: psClassIds }
+            }).lean()
+        } else if (scope === 'class' && classId) {
+            targetEnrollments = await Enrollment.find({ schoolYearId, classId }).lean()
+        } else {
+            targetEnrollments = await Enrollment.find({
+                schoolYearId,
+                classId: { $in: psClassIds }
+            }).lean()
+        }
+
+        const targetStudentIds = targetEnrollments.map(e => String(e.studentId))
+        const assignments = await TemplateAssignment.find({ studentId: { $in: targetStudentIds } }).lean()
+        const assignmentIds = assignments.map(a => String(a._id))
+
+        // Build query for deletion
+        const deleteQuery: any = { templateAssignmentId: { $in: assignmentIds } }
+
+        if (signatureType === 'sem1') {
+            deleteQuery.type = { $ne: 'end_of_year' }
+        } else if (signatureType === 'sem2') {
+            deleteQuery.type = 'end_of_year'
+        }
+        // 'both' = delete all
+
+        const result = await TemplateSignature.deleteMany(deleteQuery)
+
+        await logAudit({
+            userId: adminId,
+            action: 'PS_ONBOARDING_BATCH_UNSIGN',
+            details: { scope, signatureType, schoolYearId, deleted: result.deletedCount },
+            req
+        })
+
+        res.json({ success: true, deleted: result.deletedCount })
+    } catch (e: any) {
+        console.error('ps-onboarding/batch-unsign error:', e)
+        res.status(500).json({ error: 'batch_unsign_failed', message: e.message })
+    }
+})
+
+// PS Onboarding: Batch promote students from PS to MS
+adminExtrasRouter.post('/ps-onboarding/batch-promote', requireAuth(['ADMIN']), async (req, res) => {
+    try {
+        const adminId = (req as any).user.userId
+        const {
+            scope,
+            studentIds = [],
+            classId,
+            schoolYearId // This is the PREVIOUS year ID (where we're promoting FROM)
+        } = req.body
+
+        if (!schoolYearId) return res.status(400).json({ error: 'missing_school_year' })
+
+        // Find active (next) school year
+        const activeYear = await SchoolYear.findOne({ active: true }).lean()
+        if (!activeYear) return res.status(400).json({ error: 'no_active_year' })
+        const activeYearId = String(activeYear._id)
+
+        // Verify this is the previous year
+        if (schoolYearId === activeYearId) {
+            return res.status(400).json({ error: 'wrong_year', message: 'Cannot promote from active year to itself' })
+        }
+
+        // Get next level for PS
+        const nextLevel = await getNextLevelName('PS')
+        if (!nextLevel) {
+            return res.status(400).json({ error: 'no_next_level', message: 'Cannot determine next level from PS' })
+        }
+
+        // Get PS classes for the previous year
+        const psClasses = await ClassModel.find({ schoolYearId, level: 'PS' }).lean()
+        const psClassIds = psClasses.map(c => String(c._id))
+
+        // Get target enrollments
+        let targetEnrollments: any[]
+        if (scope === 'student' && studentIds.length > 0) {
+            targetEnrollments = await Enrollment.find({
+                studentId: { $in: studentIds },
+                schoolYearId,
+                classId: { $in: psClassIds }
+            }).lean()
+        } else if (scope === 'class' && classId) {
+            targetEnrollments = await Enrollment.find({ schoolYearId, classId }).lean()
+        } else {
+            targetEnrollments = await Enrollment.find({
+                schoolYearId,
+                classId: { $in: psClassIds }
+            }).lean()
+        }
+
+        const targetStudentIds = targetEnrollments.map(e => e.studentId)
+
+        // Get school year name for promotion data
+        const prevSchoolYear = await SchoolYear.findById(schoolYearId).lean()
+        const prevSchoolYearName = prevSchoolYear?.name || ''
+
+        // Get assignments
+        const assignments = await TemplateAssignment.find({ studentId: { $in: targetStudentIds } }).lean()
+        const assignmentMap = new Map(assignments.map(a => [String(a.studentId), a]))
+
+        // Get signatures to verify end-of-year signing
+        const assignmentIds = assignments.map(a => String(a._id))
+        const endOfYearPeriodId = computeSignaturePeriodId(schoolYearId, 'end_of_year')
+        const signatures = await TemplateSignature.find({
+            templateAssignmentId: { $in: assignmentIds },
+            type: 'end_of_year',
+            signaturePeriodId: endOfYearPeriodId
+        }).lean()
+        const signedAssignments = new Set(signatures.map(s => String(s.templateAssignmentId)))
+
+        const results = { success: 0, failed: 0, errors: [] as any[], skipped: 0 }
+
+        for (const studentId of targetStudentIds) {
+            const sid = String(studentId)
+
+            // Check if already promoted
+            const student = await Student.findById(sid).lean()
+            if (!student) {
+                results.failed++
+                results.errors.push({ studentId: sid, error: 'student_not_found' })
+                continue
+            }
+
+            const alreadyPromoted = Array.isArray(student.promotions) &&
+                student.promotions.some((p: any) => String(p.schoolYearId) === schoolYearId)
+            if (alreadyPromoted) {
+                results.skipped++
+                continue
+            }
+
+            // Check if signed
+            const assignment = assignmentMap.get(sid)
+            if (!assignment) {
+                results.failed++
+                results.errors.push({ studentId: sid, error: 'no_assignment' })
+                continue
+            }
+
+            if (!signedAssignments.has(String(assignment._id))) {
+                results.failed++
+                results.errors.push({ studentId: sid, error: 'not_signed_end_of_year' })
+                continue
+            }
+
+            try {
+                // Create promotion record
+                const promotion = {
+                    schoolYearId,
+                    date: new Date(),
+                    fromLevel: 'PS',
+                    toLevel: nextLevel,
+                    promotedBy: adminId
+                }
+
+                await Student.findByIdAndUpdate(sid, {
+                    $push: { promotions: promotion },
+                    $set: { level: nextLevel, nextLevel: null }
+                })
+
+                // Update old enrollment to promoted status
+                const oldEnrollment = targetEnrollments.find(e => String(e.studentId) === sid)
+                if (oldEnrollment) {
+                    await Enrollment.findByIdAndUpdate(oldEnrollment._id, { status: 'promoted' })
+                }
+
+                // Create new enrollment in active year (without class assignment)
+                const existingActiveEnrollment = await Enrollment.findOne({
+                    studentId: sid,
+                    schoolYearId: activeYearId
+                }).lean()
+
+                if (!existingActiveEnrollment) {
+                    await Enrollment.create({
+                        studentId: sid,
+                        schoolYearId: activeYearId,
+                        status: 'active',
+                        classId: null
+                    })
+                }
+
+                // Get student's class name from enrollment
+                const enrollment = targetEnrollments.find(e => String(e.studentId) === sid)
+                let className = ''
+                if (enrollment?.classId) {
+                    const cls = psClasses.find(c => String(c._id) === String(enrollment.classId))
+                    className = (cls as any)?.name || ''
+                }
+
+                // Add promotion to assignment data for history
+                const assignmentForUpdate = await TemplateAssignment.findById(assignment._id)
+                if (assignmentForUpdate) {
+                    if (!assignmentForUpdate.data) assignmentForUpdate.data = {}
+                    if (!assignmentForUpdate.data.promotions) assignmentForUpdate.data.promotions = []
+                    assignmentForUpdate.data.promotions.push({
+                        from: 'PS',
+                        to: nextLevel,
+                        date: new Date(),
+                        by: adminId,
+                        year: prevSchoolYearName,
+                        class: className,
+                        schoolYearId
+                    })
+                    assignmentForUpdate.markModified('data')
+                    await assignmentForUpdate.save()
+                }
+
+                results.success++
+            } catch (promoteError: any) {
+                results.failed++
+                results.errors.push({ studentId: sid, error: promoteError.message })
+            }
+        }
+
+        await logAudit({
+            userId: adminId,
+            action: 'PS_ONBOARDING_BATCH_PROMOTE',
+            details: {
+                scope,
+                schoolYearId,
+                fromLevel: 'PS',
+                toLevel: nextLevel,
+                success: results.success,
+                failed: results.failed,
+                skipped: results.skipped
+            },
+            req
+        })
+
+        res.json(results)
+    } catch (e: any) {
+        console.error('ps-onboarding/batch-promote error:', e)
+        res.status(500).json({ error: 'batch_promote_failed', message: e.message })
+    }
+})
+
+// PS Onboarding: Get available subadmins for signature selection
+adminExtrasRouter.get('/ps-onboarding/subadmins', requireAuth(['ADMIN']), async (req, res) => {
+    try {
+        // Get all subadmins with signatures
+        const [users, outlookUsers] = await Promise.all([
+            User.find({ role: 'SUBADMIN', signatureUrl: { $exists: true, $ne: '' } })
+                .select('displayName email signatureUrl').lean(),
+            OutlookUser.find({ role: 'SUBADMIN', signatureUrl: { $exists: true, $ne: '' } })
+                .select('displayName email signatureUrl').lean()
+        ])
+
+        const subadmins = [...users, ...outlookUsers].map(u => ({
+            _id: String(u._id),
+            displayName: (u as any).displayName || (u as any).email,
+            hasSignature: !!(u as any).signatureUrl,
+            signatureUrl: (u as any).signatureUrl || null
+        }))
+
+        res.json(subadmins)
+    } catch (e: any) {
+        res.status(500).json({ error: 'fetch_failed', message: e.message })
+    }
+})
+
+// PS Onboarding: Batch export PDFs (without signature blocks)
+adminExtrasRouter.post('/ps-onboarding/batch-export', requireAuth(['ADMIN']), async (req, res) => {
+    try {
+        const {
+            scope, // 'student' | 'class' | 'all'
+            studentIds = [],
+            classId,
+            schoolYearId
+        } = req.body
+
+        if (!schoolYearId) return res.status(400).json({ error: 'missing_school_year' })
+
+        // Get PS classes for the school year
+        const psClasses = await ClassModel.find({ schoolYearId, level: 'PS' }).lean()
+        const psClassIds = psClasses.map(c => String(c._id))
+
+        // Get target enrollments
+        let targetEnrollments: any[]
+        if (scope === 'student' && studentIds.length > 0) {
+            targetEnrollments = await Enrollment.find({
+                studentId: { $in: studentIds },
+                schoolYearId,
+                classId: { $in: psClassIds }
+            }).lean()
+        } else if (scope === 'class' && classId) {
+            targetEnrollments = await Enrollment.find({ schoolYearId, classId }).lean()
+        } else {
+            targetEnrollments = await Enrollment.find({
+                schoolYearId,
+                classId: { $in: psClassIds }
+            }).lean()
+        }
+
+        const targetStudentIds = targetEnrollments.map(e => String(e.studentId))
+
+        // Get assignments for these students
+        const assignments = await TemplateAssignment.find({ studentId: { $in: targetStudentIds } }).lean()
+
+        // Return assignment IDs for the frontend to use with the existing batch export
+        // Frontend will add hideSignatures=true to the print URLs
+        const assignmentIds = assignments.map(a => String(a._id))
+
+        // Get class name for groupLabel
+        let groupLabel = 'PS'
+        if (scope === 'class' && classId) {
+            const cls = psClasses.find(c => String(c._id) === classId)
+            groupLabel = (cls as any)?.name || 'PS'
+        } else if (scope === 'student' && studentIds.length === 1) {
+            const student = await Student.findById(studentIds[0]).lean()
+            groupLabel = student ? `${student.lastName}-${student.firstName}` : 'PS'
+        }
+
+        res.json({
+            assignmentIds,
+            groupLabel,
+            count: assignmentIds.length
+        })
+    } catch (e: any) {
+        console.error('ps-onboarding/batch-export error:', e)
+        res.status(500).json({ error: 'batch_export_failed', message: e.message })
+    }
+})
+
+// ============================================================================
+// END PS-TO-MS ONBOARDING ENDPOINTS
+// ============================================================================
+
 // --- Server tests: list available test files (recursive) ---
 adminExtrasRouter.get('/run-tests/list', requireAuth(['ADMIN']), async (req, res) => {
     try {

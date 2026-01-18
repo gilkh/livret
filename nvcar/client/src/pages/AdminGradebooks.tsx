@@ -105,14 +105,14 @@ export default function AdminGradebooks() {
     const uploadBlob = async (folder: string, filename: string, blob: Blob, mime: string) => {
         const fd = new FormData()
         fd.append('file', new File([blob], filename, { type: mime }))
-        await fetch(`http://localhost:4000/media/upload?folder=${encodeURIComponent(folder)}`, { method: 'POST', headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` }, body: fd })
+        await fetch(`/media/upload?folder=${encodeURIComponent(folder)}`, { method: 'POST', headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` }, body: fd })
     }
     const saveStudent = async () => {
         if (!year || !classId || !studentId) return
         const q: string[] = []
         if (templateId) q.push(`templateId=${encodeURIComponent(templateId)}`)
         if (pwd) q.push(`pwd=${encodeURIComponent(pwd)}`)
-        const url = `http://localhost:4000/pdf/student/${studentId}${q.length ? '?' + q.join('&') : ''}`
+        const url = `/pdf/student/${studentId}${q.length ? '?' + q.join('&') : ''}`
         const r = await fetch(url, { headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` } })
         const blob = await r.blob()
         const name = `student-${studentId}.pdf`
@@ -124,7 +124,7 @@ export default function AdminGradebooks() {
         const q: string[] = []
         if (templateId) q.push(`templateId=${encodeURIComponent(templateId)}`)
         if (pwd) q.push(`pwd=${encodeURIComponent(pwd)}`)
-        const url = `http://localhost:4000/pdf/class/${classId}/batch${q.length ? '?' + q.join('&') : ''}`
+        const url = `/pdf/class/${classId}/batch${q.length ? '?' + q.join('&') : ''}`
         const r = await fetch(url, { headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` } })
         const blob = await r.blob()
         const name = `class-${classId}.zip`
@@ -137,7 +137,7 @@ export default function AdminGradebooks() {
             const q: string[] = []
             if (templateId) q.push(`templateId=${encodeURIComponent(templateId)}`)
             if (pwd) q.push(`pwd=${encodeURIComponent(pwd)}`)
-            const url = `http://localhost:4000/pdf/class/${c._id}/batch${q.length ? '?' + q.join('&') : ''}`
+            const url = `/pdf/class/${c._id}/batch${q.length ? '?' + q.join('&') : ''}`
             const r = await fetch(url, { headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` } })
             const blob = await r.blob()
             const name = `class-${c._id}.zip`
@@ -345,7 +345,7 @@ export default function AdminGradebooks() {
                                     <div key={u.path} className="file-card">
                                         <div className="file-name">{u.name}</div>
                                         <div className="file-actions">
-                                            <a className="download-link" href={`http://localhost:4000/uploads${u.path}`} target="_blank">
+                                            <a className="download-link" href={`/uploads${u.path}`} target="_blank">
                                                 ⬇️ Télécharger
                                             </a>
                                         </div>

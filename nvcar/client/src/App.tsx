@@ -45,6 +45,7 @@ import AdminSignatures from './pages/AdminSignatures'
 import AdminGlobalPermissions from './pages/AdminGlobalPermissions'
 import AdminNavigationVisibility from './pages/AdminNavigationVisibility'
 import AdminStudentPromotions from './pages/AdminStudentPromotions'
+import AdminPsOnboarding from './pages/AdminPsOnboarding'
 import AdminSkillAnalytics from './pages/AdminSkillAnalytics'
 import SubAdminSemesterRequest from './pages/SubAdminSemesterRequest'
 import SuggestionGradebookTemplates from './pages/SuggestionGradebookTemplates'
@@ -636,6 +637,14 @@ export default function App() {
           element={
             <RequireAuth>
               <AdminStudentPromotions />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/admin/ps-onboarding"
+          element={
+            <RequireAuth>
+              <AdminPsOnboarding />
             </RequireAuth>
           }
         />

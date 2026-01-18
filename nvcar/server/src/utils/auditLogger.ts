@@ -50,6 +50,11 @@ type AuditAction =
     | 'UPDATE_CLASS'
     | 'DELETE_CLASS'
     | 'COMPLETE_CLASS'
+    // PS Onboarding
+    | 'PS_ONBOARDING_ASSIGN_CLASS'
+    | 'PS_ONBOARDING_BATCH_SIGN'
+    | 'PS_ONBOARDING_BATCH_UNSIGN'
+    | 'PS_ONBOARDING_BATCH_PROMOTE'
 
 interface LogParams {
     userId: string

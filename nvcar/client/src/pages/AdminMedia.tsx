@@ -38,7 +38,7 @@ export default function AdminMedia() {
     const fd = new FormData()
     fd.append('file', f)
     try {
-      await fetch(`http://localhost:4000/media/upload?folder=${encodeURIComponent(folder)}`, {
+      await fetch(`/media/upload?folder=${encodeURIComponent(folder)}`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` },
         body: fd
@@ -185,7 +185,7 @@ export default function AdminMedia() {
                   <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
                     <div style={{ height: 120, background: '#eee', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
                       {item.name.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
-                        <img src={`http://localhost:4000/uploads${item.path}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        <img src={`/uploads${item.path}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                       ) : (
                         <div style={{ fontSize: 12, color: '#666', padding: 8, textAlign: 'center' }}>{item.name.split('.').pop()?.toUpperCase()} File</div>
                       )}

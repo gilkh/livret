@@ -1,20 +1,21 @@
 import { Link } from 'react-router-dom'
-import { 
-  BarChart3, 
-  School, 
-  Users, 
-  Image, 
-  PenTool, 
-  FolderOpen, 
-  Link as LinkIcon, 
-  ScrollText, 
-  Lightbulb, 
-  TrendingUp, 
-  Key, 
-  Globe, 
-  Eye, 
-  GraduationCap, 
-  Activity 
+import {
+  BarChart3,
+  School,
+  Users,
+  Image,
+  PenTool,
+  FolderOpen,
+  Link as LinkIcon,
+  ScrollText,
+  Lightbulb,
+  TrendingUp,
+  Key,
+  Globe,
+  Eye,
+  GraduationCap,
+  Activity,
+  UserPlus
 } from 'lucide-react'
 import DashboardCard from '../components/DashboardCard'
 import './AdminDashboard.css'
@@ -26,9 +27,9 @@ export default function AdminDashboard() {
         <h1 className="dashboard-title">Tableau de Bord</h1>
         <p className="dashboard-subtitle">Bienvenue dans l'espace d'administration. Gérez les ressources scolaires, les utilisateurs et les carnets.</p>
       </header>
-      
+
       <div className="dashboard-content">
-        
+
         {/* Section: Vue d'ensemble */}
         <section className="dashboard-section">
           <h2 className="section-title">Vue d'ensemble</h2>
@@ -65,7 +66,7 @@ export default function AdminDashboard() {
               color="#f0fdf4"
               iconColor="#15803d"
             />
-             <DashboardCard
+            <DashboardCard
               title="Logs"
               description="Historique des actions."
               icon={ScrollText}
@@ -108,13 +109,21 @@ export default function AdminDashboard() {
                 <Link className="dashboard-btn dashboard-btn-secondary" to="/admin/assignment-list">Voir</Link>
               </div>
             </DashboardCard>
-             <DashboardCard
+            <DashboardCard
               title="Passage Élèves"
               description="Promotions annuelles."
               icon={GraduationCap}
               to="/admin/student-promotions"
               color="#ffedd5"
               iconColor="#c2410c"
+            />
+            <DashboardCard
+              title="Onboarding PS→MS"
+              description="Préparation année précédente."
+              icon={UserPlus}
+              to="/admin/ps-onboarding"
+              color="#dbeafe"
+              iconColor="#2563eb"
             />
           </div>
         </section>
@@ -139,7 +148,7 @@ export default function AdminDashboard() {
               color="#f6ffed"
               iconColor="#52c41a"
             />
-             <DashboardCard
+            <DashboardCard
               title="Supervision"
               description="Accès global aux carnets."
               icon={Globe}
