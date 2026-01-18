@@ -15,6 +15,7 @@ type Student = {
   classId?: string
   level?: string
   avatarUrl?: string
+  avatarHash?: string
   logicalKey?: string
   parentName?: string
   parentPhone?: string
@@ -51,6 +52,9 @@ export default function AdminStudents() {
   const [checkingPhotos, setCheckingPhotos] = useState(false)
   const [targetedImportReport, setTargetedImportReport] = useState<any>(null)
   const [importingTargeted, setImportingTargeted] = useState(false)
+  const [backfillingHashes, setBackfillingHashes] = useState(false)
+  const [backfillResult, setBackfillResult] = useState<{ total: number; updated: number; missingFile: number; skipped: number } | null>(null)
+  const [removingPhotoIds, setRemovingPhotoIds] = useState<Set<string>>(new Set())
 
   // Complete class state
   const [showCompleteConfirm, setShowCompleteConfirm] = useState(false)
@@ -105,6 +109,14 @@ export default function AdminStudents() {
     setLoading(false)
   }
 
+  const computeFileHash = async (file: File): Promise<string> => {
+    const buffer = await file.arrayBuffer()
+    const hashBuffer = await crypto.subtle.digest('SHA-256', buffer)
+    return Array.from(new Uint8Array(hashBuffer))
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('')
+  }
+
   // Recalculate photo check from current students (used for refresh)
   const recalculatePhotoCheck = (studentList: Student[]) => {
     const byPhoto = new Map<string, Student[]>()
@@ -114,7 +126,8 @@ export default function AdminStudents() {
       if (!s.avatarUrl) {
         missing.push(s)
       } else {
-        const key = s.avatarUrl
+        const normalizedUrl = s.avatarUrl.split('?')[0]
+        const key = s.avatarHash ? `hash:${s.avatarHash}` : `url:${normalizedUrl}`
         if (!byPhoto.has(key)) byPhoto.set(key, [])
         byPhoto.get(key)!.push(s)
       }
@@ -147,6 +160,39 @@ export default function AdminStudents() {
     setStudents(r.data)
     const result = recalculatePhotoCheck(r.data)
     setPhotoCheckResult(result)
+  }
+
+  const backfillAvatarHashes = async () => {
+    try {
+      setBackfillingHashes(true)
+      setBackfillResult(null)
+      const res = await api.post('/media/backfill-avatar-hashes')
+      setBackfillResult(res.data)
+      await refreshPhotoCheckOnly()
+    } catch (err) {
+      setBackfillResult({ total: 0, updated: 0, missingFile: 0, skipped: 0 })
+    } finally {
+      setBackfillingHashes(false)
+    }
+  }
+
+  const removeStudentPhoto = async (studentId: string) => {
+    if (!studentId) return
+    setRemovingPhotoIds(prev => new Set(prev).add(studentId))
+    try {
+      await api.patch(`/students/${studentId}`, { avatarUrl: '', avatarHash: '' })
+      setStudents(prev => prev.map(s => s._id === studentId ? { ...s, avatarUrl: '', avatarHash: '' } : s))
+      setSelectedStudent(prev => prev?._id === studentId ? { ...prev, avatarUrl: '', avatarHash: '' } : prev)
+      await refreshPhotoCheckOnly()
+    } catch (err) {
+      console.error('Remove photo failed', err)
+    } finally {
+      setRemovingPhotoIds(prev => {
+        const next = new Set(prev)
+        next.delete(studentId)
+        return next
+      })
+    }
   }
 
   const handleTargetedImport = async (file: File, targetIds: string[]) => {
@@ -271,12 +317,14 @@ export default function AdminStudents() {
       const uploadRes = await api.post('/media/upload?folder=students', formData)
       const url = uploadRes.data.url
 
-      await api.patch(`/students/${selectedStudent._id}`, { avatarUrl: url })
+      const avatarHash = await computeFileHash(file)
+
+      await api.patch(`/students/${selectedStudent._id}`, { avatarUrl: url, avatarHash })
 
       // Update local state
-      const updated = { ...selectedStudent, avatarUrl: url }
+      const updated = { ...selectedStudent, avatarUrl: url, avatarHash }
       setSelectedStudent(updated)
-      setStudents(students.map(s => s._id === selectedStudent._id ? { ...s, avatarUrl: url } : s))
+      setStudents(students.map(s => s._id === selectedStudent._id ? { ...s, avatarUrl: url, avatarHash } : s))
     } catch (err) {
       alert('Erreur lors du téléchargement de la photo')
     }
@@ -483,7 +531,7 @@ export default function AdminStudents() {
               ) : photoCheckResult ? (
                 <>
                   {/* Summary */}
-                  <div style={{ display: 'flex', gap: 16, marginBottom: 24 }}>
+                  <div style={{ display: 'flex', gap: 16, marginBottom: 16 }}>
                     <div style={{ flex: 1, padding: 16, background: photoCheckResult.duplicates.length > 0 ? '#fef3c7' : '#d1fae5', borderRadius: 8 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                         <Copy size={18} color={photoCheckResult.duplicates.length > 0 ? '#b45309' : '#059669'} />
@@ -503,6 +551,24 @@ export default function AdminStudents() {
                         </span>
                       </div>
                     </div>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
+                    <button
+                      onClick={backfillAvatarHashes}
+                      className="btn"
+                      disabled={backfillingHashes}
+                      style={{ padding: '8px 12px', opacity: backfillingHashes ? 0.7 : 1 }}
+                    >
+                      {backfillingHashes ? 'Calcul des empreintes...' : 'Calculer empreintes des photos existantes'}
+                    </button>
+                    {backfillResult && (
+                      <div style={{ fontSize: 12, color: '#64748b' }}>
+                        {backfillResult.updated} / {backfillResult.total} mises à jour
+                        {backfillResult.missingFile > 0 ? `, ${backfillResult.missingFile} fichier(s) manquant(s)` : ''}
+                        {backfillResult.skipped > 0 ? `, ${backfillResult.skipped} ignorés` : ''}
+                      </div>
+                    )}
                   </div>
 
                   {/* Duplicates */}
@@ -525,8 +591,18 @@ export default function AdminStudents() {
                                 Cette photo est utilisée par {dup.students.length} élèves :
                               </div>
                               {dup.students.map((s: Student) => (
-                                <div key={s._id} style={{ fontSize: 13, color: '#78350f', padding: '2px 0' }}>
-                                  • {s.firstName} {s.lastName} {s.className ? `(${s.className})` : ''}
+                                <div key={s._id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#78350f', padding: '2px 0' }}>
+                                  <span>• {s.firstName} {s.lastName} {s.className ? `(${s.className})` : ''}</span>
+                                  <button
+                                    onClick={() => removeStudentPhoto(s._id)}
+                                    disabled={removingPhotoIds.has(s._id)}
+                                    style={{
+                                      padding: '2px 6px', fontSize: 10, background: '#ef4444', color: '#fff',
+                                      border: 'none', borderRadius: 4, cursor: 'pointer', opacity: removingPhotoIds.has(s._id) ? 0.7 : 1
+                                    }}
+                                  >
+                                    {removingPhotoIds.has(s._id) ? 'Suppression...' : 'Retirer photo'}
+                                  </button>
                                 </div>
                               ))}
                             </div>

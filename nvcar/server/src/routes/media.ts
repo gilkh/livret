@@ -2,6 +2,7 @@ import { Router } from 'express'
 import multer from 'multer'
 import path from 'path'
 import fs from 'fs'
+import crypto from 'crypto'
 import JSZip from 'jszip'
 import { createExtractorFromData } from 'node-unrar-js'
 import type { ArcFiles, ArcList, FileHeader } from 'node-unrar-js'
@@ -19,6 +20,8 @@ const uploadDir = path.join(process.cwd(), 'public', 'uploads')
 ensureDir(uploadDir)
 const pendingStudentsDir = path.join(uploadDir, 'students-pending')
 ensureDir(pendingStudentsDir)
+
+const hashBuffer = (buffer: Buffer) => crypto.createHash('sha256').update(buffer).digest('hex')
 
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, uploadDir),
@@ -465,7 +468,8 @@ mediaRouter.post('/import-photos', requireAuth(['ADMIN', 'SUBADMIN']), upload.si
         fs.writeFileSync(targetPath, entry.buffer)
 
         const avatarUrl = `/uploads/students/${targetFilename}`
-        await Student.findByIdAndUpdate(student._id, { avatarUrl })
+        const avatarHash = hashBuffer(entry.buffer)
+        await Student.findByIdAndUpdate(student._id, { avatarUrl, avatarHash })
 
         success++
         report.push({
@@ -558,6 +562,57 @@ mediaRouter.post('/import-photos', requireAuth(['ADMIN', 'SUBADMIN']), upload.si
   }
 })
 
+mediaRouter.post('/backfill-avatar-hashes', requireAuth(['ADMIN', 'SUBADMIN']), async (req: any, res) => {
+  try {
+    const studentIds = Array.isArray(req.body?.studentIds)
+      ? req.body.studentIds.map((id: any) => String(id))
+      : null
+
+    const query: any = {
+      avatarUrl: { $exists: true, $ne: '' },
+      $or: [{ avatarHash: { $exists: false } }, { avatarHash: null }, { avatarHash: '' }]
+    }
+    if (studentIds?.length) query._id = { $in: studentIds }
+
+    const students = await Student.find(query).select('_id avatarUrl').lean()
+    let updated = 0
+    let missingFile = 0
+    let skipped = 0
+
+    for (const student of students) {
+      const rawUrl = String(student.avatarUrl || '')
+      const normalizedUrl = rawUrl.split('?')[0]
+      if (!normalizedUrl.startsWith('/uploads/')) {
+        skipped++
+        continue
+      }
+
+      const relPath = normalizedUrl.replace(/^\/uploads\//, '')
+      const safeRelPath = path.normalize(relPath).replace(/^(\.\.(\/|\\|$))+/, '')
+      if (!safeRelPath || safeRelPath.startsWith('..') || path.isAbsolute(safeRelPath)) {
+        skipped++
+        continue
+      }
+
+      const filePath = path.join(uploadDir, safeRelPath)
+      if (!fs.existsSync(filePath)) {
+        missingFile++
+        continue
+      }
+
+      const buffer = fs.readFileSync(filePath)
+      const avatarHash = hashBuffer(buffer)
+      await Student.findByIdAndUpdate(student._id, { avatarHash })
+      updated++
+    }
+
+    res.json({ total: students.length, updated, missingFile, skipped })
+  } catch (e: any) {
+    console.error(e)
+    res.status(500).json({ error: 'backfill_failed', details: e.message })
+  }
+})
+
 mediaRouter.post('/confirm-photo', requireAuth(['ADMIN', 'SUBADMIN']), async (req: any, res) => {
   const { pendingId, studentId } = req.body
   if (!pendingId || !studentId) return res.status(400).json({ error: 'missing_payload' })
@@ -575,10 +630,13 @@ mediaRouter.post('/confirm-photo', requireAuth(['ADMIN', 'SUBADMIN']), async (re
     const targetPath = path.join(uploadDir, 'students', targetFilename)
     ensureDir(path.join(uploadDir, 'students'))
 
-    fs.renameSync(path.join(pendingStudentsDir, pendingFile), targetPath)
+    const pendingPath = path.join(pendingStudentsDir, pendingFile)
+    const pendingBuffer = fs.readFileSync(pendingPath)
+    fs.renameSync(pendingPath, targetPath)
 
     const avatarUrl = `/uploads/students/${targetFilename}`
-    await Student.findByIdAndUpdate(studentId, { avatarUrl })
+    const avatarHash = hashBuffer(pendingBuffer)
+    await Student.findByIdAndUpdate(studentId, { avatarUrl, avatarHash })
 
     res.json({ ok: true, url: avatarUrl, studentId })
   } catch (e: any) {
