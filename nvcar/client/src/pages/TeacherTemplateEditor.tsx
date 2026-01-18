@@ -175,6 +175,29 @@ export default function TeacherTemplateEditor() {
                         return { ...prev, data: nextData }
                     })
                 }
+
+                if (payload.type === 'completion-update') {
+                    if (payload.assignmentId && payload.assignmentId !== assignment?._id) return
+
+                    if (payload.assignmentPatch) {
+                        setAssignment(prev => prev ? { ...prev, ...payload.assignmentPatch } : prev)
+                    }
+
+                    if (payload.languageCompletions) {
+                        const nextMap = buildLanguageCompletionMap({ languageCompletions: payload.languageCompletions } as any)
+                        setLanguageCompletion(nextMap)
+
+                        if (completionLanguages.length === 0 && Array.isArray(payload.languages) && payload.languages.length > 0) {
+                            setCompletionLanguages(payload.languages.map(normalizeLanguageCode).filter(Boolean))
+                        }
+
+                        const nextSem1 = areAllLanguagesCompleted(1, nextMap, payload.languages)
+                        const nextSem2 = areAllLanguagesCompleted(2, nextMap, payload.languages)
+                        setIsMyWorkCompletedSem1(nextSem1)
+                        setIsMyWorkCompletedSem2(nextSem2)
+                        setIsMyWorkCompleted(nextSem1)
+                    }
+                }
             }
 
             socket.on('update-received', handleUpdate)
@@ -400,6 +423,29 @@ export default function TeacherTemplateEditor() {
                 setIsMyWorkCompleted(nextSem1)
             } else {
                 setIsMyWorkCompletedSem2(nextSem2)
+            }
+
+            if (socket) {
+                socket.emit('broadcast-update', {
+                    roomId: `assignment:${assignmentId}`,
+                    payload: {
+                        type: 'completion-update',
+                        assignmentId,
+                        assignmentPatch: {
+                            languageCompletions: r.data?.languageCompletions,
+                            teacherCompletions: r.data?.teacherCompletions,
+                            isCompletedSem1: r.data?.isCompletedSem1,
+                            isCompletedSem2: r.data?.isCompletedSem2,
+                            isCompleted: r.data?.isCompleted,
+                            completedAtSem1: r.data?.completedAtSem1,
+                            completedAtSem2: r.data?.completedAtSem2,
+                            completedAt: r.data?.completedAt,
+                            status: r.data?.status
+                        },
+                        languageCompletions: r.data?.languageCompletions,
+                        languages: targetLanguages
+                    }
+                })
             }
 
             setSaveStatus(!isCompleted ? 'Terminé avec succès ✓' : 'Rouvert avec succès')
