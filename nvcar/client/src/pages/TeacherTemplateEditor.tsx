@@ -11,7 +11,7 @@ import { GradebookPocket } from '../components/GradebookPocket'
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
 type Template = { _id?: string; name: string; pages: Page[]; signingPage?: number }
-type Student = { _id: string; firstName: string; lastName: string; level?: string; className?: string; dateOfBirth?: Date }
+type Student = { _id: string; firstName: string; lastName: string; level?: string; className?: string; dateOfBirth?: Date; avatarUrl?: string }
 type Assignment = {
     _id: string
     status: string
@@ -513,51 +513,51 @@ export default function TeacherTemplateEditor() {
 
                 <div style={{ marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
                     <div>
-                    <h2 className="title" style={{ fontSize: 28, marginBottom: 8, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 12 }}>
-                        <span>✏️ Édition du carnet - {student ? `${student.firstName} ${student.lastName}` : 'Élève'}</span>
-                        {student?.level && (
+                        <h2 className="title" style={{ fontSize: 28, marginBottom: 8, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 12 }}>
+                            <span>✏️ Édition du carnet - {student ? `${student.firstName} ${student.lastName}` : 'Élève'}</span>
+                            {student?.level && (
+                                <span style={{
+                                    fontSize: 14,
+                                    background: '#e0e7ff',
+                                    color: '#4338ca',
+                                    padding: '4px 10px',
+                                    borderRadius: 16,
+                                    fontWeight: 600
+                                }}>
+                                    {student.level}
+                                </span>
+                            )}
+                            {student?.className && (
+                                <span style={{
+                                    fontSize: 14,
+                                    background: '#f1f5f9',
+                                    color: '#475569',
+                                    padding: '4px 10px',
+                                    borderRadius: 16,
+                                    fontWeight: 600
+                                }}>
+                                    {student.className}
+                                </span>
+                            )}
                             <span style={{
                                 fontSize: 14,
-                                background: '#e0e7ff',
-                                color: '#4338ca',
+                                background: activeSemester === 2 ? '#dbeafe' : '#fef3c7',
+                                color: activeSemester === 2 ? '#1e40af' : '#92400e',
                                 padding: '4px 10px',
                                 borderRadius: 16,
-                                fontWeight: 600
+                                fontWeight: 700,
+                                border: `1px solid ${activeSemester === 2 ? '#93c5fd' : '#fcd34d'}`
                             }}>
-                                {student.level}
+                                S{activeSemester}
                             </span>
-                        )}
-                        {student?.className && (
-                            <span style={{
-                                fontSize: 14,
-                                background: '#f1f5f9',
-                                color: '#475569',
-                                padding: '4px 10px',
-                                borderRadius: 16,
-                                fontWeight: 600
-                            }}>
-                                {student.className}
-                            </span>
-                        )}
-                        <span style={{
-                            fontSize: 14,
-                            background: activeSemester === 2 ? '#dbeafe' : '#fef3c7',
-                            color: activeSemester === 2 ? '#1e40af' : '#92400e',
-                            padding: '4px 10px',
-                            borderRadius: 16,
-                            fontWeight: 700,
-                            border: `1px solid ${activeSemester === 2 ? '#93c5fd' : '#fcd34d'}`
-                        }}>
-                            S{activeSemester}
-                        </span>
-                    </h2>
-                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 6, fontSize: 13, fontWeight: 500, background: assignment?.status === 'signed' ? '#d1fae5' : assignment?.status === 'completed' ? '#dbeafe' : '#fef3c7', color: assignment?.status === 'signed' ? '#065f46' : assignment?.status === 'completed' ? '#1e40af' : '#92400e', border: `1px solid ${assignment?.status === 'signed' ? '#6ee7b7' : assignment?.status === 'completed' ? '#93c5fd' : '#fcd34d'}` }}>
-                        {assignment?.status === 'draft' && '📝 Brouillon'}
-                        {assignment?.status === 'in_progress' && '🔄 En cours'}
-                        {assignment?.status === 'completed' && '✅ Terminé'}
-                        {assignment?.status === 'signed' && '✔️ Signé'}
-                        {!['draft', 'in_progress', 'completed', 'signed'].includes(assignment?.status || '') && assignment?.status}
-                    </div>
+                        </h2>
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 6, fontSize: 13, fontWeight: 500, background: assignment?.status === 'signed' ? '#d1fae5' : assignment?.status === 'completed' ? '#dbeafe' : '#fef3c7', color: assignment?.status === 'signed' ? '#065f46' : assignment?.status === 'completed' ? '#1e40af' : '#92400e', border: `1px solid ${assignment?.status === 'signed' ? '#6ee7b7' : assignment?.status === 'completed' ? '#93c5fd' : '#fcd34d'}` }}>
+                            {assignment?.status === 'draft' && '📝 Brouillon'}
+                            {assignment?.status === 'in_progress' && '🔄 En cours'}
+                            {assignment?.status === 'completed' && '✅ Terminé'}
+                            {assignment?.status === 'signed' && '✔️ Signé'}
+                            {!['draft', 'in_progress', 'completed', 'signed'].includes(assignment?.status || '') && assignment?.status}
+                        </div>
                     </div>
                     {canEdit && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -901,6 +901,15 @@ export default function TeacherTemplateEditor() {
                                                     </div>
                                                 )}
                                                 {b.type === 'image' && <img src={fixUrl(b.props.url)} style={{ width: b.props.width || 120, height: b.props.height || 120, borderRadius: 8 }} alt="" />}
+                                                {b.type === 'student_photo' && (
+                                                    student?.avatarUrl ? (
+                                                        <img src={fixUrl(student.avatarUrl)} style={{ width: b.props.width || 100, height: b.props.height || 100, objectFit: 'cover', borderRadius: 8 }} alt="Student" />
+                                                    ) : (
+                                                        <div style={{ width: b.props.width || 100, height: b.props.height || 100, borderRadius: 8, background: '#f0f0f0', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', border: '1px solid #ccc' }}>
+                                                            <div style={{ fontSize: 24 }}>👤</div>
+                                                        </div>
+                                                    )
+                                                )}
                                                 {b.type === 'gradebook_pocket' && (
                                                     <GradebookPocket
                                                         number={b.props.number || '1'}

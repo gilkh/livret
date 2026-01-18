@@ -136,7 +136,9 @@ export default function TemplateReviewPreview({ template, student, assignment, s
         if (signature) sigs.push(signature as any)
         if (finalSignature) sigs.push(finalSignature as any)
 
-        const normLevel = (level || '').trim()
+        const promotions = Array.isArray((assignment as any)?.data?.promotions) ? (assignment as any).data.promotions : []
+        const normalizeLevel = (val: any) => String(val || '').trim().toLowerCase()
+        const normLevel = normalizeLevel(level)
 
         const matchesSemester = (s: any) => {
             const spid = String(s?.signaturePeriodId || '')
@@ -148,10 +150,23 @@ export default function TemplateReviewPreview({ template, student, assignment, s
 
         const matchesLevel = (s: any) => {
             if (!normLevel) return true
-            const sLevel = String(s?.level || '').trim()
-            // Some historical signatures may not have level; in that case only match if student's current level matches.
-            if (!sLevel) return String(student?.level || '').trim() === normLevel
-            return sLevel === normLevel
+            const sLevel = normalizeLevel(s?.level)
+            if (sLevel) return sLevel === normLevel
+
+            if (s?.schoolYearName) {
+                const promo = promotions.find((p: any) => String(p?.year || '') === String(s.schoolYearName))
+                const promoFrom = normalizeLevel(promo?.from || promo?.fromLevel)
+                if (promoFrom && promoFrom === normLevel) return true
+            }
+
+            if (s?.schoolYearId) {
+                const promo = promotions.find((p: any) => String(p?.schoolYearId || '') === String(s.schoolYearId))
+                const promoFrom = normalizeLevel(promo?.from || promo?.fromLevel)
+                if (promoFrom && promoFrom === normLevel) return true
+            }
+
+            const studentLevel = normalizeLevel(student?.level)
+            return !!studentLevel && studentLevel === normLevel
         }
 
         const filtered = sigs
@@ -459,6 +474,15 @@ export default function TemplateReviewPreview({ template, student, assignment, s
                                             </div>
                                         )}
                                         {b.type === 'image' && <img src={b.props.url} style={{ width: b.props.width || 120, height: b.props.height || 120, borderRadius: 8 }} alt="" />}
+                                        {b.type === 'student_photo' && (
+                                            student?.avatarUrl ? (
+                                                <img src={student.avatarUrl} style={{ width: b.props.width || 100, height: b.props.height || 100, objectFit: 'cover', borderRadius: 8 }} alt="Student" />
+                                            ) : (
+                                                <div style={{ width: b.props.width || 100, height: b.props.height || 100, borderRadius: 8, background: '#f0f0f0', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', border: '1px solid #ccc' }}>
+                                                    <div style={{ fontSize: 24 }}>👤</div>
+                                                </div>
+                                            )
+                                        )}
                                         {b.type === 'rect' && <div style={{ width: b.props.width, height: b.props.height, background: b.props.color, borderRadius: b.props.radius || 8, border: b.props.stroke ? `${b.props.strokeWidth || 1}px solid ${b.props.stroke}` : 'none' }} />}
                                         {b.type === 'circle' && <div style={{ width: (b.props.radius || 60) * 2, height: (b.props.radius || 60) * 2, background: b.props.color, borderRadius: '50%', border: b.props.stroke ? `${b.props.strokeWidth || 1}px solid ${b.props.stroke}` : 'none' }} />}
                                         {b.type === 'gradebook_pocket' && (
@@ -1077,9 +1101,13 @@ export default function TemplateReviewPreview({ template, student, assignment, s
 
                                             const dateStr = formatDdMmYyyyColon(found.signedAt)
                                             const showMeta = (b.props as any)?.showMeta !== false
-                                            const label = String((b.props as any)?.label || '').trim()
+                                            const prefix = 'Signé le:'
                                             const semLabel = semester ? `S${semester}` : ''
                                             const levelLabel = configuredLevel || ''
+                                            const metaPart = `${levelLabel}${levelLabel && semLabel ? ' ' : ''}${semLabel}`
+                                            const text = showMeta
+                                                ? `${prefix}${metaPart ? ` ${metaPart}` : ''} ${dateStr}`
+                                                : `${prefix} ${dateStr}`
 
                                             return (
                                                 <div style={{
@@ -1093,9 +1121,7 @@ export default function TemplateReviewPreview({ template, student, assignment, s
                                                     overflow: 'hidden',
                                                     whiteSpace: 'nowrap'
                                                 }}>
-                                                    {showMeta
-                                                        ? `${label ? `${label} ` : ''}${levelLabel}${levelLabel && semLabel ? ' ' : ''}${semLabel}${(levelLabel || semLabel) ? ' : ' : ''}${dateStr}`
-                                                        : dateStr}
+                                                    {text}
                                                 </div>
                                             )
                                         })()}

@@ -10,11 +10,12 @@ import Toast, { ToastType } from '../components/Toast'
 import ScrollToTopButton from '../components/ScrollToTopButton'
 import ScrollPageDownButton from '../components/ScrollPageDownButton'
 import { openPdfExport, buildStudentPdfUrl } from '../utils/pdfExport'
+import { formatDdMmYyyyColon } from '../utils/dateFormat'
 
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
 type Template = { _id?: string; name: string; pages: Page[]; signingPage?: number }
-type Student = { _id: string; firstName: string; lastName: string; level?: string; className?: string; dateOfBirth?: Date | string }
+type Student = { _id: string; firstName: string; lastName: string; level?: string; className?: string; dateOfBirth?: Date | string; avatarUrl?: string }
 type TeacherStatusCategory = {
     teachers: { id: string; name: string }[]
     doneSem1: boolean
@@ -359,6 +360,66 @@ export default function SubAdminTemplateReview() {
         if (/\bKG2\b/.test(label)) return 'KG2'
         if (/\bKG3\b/.test(label)) return 'KG3'
         return null
+    }
+
+    const getSemesterNumber = (b: Block): 1 | 2 | null => {
+        const raw = (b.props as any)?.semester ?? (b.props as any)?.semestre ?? null
+        if (raw === 1 || raw === '1') return 1
+        if (raw === 2 || raw === '2') return 2
+        const p = String((b.props as any)?.period || '')
+        if (p === 'mid-year') return 1
+        if (p === 'end-year') return 2
+        return null
+    }
+
+    const pickSignatureForLevelAndSemester = (opts: { level: string | null; semester: 1 | 2 | null }) => {
+        const { level, semester } = opts
+        const sigs: any[] = []
+        const history = assignment?.data?.signatures
+        if (Array.isArray(history)) sigs.push(...history)
+        if (signature) sigs.push(signature as any)
+        if (finalSignature) sigs.push(finalSignature as any)
+
+        const promotions = Array.isArray(assignment?.data?.promotions) ? assignment?.data?.promotions : []
+        const normalizeLevel = (val: any) => String(val || '').trim().toLowerCase()
+        const normLevel = normalizeLevel(level)
+
+        const matchesSemester = (s: any) => {
+            const spid = String(s?.signaturePeriodId || '')
+            const t = String(s?.type || 'standard')
+            if (semester === 1) return spid.endsWith('_sem1') || t === 'standard'
+            if (semester === 2) return spid.endsWith('_sem2') || spid.endsWith('_end_of_year') || t === 'end_of_year'
+            return true
+        }
+
+        const matchesLevel = (s: any) => {
+            if (!normLevel) return true
+            const sLevel = normalizeLevel(s?.level)
+            if (sLevel) return sLevel === normLevel
+
+            if (s?.schoolYearName) {
+                const promo = promotions.find((p: any) => String(p?.year || '') === String(s.schoolYearName))
+                const promoFrom = normalizeLevel(promo?.from || promo?.fromLevel)
+                if (promoFrom && promoFrom === normLevel) return true
+            }
+
+            if (s?.schoolYearId) {
+                const promo = promotions.find((p: any) => String(p?.schoolYearId || '') === String(s.schoolYearId))
+                const promoFrom = normalizeLevel(promo?.from || promo?.fromLevel)
+                if (promoFrom && promoFrom === normLevel) return true
+            }
+
+            const studentLevel = normalizeLevel(student?.level)
+            return !!studentLevel && studentLevel === normLevel
+        }
+
+        const filtered = sigs
+            .filter(s => s && s?.signedAt)
+            .filter(matchesSemester)
+            .filter(matchesLevel)
+            .sort((a, b) => new Date(b.signedAt).getTime() - new Date(a.signedAt).getTime())
+
+        return filtered[0] || null
     }
 
     const computeNextSchoolYearName = (year: string | undefined) => {
@@ -1309,6 +1370,15 @@ export default function SubAdminTemplateReview() {
                                                     </div>
                                                 )}
                                                 {b.type === 'image' && <img src={b.props.url} style={{ width: b.props.width || 120, height: b.props.height || 120, borderRadius: 8 }} alt="" />}
+                                                {b.type === 'student_photo' && (
+                                                    student?.avatarUrl ? (
+                                                        <img src={student.avatarUrl} style={{ width: b.props.width || 100, height: b.props.height || 100, objectFit: 'cover', borderRadius: 8 }} alt="Student" />
+                                                    ) : (
+                                                        <div style={{ width: b.props.width || 100, height: b.props.height || 100, borderRadius: 8, background: '#f0f0f0', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', border: '1px solid #ccc' }}>
+                                                            <div style={{ fontSize: 24 }}>👤</div>
+                                                        </div>
+                                                    )
+                                                )}
                                                 {b.type === 'rect' && <div style={{ width: b.props.width, height: b.props.height, background: b.props.color, borderRadius: b.props.radius || 8, border: b.props.stroke ? `${b.props.strokeWidth || 1}px solid ${b.props.stroke}` : 'none' }} />}
                                                 {b.type === 'circle' && <div style={{ width: (b.props.radius || 60) * 2, height: (b.props.radius || 60) * 2, background: b.props.color, borderRadius: '50%', border: b.props.stroke ? `${b.props.strokeWidth || 1}px solid ${b.props.stroke}` : 'none' }} />}
                                                 {b.type === 'gradebook_pocket' && (
@@ -2036,6 +2106,38 @@ export default function SubAdminTemplateReview() {
                                                     />
                                                 )}
                                                 {b.type === 'signature' && <div style={{ fontSize: b.props.fontSize }}>{(b.props.labels || []).join(' / ')}</div>}
+                                                {b.type === 'signature_date' && (() => {
+                                                    const configuredLevel = String((b.props as any)?.level || getBlockLevel(b) || '').trim() || null
+                                                    const semester = getSemesterNumber(b)
+                                                    const found = pickSignatureForLevelAndSemester({ level: configuredLevel, semester })
+                                                    if (!found) return null
+
+                                                    const dateStr = formatDdMmYyyyColon(found.signedAt)
+                                                    const showMeta = (b.props as any)?.showMeta !== false
+                                                    const prefix = 'Signé le:'
+                                                    const semLabel = semester ? `S${semester}` : ''
+                                                    const levelLabel = configuredLevel || ''
+                                                    const metaPart = `${levelLabel}${levelLabel && semLabel ? ' ' : ''}${semLabel}`
+                                                    const text = showMeta
+                                                        ? `${prefix}${metaPart ? ` ${metaPart}` : ''} ${dateStr}`
+                                                        : `${prefix} ${dateStr}`
+
+                                                    return (
+                                                        <div style={{
+                                                            width: b.props.width || 220,
+                                                            height: b.props.height || 34,
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            justifyContent: b.props.align || 'flex-start',
+                                                            fontSize: b.props.fontSize || 12,
+                                                            color: b.props.color || '#111',
+                                                            overflow: 'hidden',
+                                                            whiteSpace: 'nowrap'
+                                                        }}>
+                                                            {text}
+                                                        </div>
+                                                    )
+                                                })()}
                                                 {b.type === 'final_signature_box' && (
                                                     <div style={{
                                                         width: b.props.width || 200,

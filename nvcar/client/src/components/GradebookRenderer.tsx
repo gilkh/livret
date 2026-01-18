@@ -6,7 +6,7 @@ import { GradebookPocket } from './GradebookPocket'
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
 type Template = { _id?: string; name: string; pages: Page[] }
-type Student = { _id: string; firstName: string; lastName: string; level?: string; dateOfBirth?: Date | string; className?: string }
+type Student = { _id: string; firstName: string; lastName: string; level?: string; dateOfBirth?: Date | string; className?: string; avatarUrl?: string }
 type Assignment = { _id: string; status: string; data?: any }
 
 const pageWidth = 800
@@ -397,6 +397,15 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                         </div>
                                     )}
                                     {b.type === 'image' && <img src={b.props.url} style={{ width: b.props.width || 120, height: b.props.height || 120, borderRadius: 8 }} alt="" />}
+                                    {b.type === 'student_photo' && (
+                                        student?.avatarUrl ? (
+                                            <img src={student.avatarUrl} style={{ width: b.props.width || 100, height: b.props.height || 100, objectFit: 'cover', borderRadius: 8 }} alt="Student" />
+                                        ) : (
+                                            <div style={{ width: b.props.width || 100, height: b.props.height || 100, borderRadius: 8, background: '#f0f0f0', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', border: '1px solid #ccc' }}>
+                                                <div style={{ fontSize: 24 }}>👤</div>
+                                            </div>
+                                        )
+                                    )}
                                     {b.type === 'rect' && <div style={{ width: b.props.width, height: b.props.height, background: b.props.color, borderRadius: b.props.radius || 8, border: b.props.stroke ? `${b.props.strokeWidth || 1}px solid ${b.props.stroke}` : 'none' }} />}
                                     {b.type === 'circle' && <div style={{ width: (b.props.radius || 60) * 2, height: (b.props.radius || 60) * 2, background: b.props.color, borderRadius: '50%', border: b.props.stroke ? `${b.props.strokeWidth || 1}px solid ${b.props.stroke}` : 'none' }} />}
                                     {b.type === 'gradebook_pocket' && (

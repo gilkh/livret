@@ -559,14 +559,34 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), asy
         const targetLevel = String(b.props?.level || '').trim()
         const semesterRaw = b.props?.semester ?? b.props?.semestre
         const semester = (semesterRaw === 2 || semesterRaw === '2') ? 2 : 1
+        const promotions = Array.isArray((templateAssignment as any)?.data?.promotions) ? (templateAssignment as any).data.promotions : []
+        const normalizeLevel = (val: any) => String(val || '').trim().toLowerCase()
+        const normTargetLevel = normalizeLevel(targetLevel)
+
+        const matchesLevel = (s: any) => {
+          if (!normTargetLevel) return true
+          const sLevel = normalizeLevel(s?.level)
+          if (sLevel) return sLevel === normTargetLevel
+
+          if (s?.schoolYearName) {
+            const promo = promotions.find((p: any) => String(p?.year || '') === String(s.schoolYearName))
+            const promoFrom = normalizeLevel(promo?.from || promo?.fromLevel)
+            if (promoFrom && promoFrom === normTargetLevel) return true
+          }
+
+          if (s?.schoolYearId) {
+            const promo = promotions.find((p: any) => String(p?.schoolYearId || '') === String(s.schoolYearId))
+            const promoFrom = normalizeLevel(promo?.from || promo?.fromLevel)
+            if (promoFrom && promoFrom === normTargetLevel) return true
+          }
+
+          const studentLevel = normalizeLevel(level)
+          return !!studentLevel && studentLevel === normTargetLevel
+        }
 
         const matches = (signatures || [])
           .filter((s: any) => s?.signedAt)
-          .filter((s: any) => {
-            if (!targetLevel) return true
-            const sLevel = String(s?.level || '').trim()
-            return sLevel === targetLevel
-          })
+          .filter(matchesLevel)
           .filter((s: any) => {
             const spid = String(s?.signaturePeriodId || '')
             const t = String(s?.type || 'standard')
@@ -584,10 +604,12 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), asy
         const height = sy(b.props?.height || 34)
 
         const showMeta = b.props?.showMeta !== false
-        const label = String(b.props?.label || '').trim()
+        const prefix = 'Signé le:'
         const dateStr = formatDdMmYyyyColon(found.signedAt)
-        const meta = showMeta ? `${label ? `${label} ` : ''}${targetLevel ? `${targetLevel} ` : ''}S${semester} : ` : ''
-        const text = `${meta}${dateStr}`
+        const metaPart = `${targetLevel ? `${targetLevel} ` : ''}S${semester}`
+        const text = showMeta
+          ? `${prefix}${metaPart.trim() ? ` ${metaPart.trim()}` : ''} ${dateStr}`
+          : `${prefix} ${dateStr}`
 
         doc.save()
         doc.fontSize(b.props?.fontSize || 12).fillColor(b.props?.color || '#111')

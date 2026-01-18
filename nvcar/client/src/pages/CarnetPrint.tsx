@@ -173,7 +173,9 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
         if (Array.isArray(history)) sigs.push(...history)
         if (signature) sigs.push(signature)
 
-        const normLevel = (level || '').trim()
+        const promotions = Array.isArray(assignment?.data?.promotions) ? assignment?.data?.promotions : []
+        const normalizeLevel = (val: any) => String(val || '').trim().toLowerCase()
+        const normLevel = normalizeLevel(level)
 
         const matchesSemester = (s: any) => {
             const spid = String(s?.signaturePeriodId || '')
@@ -185,9 +187,23 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
 
         const matchesLevel = (s: any) => {
             if (!normLevel) return true
-            const sLevel = String(s?.level || '').trim()
-            if (!sLevel) return String(student?.level || '').trim() === normLevel
-            return sLevel === normLevel
+            const sLevel = normalizeLevel(s?.level)
+            if (sLevel) return sLevel === normLevel
+
+            if (s?.schoolYearName) {
+                const promo = promotions.find((p: any) => String(p?.year || '') === String(s.schoolYearName))
+                const promoFrom = normalizeLevel(promo?.from || promo?.fromLevel)
+                if (promoFrom && promoFrom === normLevel) return true
+            }
+
+            if (s?.schoolYearId) {
+                const promo = promotions.find((p: any) => String(p?.schoolYearId || '') === String(s.schoolYearId))
+                const promoFrom = normalizeLevel(promo?.from || promo?.fromLevel)
+                if (promoFrom && promoFrom === normLevel) return true
+            }
+
+            const studentLevel = normalizeLevel(student?.level)
+            return !!studentLevel && studentLevel === normLevel
         }
 
         const filtered = sigs
@@ -763,9 +779,13 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
 
                                         const dateStr = formatDdMmYyyyColon(found.signedAt)
                                         const showMeta = (b.props as any)?.showMeta !== false
-                                        const label = String((b.props as any)?.label || '').trim()
+                                        const prefix = 'Signé le:'
                                         const semLabel = semester ? `S${semester}` : ''
                                         const levelLabel = configuredLevel || ''
+                                        const metaPart = `${levelLabel}${levelLabel && semLabel ? ' ' : ''}${semLabel}`
+                                        const text = showMeta
+                                            ? `${prefix}${metaPart ? ` ${metaPart}` : ''} ${dateStr}`
+                                            : `${prefix} ${dateStr}`
 
                                         return (
                                             <div style={{
@@ -779,9 +799,7 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                                 overflow: 'hidden',
                                                 whiteSpace: 'nowrap'
                                             }}>
-                                                {showMeta
-                                                    ? `${label ? `${label} ` : ''}${levelLabel}${levelLabel && semLabel ? ' ' : ''}${semLabel}${(levelLabel || semLabel) ? ' : ' : ''}${dateStr}`
-                                                    : dateStr}
+                                                {text}
                                             </div>
                                         )
                                     })()}

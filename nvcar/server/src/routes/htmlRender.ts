@@ -176,13 +176,34 @@ function renderBlock(block: any, student: any, assignmentData: any): string {
 
   const pickSignatureForLevelAndSemester = (level: string | null, semester: 1 | 2) => {
     const history = Array.isArray(assignmentData?.signatures) ? assignmentData.signatures : []
+    const promotions = Array.isArray(assignmentData?.promotions) ? assignmentData.promotions : []
+    const normalizeLevel = (val: any) => String(val || '').trim().toLowerCase()
+    const normLevel = normalizeLevel(level)
+
+    const matchesLevel = (s: any) => {
+      if (!normLevel) return true
+      const sLevel = normalizeLevel(s?.level)
+      if (sLevel) return sLevel === normLevel
+
+      if (s?.schoolYearName) {
+        const promo = promotions.find((p: any) => String(p?.year || '') === String(s.schoolYearName))
+        const promoFrom = normalizeLevel(promo?.from || promo?.fromLevel)
+        if (promoFrom && promoFrom === normLevel) return true
+      }
+
+      if (s?.schoolYearId) {
+        const promo = promotions.find((p: any) => String(p?.schoolYearId || '') === String(s.schoolYearId))
+        const promoFrom = normalizeLevel(promo?.from || promo?.fromLevel)
+        if (promoFrom && promoFrom === normLevel) return true
+      }
+
+      const studentLevel = normalizeLevel(student?.level)
+      return !!studentLevel && studentLevel === normLevel
+    }
+
     const candidates = history
       .filter((s: any) => matchesSemester(s, semester))
-      .filter((s: any) => {
-        if (!level) return true
-        if (s?.level) return String(s.level) === level
-        return false
-      })
+      .filter(matchesLevel)
       .sort((a: any, b: any) => {
         const ta = new Date(a?.signedAt || 0).getTime()
         const tb = new Date(b?.signedAt || 0).getTime()
@@ -302,7 +323,7 @@ function renderBlock(block: any, student: any, assignmentData: any): string {
         metaParts.push(semester === 1 ? 'S1' : 'S2')
       }
       const meta = metaParts.length ? ` <span style="font-size: ${(props.fontSize || 12) * 0.85}px; color: #666;">(${metaParts.join(' ')})</span>` : ''
-      const label = props.label ? String(props.label) : ''
+      const label = 'Signé le:'
 
       return `<div class="block" style="${style}">
         <div class="signature-box" style="width: ${props.width || 200}px; height: ${props.height || 80}px; font-size: ${props.fontSize || 12}px; color: ${props.color || '#000'}; justify-content: ${align === 'left' ? 'flex-start' : align === 'right' ? 'flex-end' : 'center'}; padding: 6px; text-align: ${align};">
