@@ -314,9 +314,12 @@ export default function TeacherQuickGrading() {
                         if (!isExclusivelyForCurrentLevel) return
                     }
 
-                    const dataKey = block.props.dropdownNumber
+                    const blockId = typeof block?.props?.blockId === 'string' && block.props.blockId.trim() ? block.props.blockId.trim() : null
+                    const stableKey = blockId ? `dropdown_${blockId}` : null
+                    const legacyKey = block.props.dropdownNumber
                         ? `dropdown_${block.props.dropdownNumber}`
                         : block.props.variableName || `dropdown_${pageIdx}_${blockIdx}`
+                    const dataKey = stableKey || legacyKey
 
                     drops.push({
                         blockId: `dropdown_${pageIdx}_${blockIdx}`,
@@ -327,7 +330,7 @@ export default function TeacherQuickGrading() {
                         dataKey,
                         semesters: dropdownSemesters,
                         levels: dropdownLevels, // Store levels for filtering
-                        currentValue: assignmentData?.[dataKey] || ''
+                        currentValue: (stableKey ? assignmentData?.[stableKey] : undefined) ?? assignmentData?.[legacyKey] ?? ''
                     })
                 }
             })
@@ -436,6 +439,7 @@ export default function TeacherQuickGrading() {
 
         const item = row.items[itemIndex]
         if (!isLanguageAllowed(item.code)) return
+        if (isLanguageCompletedForSemester(activeSemester, item.code)) return
 
         const savingKey = `${row.blockId}_${itemIndex}`
         setSavingItems(prev => new Set(prev).add(savingKey))
@@ -1183,6 +1187,8 @@ export default function TeacherQuickGrading() {
                                                     {row.items.map((item, i) => {
                                                         const allowed = isLanguageAllowed(item.code)
                                                         const isSaving = savingItems.has(`${row.blockId}_${i}`)
+                                                        const isCompletedLanguage = isLanguageCompletedForSemester(activeSemester, item.code)
+                                                        const canToggle = canEditActiveSemester && allowed && !isCompletedLanguage && !isSaving
                                                         const emoji = getEmoji(item)
                                                         const emojiUrl = `https://emojicdn.elk.sh/${emoji}?style=apple`
 
@@ -1190,7 +1196,7 @@ export default function TeacherQuickGrading() {
                                                             <button
                                                                 key={i}
                                                                 onClick={() => toggleLanguage(row, i)}
-                                                                disabled={!canEditActiveSemester || !allowed || isSaving}
+                                                                disabled={!canToggle}
                                                                 title={`${item.label || item.code}${!allowed ? ' (non autorisé)' : ''}`}
                                                                 style={{
                                                                     width: 44,
@@ -1198,8 +1204,8 @@ export default function TeacherQuickGrading() {
                                                                     borderRadius: '50%',
                                                                     border: item.active ? '3px solid #6c5ce7' : '2px solid #e2e8f0',
                                                                     background: item.active ? '#f0f4ff' : '#fff',
-                                                                    cursor: canEditActiveSemester && allowed ? 'pointer' : 'not-allowed',
-                                                                    opacity: allowed ? 1 : 0.4,
+                                                                    cursor: canToggle ? 'pointer' : 'not-allowed',
+                                                                    opacity: allowed ? (isCompletedLanguage ? 0.6 : 1) : 0.4,
                                                                     display: 'flex',
                                                                     alignItems: 'center',
                                                                     justifyContent: 'center',

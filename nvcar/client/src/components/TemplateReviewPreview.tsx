@@ -299,6 +299,42 @@ export default function TemplateReviewPreview({ template, student, assignment, s
         return undefined
     }
 
+    const mergeToggleItems = (templateItems: any[], savedItems: any[] | null | undefined) => {
+        const base = Array.isArray(templateItems) ? templateItems : []
+        const saved = Array.isArray(savedItems) ? savedItems : null
+
+        if (!base.length) return saved || []
+        if (!saved || !saved.length) return base
+
+        const codes = base
+            .map(it => (typeof it?.code === 'string' && it.code.trim() ? it.code.trim() : ''))
+            .filter(Boolean)
+        const lowerCodes = codes.map(c => c.toLowerCase())
+        const hasUniqueCodes = codes.length === base.length && new Set(lowerCodes).size === lowerCodes.length
+
+        if (hasUniqueCodes) {
+            const savedByCode = new Map<string, any>()
+            saved.forEach(it => {
+                if (typeof it?.code === 'string' && it.code.trim()) {
+                    savedByCode.set(it.code.trim().toLowerCase(), it)
+                }
+            })
+
+            return base.map(it => {
+                const key = typeof it?.code === 'string' ? it.code.trim().toLowerCase() : ''
+                const savedItem = key ? savedByCode.get(key) : undefined
+                const active = typeof savedItem?.active === 'boolean' ? savedItem.active : it.active
+                return { ...it, active }
+            })
+        }
+
+        return base.map((it, i) => {
+            const savedItem = saved[i]
+            const active = typeof savedItem?.active === 'boolean' ? savedItem.active : it.active
+            return { ...it, active }
+        })
+    }
+
     if (!template) return null
 
     return (
@@ -425,7 +461,18 @@ export default function TemplateReviewPreview({ template, student, assignment, s
                                                 // Visibility check
                                                 ...((!isBlockVisible(b)) ? { display: 'none' } : {})
                                             }}>
-                                                {(b.props.items || []).map((it: any, i: number) => {
+                                                {(() => {
+                                                    const toggleKeyOriginal = `language_toggle_${actualPageIndex}_${idx}`
+                                                    const blockId = typeof b?.props?.blockId === 'string' && b.props.blockId.trim() ? b.props.blockId.trim() : null
+                                                    const toggleKeyStable = blockId ? `language_toggle_${blockId}` : null
+                                                    const blockLevel = getBlockLevel(b)
+                                                    const savedItems =
+                                                        (toggleKeyStable ? getScopedData(toggleKeyStable, blockLevel) : null) ||
+                                                        getScopedData(toggleKeyOriginal, blockLevel)
+                                                    const baseItems = Array.isArray(b.props.items) ? b.props.items : []
+                                                    const items = mergeToggleItems(baseItems, savedItems)
+
+                                                    return items.map((it: any, i: number) => {
                                                     // Check level - show if at or below student's current level
                                                     const isAllowed = isLevelAtOrBelow(undefined, it.levels, student?.level);
 
@@ -471,7 +518,8 @@ export default function TemplateReviewPreview({ template, student, assignment, s
                                                             )}
                                                         </div>
                                                     )
-                                                })}
+                                                })
+                                                })()}
                                             </div>
                                         )}
                                         {b.type === 'image' && <CroppedImage src={b.props.url} displayWidth={b.props.width || 120} displayHeight={b.props.height || 120} cropData={b.props.cropData} borderRadius={8} />}
@@ -495,7 +543,18 @@ export default function TemplateReviewPreview({ template, student, assignment, s
                                         )}
                                         {b.type === 'language_toggle' && (
                                             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: b.props.spacing || 12 }}>
-                                                {(b.props.items || []).map((it: any, i: number) => {
+                                                {(() => {
+                                                    const toggleKeyOriginal = `language_toggle_${actualPageIndex}_${idx}`
+                                                    const blockId = typeof b?.props?.blockId === 'string' && b.props.blockId.trim() ? b.props.blockId.trim() : null
+                                                    const toggleKeyStable = blockId ? `language_toggle_${blockId}` : null
+                                                    const blockLevel = getBlockLevel(b)
+                                                    const savedItems =
+                                                        (toggleKeyStable ? getScopedData(toggleKeyStable, blockLevel) : null) ||
+                                                        getScopedData(toggleKeyOriginal, blockLevel)
+                                                    const baseItems = Array.isArray(b.props.items) ? b.props.items : []
+                                                    const items = mergeToggleItems(baseItems, savedItems)
+
+                                                    return items.map((it: any, i: number) => {
                                                     // Check level - show if at or below student's current level
                                                     const isAllowed = isLevelAtOrBelow(undefined, it.levels, student?.level);
 
@@ -518,7 +577,8 @@ export default function TemplateReviewPreview({ template, student, assignment, s
                                                             {it.logo ? <img src={it.logo} style={{ width: '100%', height: '100%', objectFit: 'cover', filter: it.active ? 'brightness(1.1)' : 'brightness(0.6)' }} alt="" /> : <div style={{ width: '100%', height: '100%', background: '#ddd' }} />}
                                                         </div>
                                                     )
-                                                })}
+                                                })
+                                                })()}
                                             </div>
                                         )}
                                         {b.type === 'line' && <div style={{ width: b.props.x2 || 100, height: b.props.strokeWidth || 2, background: b.props.stroke || '#b2bec3' }} />}
@@ -590,9 +650,14 @@ export default function TemplateReviewPreview({ template, student, assignment, s
                                                         }}
                                                     >
                                                         {(() => {
-                                                            const rawKey = b.props.dropdownNumber ? `dropdown_${b.props.dropdownNumber}` : b.props.variableName
+                                                            const blockId = typeof b?.props?.blockId === 'string' && b.props.blockId.trim() ? b.props.blockId.trim() : null
+                                                            const stableKey = blockId ? `dropdown_${blockId}` : null
+                                                            const legacyKey = b.props.dropdownNumber ? `dropdown_${b.props.dropdownNumber}` : b.props.variableName
                                                             const blockLevel = getBlockLevel(b)
-                                                            const currentValue = getScopedData(rawKey || '', blockLevel)
+                                                            const currentValue =
+                                                                (stableKey ? getScopedData(stableKey, blockLevel) : undefined) ??
+                                                                (legacyKey ? getScopedData(legacyKey, blockLevel) : undefined) ??
+                                                                ''
                                                             return currentValue || 'Sélectionner...'
                                                         })()}
                                                         <div style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>▼</div>
@@ -602,7 +667,12 @@ export default function TemplateReviewPreview({ template, student, assignment, s
                                         })()}
                                         {b.type === 'dropdown_reference' && (() => {
                                             const dropdownNum = b.props.dropdownNumber || 1
-                                            const raw = assignment?.data?.[`dropdown_${dropdownNum}`]
+                                            const blockId = typeof b?.props?.blockId === 'string' && b.props.blockId.trim() ? b.props.blockId.trim() : null
+                                            const stableKey = blockId ? `dropdown_${blockId}` : null
+                                            const legacyKey = dropdownNum ? `dropdown_${dropdownNum}` : null
+                                            const raw =
+                                                (stableKey ? assignment?.data?.[stableKey] : undefined) ??
+                                                (legacyKey ? assignment?.data?.[legacyKey] : undefined)
                                             const value = typeof raw === 'string' ? raw.trim() : raw
                                             if (!value) return null
                                             return (
@@ -986,10 +1056,11 @@ export default function TemplateReviewPreview({ template, student, assignment, s
                                                                                     const toggleKey = toggleKeyStable || toggleKeyLegacy
                                                                                     const rowLangs = b.props.rowLanguages?.[ri] || expandedLanguages
                                                                                     const blockLevel = getBlockLevel(b)
-                                                                                    const currentItems =
+                                                                                    const savedItems =
                                                                                         (toggleKeyStable ? getScopedData(toggleKeyStable, blockLevel) : null) ||
-                                                                                        getScopedData(toggleKeyLegacy, blockLevel) ||
-                                                                                        rowLangs
+                                                                                        getScopedData(toggleKeyLegacy, blockLevel)
+                                                                                    const baseItems = Array.isArray(rowLangs) ? rowLangs : []
+                                                                                    const currentItems = mergeToggleItems(baseItems, savedItems)
 
                                                                                     return currentItems.map((lang: any, li: number) => {
                                                                                         // Check level - show if at or below student's current level

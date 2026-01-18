@@ -620,7 +620,7 @@ teacherTemplatesRouter.patch('/template-assignments/:assignmentId/language-toggl
 
         if (!targetBlock) return res.status(400).json({ error: 'block_not_found' })
 
-        const { enrollment } = await findEnrollmentForStudent(assignment.studentId)
+        const { enrollment, activeYear } = await findEnrollmentForStudent(assignment.studentId)
         if (!enrollment || !enrollment.classId) {
             return res.status(403).json({ error: 'student_not_enrolled' })
         }
@@ -649,6 +649,31 @@ teacherTemplatesRouter.patch('/template-assignments/:assignmentId/language-toggl
 
         const allowedLanguages = (teacherClassAssignment as any)?.languages || []
         const isProfPolyvalent = !!(teacherClassAssignment as any)?.isProfPolyvalent
+        const completionLanguages = getCompletionLanguagesForTeacher(teacherClassAssignment)
+        const activeSemester = (activeYear as any)?.activeSemester || 1
+        const myCompletion = (assignment as any).teacherCompletions?.find((tc: any) => tc.teacherId === teacherId)
+        const languageCompletionMap = buildLanguageCompletionMap((assignment as any).languageCompletions || [])
+
+        if (Object.keys(languageCompletionMap).length === 0 && myCompletion) {
+            if (myCompletion.completedSem1 || myCompletion.completed) {
+                completionLanguages.forEach(code => {
+                    languageCompletionMap[code] = {
+                        code,
+                        completed: true,
+                        completedSem1: true
+                    }
+                })
+            }
+            if (myCompletion.completedSem2) {
+                completionLanguages.forEach(code => {
+                    const existing = languageCompletionMap[code] || { code }
+                    languageCompletionMap[code] = {
+                        ...existing,
+                        completedSem2: true
+                    }
+                })
+            }
+        }
 
         const sourceItems = Array.isArray(targetBlock?.props?.items) ? targetBlock.props.items : []
         const sanitizedItems = sourceItems.length > 0
@@ -678,6 +703,9 @@ teacherTemplatesRouter.patch('/template-assignments/:assignmentId/language-toggl
             const oldItem = previousItems[i] || sourceItems[i]
             if (newItem && oldItem && newItem.active !== oldItem.active) {
                 const langCode = sourceItems?.[i]?.code
+                if (isLanguageCompletedForSemester(languageCompletionMap, langCode, activeSemester)) {
+                    return res.status(403).json({ error: 'language_completed', details: langCode })
+                }
                 if (!isLanguageAllowedForTeacher(langCode, allowedLanguages, isProfPolyvalent)) {
                     return res.status(403).json({ error: 'language_not_allowed', details: langCode })
                 }
@@ -1289,6 +1317,35 @@ teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data', require
         const versionedTemplate: any = getVersionedTemplate(template, (assignment as any).templateVersion)
         const sanitizedPatch: any = {}
         const activeSemester = (activeYear as any)?.activeSemester || 1
+        const completionLanguages = getCompletionLanguagesForTeacher(teacherClassAssignment)
+        const myCompletion = (assignment as any).teacherCompletions?.find((tc: any) => tc.teacherId === teacherId)
+        const languageCompletionMap = buildLanguageCompletionMap((assignment as any).languageCompletions || [])
+
+        if (Object.keys(languageCompletionMap).length === 0 && myCompletion) {
+            if (myCompletion.completedSem1 || myCompletion.completed) {
+                completionLanguages.forEach(code => {
+                    languageCompletionMap[code] = {
+                        code,
+                        completed: true,
+                        completedSem1: true
+                    }
+                })
+            }
+            if (myCompletion.completedSem2) {
+                completionLanguages.forEach(code => {
+                    const existing = languageCompletionMap[code] || { code }
+                    languageCompletionMap[code] = {
+                        ...existing,
+                        completedSem2: true
+                    }
+                })
+            }
+        }
+
+        const isActiveSemesterClosed = computeTeacherCompletionForSemester(languageCompletionMap, completionLanguages, activeSemester)
+        if (isActiveSemesterClosed) {
+            return res.status(403).json({ error: 'gradebook_closed', details: { activeSemester } })
+        }
 
         const blocksById = buildBlocksById(versionedTemplate?.pages || [])
         for (const [key, value] of Object.entries(data)) {
@@ -1321,6 +1378,9 @@ teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data', require
                     const oldItem = (previousItems as any)[i] || sourceItems[i]
                     if (newItem && oldItem && newItem.active !== oldItem.active) {
                         const langCode = sourceItems?.[i]?.code
+                        if (isLanguageCompletedForSemester(languageCompletionMap, langCode, activeSemester)) {
+                            return res.status(403).json({ error: 'language_completed', details: langCode })
+                        }
                         if (!isLanguageAllowedForTeacher(langCode, allowedLanguages, isProfPolyvalent)) {
                             return res.status(403).json({ error: 'language_not_allowed', details: langCode })
                         }
@@ -1360,6 +1420,9 @@ teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data', require
                     const oldItem = (previousItems as any)[i] || sourceItems[i]
                     if (newItem && oldItem && newItem.active !== oldItem.active) {
                         const langCode = sourceItems?.[i]?.code
+                        if (isLanguageCompletedForSemester(languageCompletionMap, langCode, activeSemester)) {
+                            return res.status(403).json({ error: 'language_completed', details: langCode })
+                        }
                         if (!isLanguageAllowedForTeacher(langCode, allowedLanguages, isProfPolyvalent)) {
                             return res.status(403).json({ error: 'language_not_allowed', details: langCode })
                         }
@@ -1405,6 +1468,9 @@ teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data', require
                             return res.status(403).json({ error: 'level_mismatch', details: { studentLevel, itemLevel } })
                         }
                         const langCode = sourceItems?.[i]?.code
+                        if (isLanguageCompletedForSemester(languageCompletionMap, langCode, activeSemester)) {
+                            return res.status(403).json({ error: 'language_completed', details: langCode })
+                        }
                         if (!isLanguageAllowedForTeacher(langCode, allowedLanguages, isProfPolyvalent)) {
                             return res.status(403).json({ error: 'language_not_allowed', details: langCode })
                         }
@@ -1456,6 +1522,9 @@ teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data', require
                             return res.status(403).json({ error: 'level_mismatch', details: { studentLevel, itemLevel } })
                         }
                         const langCode = sourceItems?.[i]?.code
+                        if (isLanguageCompletedForSemester(languageCompletionMap, langCode, activeSemester)) {
+                            return res.status(403).json({ error: 'language_completed', details: langCode })
+                        }
                         if (!isLanguageAllowedForTeacher(langCode, allowedLanguages, isProfPolyvalent)) {
                             return res.status(403).json({ error: 'language_not_allowed', details: langCode })
                         }
@@ -1466,13 +1535,17 @@ teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data', require
                 continue
             }
 
-            const dropdownNumMatch = key.match(/^dropdown_(\d+)$/)
-            if (dropdownNumMatch) {
-                const dropdownNumber = parseInt(dropdownNumMatch[1])
+            const dropdownKeyMatch = key.match(/^dropdown_(.+)$/)
+            if (dropdownKeyMatch) {
+                const dropdownKey = dropdownKeyMatch[1]
+                const isNumeric = /^\d+$/.test(dropdownKey)
+                const dropdownNumber = isNumeric ? parseInt(dropdownKey) : null
                 const dropdownBlocks: any[] = []
                     ; (versionedTemplate.pages || []).forEach((p: any) => {
                         ; (p?.blocks || []).forEach((b: any) => {
-                            if (b?.type === 'dropdown' && b?.props?.dropdownNumber === dropdownNumber) dropdownBlocks.push(b)
+                            if (b?.type !== 'dropdown') return
+                            if (dropdownNumber !== null && b?.props?.dropdownNumber === dropdownNumber) dropdownBlocks.push(b)
+                            if (dropdownNumber === null && b?.props?.blockId === dropdownKey) dropdownBlocks.push(b)
                         })
                     })
 

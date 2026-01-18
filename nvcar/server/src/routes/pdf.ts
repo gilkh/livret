@@ -622,7 +622,10 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), asy
         }
         // Render dropdown with selected value or skip if empty
         const dropdownNum = b.props?.dropdownNumber
-        const selectedValue = dropdownNum ? assignmentData[`dropdown_${dropdownNum}`] : (b.props?.variableName ? assignmentData[b.props.variableName] : '')
+        const blockId = typeof b?.props?.blockId === 'string' && b.props.blockId.trim() ? b.props.blockId.trim() : null
+        const stableKey = blockId ? `dropdown_${blockId}` : null
+        const legacyKey = dropdownNum ? `dropdown_${dropdownNum}` : (b.props?.variableName ? b.props.variableName : null)
+        const selectedValue = (stableKey ? assignmentData[stableKey] : undefined) ?? (legacyKey ? assignmentData[legacyKey] : undefined) ?? ''
 
         // Skip rendering if no value is selected
         if (!selectedValue) return
@@ -658,7 +661,10 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), asy
       } else if (b.type === 'dropdown_reference') {
         // Render the value selected in the referenced dropdown
         const dropdownNum = b.props?.dropdownNumber || 1
-        const raw = assignmentData[`dropdown_${dropdownNum}`]
+        const blockId = typeof b?.props?.blockId === 'string' && b.props.blockId.trim() ? b.props.blockId.trim() : null
+        const stableKey = blockId ? `dropdown_${blockId}` : null
+        const legacyKey = dropdownNum ? `dropdown_${dropdownNum}` : null
+        const raw = (stableKey ? assignmentData[stableKey] : undefined) ?? (legacyKey ? assignmentData[legacyKey] : undefined)
         const selectedValue = typeof raw === 'string' ? raw.trim() : raw
         if (!selectedValue) return
 
@@ -1043,7 +1049,10 @@ pdfRouter.get('/class/:classId/batch', requireAuth(['ADMIN', 'SUBADMIN']), async
             } else if (b.type === 'dropdown') {
               // Render dropdown with selected value or skip if empty
               const dropdownNum = b.props?.dropdownNumber
-              const selectedValue = dropdownNum ? assignmentData[`dropdown_${dropdownNum}`] : (b.props?.variableName ? assignmentData[b.props.variableName] : '')
+              const blockId = typeof b?.props?.blockId === 'string' && b.props.blockId.trim() ? b.props.blockId.trim() : null
+              const stableKey = blockId ? `dropdown_${blockId}` : null
+              const legacyKey = dropdownNum ? `dropdown_${dropdownNum}` : (b.props?.variableName ? b.props.variableName : null)
+              const selectedValue = (stableKey ? assignmentData[stableKey] : undefined) ?? (legacyKey ? assignmentData[legacyKey] : undefined) ?? ''
 
               // Skip rendering if no value is selected
               if (!selectedValue) return
@@ -1079,7 +1088,10 @@ pdfRouter.get('/class/:classId/batch', requireAuth(['ADMIN', 'SUBADMIN']), async
             } else if (b.type === 'dropdown_reference') {
               // Render the value selected in the referenced dropdown
               const dropdownNum = b.props?.dropdownNumber || 1
-              const raw = assignmentData[`dropdown_${dropdownNum}`]
+              const blockId = typeof b?.props?.blockId === 'string' && b.props.blockId.trim() ? b.props.blockId.trim() : null
+              const stableKey = blockId ? `dropdown_${blockId}` : null
+              const legacyKey = dropdownNum ? `dropdown_${dropdownNum}` : null
+              const raw = (stableKey ? assignmentData[stableKey] : undefined) ?? (legacyKey ? assignmentData[legacyKey] : undefined)
               const selectedValue = typeof raw === 'string' ? raw.trim() : raw
               if (!selectedValue) return
 

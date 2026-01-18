@@ -215,3 +215,7 @@
 2026-01-11T12:31:33.058Z https://127.0.0.1/print/carnet/69629c9748292241df2330bf?token=*** totalMs=3897 navMs=268 readyMs=1239 pdfMs=2062 size=3423502 native=false
 2026-01-11T12:34:27.497Z https://127.0.0.1/print/carnet/69629c9748292241df2330bf?token=*** totalMs=4227 navMs=253 readyMs=1111 pdfMs=2171 size=3421973 native=false
 2026-01-12T07:28:12.395Z https://livret.champville.com/print/carnet/69648ba4005551995cface9f?token=*** totalMs=5094 navMs=259 readyMs=768 pdfMs=3280 size=3420721 native=false
+2026-01-18T11:09:15.339Z https://127.0.0.1/print/preview/696bc8e4ddd9675504bbf046/student/696bd6fa0dbd3073ee9749ad?token=*** totalMs=5111 navMs=251 readyMs=854 pdfMs=3045 size=3412755 native=false
+2026-01-18T11:09:20.673Z https://127.0.0.1/print/preview/696bc8e4ddd9675504bbf046/student/696bd6fa0dbd3073ee9749ad?token=*** totalMs=4360 navMs=240 readyMs=835 pdfMs=2968 size=3412755 native=false
+2026-01-18T11:09:25.388Z https://127.0.0.1/print/preview/696bc8e4ddd9675504bbf046/student/696bd6fa0dbd3073ee9749ad?token=*** totalMs=4601 navMs=233 readyMs=874 pdfMs=3174 size=3412755 native=false
+2026-01-18T11:09:28.755Z https://127.0.0.1/print/preview/696bc8e4ddd9675504bbf046/student/696bd6fa0dbd3073ee9749ad?token=*** totalMs=8018 navMs=627 readyMs=3947 pdfMs=3016 size=3412755 native=false

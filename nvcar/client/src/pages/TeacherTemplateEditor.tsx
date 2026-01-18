@@ -364,6 +364,15 @@ export default function TeacherTemplateEditor() {
         })
     }
 
+    const isActiveSemesterClosed = useMemo(() => {
+        if (completionLanguages.length > 0) {
+            return areAllLanguagesCompleted(activeSemester)
+        }
+        return activeSemester === 1 ? isMyWorkCompletedSem1 : isMyWorkCompletedSem2
+    }, [activeSemester, completionLanguages, isMyWorkCompletedSem1, isMyWorkCompletedSem2, languageCompletion])
+
+    const canEditActive = canEdit && !isActiveSemesterClosed
+
     const toggleCompletionSem = async (semester: number, languages?: string[]) => {
         if (!assignment) return
         try {
@@ -934,6 +943,8 @@ export default function TeacherTemplateEditor() {
                                                                 return allowedLanguages.length === 0 || (code && allowedLanguages.includes(code))
                                                             })();
                                                             const isAllowed = isLevelAllowed && isLanguageAllowed;
+                                                            const isLanguageDone = isLanguageCompletedForSemester(activeSemester, it.code)
+                                                            const canToggle = canEditActive && isAllowed && !isLanguageDone
 
                                                             const r = b.props.radius || 40
                                                             const size = r * 2
@@ -946,15 +957,15 @@ export default function TeacherTemplateEditor() {
                                                                         borderRadius: '50%',
                                                                         overflow: 'hidden',
                                                                         position: 'relative',
-                                                                        cursor: (canEdit && isAllowed) ? 'pointer' : 'not-allowed',
+                                                                        cursor: canToggle ? 'pointer' : 'not-allowed',
                                                                         boxShadow: it.active ? '0 0 0 3px #6c5ce7' : '0 0 0 1px #ddd',
                                                                         transition: 'all 0.2s ease',
-                                                                        opacity: (canEdit && isAllowed) ? 1 : (it.active ? 0.9 : 0.5),
-                                                                        pointerEvents: (canEdit && isAllowed) ? 'auto' : 'none'
+                                                                        opacity: canToggle ? 1 : (it.active ? 0.9 : 0.5),
+                                                                        pointerEvents: canToggle ? 'auto' : 'none'
                                                                     }}
                                                                     onClick={(e) => {
                                                                         e.stopPropagation()
-                                                                        if (!canEdit || !isAllowed) return
+                                                                        if (!canToggle) return
                                                                         const newItems = [...(b.props.items || [])]
                                                                         newItems[i] = { ...newItems[i], active: !newItems[i].active }
                                                                         updateLanguageToggle(actualPageIndex, idx, newItems)
@@ -992,6 +1003,8 @@ export default function TeacherTemplateEditor() {
                                                                 return allowedLanguages.length === 0 || (code && allowedLanguages.includes(code))
                                                             })();
                                                             const isAllowed = isLevelAllowed && isLanguageAllowed;
+                                                            const isLanguageDone = isLanguageCompletedForSemester(activeSemester, it.code)
+                                                            const canToggle = canEditActive && isAllowed && !isLanguageDone
 
                                                             const size = 40
                                                             const getEmoji = (item: any) => {
@@ -1019,17 +1032,17 @@ export default function TeacherTemplateEditor() {
                                                                         display: 'flex',
                                                                         alignItems: 'center',
                                                                         justifyContent: 'center',
-                                                                        cursor: (canEdit && isAllowed) ? 'pointer' : 'not-allowed',
+                                                                        cursor: canToggle ? 'pointer' : 'not-allowed',
                                                                         boxShadow: it.active ? '0 0 0 2px rgba(37, 99, 235, 0.2)' : 'none',
                                                                         transition: 'all 0.2s ease',
                                                                         transform: it.active ? 'scale(1.1)' : 'scale(1)',
-                                                                        opacity: (canEdit && isAllowed) ? (it.active ? 1 : 0.6) : (it.active ? 0.9 : 0.4),
-                                                                        pointerEvents: (canEdit && isAllowed) ? 'auto' : 'none',
+                                                                        opacity: canToggle ? (it.active ? 1 : 0.6) : (it.active ? 0.9 : 0.4),
+                                                                        pointerEvents: canToggle ? 'auto' : 'none',
                                                                         filter: 'none'
                                                                     }}
                                                                     onClick={(e) => {
                                                                         e.stopPropagation()
-                                                                        if (!canEdit || !isAllowed) return
+                                                                        if (!canToggle) return
                                                                         const newItems = [...(b.props.items || [])]
                                                                         newItems[i] = { ...newItems[i], active: !newItems[i].active }
                                                                         updateLanguageToggle(actualPageIndex, idx, newItems)
@@ -1089,7 +1102,7 @@ export default function TeacherTemplateEditor() {
                                                     const dropdownSemesters = b.props.semesters || [1, 2]
                                                     const isSemesterAllowed = dropdownSemesters.includes(activeSemester)
                                                     const isDropdownAllowed = isLevelAllowed && isSemesterAllowed
-                                                    const canEditDropdown = canEdit && (isProfPolyvalent || allowedLanguages.length === 0) && isDropdownAllowed
+                                                    const canEditDropdown = canEditActive && (isProfPolyvalent || allowedLanguages.length === 0) && isDropdownAllowed
 
                                                     return (
                                                         <div style={{
@@ -1429,6 +1442,8 @@ export default function TeacherTemplateEditor() {
                                                                                                         ((code === 'uk' || code === 'gb') && allowedLanguages.includes('en'))
                                                                                                 })();
                                                                                                 const isAllowed = isLevelAllowed && isLanguageAllowed;
+                                                                                                const isLanguageDone = isLanguageCompletedForSemester(activeSemester, lang.code)
+                                                                                                const canToggle = canEditActive && isAllowed && !isLanguageDone
 
                                                                                                 const size = Math.max(12, Math.min(expandedRowHeight - 12, 20))
                                                                                                 const isActive = lang.active
@@ -1452,14 +1467,14 @@ export default function TeacherTemplateEditor() {
                                                                                                                 overflow: 'hidden',
                                                                                                                 position: 'relative',
                                                                                                                 boxShadow: isActive ? '0 0 0 2px #6c5ce7' : 'none',
-                                                                                                                opacity: (canEdit && isAllowed) ? (isActive ? 1 : 0.6) : (isActive ? 0.9 : 0.5),
-                                                                                                                cursor: (canEdit && isAllowed) ? 'pointer' : 'default',
+                                                                                                                opacity: canToggle ? (isActive ? 1 : 0.6) : (isActive ? 0.9 : 0.5),
+                                                                                                                cursor: canToggle ? 'pointer' : 'default',
                                                                                                                 zIndex: 100
                                                                                                             }}
                                                                                                             onMouseDown={async (e) => {
                                                                                                                 e.stopPropagation()
                                                                                                                 e.preventDefault()
-                                                                                                                if (!canEdit || !isAllowed) return
+                                                                                                                if (!canToggle) return
                                                                                                                 const newItems = [...currentItems]
                                                                                                                 newItems[li] = { ...newItems[li], active: !newItems[li].active }
                                                                                                                 if (assignment) {
@@ -1511,14 +1526,14 @@ export default function TeacherTemplateEditor() {
                                                                                                             justifyContent: 'center',
                                                                                                             transform: isActive ? 'scale(1.1)' : 'scale(1)',
                                                                                                             boxShadow: 'none',
-                                                                                                            opacity: (canEdit && isAllowed) ? (isActive ? 1 : 0.6) : (isActive ? 0.9 : 0.5),
-                                                                                                            cursor: (canEdit && isAllowed) ? 'pointer' : 'default',
+                                                                                                            opacity: canToggle ? (isActive ? 1 : 0.6) : (isActive ? 0.9 : 0.5),
+                                                                                                            cursor: canToggle ? 'pointer' : 'default',
                                                                                                             zIndex: 100
                                                                                                         }}
                                                                                                         onMouseDown={async (e) => {
                                                                                                             e.stopPropagation()
                                                                                                             e.preventDefault()
-                                                                                                            if (!canEdit || !isAllowed) return
+                                                                                                            if (!canToggle) return
                                                                                                             const newItems = [...currentItems]
                                                                                                             newItems[li] = { ...newItems[li], active: !newItems[li].active }
                                                                                                             if (assignment) {
@@ -1693,8 +1708,8 @@ export default function TeacherTemplateEditor() {
                                                         padding: 8,
                                                         fontSize: b.props.fontSize || 12,
                                                         color: b.props.color || '#2d3436',
-                                                        background: (canEdit && isProfPolyvalent) ? '#fff' : '#f9f9f9',
-                                                        cursor: (canEdit && isProfPolyvalent) ? 'text' : 'not-allowed',
+                                                        background: (canEditActive && isProfPolyvalent) ? '#fff' : '#f9f9f9',
+                                                        cursor: (canEditActive && isProfPolyvalent) ? 'text' : 'not-allowed',
                                                         position: 'relative'
                                                     }}>
                                                         {(() => {
@@ -1710,7 +1725,7 @@ export default function TeacherTemplateEditor() {
                                                             const blockId = stableBlockId || `teacher_text_${actualPageIndex}_${idx}`
                                                             const textValue = assignment?.data?.[blockId] || ''
 
-                                                            if (canEdit && isProfPolyvalent) {
+                                                            if (canEditActive && isProfPolyvalent) {
                                                                 return (
                                                                     <textarea
                                                                         value={textValue}

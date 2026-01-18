@@ -63,6 +63,42 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
         return null
     }
 
+    const mergeToggleItems = (templateItems: any[], savedItems: any[] | null | undefined) => {
+        const base = Array.isArray(templateItems) ? templateItems : []
+        const saved = Array.isArray(savedItems) ? savedItems : null
+
+        if (!base.length) return saved || []
+        if (!saved || !saved.length) return base
+
+        const codes = base
+            .map(it => (typeof it?.code === 'string' && it.code.trim() ? it.code.trim() : ''))
+            .filter(Boolean)
+        const lowerCodes = codes.map(c => c.toLowerCase())
+        const hasUniqueCodes = codes.length === base.length && new Set(lowerCodes).size === lowerCodes.length
+
+        if (hasUniqueCodes) {
+            const savedByCode = new Map<string, any>()
+            saved.forEach(it => {
+                if (typeof it?.code === 'string' && it.code.trim()) {
+                    savedByCode.set(it.code.trim().toLowerCase(), it)
+                }
+            })
+
+            return base.map(it => {
+                const key = typeof it?.code === 'string' ? it.code.trim().toLowerCase() : ''
+                const savedItem = key ? savedByCode.get(key) : undefined
+                const active = typeof savedItem?.active === 'boolean' ? savedItem.active : it.active
+                return { ...it, active }
+            })
+        }
+
+        return base.map((it, i) => {
+            const savedItem = saved[i]
+            const active = typeof savedItem?.active === 'boolean' ? savedItem.active : it.active
+            return { ...it, active }
+        })
+    }
+
     const computeNextSchoolYearName = (year: string | undefined) => {
         if (!year) return ''
         const m = year.match(/(\d{4})\s*([/\-])\s*(\d{4})/)
@@ -351,10 +387,11 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                                 const blockId = typeof b?.props?.blockId === 'string' && b.props.blockId.trim() ? b.props.blockId.trim() : null
                                                 const toggleKeyStable = blockId ? `language_toggle_${blockId}` : null
 
-                                                const items = (toggleKeyStable ? assignment?.data?.[toggleKeyStable] : null) ||
+                                                const savedItems = (toggleKeyStable ? assignment?.data?.[toggleKeyStable] : null) ||
                                                     assignment?.data?.[toggleKeyOriginal] ||
-                                                    assignment?.data?.[toggleKeyCurrent] ||
-                                                    b.props.items || []
+                                                    assignment?.data?.[toggleKeyCurrent]
+                                                const baseItems = Array.isArray(b.props.items) ? b.props.items : []
+                                                const items = mergeToggleItems(baseItems, savedItems)
 
                                                 return items.map((it: any, i: number) => {
                                                     const isAllowed = !(it.levels && it.levels.length > 0 && student?.level && !it.levels.includes(student.level));
@@ -429,10 +466,11 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                                 const blockId = typeof b?.props?.blockId === 'string' && b.props.blockId.trim() ? b.props.blockId.trim() : null
                                                 const toggleKeyStable = blockId ? `language_toggle_${blockId}` : null
 
-                                                const items = (toggleKeyStable ? assignment?.data?.[toggleKeyStable] : null) ||
+                                                const savedItems = (toggleKeyStable ? assignment?.data?.[toggleKeyStable] : null) ||
                                                     assignment?.data?.[toggleKeyOriginal] ||
-                                                    assignment?.data?.[toggleKeyCurrent] ||
-                                                    b.props.items || []
+                                                    assignment?.data?.[toggleKeyCurrent]
+                                                const baseItems = Array.isArray(b.props.items) ? b.props.items : []
+                                                const items = mergeToggleItems(baseItems, savedItems)
 
                                                 return items.map((it: any, i: number) => {
                                                     const isAllowed = !(it.levels && it.levels.length > 0 && student?.level && !it.levels.includes(student.level));
@@ -481,9 +519,15 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                                 whiteSpace: 'pre-wrap'
                                             }}>
                                                 {(() => {
-                                                    const currentValue = b.props.dropdownNumber
-                                                        ? assignment?.data?.[`dropdown_${b.props.dropdownNumber}`]
-                                                        : b.props.variableName ? assignment?.data?.[b.props.variableName] : ''
+                                                    const blockId = typeof b?.props?.blockId === 'string' && b.props.blockId.trim() ? b.props.blockId.trim() : null
+                                                    const stableKey = blockId ? `dropdown_${blockId}` : null
+                                                    const legacyKey = b.props.dropdownNumber
+                                                        ? `dropdown_${b.props.dropdownNumber}`
+                                                        : b.props.variableName || null
+                                                    const currentValue =
+                                                        (stableKey ? assignment?.data?.[stableKey] : undefined) ??
+                                                        (legacyKey ? assignment?.data?.[legacyKey] : undefined) ??
+                                                        ''
                                                     return currentValue || 'Sélectionner...'
                                                 })()}
                                             </div>
@@ -492,7 +536,12 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
 
                                     {b.type === 'dropdown_reference' && (() => {
                                         const dropdownNum = b.props.dropdownNumber || 1
-                                        const raw = assignment?.data?.[`dropdown_${dropdownNum}`]
+                                        const blockId = typeof b?.props?.blockId === 'string' && b.props.blockId.trim() ? b.props.blockId.trim() : null
+                                        const stableKey = blockId ? `dropdown_${blockId}` : null
+                                        const legacyKey = dropdownNum ? `dropdown_${dropdownNum}` : null
+                                        const raw =
+                                            (stableKey ? assignment?.data?.[stableKey] : undefined) ??
+                                            (legacyKey ? assignment?.data?.[legacyKey] : undefined)
                                         const value = typeof raw === 'string' ? raw.trim() : raw
                                         if (!value) return null
                                         return (
@@ -792,12 +841,13 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                                                                 const toggleKeyCurrent = `table_${pageIdx}_${blockIdx}_row_${ri}`
                                                                                 const toggleKeyLegacy = `table_${blockIdx}_row_${ri}`
                                                                                 const rowLanguages = b.props.rowLanguages?.[ri] || expandedLanguages
-                                                                                const toggleData =
+                                                                                const savedItems =
                                                                                     (toggleKeyStable ? assignment?.data?.[toggleKeyStable] : null) ||
                                                                                     assignment?.data?.[toggleKeyOriginal] ||
                                                                                     assignment?.data?.[toggleKeyCurrent] ||
-                                                                                    assignment?.data?.[toggleKeyLegacy] ||
-                                                                                    rowLanguages
+                                                                                    assignment?.data?.[toggleKeyLegacy]
+                                                                                const baseItems = Array.isArray(rowLanguages) ? rowLanguages : []
+                                                                                const toggleData = mergeToggleItems(baseItems, savedItems)
                                                                                 const toggleStyle = b.props.expandedToggleStyle || 'v2'
 
                                                                                 return toggleData.map((lang: any, li: number) => {

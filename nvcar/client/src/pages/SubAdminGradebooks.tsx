@@ -43,8 +43,9 @@ export default function SubAdminGradebooks() {
                 let templateData = t.data
 
                 const assignment = r.data.data?.assignment
-                if (assignment?.templateVersion && templateData.versionHistory) {
-                    const version = templateData.versionHistory.find((v: any) => v.version === assignment.templateVersion)
+                const templateVersion = assignment?.templateVersion ?? r.data.meta?.templateVersion
+                if (templateVersion && templateData.versionHistory) {
+                    const version = templateData.versionHistory.find((v: any) => v.version === templateVersion)
                     if (version) {
                         templateData = {
                             ...templateData,

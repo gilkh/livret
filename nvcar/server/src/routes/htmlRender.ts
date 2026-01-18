@@ -242,7 +242,10 @@ function renderBlock(block: any, student: any, assignmentData: any): string {
 
     case 'dropdown':
       const dropdownNum = props.dropdownNumber
-      const selectedValue = dropdownNum ? assignmentData[`dropdown_${dropdownNum}`] : ''
+      const blockId = typeof props?.blockId === 'string' && props.blockId.trim() ? props.blockId.trim() : null
+      const stableKey = blockId ? `dropdown_${blockId}` : null
+      const legacyKey = dropdownNum ? `dropdown_${dropdownNum}` : (props?.variableName ? props.variableName : null)
+      const selectedValue = (stableKey ? assignmentData[stableKey] : undefined) ?? (legacyKey ? assignmentData[legacyKey] : undefined) ?? ''
       return `<div class="block" style="${style}">
         <div class="dropdown-box" style="width: ${props.width || 200}px; min-height: ${props.height || 40}px; font-size: ${props.fontSize || 12}px; color: ${props.color || '#333'};">
           ${props.label ? `<div class="dropdown-label">${props.label}</div>` : ''}
@@ -253,7 +256,10 @@ function renderBlock(block: any, student: any, assignmentData: any): string {
 
     case 'dropdown_reference':
       const refDropdownNum = props.dropdownNumber || 1
-      const refValue = assignmentData[`dropdown_${refDropdownNum}`] || `[Dropdown #${refDropdownNum}]`
+      const refBlockId = typeof props?.blockId === 'string' && props.blockId.trim() ? props.blockId.trim() : null
+      const refStableKey = refBlockId ? `dropdown_${refBlockId}` : null
+      const refLegacyKey = refDropdownNum ? `dropdown_${refDropdownNum}` : null
+      const refValue = (refStableKey ? assignmentData[refStableKey] : undefined) ?? (refLegacyKey ? assignmentData[refLegacyKey] : undefined) ?? `[Dropdown #${refDropdownNum}]`
       return `<div class="block" style="${style} color: ${props.color || '#333'}; font-size: ${props.fontSize || 12}px; width: ${props.width || 200}px; white-space: pre-wrap; word-wrap: break-word;">${refValue}</div>`
 
     case 'promotion_info':
