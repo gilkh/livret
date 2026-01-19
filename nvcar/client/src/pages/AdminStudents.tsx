@@ -37,6 +37,11 @@ export default function AdminStudents() {
   const [levels, setLevels] = useState<string[]>([])
   const [classes, setClasses] = useState<ClassInfo[]>([])
 
+  const activeYearId = useMemo(() => {
+    const active = years.find(y => y.active)
+    return active?._id || ''
+  }, [years])
+
   // UI State
   const [search, setSearch] = useState('')
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null)
@@ -49,6 +54,7 @@ export default function AdminStudents() {
   // Photo check state
   const [showPhotoCheck, setShowPhotoCheck] = useState(false)
   const [photoCheckResult, setPhotoCheckResult] = useState<{ duplicates: any[]; missing: any[] } | null>(null)
+  const [photoCheckStudents, setPhotoCheckStudents] = useState<Student[]>([])
   const [checkingPhotos, setCheckingPhotos] = useState(false)
   const [targetedImportReport, setTargetedImportReport] = useState<any>(null)
   const [importingTargeted, setImportingTargeted] = useState(false)
@@ -143,21 +149,39 @@ export default function AdminStudents() {
     return { duplicates, missing }
   }
 
+  const getActiveYearIdForPhotoCheck = () => {
+    if (!activeYearId) {
+      alert("Aucune année activée. Activez une année avant de vérifier les photos.")
+      return ''
+    }
+    return activeYearId
+  }
+
   const checkPhotos = async () => {
+    const yearIdToCheck = getActiveYearIdForPhotoCheck()
+    if (!yearIdToCheck) return
+
     setCheckingPhotos(true)
     setShowPhotoCheck(true)
     setPhotoCheckResult(null)
     setTargetedImportReport(null)
 
-    const result = recalculatePhotoCheck(students)
-    setPhotoCheckResult(result)
-    setCheckingPhotos(false)
+    try {
+      const r = await api.get('/students', { params: { schoolYearId: yearIdToCheck, enrolledOnly: true } })
+      setPhotoCheckStudents(r.data)
+      const result = recalculatePhotoCheck(r.data)
+      setPhotoCheckResult(result)
+    } finally {
+      setCheckingPhotos(false)
+    }
   }
 
   // Refresh only the missing list without clearing import report
   const refreshPhotoCheckOnly = async () => {
-    const r = await api.get('/students', { params: { schoolYearId: selectedYearId } })
-    setStudents(r.data)
+    const yearIdToCheck = getActiveYearIdForPhotoCheck()
+    if (!yearIdToCheck) return
+    const r = await api.get('/students', { params: { schoolYearId: yearIdToCheck, enrolledOnly: true } })
+    setPhotoCheckStudents(r.data)
     const result = recalculatePhotoCheck(r.data)
     setPhotoCheckResult(result)
   }
@@ -182,6 +206,7 @@ export default function AdminStudents() {
     try {
       await api.patch(`/students/${studentId}`, { avatarUrl: '', avatarHash: '' })
       setStudents(prev => prev.map(s => s._id === studentId ? { ...s, avatarUrl: '', avatarHash: '' } : s))
+      setPhotoCheckStudents(prev => prev.map(s => s._id === studentId ? { ...s, avatarUrl: '', avatarHash: '' } : s))
       setSelectedStudent(prev => prev?._id === studentId ? { ...prev, avatarUrl: '', avatarHash: '' } : prev)
       await refreshPhotoCheckOnly()
     } catch (err) {

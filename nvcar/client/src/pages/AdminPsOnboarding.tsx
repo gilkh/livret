@@ -111,6 +111,43 @@ export default function AdminPsOnboarding() {
         }
     }
 
+    // Batch unpromote
+    const handleBatchUnpromote = async () => {
+        if (!previousYear) return
+
+        const targetIds = selectedIds.size > 0
+            ? Array.from(selectedIds)
+            : filteredStudents.filter(s => s.isPromoted).map(s => s._id)
+
+        if (targetIds.length === 0) {
+            setToast({ message: 'Aucun élève promu à annuler', type: 'error' })
+            return
+        }
+
+        for (let i = 0; i < 3; i++) {
+            if (!confirm(`[${i + 1}/3] Annuler la promotion (MS → PS) pour ${targetIds.length} élève(s) ?`)) return
+        }
+
+        setProcessing(true)
+        try {
+            const res = await api.post('/admin-extras/ps-onboarding/batch-unpromote', {
+                scope: selectedIds.size > 0 ? 'student' : 'all',
+                studentIds: selectedIds.size > 0 ? targetIds : undefined,
+                schoolYearId: selectedYearId
+            })
+            await loadData(selectedYearId)
+            setSelectedIds(new Set())
+            setToast({
+                message: `Annulation promotions: ${res.data.success} réussies, ${res.data.failed} échouées, ${res.data.skipped} ignorées`,
+                type: res.data.failed > 0 ? 'error' : 'success'
+            })
+        } catch (e: any) {
+            setToast({ message: 'Erreur: ' + (e.response?.data?.message || e.message), type: 'error' })
+        } finally {
+            setProcessing(false)
+        }
+    }
+
     const loadData = async (yearId: string) => {
         setLoading(true)
         try {
@@ -302,10 +339,19 @@ export default function AdminPsOnboarding() {
 
         const targetIds = selectedIds.size > 0
             ? Array.from(selectedIds)
-            : filteredStudents.filter(s => s.signatures.sem2 && !s.isPromoted).map(s => s._id)
+            : filteredStudents.filter(s => s.signatures.sem1 && s.signatures.sem2 && !s.isPromoted).map(s => s._id)
+
+        if (selectedIds.size > 0) {
+            const selectedStudents = filteredStudents.filter(s => selectedIds.has(s._id))
+            const ineligible = selectedStudents.filter(s => !(s.signatures.sem1 && s.signatures.sem2) || s.isPromoted)
+            if (ineligible.length > 0) {
+                setToast({ message: `Sélection invalide: ${ineligible.length} élève(s) non éligible(s) (doit être signé Sem1+Sem2 et non promu)`, type: 'error' })
+                return
+            }
+        }
 
         if (targetIds.length === 0) {
-            setToast({ message: 'Aucun élève éligible (doit être signé Sem2 et non promu)', type: 'error' })
+            setToast({ message: 'Aucun élève éligible (doit être signé Sem1+Sem2 et non promu)', type: 'error' })
             return
         }
 
@@ -318,7 +364,7 @@ export default function AdminPsOnboarding() {
             const res = await api.post('/admin-extras/ps-onboarding/batch-promote', {
                 scope: selectedIds.size > 0 ? 'student' : 'all',
                 studentIds: selectedIds.size > 0 ? targetIds : undefined,
-                schoolYearId: previousYear._id
+                schoolYearId: selectedYearId
             })
             await loadData(selectedYearId)
             setSelectedIds(new Set())
@@ -830,6 +876,15 @@ export default function AdminPsOnboarding() {
                                 disabled={processing}
                             >
                                 {processing ? '⏳ En cours...' : `🎓 Promouvoir ${selectedIds.size > 0 ? `(${selectedIds.size})` : 'éligibles'}`}
+                            </button>
+                        </div>
+                        <div style={{ marginTop: 12 }}>
+                            <button
+                                className="ps-btn danger"
+                                onClick={handleBatchUnpromote}
+                                disabled={processing}
+                            >
+                                {processing ? '⏳ En cours...' : `↩️ Annuler promotion ${selectedIds.size > 0 ? `(${selectedIds.size})` : 'promus'}`}
                             </button>
                         </div>
                     </div>

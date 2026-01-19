@@ -20,19 +20,116 @@ import mongoose from 'mongoose'
 
 export const studentsRouter = Router()
 
-studentsRouter.get('/', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), async (req, res) => {
-  const { schoolYearId } = req.query
-  const students = await Student.find({}).lean()
-  const ids = students.map(s => String(s._id))
+const stripBom = (s: string) => s.replace(/^\uFEFF/, '')
 
-  const query: any = { studentId: { $in: ids } }
-  if (schoolYearId) {
-    query.schoolYearId = schoolYearId
+const normalizeHeaderKey = (v: any) =>
+  String(v ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '')
+
+type BulkAssignCsvRecord = {
+  StudentId?: string
+  TargetLevel?: string
+  NextClass?: string
+}
+
+const coerceBulkAssignRecords = (csvText: string): BulkAssignCsvRecord[] => {
+  const rows = parse(stripBom(csvText), {
+    columns: false,
+    skip_empty_lines: true,
+    trim: true,
+    relax_column_count: true,
+    bom: true,
+    delimiter: [',', ';', '\t'],
+  }) as any[]
+
+  if (!Array.isArray(rows) || rows.length === 0) return []
+
+  const firstRow = Array.isArray(rows[0]) ? rows[0] : []
+  const headerLike = firstRow.some((c: any) => {
+    const k = normalizeHeaderKey(c)
+    return k === 'studentid' || k === 'nextclass' || k === 'targetlevel'
+  })
+
+  const out: BulkAssignCsvRecord[] = []
+
+  if (headerLike) {
+    const header = firstRow.map((c: any) => normalizeHeaderKey(c))
+    const idxOf = (aliases: string[]) => {
+      for (const a of aliases) {
+        const idx = header.indexOf(a)
+        if (idx >= 0) return idx
+      }
+      return -1
+    }
+
+    const studentIdIdx = idxOf(['studentid', 'id', '_id'])
+    const targetLevelIdx = idxOf(['targetlevel', 'level'])
+    const nextClassIdx = idxOf(['nextclass', 'next', 'section', 'classe', 'class'])
+
+    for (let i = 1; i < rows.length; i++) {
+      const r = rows[i]
+      if (!Array.isArray(r)) continue
+      const rec: BulkAssignCsvRecord = {
+        StudentId: studentIdIdx >= 0 ? r[studentIdIdx] : undefined,
+        TargetLevel: targetLevelIdx >= 0 ? r[targetLevelIdx] : undefined,
+        NextClass: nextClassIdx >= 0 ? r[nextClassIdx] : undefined,
+      }
+      out.push(rec)
+    }
+
+    return out
+  }
+
+  for (const r of rows) {
+    if (!Array.isArray(r) || r.length === 0) continue
+
+    const studentId = r[0]
+
+    if (r.length >= 6) {
+      out.push({ StudentId: studentId, TargetLevel: r[4], NextClass: r[5] })
+      continue
+    }
+
+    if (r.length >= 3) {
+      out.push({ StudentId: studentId, TargetLevel: r[1], NextClass: r[2] })
+      continue
+    }
+
+    if (r.length >= 2) {
+      out.push({ StudentId: studentId, NextClass: r[1] })
+      continue
+    }
+  }
+
+  return out
+}
+
+studentsRouter.get('/', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), async (req, res) => {
+  const { schoolYearId: schoolYearIdRaw, enrolledOnly: enrolledOnlyRaw } = req.query as any
+  const enrolledOnly = String(enrolledOnlyRaw || '').toLowerCase() === 'true'
+
+  let effectiveSchoolYearId: string | undefined
+  if (schoolYearIdRaw) {
+    effectiveSchoolYearId = String(schoolYearIdRaw)
   } else {
     const activeYear = await withCache('school-years-active', () =>
       SchoolYear.findOne({ active: true }).lean()
     )
-    if (activeYear) query.schoolYearId = String(activeYear._id)
+    if (activeYear) effectiveSchoolYearId = String(activeYear._id)
+  }
+
+  if (enrolledOnly && !effectiveSchoolYearId) {
+    return res.status(400).json({ error: 'no_active_year' })
+  }
+
+  const students = await Student.find({}).lean()
+  const ids = students.map(s => String(s._id))
+
+  const query: any = { studentId: { $in: ids } }
+  if (effectiveSchoolYearId) {
+    query.schoolYearId = effectiveSchoolYearId
   }
 
   const enrolls = await Enrollment.find(query).lean()
@@ -53,7 +150,12 @@ studentsRouter.get('/', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), async (re
   const classes = await ClassModel.find({ _id: { $in: classIds } }).lean()
   const classMap: Record<string, any> = {}
   for (const c of classes) classMap[String(c._id)] = c
-  const out = students.map(s => {
+
+  const filteredStudents = enrolledOnly
+    ? students.filter(s => Boolean(enrollByStudent[String(s._id)]))
+    : students
+
+  const out = filteredStudents.map(s => {
     const enr = enrollByStudent[String(s._id)]
     const cls = enr && enr.classId ? classMap[enr.classId] : null
     return {
@@ -158,11 +260,7 @@ studentsRouter.post('/bulk-assign-section', requireAuth(['ADMIN', 'SUBADMIN']), 
   if (!csv || !schoolYearId) return res.status(400).json({ error: 'missing_params' })
 
   try {
-    const records = parse(csv, {
-      columns: true,
-      skip_empty_lines: true,
-      trim: true
-    })
+    const records = coerceBulkAssignRecords(String(csv))
 
     const results = {
       success: 0,
@@ -172,15 +270,23 @@ studentsRouter.post('/bulk-assign-section', requireAuth(['ADMIN', 'SUBADMIN']), 
     const normalized: Array<{ index: number; studentId: string; level: string; className: string }> = []
     for (let i = 0; i < records.length; i++) {
       const record = records[i]
-      const studentId = record.StudentId
-      const nextClass = record.NextClass
+      const studentIdRaw = record.StudentId
+      const nextClassRaw = record.NextClass
+
+      const studentId = String(studentIdRaw ?? '').trim()
+      const nextClass = String(nextClassRaw ?? '').trim()
 
       if (!studentId || !nextClass) {
         results.errors.push({ studentId, error: 'missing_id_or_class' })
         continue
       }
 
-      const parts = String(nextClass).trim().split(' ')
+      if (!/^[a-f\d]{24}$/i.test(studentId)) {
+        results.errors.push({ studentId, error: 'invalid_student_id' })
+        continue
+      }
+
+      const parts = nextClass.split(' ')
       let level: string | undefined
       let section: string | undefined
 
@@ -188,7 +294,7 @@ studentsRouter.post('/bulk-assign-section', requireAuth(['ADMIN', 'SUBADMIN']), 
         level = parts[0]
         section = parts.slice(1).join(' ')
       } else if (record.TargetLevel) {
-        level = record.TargetLevel
+        level = String(record.TargetLevel ?? '').trim()
         section = nextClass
       }
 
@@ -198,7 +304,7 @@ studentsRouter.post('/bulk-assign-section', requireAuth(['ADMIN', 'SUBADMIN']), 
       }
 
       const className = `${level} ${section}`.trim()
-      normalized.push({ index: i, studentId: String(studentId), level: String(level), className })
+      normalized.push({ index: i, studentId, level: String(level).trim(), className })
     }
 
     const uniqueClassNames = Array.from(new Set(normalized.map(r => r.className)))
@@ -230,18 +336,23 @@ studentsRouter.post('/bulk-assign-section', requireAuth(['ADMIN', 'SUBADMIN']), 
       })
       .filter(Boolean) as Array<{ studentId: string; level: string; classId: string }>
 
-    const enrollmentOps = assignments.map(a => ({
+    const assignmentByStudentId = new Map<string, { studentId: string; level: string; classId: string }>()
+    for (const a of assignments) assignmentByStudentId.set(a.studentId, a)
+    const uniqueAssignments = Array.from(assignmentByStudentId.values())
+
+    const enrollmentOps = uniqueAssignments.map(a => ({
       updateOne: {
         filter: { studentId: a.studentId, schoolYearId },
         update: {
           $set: { classId: a.classId, status: 'active' },
-          $setOnInsert: { studentId: a.studentId, schoolYearId, status: 'active' },
+          $setOnInsert: { studentId: a.studentId, schoolYearId },
         },
         upsert: true,
       },
     }))
 
     const failedOpIndexes = new Set<number>()
+    const bulkWriteErrorByIndex = new Map<number, { code?: any; message?: string }>()
     const chunkSize = 1000
     for (let i = 0; i < enrollmentOps.length; i += chunkSize) {
       const chunk = enrollmentOps.slice(i, i + chunkSize)
@@ -251,13 +362,18 @@ studentsRouter.post('/bulk-assign-section', requireAuth(['ADMIN', 'SUBADMIN']), 
         const writeErrors = e?.writeErrors || []
         for (const we of writeErrors) {
           const localIndex = typeof we?.index === 'number' ? we.index : -1
-          if (localIndex >= 0) failedOpIndexes.add(i + localIndex)
+          if (localIndex >= 0) {
+            const absoluteIndex = i + localIndex
+            failedOpIndexes.add(absoluteIndex)
+            const message = String(we?.errmsg || we?.err?.errmsg || we?.err?.message || '').trim() || undefined
+            bulkWriteErrorByIndex.set(absoluteIndex, { code: we?.code, message })
+          }
         }
         if (writeErrors.length === 0) throw e
       }
     }
 
-    const tasks = assignments
+    const tasks = uniqueAssignments
       .map((a, idx) => ({ ...a, idx }))
       .filter(a => !failedOpIndexes.has(a.idx))
 
@@ -277,8 +393,11 @@ studentsRouter.post('/bulk-assign-section', requireAuth(['ADMIN', 'SUBADMIN']), 
     await Promise.all(workers)
 
     for (const idx of failedOpIndexes) {
-      const a = assignments[idx]
-      if (a) results.errors.push({ studentId: a.studentId, error: 'enrollment_write_failed' })
+      const a = uniqueAssignments[idx]
+      if (a) {
+        const details = bulkWriteErrorByIndex.get(idx)
+        results.errors.push({ studentId: a.studentId, error: 'enrollment_write_failed', details })
+      }
     }
     res.json(results)
   } catch (e: any) {

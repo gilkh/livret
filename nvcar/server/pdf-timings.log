@@ -239,3 +239,7 @@
 2026-01-18T20:06:14.233Z https://127.0.0.1/print/carnet/696c0f26eb0d508ec8b8f659?token=*** totalMs=4275 navMs=201 readyMs=853 pdfMs=2922 size=3422496 native=false
 2026-01-18T20:06:19.400Z https://127.0.0.1/print/carnet/696c0f26eb0d508ec8b8f659?token=*** totalMs=5077 navMs=246 readyMs=1115 pdfMs=3360 size=3422496 native=false
 2026-01-18T20:06:22.467Z https://127.0.0.1/print/carnet/696c0f26eb0d508ec8b8f659?token=*** totalMs=8174 navMs=579 readyMs=856 pdfMs=6195 size=3422496 native=false
+2026-01-19T06:56:16.227Z https://127.0.0.1/print/carnet/696dd54f1d0b3c8128b026e8?token=*** totalMs=5229 navMs=245 readyMs=827 pdfMs=3340 size=3427906 native=false
+2026-01-19T06:56:24.362Z https://127.0.0.1/print/carnet/696dd54f1d0b3c8128b026e8?token=*** totalMs=4531 navMs=200 readyMs=789 pdfMs=3222 size=3427906 native=false
+2026-01-19T06:56:29.324Z https://127.0.0.1/print/carnet/696dd54f1d0b3c8128b026e8?token=*** totalMs=4883 navMs=243 readyMs=792 pdfMs=3516 size=3427906 native=false
+2026-01-19T06:56:32.924Z https://127.0.0.1/print/carnet/696dd54f1d0b3c8128b026e8?token=*** totalMs=8508 navMs=387 readyMs=4487 pdfMs=3264 size=3427906 native=false

@@ -55,6 +55,7 @@ type AuditAction =
     | 'PS_ONBOARDING_BATCH_SIGN'
     | 'PS_ONBOARDING_BATCH_UNSIGN'
     | 'PS_ONBOARDING_BATCH_PROMOTE'
+    | 'PS_ONBOARDING_BATCH_UNPROMOTE'
 
 interface LogParams {
     userId: string
