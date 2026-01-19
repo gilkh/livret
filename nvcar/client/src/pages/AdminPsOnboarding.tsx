@@ -41,6 +41,14 @@ interface Toast {
     type: 'success' | 'error'
 }
 
+const ONBOARDING_TRANSITIONS = [
+    { from: 'PS', to: 'MS', label: 'PS → MS' },
+    { from: 'MS', to: 'GS', label: 'MS → GS' },
+    { from: 'GS', to: 'EB1', label: 'GS → EB1' }
+] as const
+
+type OnboardingFromLevel = typeof ONBOARDING_TRANSITIONS[number]['from']
+
 export default function AdminPsOnboarding() {
     const navigate = useNavigate()
 
@@ -52,6 +60,7 @@ export default function AdminPsOnboarding() {
     const [allYears, setAllYears] = useState<{ _id: string, name: string, active: boolean }[]>([])
     const [selectedYearId, setSelectedYearId] = useState<string>('')
     const [subadmins, setSubadmins] = useState<Subadmin[]>([])
+    const [fromLevel, setFromLevel] = useState<OnboardingFromLevel>('PS')
 
     // UI State
     const [loading, setLoading] = useState(true)
@@ -69,9 +78,13 @@ export default function AdminPsOnboarding() {
     const [selectedSubadminId, setSelectedSubadminId] = useState<string>('')
     const [signatureType, setSignatureType] = useState<'sem1' | 'sem2' | 'both'>('both')
 
-    // Custom signature dates (for PS onboarding only)
+    // Custom signature dates
     const [sem1Date, setSem1Date] = useState<string>('')
     const [sem2Date, setSem2Date] = useState<string>('')
+
+    const transition = useMemo(() => {
+        return ONBOARDING_TRANSITIONS.find(t => t.from === fromLevel) || ONBOARDING_TRANSITIONS[0]
+    }, [fromLevel])
 
     // Load years on mount
     useEffect(() => {
@@ -81,9 +94,9 @@ export default function AdminPsOnboarding() {
     // Load data when year selection changes
     useEffect(() => {
         if (selectedYearId) {
-            loadData(selectedYearId)
+            loadData(selectedYearId, fromLevel)
         }
-    }, [selectedYearId])
+    }, [selectedYearId, fromLevel])
 
     // Toast auto-hide
     useEffect(() => {
@@ -125,7 +138,7 @@ export default function AdminPsOnboarding() {
         }
 
         for (let i = 0; i < 3; i++) {
-            if (!confirm(`[${i + 1}/3] Annuler la promotion (MS → PS) pour ${targetIds.length} élève(s) ?`)) return
+            if (!confirm(`[${i + 1}/3] Annuler la promotion (${transition.to} → ${transition.from}) pour ${targetIds.length} élève(s) ?`)) return
         }
 
         setProcessing(true)
@@ -133,9 +146,10 @@ export default function AdminPsOnboarding() {
             const res = await api.post('/admin-extras/ps-onboarding/batch-unpromote', {
                 scope: selectedIds.size > 0 ? 'student' : 'all',
                 studentIds: selectedIds.size > 0 ? targetIds : undefined,
-                schoolYearId: selectedYearId
+                schoolYearId: selectedYearId,
+                fromLevel
             })
-            await loadData(selectedYearId)
+            await loadData(selectedYearId, fromLevel)
             setSelectedIds(new Set())
             setToast({
                 message: `Annulation promotions: ${res.data.success} réussies, ${res.data.failed} échouées, ${res.data.skipped} ignorées`,
@@ -148,11 +162,11 @@ export default function AdminPsOnboarding() {
         }
     }
 
-    const loadData = async (yearId: string) => {
+    const loadData = async (yearId: string, level: OnboardingFromLevel) => {
         setLoading(true)
         try {
             const [studentsRes, subadminsRes] = await Promise.all([
-                api.get('/admin-extras/ps-onboarding/students', { params: { schoolYearId: yearId } }),
+                api.get('/admin-extras/ps-onboarding/students', { params: { schoolYearId: yearId, fromLevel: level } }),
                 api.get('/admin-extras/ps-onboarding/subadmins')
             ])
             setStudents(studentsRes.data.students || [])
@@ -251,9 +265,10 @@ export default function AdminPsOnboarding() {
             await api.post('/admin-extras/ps-onboarding/assign-class', {
                 studentId,
                 classId,
-                schoolYearId: previousYear._id
+                schoolYearId: previousYear._id,
+                fromLevel
             })
-            await loadData(selectedYearId)
+            await loadData(selectedYearId, fromLevel)
             setToast({ message: 'Classe assignée avec succès', type: 'success' })
         } catch (e: any) {
             setToast({ message: 'Erreur: ' + (e.response?.data?.message || e.message), type: 'error' })
@@ -285,10 +300,11 @@ export default function AdminPsOnboarding() {
                 signatureSource,
                 subadminId: signatureSource === 'subadmin' ? selectedSubadminId : undefined,
                 schoolYearId: previousYear._id,
+                fromLevel,
                 sem1SignedAt: sem1Date ? new Date(sem1Date).toISOString() : undefined,
                 sem2SignedAt: sem2Date ? new Date(sem2Date).toISOString() : undefined
             })
-            await loadData(selectedYearId)
+            await loadData(selectedYearId, fromLevel)
             setSelectedIds(new Set())
             setToast({
                 message: `Signatures créées: ${res.data.success} réussies, ${res.data.failed} échouées`,
@@ -321,9 +337,10 @@ export default function AdminPsOnboarding() {
                 scope: selectedIds.size > 0 ? 'student' : 'all',
                 studentIds: selectedIds.size > 0 ? targetIds : undefined,
                 signatureType: 'both',
-                schoolYearId: previousYear._id
+                schoolYearId: previousYear._id,
+                fromLevel
             })
-            await loadData(selectedYearId)
+            await loadData(selectedYearId, fromLevel)
             setSelectedIds(new Set())
             setToast({ message: `${res.data.deleted} signatures supprimées`, type: 'success' })
         } catch (e: any) {
@@ -356,7 +373,7 @@ export default function AdminPsOnboarding() {
         }
 
         for (let i = 0; i < 3; i++) {
-            if (!confirm(`[${i + 1}/3] Promouvoir ${targetIds.length} élève(s) de PS vers MS ?`)) return
+            if (!confirm(`[${i + 1}/3] Promouvoir ${targetIds.length} élève(s) de ${transition.from} vers ${transition.to} ?`)) return
         }
 
         setProcessing(true)
@@ -364,9 +381,10 @@ export default function AdminPsOnboarding() {
             const res = await api.post('/admin-extras/ps-onboarding/batch-promote', {
                 scope: selectedIds.size > 0 ? 'student' : 'all',
                 studentIds: selectedIds.size > 0 ? targetIds : undefined,
-                schoolYearId: selectedYearId
+                schoolYearId: selectedYearId,
+                fromLevel
             })
-            await loadData(selectedYearId)
+            await loadData(selectedYearId, fromLevel)
             setSelectedIds(new Set())
             setToast({
                 message: `Promotions: ${res.data.success} réussies, ${res.data.failed} échouées, ${res.data.skipped} ignorées`,
@@ -397,7 +415,8 @@ export default function AdminPsOnboarding() {
             const res = await api.post('/admin-extras/ps-onboarding/batch-export', {
                 scope: selectedIds.size > 0 ? 'student' : 'all',
                 studentIds: selectedIds.size > 0 ? targetIds : undefined,
-                schoolYearId: previousYear._id
+                schoolYearId: previousYear._id,
+                fromLevel
             })
 
             if (!res.data.assignmentIds || res.data.assignmentIds.length === 0) {
@@ -431,7 +450,7 @@ export default function AdminPsOnboarding() {
             const url = window.URL.createObjectURL(blob)
             const a = document.createElement('a')
             a.href = url
-            a.download = `carnets-${res.data.groupLabel || 'PS'}.zip`
+            a.download = `carnets-${res.data.groupLabel || fromLevel}.zip`
             document.body.appendChild(a)
             a.click()
             document.body.removeChild(a)
@@ -494,10 +513,23 @@ export default function AdminPsOnboarding() {
                             ))}
                         </select>
                     </div>
+                    <div className="ps-year-selector">
+                        <span className="ps-filter-label">📘 Niveau:</span>
+                        <select
+                            className="ps-filter-select"
+                            value={fromLevel}
+                            onChange={e => setFromLevel(e.target.value as OnboardingFromLevel)}
+                            style={{ minWidth: 140 }}
+                        >
+                            {ONBOARDING_TRANSITIONS.map(t => (
+                                <option key={t.from} value={t.from}>{t.label}</option>
+                            ))}
+                        </select>
+                    </div>
                     <div className="ps-title-area">
-                        <h1>📚 Onboarding PS → MS</h1>
+                        <h1>📚 Onboarding {transition.from} → {transition.to}</h1>
                         <p>
-                            Préparer les élèves PS de {previousYear?.name || 'l\'année sélectionnée'} pour leur passage en MS
+                            Préparer les élèves {transition.from} de {previousYear?.name || 'l\'année sélectionnée'} pour leur passage en {transition.to}
                         </p>
                     </div>
                 </div>
@@ -508,7 +540,7 @@ export default function AdminPsOnboarding() {
                         <div className="ps-stat-icon total">👥</div>
                         <div className="ps-stat-info">
                             <h3>{stats.total}</h3>
-                            <p>Total élèves PS</p>
+                            <p>Total élèves {transition.from}</p>
                         </div>
                     </div>
                     <div className="ps-stat-card">
@@ -864,10 +896,10 @@ export default function AdminPsOnboarding() {
 
                     {/* Promotion Section */}
                     <div className="ps-action-section">
-                        <h4>🎓 Promotion PS → MS</h4>
+                        <h4>🎓 Promotion {transition.from} → {transition.to}</h4>
                         <p style={{ fontSize: 13, color: '#64748b', margin: '0 0 16px' }}>
                             Les élèves doivent être signés (Sem2) pour être promus.<br />
-                            Après promotion, ils apparaîtront dans la page Ressources comme "Promus" pour l'assignation de classe MS.
+                            Après promotion, ils apparaîtront dans la page Ressources comme "Promus" pour l'assignation de classe {transition.to}.
                         </p>
                         <div className="ps-promote-buttons">
                             <button

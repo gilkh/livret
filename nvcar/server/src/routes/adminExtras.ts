@@ -678,6 +678,15 @@ import { logAudit } from '../utils/auditLogger'
 import { computeSignaturePeriodId } from '../utils/readinessUtils'
 
 // Helper: Get next level based on order
+const normalizeLevel = (level?: string | null) => String(level || '').toUpperCase()
+
+const getFromLevelConfig = (fromLevelRaw?: string) => {
+    const normalized = normalizeLevel(fromLevelRaw || 'PS') || 'PS'
+    const classLevels = normalized === 'PS' ? ['PS', 'TPS'] : [normalized]
+    const levelVariants = Array.from(new Set(classLevels.flatMap(l => [l, l.toLowerCase()])))
+    return { fromLevel: normalized, classLevels, levelVariants }
+}
+
 const getNextLevelName = async (currentLevel: string): Promise<string | null> => {
     const currentDoc = await Level.findOne({ name: currentLevel }).lean()
     if (!currentDoc) return null
@@ -692,7 +701,7 @@ adminExtrasRouter.get('/ps-onboarding/students', requireAuth(['ADMIN']), async (
         const activeYear = await SchoolYear.findOne({ active: true }).lean()
 
         // If schoolYearId is provided, use that; otherwise try to find previous year
-        const { schoolYearId } = req.query
+        const { schoolYearId, fromLevel: fromLevelParam } = req.query
         let selectedYear: any = null
 
         if (schoolYearId && typeof schoolYearId === 'string') {
@@ -707,25 +716,26 @@ adminExtrasRouter.get('/ps-onboarding/students', requireAuth(['ADMIN']), async (
             selectedYear = activeYear
         }
 
+        const { fromLevel, classLevels, levelVariants } = getFromLevelConfig(
+            typeof fromLevelParam === 'string' ? fromLevelParam : undefined
+        )
+
         const selectedYearId = String(selectedYear._id)
         const activeYearId = activeYear ? String(activeYear._id) : ''
 
         // Get ALL classes from the selected year
         const allClasses = await ClassModel.find({ schoolYearId: selectedYearId }).lean()
-        console.log(`[PS-Onboarding] Year ${selectedYear.name}: Found ${allClasses.length} classes`)
+        console.log(`[PS-Onboarding] Year ${selectedYear.name}: Found ${allClasses.length} classes (fromLevel=${fromLevel})`)
 
         // Debug: show all class levels
-        const classLevels = [...new Set(allClasses.map(c => c.level || 'undefined'))]
-        console.log(`[PS-Onboarding] Unique levels in classes: ${classLevels.join(', ')}`)
+        const allClassLevels = [...new Set(allClasses.map(c => c.level || 'undefined'))]
+        console.log(`[PS-Onboarding] Unique levels in classes: ${allClassLevels.join(', ')}`)
 
-        // Filter for PS classes - use simple matching like the rest of the app
-        const psClasses = allClasses.filter(c => {
-            const level = (c.level || '').toUpperCase()
-            return level === 'PS' || level === 'TPS'
-        })
-        console.log(`[PS-Onboarding] Found ${psClasses.length} PS classes: ${psClasses.map(c => c.name).join(', ')}`)
+        // Filter for requested classes - use simple matching like the rest of the app
+        const fromClasses = allClasses.filter(c => classLevels.includes(normalizeLevel(c.level)))
+        console.log(`[PS-Onboarding] Found ${fromClasses.length} ${fromLevel} classes: ${fromClasses.map(c => c.name).join(', ')}`)
 
-        const psClassIds = psClasses.map(c => String(c._id))
+        const fromClassIds = fromClasses.map(c => String(c._id))
 
         // Get ALL enrollments from the selected year
         const allEnrollments = await Enrollment.find({
@@ -734,25 +744,25 @@ adminExtrasRouter.get('/ps-onboarding/students', requireAuth(['ADMIN']), async (
         console.log(`[PS-Onboarding] Found ${allEnrollments.length} total enrollments`)
 
         // Filter to find PS enrollments (students in PS classes)
-        const psEnrollments = allEnrollments.filter(e => psClassIds.includes(String(e.classId)))
-        console.log(`[PS-Onboarding] Found ${psEnrollments.length} PS enrollments`)
-        const enrolledPsStudentIds = psEnrollments.map(e => String(e.studentId))
+        const fromEnrollments = allEnrollments.filter(e => fromClassIds.includes(String(e.classId)))
+        console.log(`[PS-Onboarding] Found ${fromEnrollments.length} ${fromLevel} enrollments`)
+        const enrolledFromStudentIds = fromEnrollments.map(e => String(e.studentId))
 
         // Get students: either enrolled in PS classes OR currently at PS level  
-        const psStudents = await Student.find({
+        const fromStudents = await Student.find({
             $or: [
-                { _id: { $in: enrolledPsStudentIds } },
-                { level: { $in: ['PS', 'TPS', 'ps', 'tps'] } }
+                { _id: { $in: enrolledFromStudentIds } },
+                { level: { $in: levelVariants } }
             ]
         }).lean()
-        console.log(`[PS-Onboarding] Found ${psStudents.length} PS students`)
+        console.log(`[PS-Onboarding] Found ${fromStudents.length} ${fromLevel} students`)
 
         // Map: studentId -> enrollment in selected year (use PS enrollments for accurate mapping)
-        const enrollmentMap = new Map(psEnrollments.map(e => [String(e.studentId), e]))
-        const classMap = new Map(psClasses.map(c => [String(c._id), c]))
+        const enrollmentMap = new Map(fromEnrollments.map(e => [String(e.studentId), e]))
+        const classMap = new Map(fromClasses.map(c => [String(c._id), c]))
 
         // Get template assignments for these students
-        const studentIds = psStudents.map(s => String(s._id))
+        const studentIds = fromStudents.map(s => String(s._id))
         const assignments = await TemplateAssignment.find({ studentId: { $in: studentIds } }).lean()
         const assignmentMap = new Map(assignments.map(a => [String(a.studentId), a]))
 
@@ -775,7 +785,7 @@ adminExtrasRouter.get('/ps-onboarding/students', requireAuth(['ADMIN']), async (
         const endOfYearPeriodId = computeSignaturePeriodId(selectedYearId, 'end_of_year')
 
         // Build student list
-        const studentList = psStudents.map(student => {
+        const studentList = fromStudents.map(student => {
             const sid = String(student._id)
             const enrollment = enrollmentMap.get(sid)
             const cls = enrollment?.classId ? classMap.get(String(enrollment.classId)) : null
@@ -826,7 +836,7 @@ adminExtrasRouter.get('/ps-onboarding/students', requireAuth(['ADMIN']), async (
             students: studentList,
             selectedYear: { _id: selectedYearId, name: selectedYear.name },
             activeYear: activeYear ? { _id: activeYearId, name: activeYear.name } : null,
-            previousYearClasses: psClasses.map(c => ({ _id: String(c._id), name: c.name, level: c.level }))
+            previousYearClasses: fromClasses.map(c => ({ _id: String(c._id), name: c.name, level: c.level }))
         })
     } catch (e: any) {
         console.error('ps-onboarding/students error:', e)
@@ -838,19 +848,21 @@ adminExtrasRouter.get('/ps-onboarding/students', requireAuth(['ADMIN']), async (
 adminExtrasRouter.post('/ps-onboarding/assign-class', requireAuth(['ADMIN']), async (req, res) => {
     try {
         const adminId = (req as any).user.userId
-        const { studentId, classId, schoolYearId } = req.body
+        const { studentId, classId, schoolYearId, fromLevel } = req.body
 
         if (!studentId || !classId || !schoolYearId) {
             return res.status(400).json({ error: 'missing_params' })
         }
 
-        // Verify class exists and is PS level
+        const { classLevels } = getFromLevelConfig(fromLevel)
+
+        // Verify class exists and matches requested level
         const cls = await ClassModel.findById(classId).lean()
         if (!cls) return res.status(404).json({ error: 'class_not_found' })
         {
-            const level = String((cls as any).level || '').toUpperCase()
-            if (level !== 'PS' && level !== 'TPS') {
-                return res.status(400).json({ error: 'class_not_ps', message: 'Class must be PS/TPS level' })
+            const level = normalizeLevel((cls as any).level)
+            if (!classLevels.includes(level)) {
+                return res.status(400).json({ error: 'class_not_allowed', message: 'Class level not allowed for this onboarding' })
             }
         }
 
@@ -868,7 +880,7 @@ adminExtrasRouter.post('/ps-onboarding/assign-class', requireAuth(['ADMIN']), as
         await logAudit({
             userId: adminId,
             action: 'PS_ONBOARDING_ASSIGN_CLASS',
-            details: { studentId, classId, schoolYearId, className: cls.name },
+            details: { studentId, classId, schoolYearId, className: cls.name, fromLevel: normalizeLevel(fromLevel || 'PS') },
             req
         })
 
@@ -891,6 +903,7 @@ adminExtrasRouter.post('/ps-onboarding/batch-sign', requireAuth(['ADMIN']), asyn
             signatureSource, // 'admin' | 'subadmin'
             subadminId,
             schoolYearId,
+            fromLevel,
             sem1SignedAt, // optional custom date for sem1
             sem2SignedAt  // optional custom date for sem2
         } = req.body
@@ -918,13 +931,12 @@ adminExtrasRouter.post('/ps-onboarding/batch-sign', requireAuth(['ADMIN']), asyn
             signatureUrl = subadmin?.signatureUrl
         }
 
-        // Get PS/TPS classes for the school year (robust to casing)
+        const { fromLevel: normalizedFromLevel, classLevels } = getFromLevelConfig(fromLevel)
+
+        // Get classes for the school year (robust to casing)
         const allClasses = await ClassModel.find({ schoolYearId }).lean()
-        const psClasses = allClasses.filter(c => {
-            const level = String((c as any).level || '').toUpperCase()
-            return level === 'PS' || level === 'TPS'
-        })
-        const psClassIds = psClasses.map(c => String((c as any)._id))
+        const fromClasses = allClasses.filter(c => classLevels.includes(normalizeLevel((c as any).level)))
+        const fromClassIds = fromClasses.map(c => String((c as any)._id))
 
         // Get enrollments
         let targetEnrollments: any[]
@@ -932,7 +944,7 @@ adminExtrasRouter.post('/ps-onboarding/batch-sign', requireAuth(['ADMIN']), asyn
             targetEnrollments = await Enrollment.find({
                 studentId: { $in: studentIds },
                 schoolYearId,
-                classId: { $in: psClassIds }
+                classId: { $in: fromClassIds }
             }).lean()
         } else if (scope === 'class' && classId) {
             targetEnrollments = await Enrollment.find({ schoolYearId, classId }).lean()
@@ -940,7 +952,7 @@ adminExtrasRouter.post('/ps-onboarding/batch-sign', requireAuth(['ADMIN']), asyn
             // All PS students
             targetEnrollments = await Enrollment.find({
                 schoolYearId,
-                classId: { $in: psClassIds }
+                classId: { $in: fromClassIds }
             }).lean()
         }
 
@@ -971,13 +983,13 @@ adminExtrasRouter.post('/ps-onboarding/batch-sign', requireAuth(['ADMIN']), asyn
 
             // Get student to determine level and class
             const student = await Student.findById(assignment.studentId).lean()
-            const level = 'PS' // We know these are PS students
+            const level = normalizedFromLevel
 
             // Get student's enrollment to find class name
             const enrollment = targetEnrollments.find(e => String(e.studentId) === String(assignment.studentId))
             let className = ''
             if (enrollment?.classId) {
-                const cls = psClasses.find(c => String(c._id) === String(enrollment.classId))
+                const cls = fromClasses.find(c => String(c._id) === String(enrollment.classId))
                 className = (cls as any)?.name || ''
             }
 
@@ -1076,6 +1088,7 @@ adminExtrasRouter.post('/ps-onboarding/batch-sign', requireAuth(['ADMIN']), asyn
                 signatureSource,
                 subadminId: signatureSource === 'subadmin' ? subadminId : undefined,
                 schoolYearId,
+                fromLevel: normalizedFromLevel,
                 success: results.success,
                 failed: results.failed
             },
@@ -1098,19 +1111,19 @@ adminExtrasRouter.post('/ps-onboarding/batch-unsign', requireAuth(['ADMIN']), as
             studentIds = [],
             classId,
             signatureType,
-            schoolYearId
+            schoolYearId,
+            fromLevel
         } = req.body
 
         if (!schoolYearId) return res.status(400).json({ error: 'missing_school_year' })
         if (!signatureType) return res.status(400).json({ error: 'missing_signature_type' })
 
-        // Get PS/TPS classes for the school year (robust to casing)
+        const { fromLevel: normalizedFromLevel, classLevels } = getFromLevelConfig(fromLevel)
+
+        // Get classes for the school year (robust to casing)
         const allClasses = await ClassModel.find({ schoolYearId }).lean()
-        const psClasses = allClasses.filter(c => {
-            const level = String((c as any).level || '').toUpperCase()
-            return level === 'PS' || level === 'TPS'
-        })
-        const psClassIds = psClasses.map(c => String((c as any)._id))
+        const fromClasses = allClasses.filter(c => classLevels.includes(normalizeLevel((c as any).level)))
+        const fromClassIds = fromClasses.map(c => String((c as any)._id))
 
         // Get enrollments
         let targetEnrollments: any[]
@@ -1118,14 +1131,14 @@ adminExtrasRouter.post('/ps-onboarding/batch-unsign', requireAuth(['ADMIN']), as
             targetEnrollments = await Enrollment.find({
                 studentId: { $in: studentIds },
                 schoolYearId,
-                classId: { $in: psClassIds }
+                classId: { $in: fromClassIds }
             }).lean()
         } else if (scope === 'class' && classId) {
             targetEnrollments = await Enrollment.find({ schoolYearId, classId }).lean()
         } else {
             targetEnrollments = await Enrollment.find({
                 schoolYearId,
-                classId: { $in: psClassIds }
+                classId: { $in: fromClassIds }
             }).lean()
         }
 
@@ -1148,7 +1161,7 @@ adminExtrasRouter.post('/ps-onboarding/batch-unsign', requireAuth(['ADMIN']), as
         await logAudit({
             userId: adminId,
             action: 'PS_ONBOARDING_BATCH_UNSIGN',
-            details: { scope, signatureType, schoolYearId, deleted: result.deletedCount },
+            details: { scope, signatureType, schoolYearId, deleted: result.deletedCount, fromLevel: normalizedFromLevel },
             req
         })
 
@@ -1167,7 +1180,8 @@ adminExtrasRouter.post('/ps-onboarding/batch-promote', requireAuth(['ADMIN']), a
             scope,
             studentIds = [],
             classId,
-            schoolYearId // Promote FROM this school year TO the next school year
+            schoolYearId, // Promote FROM this school year TO the next school year
+            fromLevel
         } = req.body
 
         if (!schoolYearId) return res.status(400).json({ error: 'missing_school_year' })
@@ -1205,19 +1219,18 @@ adminExtrasRouter.post('/ps-onboarding/batch-promote', requireAuth(['ADMIN']), a
         }
         const nextSchoolYearId = String(nextSy._id)
 
-        // Get next level for PS
-        const nextLevel = await getNextLevelName('PS')
+        const { fromLevel: normalizedFromLevel, classLevels } = getFromLevelConfig(fromLevel)
+
+        // Get next level for requested level
+        const nextLevel = await getNextLevelName(normalizedFromLevel)
         if (!nextLevel) {
-            return res.status(400).json({ error: 'no_next_level', message: 'Cannot determine next level from PS' })
+            return res.status(400).json({ error: 'no_next_level', message: `Cannot determine next level from ${normalizedFromLevel}` })
         }
 
-        // Get PS/TPS classes for the previous year (robust to casing)
+        // Get classes for the previous year (robust to casing)
         const allClasses = await ClassModel.find({ schoolYearId }).lean()
-        const psClasses = allClasses.filter(c => {
-            const level = String((c as any).level || '').toUpperCase()
-            return level === 'PS' || level === 'TPS'
-        })
-        const psClassIds = psClasses.map(c => String((c as any)._id))
+        const fromClasses = allClasses.filter(c => classLevels.includes(normalizeLevel((c as any).level)))
+        const fromClassIds = fromClasses.map(c => String((c as any)._id))
 
         // Get target enrollments
         let targetEnrollments: any[]
@@ -1225,14 +1238,14 @@ adminExtrasRouter.post('/ps-onboarding/batch-promote', requireAuth(['ADMIN']), a
             targetEnrollments = await Enrollment.find({
                 studentId: { $in: studentIds },
                 schoolYearId,
-                classId: { $in: psClassIds }
+                classId: { $in: fromClassIds }
             }).lean()
         } else if (scope === 'class' && classId) {
             targetEnrollments = await Enrollment.find({ schoolYearId, classId }).lean()
         } else {
             targetEnrollments = await Enrollment.find({
                 schoolYearId,
-                classId: { $in: psClassIds }
+                classId: { $in: fromClassIds }
             }).lean()
         }
 
@@ -1316,7 +1329,7 @@ adminExtrasRouter.post('/ps-onboarding/batch-promote', requireAuth(['ADMIN']), a
                 const promotion = {
                     schoolYearId,
                     date: new Date(),
-                    fromLevel: 'PS',
+                    fromLevel: normalizedFromLevel,
                     toLevel: nextLevel,
                     promotedBy: adminId
                 }
@@ -1342,7 +1355,7 @@ adminExtrasRouter.post('/ps-onboarding/batch-promote', requireAuth(['ADMIN']), a
                 const enrollment = targetEnrollments.find(e => String(e.studentId) === sid)
                 let className = ''
                 if (enrollment?.classId) {
-                    const cls = psClasses.find(c => String(c._id) === String(enrollment.classId))
+                    const cls = fromClasses.find(c => String(c._id) === String(enrollment.classId))
                     className = (cls as any)?.name || ''
                 }
 
@@ -1352,7 +1365,7 @@ adminExtrasRouter.post('/ps-onboarding/batch-promote', requireAuth(['ADMIN']), a
                     if (!assignmentForUpdate.data) assignmentForUpdate.data = {}
                     if (!assignmentForUpdate.data.promotions) assignmentForUpdate.data.promotions = []
                     assignmentForUpdate.data.promotions.push({
-                        from: 'PS',
+                        from: normalizedFromLevel,
                         to: nextLevel,
                         date: new Date(),
                         by: adminId,
@@ -1377,7 +1390,7 @@ adminExtrasRouter.post('/ps-onboarding/batch-promote', requireAuth(['ADMIN']), a
             details: {
                 scope,
                 schoolYearId,
-                fromLevel: 'PS',
+                fromLevel: normalizedFromLevel,
                 toLevel: nextLevel,
                 success: results.success,
                 failed: results.failed,
@@ -1401,7 +1414,8 @@ adminExtrasRouter.post('/ps-onboarding/batch-unpromote', requireAuth(['ADMIN']),
             scope,
             studentIds = [],
             classId,
-            schoolYearId // Undo promotion for this school year (remove next-year enrollment)
+            schoolYearId, // Undo promotion for this school year (remove next-year enrollment)
+            fromLevel
         } = req.body
 
         if (!schoolYearId) return res.status(400).json({ error: 'missing_school_year' })
@@ -1439,13 +1453,12 @@ adminExtrasRouter.post('/ps-onboarding/batch-unpromote', requireAuth(['ADMIN']),
         }
         const nextSchoolYearId = String(nextSy._id)
 
-        // Get PS/TPS classes for the previous year (robust to casing)
+        const { fromLevel: normalizedFromLevel, classLevels } = getFromLevelConfig(fromLevel)
+
+        // Get classes for the previous year (robust to casing)
         const allClasses = await ClassModel.find({ schoolYearId }).lean()
-        const psClasses = allClasses.filter(c => {
-            const level = String((c as any).level || '').toUpperCase()
-            return level === 'PS' || level === 'TPS'
-        })
-        const psClassIds = psClasses.map(c => String((c as any)._id))
+        const fromClasses = allClasses.filter(c => classLevels.includes(normalizeLevel((c as any).level)))
+        const fromClassIds = fromClasses.map(c => String((c as any)._id))
 
         // Get target enrollments (previous year)
         let targetEnrollments: any[]
@@ -1453,14 +1466,14 @@ adminExtrasRouter.post('/ps-onboarding/batch-unpromote', requireAuth(['ADMIN']),
             targetEnrollments = await Enrollment.find({
                 studentId: { $in: studentIds },
                 schoolYearId,
-                classId: { $in: psClassIds }
+                classId: { $in: fromClassIds }
             }).lean()
         } else if (scope === 'class' && classId) {
             targetEnrollments = await Enrollment.find({ schoolYearId, classId }).lean()
         } else {
             targetEnrollments = await Enrollment.find({
                 schoolYearId,
-                classId: { $in: psClassIds }
+                classId: { $in: fromClassIds }
             }).lean()
         }
 
@@ -1497,7 +1510,7 @@ adminExtrasRouter.post('/ps-onboarding/batch-unpromote', requireAuth(['ADMIN']),
                 }
 
                 // Revert student promotions + level
-                const fromLevel = String(promotion.fromLevel || 'PS')
+                const fromLevel = String(promotion.fromLevel || normalizedFromLevel)
                 await Student.findByIdAndUpdate(sid, {
                     $pull: { promotions: { schoolYearId: String(schoolYearId) } },
                     $set: { level: fromLevel, nextLevel: null }
@@ -1533,7 +1546,7 @@ adminExtrasRouter.post('/ps-onboarding/batch-unpromote', requireAuth(['ADMIN']),
         await logAudit({
             userId: adminId,
             action: 'PS_ONBOARDING_BATCH_UNPROMOTE',
-            details: { scope, schoolYearId, success: results.success, failed: results.failed, skipped: results.skipped },
+            details: { scope, schoolYearId, success: results.success, failed: results.failed, skipped: results.skipped, fromLevel: normalizedFromLevel },
             req
         })
 
@@ -1575,18 +1588,18 @@ adminExtrasRouter.post('/ps-onboarding/batch-export', requireAuth(['ADMIN']), as
             scope, // 'student' | 'class' | 'all'
             studentIds = [],
             classId,
-            schoolYearId
+            schoolYearId,
+            fromLevel
         } = req.body
 
         if (!schoolYearId) return res.status(400).json({ error: 'missing_school_year' })
 
-        // Get PS/TPS classes for the school year (robust to casing)
+        const { fromLevel: normalizedFromLevel, classLevels } = getFromLevelConfig(fromLevel)
+
+        // Get classes for the school year (robust to casing)
         const allClasses = await ClassModel.find({ schoolYearId }).lean()
-        const psClasses = allClasses.filter(c => {
-            const level = String((c as any).level || '').toUpperCase()
-            return level === 'PS' || level === 'TPS'
-        })
-        const psClassIds = psClasses.map(c => String((c as any)._id))
+        const fromClasses = allClasses.filter(c => classLevels.includes(normalizeLevel((c as any).level)))
+        const fromClassIds = fromClasses.map(c => String((c as any)._id))
 
         // Get target enrollments
         let targetEnrollments: any[]
@@ -1594,14 +1607,14 @@ adminExtrasRouter.post('/ps-onboarding/batch-export', requireAuth(['ADMIN']), as
             targetEnrollments = await Enrollment.find({
                 studentId: { $in: studentIds },
                 schoolYearId,
-                classId: { $in: psClassIds }
+                classId: { $in: fromClassIds }
             }).lean()
         } else if (scope === 'class' && classId) {
             targetEnrollments = await Enrollment.find({ schoolYearId, classId }).lean()
         } else {
             targetEnrollments = await Enrollment.find({
                 schoolYearId,
-                classId: { $in: psClassIds }
+                classId: { $in: fromClassIds }
             }).lean()
         }
 
@@ -1615,13 +1628,13 @@ adminExtrasRouter.post('/ps-onboarding/batch-export', requireAuth(['ADMIN']), as
         const assignmentIds = assignments.map(a => String(a._id))
 
         // Get class name for groupLabel
-        let groupLabel = 'PS'
+        let groupLabel = normalizedFromLevel
         if (scope === 'class' && classId) {
-            const cls = psClasses.find(c => String(c._id) === classId)
-            groupLabel = (cls as any)?.name || 'PS'
+            const cls = fromClasses.find(c => String(c._id) === classId)
+            groupLabel = (cls as any)?.name || normalizedFromLevel
         } else if (scope === 'student' && studentIds.length === 1) {
             const student = await Student.findById(studentIds[0]).lean()
-            groupLabel = student ? `${student.lastName}-${student.firstName}` : 'PS'
+            groupLabel = student ? `${student.lastName}-${student.firstName}` : normalizedFromLevel
         }
 
         res.json({
