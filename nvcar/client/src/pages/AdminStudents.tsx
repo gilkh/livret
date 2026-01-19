@@ -110,7 +110,7 @@ export default function AdminStudents() {
 
   const loadStudents = async (yearId: string) => {
     setLoading(true)
-    const r = await api.get('/students', { params: { schoolYearId: yearId } })
+    const r = await api.get('/students', { params: { schoolYearId: yearId, enrolledOnly: true } })
     setStudents(r.data)
     setLoading(false)
   }

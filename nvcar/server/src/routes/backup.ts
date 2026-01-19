@@ -319,6 +319,29 @@ pause
       archive.file(path.join(rootDir, f), { name: f })
     })
 
+    // Add root directories (like certs/, backups/, etc.)
+    const rootDirs = fs.readdirSync(rootDir)
+      .filter(name => {
+        const full = path.join(rootDir, name)
+        if (!fs.existsSync(full)) return false
+        if (!fs.statSync(full).isDirectory()) return false
+        if (name === 'server' || name === 'client') return false
+        if (name === 'node_modules' || name === '.git') return false
+        return true
+      })
+
+    rootDirs.forEach(dirName => {
+      archive.directory(path.join(rootDir, dirName), dirName, (entry: any) => {
+        if (entry.name.includes('node_modules') ||
+          entry.name.includes('dist') ||
+          entry.name.includes('build') ||
+          entry.name.includes('.git')) {
+          return false
+        }
+        return entry
+      })
+    })
+
     await archive.finalize()
 
   } catch (err) {
