@@ -3,6 +3,7 @@ import { useLevels } from '../context/LevelContext'
 import { useSchoolYear } from '../context/SchoolYearContext'
 import { GradebookPocket } from './GradebookPocket'
 import { CroppedImage } from './CroppedImage'
+import { computeSignatureStatusForBlock } from '../utils/signatureVisibility'
 
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
@@ -236,37 +237,17 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
         // Check if we have a signature for that level
         // We check BOTH the current `signature` prop (if it matches level) AND history.
 
-        let isSignedStandard = false
-        let isSignedFinal = false
-
-        // Check current props
-        // If current student level matches block level, use current props
-        if (student?.level === blockLevel) {
-            if (signature) isSignedStandard = true
-            if (finalSignature) isSignedFinal = true
-        }
-
-        // Check history
-        if (!isSignedStandard || !isSignedFinal) {
-            const history = assignment?.data?.signatures || []
-            const promotions = assignment?.data?.promotions || []
-
-            history.forEach((sig: any) => {
-                // Try to match signature year to level
-                if (sig.schoolYearName) {
-                    const promo = promotions.find((p: any) => p.year === sig.schoolYearName)
-                    // If promo found and 'from' level matches block level, this signature counts!
-                    if (promo && promo.from === blockLevel) {
-                        if (sig.type === 'standard' || !sig.type) isSignedStandard = true
-                        if (sig.type === 'end_of_year') isSignedFinal = true
-                    }
-                }
-            })
-
-            // Fallback: If no promotion data linked, but we have signatures...
-            // This is tricky. If we have a signature but don't know the level, we can't be sure.
-            // But usually, promotions are recorded when signing end_of_year.
-        }
+        const { isSignedStandard, isSignedFinal } = computeSignatureStatusForBlock({
+            signature,
+            finalSignature,
+            history: assignment?.data?.signatures || [],
+            promotions: assignment?.data?.promotions || [],
+            studentLevel: student?.level || null,
+            blockLevel,
+            includeDirectLevelMatch: false,
+            useFinalSignature: true,
+            useSignatureAsFinal: false
+        })
 
         if (b.props.period === 'mid-year' && !isSignedStandard && !b.props.field?.includes('signature') && b.type !== 'signature_box' && b.type !== 'final_signature_box') return false
         if (b.props.period === 'end-year' && !isSignedFinal && !b.props.field?.includes('signature') && b.type !== 'signature_box' && b.type !== 'final_signature_box') return false

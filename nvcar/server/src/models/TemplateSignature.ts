@@ -10,6 +10,7 @@ const templateSignatureSchema = new Schema({
     signatureUrl: { type: String },
     level: { type: String },
     schoolYearId: { type: String },
+    schoolYearName: { type: String },
     // Deterministic period id like '2024/2025-eoy' or schoolYearId + type
     signaturePeriodId: { type: String },
 })

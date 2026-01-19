@@ -12,7 +12,8 @@ import {
     resolveCurrentSignaturePeriod,
     resolveEndOfYearSignaturePeriod,
     validateSignatureReadiness,
-    SignaturePeriodType
+    SignaturePeriodType,
+    parseSignaturePeriodId
 } from '../utils/readinessUtils'
 import { Level } from '../models/Level'
 import mongoose, { ClientSession } from 'mongoose'
@@ -73,6 +74,10 @@ interface SignTemplateOptions {
     signaturePeriodId?: string
     // Optional explicit school year id that corresponds to the signaturePeriodId
     signatureSchoolYearId?: string
+    // Optional explicit signedAt override (used by batch ops)
+    signedAt?: Date | string
+    // Optional bypass for completion checks (used by admin batch ops)
+    skipCompletionCheck?: boolean
 }
 
 const computeYearNameFromRange = (name: string, offset: number) => {
@@ -152,6 +157,38 @@ export async function populateSignatures(assignments: any[] | any) {
 
     const ids = list.map((a: any) => String(a._id))
     const signatures = await TemplateSignature.find({ templateAssignmentId: { $in: ids } }).lean()
+
+    // Enrich missing schoolYearName fields from SchoolYear collection
+    const missingYearIds = new Set<string>()
+    signatures.forEach(s => {
+        if (!s?.schoolYearName) {
+            let schoolYearId = String(s?.schoolYearId || '')
+            if (!schoolYearId && s?.signaturePeriodId) {
+                const parsed = parseSignaturePeriodId(String(s.signaturePeriodId))
+                if (parsed?.schoolYearId) schoolYearId = String(parsed.schoolYearId)
+            }
+            if (schoolYearId) missingYearIds.add(schoolYearId)
+        }
+    })
+
+    const yearNameMap = new Map<string, string>()
+    if (missingYearIds.size > 0) {
+        const years = await SchoolYear.find({ _id: { $in: Array.from(missingYearIds) } }).select('name').lean()
+        years.forEach((y: any) => yearNameMap.set(String(y._id), String(y.name || '')))
+    }
+
+    signatures.forEach((s: any) => {
+        if (!s?.schoolYearName) {
+            let schoolYearId = String(s?.schoolYearId || '')
+            if (!schoolYearId && s?.signaturePeriodId) {
+                const parsed = parseSignaturePeriodId(String(s.signaturePeriodId))
+                if (parsed?.schoolYearId) schoolYearId = String(parsed.schoolYearId)
+            }
+            if (schoolYearId && yearNameMap.has(schoolYearId)) {
+                s.schoolYearName = yearNameMap.get(schoolYearId)
+            }
+        }
+    })
 
     const sigMap = new Map<string, any[]>()
     signatures.forEach(s => {
@@ -245,7 +282,9 @@ export const signTemplateAssignment = async ({
     req,
     level,
     signaturePeriodId: explicitSignaturePeriodId,
-    signatureSchoolYearId: explicitSchoolYearId
+    signatureSchoolYearId: explicitSchoolYearId,
+    signedAt: signedAtOverride,
+    skipCompletionCheck
 }: SignTemplateOptions) => {
     // Get the template assignment
     const assignment = await TemplateAssignment.findById(templateAssignmentId)
@@ -260,6 +299,11 @@ export const signTemplateAssignment = async ({
         const resolved = await resolveSignatureSchoolYearWithPeriod(activeYear, type, new Date())
         explicitSignaturePeriodId = resolved.signaturePeriodId
         if (!explicitSchoolYearId) explicitSchoolYearId = resolved.schoolYearId
+    }
+
+    if (!explicitSchoolYearId && explicitSignaturePeriodId) {
+        const parsed = parseSignaturePeriodId(explicitSignaturePeriodId)
+        if (parsed?.schoolYearId) explicitSchoolYearId = parsed.schoolYearId
     }
 
     // Final guard
@@ -287,20 +331,32 @@ export const signTemplateAssignment = async ({
     const isCompletedSem1 = (assignment as any).isCompletedSem1 || assignment.isCompleted || false
     const isCompletedSem2 = (assignment as any).isCompletedSem2 || false
 
-    if (type === 'standard') {
-        if (!isCompletedSem1) {
-            throw new Error('not_completed_sem1')
-        }
-    } else if (type === 'end_of_year') {
-        if (!isCompletedSem2) {
-            throw new Error('not_completed_sem2')
+    if (!skipCompletionCheck) {
+        if (type === 'standard') {
+            if (!isCompletedSem1) {
+                throw new Error('not_completed_sem1')
+            }
+        } else if (type === 'end_of_year') {
+            if (!isCompletedSem2) {
+                throw new Error('not_completed_sem2')
+            }
         }
     }
 
     // Create signature and persist metadata atomically using a transaction when possible
-    const now = new Date()
+    const now = signedAtOverride ? new Date(signedAtOverride) : new Date()
     let signaturePeriodId = explicitSignaturePeriodId
     let schoolYearId = explicitSchoolYearId
+    let schoolYearName = ''
+
+    if (schoolYearId) {
+        if (activeYear && String((activeYear as any)._id) === String(schoolYearId)) {
+            schoolYearName = String((activeYear as any).name || '')
+        } else {
+            const sy = await SchoolYear.findById(schoolYearId).select('name').lean()
+            schoolYearName = String((sy as any)?.name || '')
+        }
+    }
 
     // Ensure we have a valid period id
     if (!signaturePeriodId) {
@@ -335,7 +391,8 @@ export const signTemplateAssignment = async ({
                     signatureUrl,
                     level,
                     signaturePeriodId,
-                    schoolYearId
+                    schoolYearId,
+                    schoolYearName
                 }).save({ session })
 
                 signature = createdSignature
@@ -397,7 +454,8 @@ export const signTemplateAssignment = async ({
                     signatureUrl,
                     level,
                     signaturePeriodId,
-                    schoolYearId
+                    schoolYearId,
+                    schoolYearName
                 }).save()
 
                 signature = createdSignature

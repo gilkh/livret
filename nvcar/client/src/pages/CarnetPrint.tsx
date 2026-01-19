@@ -5,6 +5,7 @@ import { useLevels } from '../context/LevelContext'
 import { GradebookPocket } from '../components/GradebookPocket'
 import { CroppedImage } from '../components/CroppedImage'
 import { formatDdMmYyyyColon } from '../utils/dateFormat'
+import { computeSignatureStatusForBlock } from '../utils/signatureVisibility'
 
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
@@ -124,38 +125,17 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
             return true
         }
 
-        // Case 2: Block HAS a level
-        // Check if we have a signature for that level
-        let isSignedStandard = false
-        let isSignedFinal = false
-
-        // Check current props
-        if (student?.level === blockLevel) {
-            if (signature) isSignedStandard = true
-            // For end-year, also check signature (in saved gradebook context)
-            if (signature) isSignedFinal = true
-        }
-
-        // Check history
-        if (!isSignedStandard || !isSignedFinal) {
-            const history = assignment?.data?.signatures || []
-            const promotions = assignment?.data?.promotions || []
-
-            history.forEach((sig: any) => {
-                if (sig.schoolYearName) {
-                    const promo = promotions.find((p: any) => p.year === sig.schoolYearName)
-                    if (promo && promo.from === blockLevel) {
-                        if (sig.type === 'standard' || !sig.type) isSignedStandard = true
-                        if (sig.type === 'end_of_year') isSignedFinal = true
-                    }
-                }
-                // Also check direct level match
-                if (sig.level && sig.level === blockLevel) {
-                    if (sig.type === 'standard' || !sig.type) isSignedStandard = true
-                    if (sig.type === 'end_of_year') isSignedFinal = true
-                }
-            })
-        }
+        const { isSignedStandard, isSignedFinal } = computeSignatureStatusForBlock({
+            signature,
+            finalSignature: null,
+            history: assignment?.data?.signatures || [],
+            promotions: assignment?.data?.promotions || [],
+            studentLevel: student?.level || null,
+            blockLevel,
+            includeDirectLevelMatch: true,
+            useFinalSignature: false,
+            useSignatureAsFinal: true
+        })
 
         if (b.props.period === 'mid-year' && !isSignedStandard) return false
         if (b.props.period === 'end-year' && !isSignedFinal) return false

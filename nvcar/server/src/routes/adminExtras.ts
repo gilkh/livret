@@ -1003,18 +1003,6 @@ adminExtrasRouter.post('/ps-onboarding/batch-sign', requireAuth(['ADMIN']), asyn
 
             for (const { type, periodId } of typesToSign) {
                 try {
-                    // Check if already signed
-                    const existing = await TemplateSignature.findOne({
-                        templateAssignmentId: assignmentId,
-                        type,
-                        signaturePeriodId: periodId
-                    }).lean()
-
-                    if (existing) {
-                        // Skip, already signed
-                        continue
-                    }
-
                     // Use custom date if provided, otherwise use current date
                     let signedAt: Date
                     if (type === 'standard' && sem1SignedAt) {
@@ -1025,54 +1013,31 @@ adminExtrasRouter.post('/ps-onboarding/batch-sign', requireAuth(['ADMIN']), asyn
                         signedAt = new Date()
                     }
 
-                    // Create signature
-                    await TemplateSignature.create({
+                    await signTemplateAssignment({
                         templateAssignmentId: assignmentId,
-                        subAdminId: signerId,
-                        signedAt,
-                        status: 'signed',
+                        signerId,
                         type,
                         signatureUrl,
                         level,
                         signaturePeriodId: periodId,
-                        schoolYearId,
-                        schoolYearName
+                        signatureSchoolYearId: schoolYearId,
+                        signedAt,
+                        skipCompletionCheck: true,
+                        req
                     })
-
-                    // Also add signature to assignment.data.signatures for CarnetPrint to find
-                    const assignmentDoc = await TemplateAssignment.findById(assignmentId)
-                    if (assignmentDoc) {
-                        if (!assignmentDoc.data) assignmentDoc.data = {}
-                        if (!assignmentDoc.data.signatures) assignmentDoc.data.signatures = []
-                        assignmentDoc.data.signatures.push({
-                            type,
-                            signedAt,
-                            signatureUrl,
-                            level,
-                            schoolYearName,
-                            schoolYearId,
-                            signaturePeriodId: periodId
-                        })
-                        assignmentDoc.status = 'signed'
-                        assignmentDoc.dataVersion = (assignmentDoc.dataVersion || 0) + 1
-                        assignmentDoc.markModified('data')
-                        await assignmentDoc.save()
-                    } else {
-                        // Fallback if doc not found
-                        await TemplateAssignment.findByIdAndUpdate(assignmentId, {
-                            $set: { status: 'signed' },
-                            $inc: { dataVersion: 1 }
-                        })
-                    }
 
                     results.success++
                 } catch (signError: any) {
-                    if (!signError.message?.includes('E11000')) {
+                    const msg = String(signError?.message || '')
+                    if (msg.includes('already_signed')) {
+                        continue
+                    }
+                    if (!msg.includes('E11000')) {
                         results.failed++
                         results.errors.push({
                             studentId: assignment.studentId,
                             type,
-                            error: signError.message
+                            error: msg
                         })
                     }
                 }
