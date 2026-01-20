@@ -12,6 +12,8 @@ import { TemplateStateHistoryModal } from '../components/TemplateStateHistoryMod
 import { openPdfExport, buildPreviewPdfUrl } from '../utils/pdfExport'
 import { ImageCropOverlay } from '../components/ImageCropOverlay'
 import { CroppedImage } from '../components/CroppedImage'
+import ScrollToTopButton from '../components/ScrollToTopButton'
+import ScrollPageDownButton from '../components/ScrollPageDownButton'
 
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
@@ -2385,6 +2387,45 @@ export default function TemplateBuilder() {
 
   return (
     <div style={{ background: '#f5f7fa', minHeight: '100vh', padding: 24 }}>
+      <ScrollToTopButton />
+      <ScrollPageDownButton />
+      {tpl?.signingPage && (
+        <button
+          onClick={() => {
+            const pIndex = Math.max(0, Math.min(tpl.pages.length - 1, (tpl.signingPage || 1) - 1))
+            setSelectedPage(pIndex)
+            if (continuousScroll) {
+              setTimeout(() => {
+                const pageElement = document.getElementById(`page-${pIndex}`)
+                if (pageElement) {
+                  pageElement.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                }
+              }, 100)
+            }
+          }}
+          title="Aller à la page de signature"
+          style={{
+            position: 'fixed',
+            right: '70px',
+            bottom: '30px',
+            zIndex: 999,
+            padding: '10px 16px',
+            borderRadius: 24,
+            background: '#3b82f6',
+            color: 'white',
+            border: 'none',
+            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+            fontWeight: 600,
+            fontSize: 14,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8
+          }}
+        >
+          ✍️ Signature Page
+        </button>
+      )}
       {/* Top Navigation Bar */}
       <div style={{
         background: '#fff',
@@ -3182,6 +3223,7 @@ export default function TemplateBuilder() {
                 >
                   <div
                     className="card page-canvas"
+                    id={`page-${pageIndex}`}
                     style={{
                       height: pageHeight,
                       width: pageWidth,
