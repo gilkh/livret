@@ -16,54 +16,12 @@ import { Student } from '../models/Student'
 import { AdminSignature } from '../models/AdminSignature'
 import { signTemplateAssignment, unsignTemplateAssignment } from '../services/signatureService'
 import { mergeAssignmentDataIntoTemplate } from '../utils/templateUtils'
+import { buildSignatureSnapshot } from '../utils/signatureSnapshot'
 import { spawn } from 'child_process'
 import path from 'path'
 import fs from 'fs/promises'
-import multer from 'multer'
-import * as fsSync from 'fs'
 
 export const adminExtrasRouter = Router()
-
-const psOnboardingSignatureStorage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        const dir = path.join(__dirname, '../../public/uploads/signatures')
-        if (!fsSync.existsSync(dir)) {
-            fsSync.mkdirSync(dir, { recursive: true })
-        }
-        cb(null, dir)
-    },
-    filename: (req, file, cb) => {
-        const adminId = (req as any).user.userId
-        const ext = path.extname(file.originalname)
-        cb(null, `ps-onboarding-signature-${adminId}-${Date.now()}${ext}`)
-    }
-})
-
-const psOnboardingSignatureUpload = multer({
-    storage: psOnboardingSignatureStorage,
-    limits: { fileSize: 5 * 1024 * 1024 },
-    fileFilter: (req, file, cb) => {
-        const allowedTypes = /jpeg|jpg|png|gif/
-        const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase())
-        const mimetype = allowedTypes.test(file.mimetype)
-        if (extname && mimetype) cb(null, true)
-        else cb(new Error('Only image files are allowed'))
-    }
-})
-
-adminExtrasRouter.post('/ps-onboarding/custom-signature/upload', requireAuth(['ADMIN']), psOnboardingSignatureUpload.single('file'), async (req, res) => {
-    try {
-        if (!req.file) {
-            return res.status(400).json({ error: 'no_file' })
-        }
-
-        const signatureUrl = `/uploads/signatures/${req.file.filename}`
-        const baseUrl = `${req.protocol}://${req.get('host')}`
-        res.json({ signatureUrl: `${baseUrl}${signatureUrl}` })
-    } catch (e: any) {
-        res.status(500).json({ error: 'upload_failed', message: e.message })
-    }
-})
 
 // 1. Progress (All Classes)
 adminExtrasRouter.get('/progress', requireAuth(['ADMIN']), async (req, res) => {
@@ -562,6 +520,7 @@ adminExtrasRouter.post('/templates/:templateAssignmentId/sign', requireAuth(['AD
 
         // Get active admin signature
         const activeSig = await AdminSignature.findOne({ isActive: true }).lean()
+        const signatureData = activeSig?.dataUrl
 
         try {
             const signature = await signTemplateAssignment({
@@ -569,6 +528,7 @@ adminExtrasRouter.post('/templates/:templateAssignmentId/sign', requireAuth(['AD
                 signerId: adminId,
                 type: type as any,
                 signatureUrl: activeSig ? activeSig.dataUrl : undefined,
+                signatureData,
                 req,
                 level: signatureLevel || undefined,
                 signaturePeriodId,
@@ -943,9 +903,8 @@ adminExtrasRouter.post('/ps-onboarding/batch-sign', requireAuth(['ADMIN']), asyn
             studentIds = [],
             classId,
             signatureType, // 'sem1' | 'sem2' | 'both'
-            signatureSource, // 'admin' | 'subadmin' | 'custom'
+            signatureSource, // 'admin' | 'subadmin'
             subadminId,
-            customSignatureUrl,
             schoolYearId,
             fromLevel,
             sem1SignedAt, // optional custom date for sem1
@@ -958,19 +917,16 @@ adminExtrasRouter.post('/ps-onboarding/batch-sign', requireAuth(['ADMIN']), asyn
         if (signatureSource === 'subadmin' && !subadminId) {
             return res.status(400).json({ error: 'missing_subadmin_id' })
         }
-        if (signatureSource === 'custom' && !customSignatureUrl) {
-            return res.status(400).json({ error: 'missing_custom_signature' })
-        }
 
         // Get signer ID and signature URL
         const signerId = signatureSource === 'subadmin' ? subadminId : adminId
         let signatureUrl: string | undefined
+        let signatureData: string | undefined
 
         if (signatureSource === 'admin') {
             const adminSig = await AdminSignature.findOne({ isActive: true }).lean()
             signatureUrl = adminSig?.dataUrl
-        } else if (signatureSource === 'custom') {
-            signatureUrl = String(customSignatureUrl || '')
+            signatureData = adminSig?.dataUrl
         } else {
             // Get subadmin signature
             let subadmin = await User.findById(subadminId).lean() as any
@@ -978,6 +934,8 @@ adminExtrasRouter.post('/ps-onboarding/batch-sign', requireAuth(['ADMIN']), asyn
                 subadmin = await OutlookUser.findById(subadminId).lean()
             }
             signatureUrl = subadmin?.signatureUrl
+            const baseUrl = `${req.protocol}://${req.get('host')}`
+            signatureData = await buildSignatureSnapshot(signatureUrl, baseUrl)
         }
 
         const { fromLevel: normalizedFromLevel, classLevels } = getFromLevelConfig(fromLevel)
@@ -1067,6 +1025,7 @@ adminExtrasRouter.post('/ps-onboarding/batch-sign', requireAuth(['ADMIN']), asyn
                         signerId,
                         type,
                         signatureUrl,
+                        signatureData,
                         level,
                         signaturePeriodId: periodId,
                         signatureSchoolYearId: schoolYearId,
@@ -1101,7 +1060,6 @@ adminExtrasRouter.post('/ps-onboarding/batch-sign', requireAuth(['ADMIN']), asyn
                 signatureType,
                 signatureSource,
                 subadminId: signatureSource === 'subadmin' ? subadminId : undefined,
-                customSignature: signatureSource === 'custom' ? true : undefined,
                 schoolYearId,
                 fromLevel: normalizedFromLevel,
                 success: results.success,

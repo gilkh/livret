@@ -271,3 +271,13 @@
 2026-01-20T09:27:59.515Z https://127.0.0.1/print/carnet/696f3f9d79430e5d2525193b?token=*** totalMs=4671 navMs=232 readyMs=812 pdfMs=3324 size=3418910 native=false
 2026-01-20T09:28:04.716Z https://127.0.0.1/print/carnet/696f3f9d79430e5d2525193b?token=*** totalMs=5126 navMs=263 readyMs=827 pdfMs=3575 size=3418910 native=false
 2026-01-20T09:28:08.549Z https://127.0.0.1/print/carnet/696f3f9d79430e5d2525193b?token=*** totalMs=8990 navMs=404 readyMs=4702 pdfMs=3390 size=3418910 native=false
+2026-01-20T09:34:29.313Z https://127.0.0.1/print/carnet/696f3f9d79430e5d2525193f?token=*** totalMs=5560 navMs=298 readyMs=907 pdfMs=3554 size=3417362 native=false
+2026-01-20T09:34:37.248Z https://127.0.0.1/print/carnet/696f3f9d79430e5d2525193f?token=*** totalMs=4900 navMs=217 readyMs=813 pdfMs=3568 size=3417362 native=false
+2026-01-20T09:34:42.326Z https://127.0.0.1/print/carnet/696f3f9d79430e5d2525193f?token=*** totalMs=4991 navMs=271 readyMs=850 pdfMs=3485 size=3417362 native=false
+2026-01-20T09:34:45.959Z https://127.0.0.1/print/carnet/696f3f9d79430e5d2525193f?token=*** totalMs=8651 navMs=423 readyMs=4436 pdfMs=3345 size=3417362 native=false
+2026-01-20T10:33:56.453Z https://127.0.0.1/print/carnet/696f3f9d79430e5d2525193f?token=*** totalMs=9351 navMs=356 readyMs=306 pdfMs=4154 size=3419154 native=false
+2026-01-20T10:34:04.386Z https://127.0.0.1/print/carnet/696f3f9d79430e5d2525193f?token=*** totalMs=4841 navMs=222 readyMs=839 pdfMs=3455 size=3419154 native=false
+2026-01-20T11:15:23.994Z https://127.0.0.1/print/carnet/696f3f9d79430e5d252518f2?token=*** totalMs=5455 navMs=311 readyMs=848 pdfMs=3547 size=3419294 native=false
+2026-01-20T11:15:31.767Z https://127.0.0.1/print/carnet/696f3f9d79430e5d252518f2?token=*** totalMs=4703 navMs=225 readyMs=824 pdfMs=3341 size=3419294 native=false
+2026-01-20T11:15:36.990Z https://127.0.0.1/print/carnet/696f3f9d79430e5d252518f2?token=*** totalMs=5140 navMs=278 readyMs=859 pdfMs=3671 size=3419294 native=false
+2026-01-20T11:15:40.683Z https://127.0.0.1/print/carnet/696f3f9d79430e5d252518f2?token=*** totalMs=8862 navMs=440 readyMs=4729 pdfMs=3334 size=3419294 native=false

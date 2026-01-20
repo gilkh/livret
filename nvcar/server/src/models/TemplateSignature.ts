@@ -8,6 +8,7 @@ const templateSignatureSchema = new Schema({
     status: { type: String, enum: ['signed', 'exported'], default: 'signed' },
     type: { type: String, enum: ['standard', 'end_of_year'], default: 'standard' },
     signatureUrl: { type: String },
+    signatureData: { type: String },
     level: { type: String },
     schoolYearId: { type: String },
     schoolYearName: { type: String },

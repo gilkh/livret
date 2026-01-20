@@ -516,8 +516,20 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), asy
               const imgHeight = height - 10
 
               let rendered = false
+              const sigData = (signature as any).signatureData
+              if (sigData) {
+                try {
+                  const base64 = String(sigData).split(',').pop() || ''
+                  const buf = Buffer.from(base64, 'base64')
+                  doc.image(buf, x + 5, y + 5, { fit: [imgWidth, imgHeight], align: 'center', valign: 'center' })
+                  rendered = true
+                } catch (e) {
+                  console.error('Failed to load signature snapshot:', e)
+                }
+              }
+
               const sigUrl = (signature as any).signatureUrl
-              if (sigUrl) {
+              if (!rendered && sigUrl) {
                 try {
                   if (String(sigUrl).startsWith('data:')) {
                     const base64 = String(sigUrl).split(',').pop() || ''
@@ -1428,8 +1440,20 @@ pdfRouter.get('/class/:classId/batch', requireAuth(['ADMIN', 'SUBADMIN']), async
                     const imgHeight = height - 10
 
                     let rendered = false
+                    const sigData = (signature as any).signatureData
+                    if (sigData) {
+                      try {
+                        const base64 = String(sigData).split(',').pop() || ''
+                        const buf = Buffer.from(base64, 'base64')
+                        doc.image(buf, x + 5, y + 5, { fit: [imgWidth, imgHeight], align: 'center', valign: 'center' })
+                        rendered = true
+                      } catch (e) {
+                        console.error('Failed to load signature snapshot:', e)
+                      }
+                    }
+
                     const sigUrl = (signature as any).signatureUrl
-                    if (sigUrl) {
+                    if (!rendered && sigUrl) {
                       try {
                         if (String(sigUrl).startsWith('data:')) {
                           const base64 = String(sigUrl).split(',').pop() || ''

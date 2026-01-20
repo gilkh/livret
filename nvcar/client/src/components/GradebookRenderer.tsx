@@ -111,6 +111,11 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
         return `${start + 1}${sep}${end + 1}`
     }
 
+    const getSignatureImageSrc = (sig: any) => {
+        if (!sig) return null
+        return sig.signatureData || sig.signatureUrl || null
+    }
+
     const getPromotionYearLabel = (promo: any, blockLevel: string | null) => {
         const year = String(promo?.year || '')
         if (year) {
@@ -980,21 +985,25 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                                 if (!blockLevel) {
                                                     if (b.props.period === 'end-year') {
                                                         if (finalSignature) {
-                                                            return finalSignature.signatureUrl ? <img src={finalSignature.signatureUrl} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé Fin Année'
+                                                            const src = getSignatureImageSrc(finalSignature)
+                                                            return src ? <img src={src} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé Fin Année'
                                                         }
                                                     } else {
                                                         if (signature) {
-                                                            return signature.signatureUrl ? <img src={signature.signatureUrl} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé'
+                                                            const src = getSignatureImageSrc(signature)
+                                                            return src ? <img src={src} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé'
                                                         }
                                                     }
                                                 } else {
                                                     if (b.props.period === 'end-year') {
                                                         if (finalSignature && ((finalSigLevel && finalSigLevel === blockLevel) || (!finalSigLevel && student?.level === blockLevel))) {
-                                                            return finalSignature.signatureUrl ? <img src={finalSignature.signatureUrl} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé Fin Année'
+                                                            const src = getSignatureImageSrc(finalSignature)
+                                                            return src ? <img src={src} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé Fin Année'
                                                         }
                                                     } else {
                                                         if (signature && ((sigLevel && sigLevel === blockLevel) || (!sigLevel && student?.level === blockLevel))) {
-                                                            return signature.signatureUrl ? <img src={signature.signatureUrl} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé'
+                                                            const src = getSignatureImageSrc(signature)
+                                                            return src ? <img src={src} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé'
                                                         }
                                                     }
                                                 }
@@ -1017,6 +1026,10 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                                     })
 
                                                     if (matchingSig) {
+                                                        const src = getSignatureImageSrc(matchingSig)
+                                                        if (src) {
+                                                            return <img src={src} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} />
+                                                        }
                                                         return `✓ Signé (${matchingSig.schoolYearName || 'Ancien'})`
                                                     }
                                                 }
@@ -1040,7 +1053,10 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                             ...((!finalSignature && !isBlockVisible({ ...b, props: { ...b.props, period: 'end-year' } })) ? { display: 'none' } : {})
                                         }}>
                                             {(() => {
-                                                if (finalSignature) return '✓ Signé Fin Année'
+                                                if (finalSignature) {
+                                                    const src = getSignatureImageSrc(finalSignature)
+                                                    return src ? <img src={src} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé Fin Année'
+                                                }
                                                 const history = assignment?.data?.signatures || []
                                                 const promotions = assignment?.data?.promotions || []
                                                 const blockLevel = getBlockLevel(b)
@@ -1053,7 +1069,13 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                                         }
                                                         return false
                                                     })
-                                                    if (matchingSig) return `✓ Signé (${matchingSig.schoolYearName || 'Ancien'})`
+                                                    if (matchingSig) {
+                                                        const src = getSignatureImageSrc(matchingSig)
+                                                        if (src) {
+                                                            return <img src={src} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} />
+                                                        }
+                                                        return `✓ Signé (${matchingSig.schoolYearName || 'Ancien'})`
+                                                    }
                                                 }
                                                 return null
                                             })()}

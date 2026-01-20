@@ -20,6 +20,7 @@ import { SavedGradebook } from '../models/SavedGradebook'
 import { StudentCompetencyStatus } from '../models/StudentCompetencyStatus'
 import { logAudit } from '../utils/auditLogger'
 import { computeSignaturePeriodId, resolveEndOfYearSignaturePeriod } from '../utils/readinessUtils'
+import { buildSignatureSnapshot } from '../utils/signatureSnapshot'
 import mongoose from 'mongoose'
 import { checkAndAssignTemplates, mergeAssignmentDataIntoTemplate } from '../utils/templateUtils'
 import { withCache, clearCache } from '../utils/cache'
@@ -1195,11 +1196,15 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', requireAut
                 }
             }
 
+            const baseUrl = `${req.protocol}://${req.get('host')}`
+            const signatureData = await buildSignatureSnapshot(sigUrl, baseUrl)
+
             const signature = await signTemplateAssignment({
                 templateAssignmentId,
                 signerId: subAdminId,
                 type: type as any,
                 signatureUrl: sigUrl,
+                signatureData,
                 req,
                 level: signatureLevel || undefined,
                 signaturePeriodId,
@@ -1432,6 +1437,7 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
                 schoolYearName: resolveSignatureSchoolYearName(sig),
                 level: sig.level,
                 signatureUrl: sig.signatureUrl, // Include stored signature image URL
+                signatureData: (sig as any).signatureData,
             })
         })
 

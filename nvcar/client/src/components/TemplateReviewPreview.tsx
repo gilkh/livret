@@ -1328,21 +1328,25 @@ export default function TemplateReviewPreview({ template, student, assignment, s
                                                     if (!blockLevel) {
                                                         if (b.props.period === 'end-year') {
                                                             if (finalSignature) {
-                                                                return finalSignature.signatureUrl ? <img src={finalSignature.signatureUrl} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé Fin Année'
+                                                                const src = finalSignature.signatureData || finalSignature.signatureUrl
+                                                                return src ? <img src={src} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé Fin Année'
                                                             }
                                                         } else {
                                                             if (signature) {
-                                                                return signature.signatureUrl ? <img src={signature.signatureUrl} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé'
+                                                                const src = signature.signatureData || signature.signatureUrl
+                                                                return src ? <img src={src} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé'
                                                             }
                                                         }
                                                     } else {
                                                         if (b.props.period === 'end-year') {
                                                             if (finalSignature && ((finalSigLevel && finalSigLevel === blockLevel) || (!finalSigLevel && student?.level === blockLevel))) {
-                                                                return finalSignature.signatureUrl ? <img src={finalSignature.signatureUrl} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé Fin Année'
+                                                                const src = finalSignature.signatureData || finalSignature.signatureUrl
+                                                                return src ? <img src={src} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé Fin Année'
                                                             }
                                                         } else {
                                                             if (signature && ((sigLevel && sigLevel === blockLevel) || (!sigLevel && student?.level === blockLevel))) {
-                                                                return signature.signatureUrl ? <img src={signature.signatureUrl} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé'
+                                                                const src = signature.signatureData || signature.signatureUrl
+                                                                return src ? <img src={src} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé'
                                                             }
                                                         }
                                                     }
@@ -1365,6 +1369,8 @@ export default function TemplateReviewPreview({ template, student, assignment, s
                                                         })
 
                                                         if (matchingSig) {
+                                                            const src = matchingSig.signatureData || matchingSig.signatureUrl
+                                                            if (src) return <img src={src} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} />
                                                             return `✓ Signé (${matchingSig.schoolYearName || 'Ancien'})`
                                                         }
                                                     }

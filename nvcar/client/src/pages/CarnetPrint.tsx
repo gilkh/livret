@@ -826,9 +826,10 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                         // Check current signature
                                         if (!blockLevel) {
                                             if (signature) {
+                                                const src = signature.signatureData || signature.signatureUrl
                                                 return (
                                                     <div style={{ width: b.props.width || 200, height: b.props.height || 80, border: 'none', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#999' }}>
-                                                        {signature.signatureUrl ? <img src={signature.signatureUrl} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé'}
+                                                        {src ? <img src={src} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé'}
                                                     </div>
                                                 )
                                             }
@@ -836,9 +837,10 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                             // Block has specific level
                                             const sigLevel = (signature as any)?.level
                                             if (signature && ((sigLevel && sigLevel === blockLevel) || (!sigLevel && student?.level === blockLevel))) {
+                                                const src = signature.signatureData || signature.signatureUrl
                                                 return (
                                                     <div style={{ width: b.props.width || 200, height: b.props.height || 80, border: 'none', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#999' }}>
-                                                        {signature.signatureUrl ? <img src={signature.signatureUrl} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé'}
+                                                        {src ? <img src={src} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé'}
                                                     </div>
                                                 )
                                             }
@@ -860,9 +862,10 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                             })
 
                                             if (matchingSig) {
+                                                const src = matchingSig.signatureData || matchingSig.signatureUrl
                                                 return (
                                                     <div style={{ width: b.props.width || 200, height: b.props.height || 80, border: 'none', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#999' }}>
-                                                        {matchingSig.signatureUrl ? <img src={matchingSig.signatureUrl} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : `✓ Signé (${matchingSig.schoolYearName || 'Ancien'})`}
+                                                        {src ? <img src={src} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : `✓ Signé (${matchingSig.schoolYearName || 'Ancien'})`}
                                                     </div>
                                                 )
                                             }
