@@ -14,7 +14,7 @@ import { OutlookUser } from '../models/OutlookUser'
 import { TemplateSignature } from '../models/TemplateSignature'
 import { Student } from '../models/Student'
 import { AdminSignature } from '../models/AdminSignature'
-import { signTemplateAssignment, unsignTemplateAssignment } from '../services/signatureService'
+import { signTemplateAssignment, unsignTemplateAssignment, populateSignatures } from '../services/signatureService'
 import { mergeAssignmentDataIntoTemplate } from '../utils/templateUtils'
 import { buildSignatureSnapshot } from '../utils/signatureSnapshot'
 import { spawn } from 'child_process'
@@ -656,10 +656,13 @@ adminExtrasRouter.get('/templates/:templateAssignmentId/review', requireAuth(['A
             }
         }
 
+        // Populate signatures into assignment.data.signatures for visibility checks
+        const populatedAssignment = await populateSignatures(assignment)
+        
         res.json({
             template: versionedTemplate,
             student: { ...student, level, className },
-            assignment,
+            assignment: populatedAssignment,
             signature,
             finalSignature,
             canEdit: true,

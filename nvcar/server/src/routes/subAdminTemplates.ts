@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { signTemplateAssignment, unsignTemplateAssignment, validateSignatureAuthorization } from '../services/signatureService'
+import { signTemplateAssignment, unsignTemplateAssignment, validateSignatureAuthorization, populateSignatures } from '../services/signatureService'
 import { requireAuth } from '../auth'
 import { SubAdminAssignment } from '../models/SubAdminAssignment'
 import { TemplateAssignment } from '../models/TemplateAssignment'
@@ -1729,8 +1729,11 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
             console.warn('[/review] Error resolving class info for student:', err)
         }
 
+        // Populate signatures into assignment.data.signatures for visibility checks
+        const populatedAssignment = await populateSignatures(assignment)
+        
         res.json({
-            assignment,
+            assignment: populatedAssignment,
             template: versionedTemplate,
             student: { ...student, level, className },
             signature: signature || null,

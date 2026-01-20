@@ -152,10 +152,20 @@ export default function AdminBlockVisibility() {
     }
   }
 
-  // Filter items by selected type filters
+  // Filter items by selected type filters AND by block's assigned level matching the selected student level
+  // Blocks can only be filled during their assigned level, so we only show them under that level's section
   const filteredItems = useMemo(() => {
-    return items.filter(item => typeFilters.has(item.type as BlockType))
-  }, [items, typeFilters])
+    return items.filter(item => {
+      // Must match type filter
+      if (!typeFilters.has(item.type as BlockType)) return false
+      
+      // Block must have a level that matches the selected student level
+      // Blocks without a level ('_none') are shown under all levels
+      const blockLevel = item.level?.toUpperCase() || '_none'
+      if (blockLevel === '_none') return true
+      return blockLevel === selectedLevel
+    })
+  }, [items, typeFilters, selectedLevel])
 
   // Group items by block type, then by level
   const grouped = useMemo(() => {

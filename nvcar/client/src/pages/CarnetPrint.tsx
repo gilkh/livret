@@ -5,7 +5,7 @@ import { useLevels } from '../context/LevelContext'
 import { GradebookPocket } from '../components/GradebookPocket'
 import { CroppedImage } from '../components/CroppedImage'
 import { formatDdMmYyyyColon } from '../utils/dateFormat'
-import { computeSignatureStatusForBlock } from '../utils/signatureVisibility'
+// Block visibility is now controlled entirely by admin settings (block_visibility_settings)
 
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
@@ -68,6 +68,55 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
         if (/\bKG2\b/.test(label)) return 'KG2'
         if (/\bKG3\b/.test(label)) return 'KG3'
         return null
+    }
+
+    // Level order for comparison (lower number = lower level)
+    const levelOrder: Record<string, number> = { 'TPS': 0, 'PS': 1, 'MS': 2, 'GS': 3, 'EB1': 4, 'KG1': 1, 'KG2': 2, 'KG3': 3 }
+
+    // Check if block's level is higher than student's current level
+    const isBlockLevelHigherThanStudent = (blockLevel: string | null): boolean => {
+        if (!blockLevel) return false
+        const studentLvl = (student?.level || '').toUpperCase()
+        const blockLvl = blockLevel.toUpperCase()
+        const studentOrder = levelOrder[studentLvl] ?? 99
+        const blockOrder = levelOrder[blockLvl] ?? 99
+        return blockOrder > studentOrder
+    }
+
+    // Find signature for a specific level
+    const getSignatureForLevel = (targetLevel: string | null) => {
+        if (!targetLevel) return { hasSem1: !!signature, hasSem2: !!finalSignature }
+        
+        const normalizedTarget = targetLevel.toUpperCase()
+        const history = assignment?.data?.signatures || []
+        const promotions = assignment?.data?.promotions || []
+        
+        let hasSem1 = false
+        let hasSem2 = false
+        
+        // Check if current student level matches and use current signatures
+        if (student?.level?.toUpperCase() === normalizedTarget) {
+            hasSem1 = !!signature
+            hasSem2 = !!finalSignature
+        }
+        
+        // Check historical signatures
+        history.forEach((sig: any) => {
+            if (sig.schoolYearName) {
+                const promo = promotions.find((p: any) => p.year === sig.schoolYearName)
+                if (promo && promo.from?.toUpperCase() === normalizedTarget) {
+                    if (sig.type === 'standard' || !sig.type) hasSem1 = true
+                    if (sig.type === 'end_of_year') hasSem2 = true
+                }
+            }
+            // Also check direct level match on signature
+            if (sig.level?.toUpperCase() === normalizedTarget) {
+                if (sig.type === 'standard' || !sig.type) hasSem1 = true
+                if (sig.type === 'end_of_year') hasSem2 = true
+            }
+        })
+        
+        return { hasSem1, hasSem2 }
     }
 
     const computeNextSchoolYearName = (year: string | undefined) => {
@@ -142,38 +191,10 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
         return String(promo?.year || '')
     }
 
-    // Check if a block should be visible based on signature status
-    const isBlockVisible = (b: Block) => {
-        // Hide signature blocks entirely when hideSignatures is true
-        if (hideSignatures && (b.type === 'signature_block' || b.type === 'signature_date')) {
-            return false
-        }
-
-        const blockLevel = getBlockLevel(b)
-
-        // Case 1: Block has NO specific level (generic)
-        if (!blockLevel) {
-            if (b.props?.period === 'mid-year' && !signature && !b.props?.field?.includes('signature')) return false
-            if (b.props?.period === 'end-year' && !finalSignature && !b.props?.field?.includes('signature')) return false
-            return true
-        }
-
-        const { isSignedStandard, isSignedFinal } = computeSignatureStatusForBlock({
-            signature,
-            finalSignature,
-            history: assignment?.data?.signatures || [],
-            promotions: assignment?.data?.promotions || [],
-            studentLevel: student?.level || null,
-            blockLevel,
-            includeDirectLevelMatch: false,
-            useFinalSignature: true,
-            useSignatureAsFinal: false
-        })
-
-        if (b.props?.period === 'mid-year' && !isSignedStandard && !b.props?.field?.includes('signature') && b.type !== 'signature_box' && b.type !== 'final_signature_box') return false
-        if (b.props?.period === 'end-year' && !isSignedFinal && !b.props?.field?.includes('signature') && b.type !== 'signature_box' && b.type !== 'final_signature_box') return false
-
-        return true
+    // Block visibility is now controlled entirely by admin settings (block_visibility_settings)
+    // Only hideSignatures URL param is still respected for special PDF export cases
+    const shouldHideSignatureBlock = (b: Block) => {
+        return hideSignatures && (b.type === 'signature_block' || b.type === 'signature_date')
     }
 
     const getSemesterNumber = (b: Block): 1 | 2 | null => {
@@ -482,16 +503,69 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                     >
                         {page.blocks.map((b, idx) => {
                             if (!b || !b.props) return null;
+                            
+                            // Get block's level
+                            const blockLevel = getBlockLevel(b)
+                            
+                            // Hide blocks whose level is higher than student's current level
+                            if (isBlockLevelHigherThanStudent(blockLevel)) return null
+                            
+                            // Hide signature blocks if hideSignatures is true
+                            if (shouldHideSignatureBlock(b)) return null
+                            
                             const blockId = typeof b?.props?.blockId === 'string' && b.props.blockId.trim() ? b.props.blockId.trim() : null
                             const key = buildVisibilityKey(template?._id, actualPageIndex, idx, blockId)
-                            // Check visibility based on student's current level and signature state
-                            const studentLevel = (student?.level || 'PS').toUpperCase() as 'PS' | 'MS' | 'GS' | 'EB1'
-                            const visibilitySetting = blockVisibility?.[studentLevel]?.pdf?.[key]
-                            if (visibilitySetting) {
-                                if (visibilitySetting === 'never') return null
-                                if (visibilitySetting === 'after_sem1' && !signature && !finalSignature) return null
-                                if (visibilitySetting === 'after_sem2' && !finalSignature) return null
+                            
+                            // For blocks WITH a level: use that level's settings and signatures
+                            // For blocks WITHOUT a level: check all levels at or below student's level
+                            // Show the block if ANY applicable level would show it (with its signature)
+                            let shouldShow = true
+                            
+                            if (blockLevel) {
+                                // Block has a level - use that level's settings
+                                const visibilitySetting = blockVisibility?.[blockLevel.toUpperCase()]?.pdf?.[key]
+                                const { hasSem1, hasSem2 } = getSignatureForLevel(blockLevel)
+                                
+                                if (visibilitySetting) {
+                                    if (visibilitySetting === 'never') shouldShow = false
+                                    else if (visibilitySetting === 'after_sem1' && !hasSem1 && !hasSem2) shouldShow = false
+                                    else if (visibilitySetting === 'after_sem2' && !hasSem2) shouldShow = false
+                                }
+                            } else {
+                                // Block has NO level - check all levels at or below student's current level
+                                // Find settings for this block in any applicable level
+                                const studentLvl = (student?.level || 'PS').toUpperCase()
+                                const studentOrder = levelOrder[studentLvl] ?? 99
+                                const levelsToCheck = Object.keys(levelOrder).filter(lvl => levelOrder[lvl] <= studentOrder)
+                                
+                                let foundSetting = false
+                                let anyLevelWouldShow = false
+                                
+                                for (const lvl of levelsToCheck) {
+                                    const visibilitySetting = blockVisibility?.[lvl]?.pdf?.[key]
+                                    if (visibilitySetting) {
+                                        foundSetting = true
+                                        const { hasSem1, hasSem2 } = getSignatureForLevel(lvl)
+                                        
+                                        if (visibilitySetting === 'always') {
+                                            anyLevelWouldShow = true
+                                            break
+                                        } else if (visibilitySetting === 'after_sem1' && (hasSem1 || hasSem2)) {
+                                            anyLevelWouldShow = true
+                                            break
+                                        } else if (visibilitySetting === 'after_sem2' && hasSem2) {
+                                            anyLevelWouldShow = true
+                                            break
+                                        }
+                                        // 'never' doesn't set anyLevelWouldShow
+                                    }
+                                }
+                                
+                                // If no settings found, default to visible; if found, use the result
+                                shouldShow = !foundSetting || anyLevelWouldShow
                             }
+                            
+                            if (!shouldShow) return null
                             return (
                                 <div key={idx} style={{ position: 'absolute', left: b.props.x || 0, top: b.props.y || 0, zIndex: b.props.z ?? idx }}>
                                     {b.type === 'text' && (
@@ -984,8 +1058,7 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                     })()}
 
                                     {b.type === 'promotion_info' && (() => {
-                                        // Check if block should be visible based on signature status
-                                        if (!isBlockVisible(b)) return null
+                                        // Visibility is now controlled by admin settings at block level
 
                                         return (
                                             <div style={{
