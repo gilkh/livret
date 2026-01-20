@@ -155,15 +155,22 @@ backupRouter.post('/restore/:filename', requireAuth(['ADMIN']), async (req, res)
 // Empty database
 backupRouter.post('/empty', requireAuth(['ADMIN']), async (req, res) => {
   try {
-    // Preserve ALL admin users
-    const adminUsers = await User.find({ role: 'ADMIN' }).lean()
+    // Preserve only: default admin (email: 'admin') and Microsoft-authenticated admin accounts
+    const adminUsersToKeep = await User.find({
+      role: 'ADMIN',
+      $or: [
+        { email: 'admin' },
+        { authProvider: 'microsoft' }
+      ]
+    }).lean()
 
     await clearDatabase()
 
-    // Restore admins
-    if (adminUsers.length > 0) {
-      await User.insertMany(adminUsers)
+    // Restore preserved admins
+    if (adminUsersToKeep.length > 0) {
+      await User.insertMany(adminUsersToKeep)
     } else {
+      // Fallback: create default admin if none preserved
       const hash = await bcrypt.hash('admin', 10)
       await User.create({ email: 'admin', passwordHash: hash, role: 'ADMIN', displayName: 'Admin' })
     }
@@ -182,7 +189,7 @@ backupRouter.post('/empty', requireAuth(['ADMIN']), async (req, res) => {
         userId: adminId,
         action: 'EMPTY_DATABASE',
         details: {
-          adminsPreserved: adminUsers.length,
+          adminsPreserved: adminUsersToKeep.length,
           levelsReseeded: true
         },
         req

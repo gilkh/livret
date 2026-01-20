@@ -294,14 +294,27 @@ export default function AdminSettings() {
     catch { showMsg('Erreur lors de la suppression', 'error') }
   }
 
-  const emptyDb = async () => {
+  const emptyDb = async (e: React.MouseEvent) => {
+    e.preventDefault()
     if (emptyClickCount < 4) { setEmptyClickCount(c => c + 1); return }
     const code = prompt('Tapez "CONFIRMER" pour vider la BDD.')
     if (code !== 'CONFIRMER') { setEmptyClickCount(0); return }
     setBackupLoading(true)
-    try { await api.post('/backup/empty'); showMsg('BDD vidée'); setTimeout(() => window.location.reload(), 2000) }
-    catch { showMsg('Erreur', 'error') }
-    finally { setBackupLoading(false); setEmptyClickCount(0) }
+    try {
+      await api.post('/backup/empty')
+      showMsg('BDD vidée - Déconnexion...')
+      // Clear auth tokens and redirect to login
+      setTimeout(() => {
+        sessionStorage.removeItem('token')
+        sessionStorage.removeItem('role')
+        sessionStorage.removeItem('displayName')
+        localStorage.removeItem('token')
+        localStorage.removeItem('role')
+        localStorage.removeItem('displayName')
+        navigate('/login')
+      }, 1500)
+    }
+    catch { showMsg('Erreur', 'error'); setBackupLoading(false); setEmptyClickCount(0) }
   }
 
   const downloadBackup = async () => {
