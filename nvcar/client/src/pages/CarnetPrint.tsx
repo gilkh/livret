@@ -26,6 +26,7 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
     const [student, setStudent] = useState<Student | null>(null)
     const [assignment, setAssignment] = useState<Assignment | null>(null)
     const [signature, setSignature] = useState<any>(null)
+    const [finalSignature, setFinalSignature] = useState<any>(null)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState('')
     const { levels } = useLevels()
@@ -127,13 +128,13 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
 
         const { isSignedStandard, isSignedFinal } = computeSignatureStatusForBlock({
             signature,
-            finalSignature: null,
+            finalSignature,
             history: assignment?.data?.signatures || [],
             promotions: assignment?.data?.promotions || [],
             studentLevel: student?.level || null,
             blockLevel,
             includeDirectLevelMatch: true,
-            useFinalSignature: false,
+            useFinalSignature: true,
             useSignatureAsFinal: true
         })
 
@@ -159,6 +160,7 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
         const history = assignment?.data?.signatures
         if (Array.isArray(history)) sigs.push(...history)
         if (signature) sigs.push(signature)
+        if (finalSignature) sigs.push(finalSignature)
 
         const promotions = Array.isArray(assignment?.data?.promotions) ? assignment?.data?.promotions : []
         const normalizeLevel = (val: any) => String(val || '').trim().toLowerCase()
@@ -242,6 +244,7 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                     })
                     setAssignment(savedData.data.assignment)
                     setSignature(savedData.data.signature)
+                    setFinalSignature(savedData.data.finalSignature || null)
 
                     if (savedData.templateId) {
                         const t = await api.get(`/templates/${savedData.templateId}`)
@@ -314,7 +317,10 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                     const studentData = r.data.student
                     setStudent(studentData)
                     setAssignment(assignmentData)
-                    if (!isTeacher) setSignature(r.data.signature)
+                    if (!isTeacher) {
+                        setSignature(r.data.signature)
+                        setFinalSignature(r.data.finalSignature || null)
+                    }
 
                     if (assignmentData?.templateVersion && templateData?.versionHistory) {
                         const version = templateData.versionHistory.find((v: any) => v.version === assignmentData.templateVersion)
@@ -1007,7 +1013,34 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                                         }
                                                     }
 
-                                                    // No fallback - if no promo found, return null
+                                                    if (!promo) {
+                                                        const isEndYear = b.props.period === 'end-year'
+                                                        const candidate = isEndYear ? (finalSignature || signature) : signature
+                                                        const candidateLevel = String(candidate?.level || '').trim()
+                                                        const matchesLevel = !blockLevel || !candidateLevel || candidateLevel === blockLevel
+
+                                                        if (candidate && candidate.signedAt && matchesLevel) {
+                                                            let yearLabel = String(candidate.schoolYearName || '').trim()
+                                                            if (!yearLabel) {
+                                                                const d = new Date(candidate.signedAt)
+                                                                const y = d.getFullYear()
+                                                                const m = d.getMonth()
+                                                                const startYear = m >= 8 ? y : y - 1
+                                                                yearLabel = `${startYear}/${startYear + 1}`
+                                                            }
+
+                                                            const baseLevel = blockLevel || candidateLevel || student?.level || ''
+                                                            const target = explicitTarget || getNextLevel(baseLevel || '') || ''
+
+                                                            promo = {
+                                                                year: yearLabel,
+                                                                from: baseLevel,
+                                                                to: target || '?',
+                                                                class: student?.className || ''
+                                                            }
+                                                        }
+                                                    }
+
                                                     if (!promo) {
                                                         return null
                                                     }

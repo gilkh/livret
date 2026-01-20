@@ -744,10 +744,49 @@ export default function TemplateReviewPreview({ template, student, assignment, s
 
                                                         const sig = candidates[0]
                                                         if (sig) {
-                                                            const yearLabel = sig.schoolYearName as string | undefined
-                                                            if (!yearLabel) return null
+                                                            let yearLabel = sig.schoolYearName as string | undefined
+                                                            if (!yearLabel && sig.signedAt) {
+                                                                const d = new Date(sig.signedAt)
+                                                                const y = d.getFullYear()
+                                                                const m = d.getMonth()
+                                                                const startYear = m >= 8 ? y : y - 1
+                                                                yearLabel = `${startYear}/${startYear + 1}`
+                                                            }
+                                                            if (!yearLabel) {
+                                                                const currentYear = new Date().getFullYear()
+                                                                const startYear = currentYear
+                                                                yearLabel = `${startYear}/${startYear + 1}`
+                                                            }
 
                                                             const baseLevel = blockLevel
+                                                            const target = explicitTarget || getNextLevel(baseLevel || '') || ''
+
+                                                            promo = {
+                                                                year: yearLabel,
+                                                                from: baseLevel,
+                                                                to: target || '?',
+                                                                class: student?.className || ''
+                                                            }
+                                                        }
+                                                    }
+
+                                                    if (!promo) {
+                                                        const isEndYear = b.props.period === 'end-year'
+                                                        const candidate = isEndYear ? (finalSignature || signature) : signature
+                                                        const candidateLevel = String(candidate?.level || '').trim()
+                                                        const matchesLevel = !blockLevel || !candidateLevel || candidateLevel === blockLevel
+
+                                                        if (candidate && candidate.signedAt && matchesLevel) {
+                                                            let yearLabel = String(candidate.schoolYearName || '').trim()
+                                                            if (!yearLabel) {
+                                                                const d = new Date(candidate.signedAt)
+                                                                const y = d.getFullYear()
+                                                                const m = d.getMonth()
+                                                                const startYear = m >= 8 ? y : y - 1
+                                                                yearLabel = `${startYear}/${startYear + 1}`
+                                                            }
+
+                                                            const baseLevel = blockLevel || candidateLevel || student?.level || ''
                                                             const target = explicitTarget || getNextLevel(baseLevel || '') || ''
 
                                                             promo = {

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, ChangeEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../api'
 import './AdminPsOnboarding.css'
@@ -74,9 +74,11 @@ export default function AdminPsOnboarding() {
     const [filterStatus, setFilterStatus] = useState<'all' | 'unassigned' | 'unsigned' | 'signed' | 'promoted'>('all')
 
     // Signature options
-    const [signatureSource, setSignatureSource] = useState<'admin' | 'subadmin'>('admin')
+    const [signatureSource, setSignatureSource] = useState<'subadmin' | 'custom'>('subadmin')
     const [selectedSubadminId, setSelectedSubadminId] = useState<string>('')
     const [signatureType, setSignatureType] = useState<'sem1' | 'sem2' | 'both'>('both')
+    const [customSignatureDataUrl, setCustomSignatureDataUrl] = useState<string>('')
+    const [customSignatureUploading, setCustomSignatureUploading] = useState(false)
 
     // Custom signature dates
     const [sem1Date, setSem1Date] = useState<string>('')
@@ -121,6 +123,43 @@ export default function AdminPsOnboarding() {
         } catch (e: any) {
             console.error('Failed to load years:', e)
             setToast({ message: 'Erreur lors du chargement des années', type: 'error' })
+        }
+    }
+
+    const handleCustomSignatureUpload = async (e: ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0]
+        if (!file) return
+
+        if (!file.type.startsWith('image/')) {
+            setToast({ message: 'Veuillez sélectionner une image', type: 'error' })
+            return
+        }
+
+        setCustomSignatureUploading(true)
+        try {
+            const formData = new FormData()
+            formData.append('file', file)
+
+            const r = await api.post('/admin-extras/ps-onboarding/custom-signature/upload', formData, {
+                headers: {
+                    'Content-Type': 'multipart/form-data'
+                }
+            })
+
+            const signatureUrl = String(r?.data?.signatureUrl || '')
+            if (!signatureUrl) {
+                setToast({ message: 'Erreur lors de l\'upload de l\'image', type: 'error' })
+                return
+            }
+
+            setCustomSignatureDataUrl(signatureUrl)
+            setSignatureSource('custom')
+            setSelectedSubadminId('')
+        } catch (err: any) {
+            setToast({ message: 'Erreur lors de l\'upload de l\'image', type: 'error' })
+        } finally {
+            setCustomSignatureUploading(false)
+            e.target.value = ''
         }
     }
 
@@ -282,6 +321,10 @@ export default function AdminPsOnboarding() {
             setToast({ message: 'Veuillez sélectionner un sous-admin', type: 'error' })
             return
         }
+        if (signatureSource === 'custom' && !customSignatureDataUrl) {
+            setToast({ message: 'Veuillez télécharger une image de signature', type: 'error' })
+            return
+        }
 
         const targetIds = selectedIds.size > 0 ? Array.from(selectedIds) : filteredStudents.map(s => s._id)
         if (targetIds.length === 0) {
@@ -299,6 +342,7 @@ export default function AdminPsOnboarding() {
                 signatureType: type,
                 signatureSource,
                 subadminId: signatureSource === 'subadmin' ? selectedSubadminId : undefined,
+                customSignatureUrl: signatureSource === 'custom' ? customSignatureDataUrl : undefined,
                 schoolYearId: previousYear._id,
                 fromLevel,
                 sem1SignedAt: sem1Date ? new Date(sem1Date).toISOString() : undefined,
@@ -822,14 +866,76 @@ export default function AdminPsOnboarding() {
                                 {subadmins.filter(sa => sa.hasSignature && sa.signatureUrl).map(sa => (
                                     <div
                                         key={sa._id}
-                                        className={`ps-signature-card ${selectedSubadminId === sa._id ? 'selected' : ''}`}
+                                        className={`ps-signature-card ${signatureSource === 'subadmin' && selectedSubadminId === sa._id ? 'selected' : ''}`}
                                         onClick={() => { setSignatureSource('subadmin'); setSelectedSubadminId(sa._id) }}
                                     >
                                         <img src={sa.signatureUrl!} alt={sa.displayName} className="ps-signature-preview" />
                                         <span className="ps-signature-name">{sa.displayName}</span>
-                                        {selectedSubadminId === sa._id && <span className="ps-signature-check">✓</span>}
+                                        {signatureSource === 'subadmin' && selectedSubadminId === sa._id && <span className="ps-signature-check">✓</span>}
                                     </div>
                                 ))}
+
+                                <div
+                                    key="__custom_signature__"
+                                    className={`ps-signature-card ${signatureSource === 'custom' ? 'selected' : ''}`}
+                                    onClick={() => { setSignatureSource('custom'); setSelectedSubadminId('') }}
+                                >
+                                    {customSignatureDataUrl ? (
+                                        <img src={customSignatureDataUrl} alt="Signature" className="ps-signature-preview" />
+                                    ) : (
+                                        <div
+                                            className="ps-signature-preview"
+                                            style={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                background: '#f8fafc',
+                                                borderRadius: 8,
+                                                border: '1px dashed #cbd5e1',
+                                                color: '#64748b',
+                                                fontSize: 12,
+                                            }}
+                                        >
+                                            {customSignatureUploading ? '⏳...' : '📤 Upload'}
+                                        </div>
+                                    )}
+                                    <span className="ps-signature-name">Image (upload)</span>
+                                    {signatureSource === 'custom' && <span className="ps-signature-check">✓</span>}
+                                    <label
+                                        style={{
+                                            display: 'inline-flex',
+                                            marginTop: 8,
+                                            fontSize: 12,
+                                            cursor: customSignatureUploading ? 'not-allowed' : 'pointer',
+                                            color: '#6c5ce7',
+                                            fontWeight: 600,
+                                        }}
+                                        onClick={(e) => e.stopPropagation()}
+                                    >
+                                        {customSignatureDataUrl ? 'Remplacer' : 'Choisir image'}
+                                        <input
+                                            type="file"
+                                            accept="image/*"
+                                            onChange={handleCustomSignatureUpload}
+                                            disabled={customSignatureUploading}
+                                            style={{ display: 'none' }}
+                                        />
+                                    </label>
+                                    {customSignatureDataUrl && (
+                                        <button
+                                            type="button"
+                                            className="ps-btn secondary"
+                                            style={{ marginTop: 8, padding: '6px 10px', fontSize: 12, width: '100%' }}
+                                            onClick={(e) => {
+                                                e.stopPropagation()
+                                                setCustomSignatureDataUrl('')
+                                                if (signatureSource === 'custom') setSignatureSource('subadmin')
+                                            }}
+                                        >
+                                            Retirer
+                                        </button>
+                                    )}
+                                </div>
                             </div>
                             {subadmins.filter(sa => sa.hasSignature).length === 0 && (
                                 <p className="ps-no-signatures">Aucun sous-admin avec signature configurée</p>
@@ -864,21 +970,33 @@ export default function AdminPsOnboarding() {
                             <button
                                 className="ps-btn primary"
                                 onClick={() => handleBatchSign('sem1')}
-                                disabled={processing || !selectedSubadminId}
+                                disabled={
+                                    processing ||
+                                    (signatureSource === 'subadmin' && !selectedSubadminId) ||
+                                    (signatureSource === 'custom' && !customSignatureDataUrl)
+                                }
                             >
                                 {processing ? '⏳...' : `✍️ Sem1 ${selectedIds.size > 0 ? `(${selectedIds.size})` : ''}`}
                             </button>
                             <button
                                 className="ps-btn primary"
                                 onClick={() => handleBatchSign('sem2')}
-                                disabled={processing || !selectedSubadminId}
+                                disabled={
+                                    processing ||
+                                    (signatureSource === 'subadmin' && !selectedSubadminId) ||
+                                    (signatureSource === 'custom' && !customSignatureDataUrl)
+                                }
                             >
                                 {processing ? '⏳...' : `✍️ Sem2 ${selectedIds.size > 0 ? `(${selectedIds.size})` : ''}`}
                             </button>
                             <button
                                 className="ps-btn success"
                                 onClick={() => handleBatchSign('both')}
-                                disabled={processing || !selectedSubadminId}
+                                disabled={
+                                    processing ||
+                                    (signatureSource === 'subadmin' && !selectedSubadminId) ||
+                                    (signatureSource === 'custom' && !customSignatureDataUrl)
+                                }
                             >
                                 {processing ? '⏳...' : `✍️ Les Deux ${selectedIds.size > 0 ? `(${selectedIds.size})` : ''}`}
                             </button>

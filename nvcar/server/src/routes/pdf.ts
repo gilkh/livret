@@ -31,6 +31,20 @@ function computeNextSchoolYearName(year: string | undefined): string {
   return `${start + 1}${sep}${end + 1}`
 }
 
+// Helper function to get next level (sync)
+function getNextLevelNameSync(current: string | undefined): string {
+  const c = String(current || '').toUpperCase()
+  if (!c) return ''
+  if (c === 'TPS') return 'PS'
+  if (c === 'PS') return 'MS'
+  if (c === 'MS') return 'GS'
+  if (c === 'GS') return 'EB1'
+  if (c === 'KG1') return 'KG2'
+  if (c === 'KG2') return 'KG3'
+  if (c === 'KG3') return 'EB1'
+  return ''
+}
+
 // Helper function to get the promotion year label (next year)
 function getPromotionYearLabel(promo: any, assignmentData: any): string {
   const year = String(promo?.year || '')
@@ -172,7 +186,7 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), asy
     const resolveText = (t: string) => t
       .replace(/\{student\.firstName\}/g, String(student.firstName))
       .replace(/\{student\.lastName\}/g, String(student.lastName))
-      .replace(/\{student\.dob\}/g, new Date(student.dateOfBirth).toLocaleDateString())
+      .replace(/\{student\.dob\}/g, formatDdMmYyyyColon(student.dateOfBirth))
       .replace(/\{class\.name\}/g, classDoc ? String((classDoc as any).name) : '')
     const drawBlock = async (b: any, blockIdx: number = 0) => {
       if (b.type === 'text') {
@@ -382,7 +396,7 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), asy
         const lines: string[] = []
         if (fields.includes('name')) lines.push(`${student.firstName} ${student.lastName}`)
         if (fields.includes('class')) lines.push(`Classe: ${enrollment ? enrollment.classId : ''}`)
-        if (fields.includes('dob')) lines.push(`Naissance: ${new Date(student.dateOfBirth).toLocaleDateString()}`)
+        if (fields.includes('dob')) lines.push(`Naissance: ${formatDdMmYyyyColon(student.dateOfBirth)}`)
         if (b.props?.color) doc.fillColor(b.props.color)
         doc.fontSize(b.props?.size || b.props?.fontSize || 12)
         const text = lines.join('\n')
@@ -532,7 +546,7 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), asy
               if (!rendered) {
                 doc.fontSize(10).fillColor('#333')
                 const signerName = subAdmin?.displayName || 'Signé'
-                const signedAt = (signature as any).signedAt ? new Date((signature as any).signedAt).toLocaleDateString() : ''
+                const signedAt = (signature as any).signedAt ? formatDdMmYyyyColon((signature as any).signedAt) : ''
                 doc.text(`✓ ${signerName}`, x + 5, y + (height / 2) - 10, { width: width - 10, align: 'center' })
                 if (signedAt) {
                   doc.fontSize(8).fillColor('#666')
@@ -722,9 +736,117 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), asy
       } else if (b.type === 'promotion_info') {
         const targetLevel = b.props?.targetLevel
         const promotions = assignmentData.promotions || []
-        const promo = promotions.find((p: any) => p.to === targetLevel)
+        const blockLevel = String(b.props?.level || '').trim()
+
+        let promo: any = null
+
+        if (targetLevel) {
+          promo = promotions.find((p: any) => p.to === targetLevel)
+        }
+
+        if (!promo && blockLevel) {
+          promo = promotions.find((p: any) => p.from === blockLevel)
+        }
+
+        if (!promo && !targetLevel && !blockLevel && promotions.length === 1) {
+          promo = { ...(promotions[0] as any) }
+        }
+
+        if (!promo && blockLevel) {
+          const history = assignmentData.signatures || []
+          const wantEndOfYear = b.props?.period === 'end-year'
+          const isMidYearBlock = b.props?.period === 'mid-year'
+          const candidates = history.filter((sig: any) => {
+            if (wantEndOfYear) {
+              if (sig.type !== 'end_of_year') return false
+            } else if (isMidYearBlock) {
+              if (sig.type && sig.type !== 'standard') return false
+            }
+            if (sig.level && sig.level !== blockLevel) return false
+            return true
+          }).sort((a: any, b: any) => new Date(b.signedAt || 0).getTime() - new Date(a.signedAt || 0).getTime())
+
+          const sig = candidates[0]
+          if (sig) {
+            let yearLabel = sig.schoolYearName as string | undefined
+            if (!yearLabel && sig.signedAt) {
+              const d = new Date(sig.signedAt)
+              const y = d.getFullYear()
+              const m = d.getMonth()
+              const startYear = m >= 8 ? y : y - 1
+              yearLabel = `${startYear}/${startYear + 1}`
+            }
+            if (!yearLabel) {
+              const currentYear = new Date().getFullYear()
+              const startYear = currentYear
+              yearLabel = `${startYear}/${startYear + 1}`
+            }
+
+            const baseLevel = blockLevel
+            const target = targetLevel || getNextLevelNameSync(baseLevel || '') || ''
+
+            promo = {
+              year: yearLabel,
+              from: baseLevel,
+              to: target || '?',
+              class: (student as any)?.className || ''
+            }
+          }
+        }
+
+        if (!promo) {
+          const TemplateAssignment = (await import('../models/TemplateAssignment')).TemplateAssignment
+          const templateAssignment = await TemplateAssignment.findOne({ studentId: id, templateId: tplId }).lean()
+          if (templateAssignment) {
+            const TemplateSignature = (await import('../models/TemplateSignature')).TemplateSignature
+            const signatures = await TemplateSignature.find({ templateAssignmentId: String(templateAssignment._id) }).lean()
+            const wantEndOfYear = b.props?.period === 'end-year'
+            const candidates = (signatures || [])
+              .filter((sig: any) => sig?.signedAt)
+              .filter((sig: any) => {
+                if (!blockLevel) return true
+                const sigLevel = String(sig?.level || '').trim()
+                return !sigLevel || sigLevel === blockLevel
+              })
+              .filter((sig: any) => {
+                const t = String(sig?.type || 'standard')
+                if (wantEndOfYear) return t === 'end_of_year'
+                return t !== 'end_of_year'
+              })
+              .sort((a: any, b: any) => new Date(b.signedAt || 0).getTime() - new Date(a.signedAt || 0).getTime())
+
+            const candidate = candidates[0]
+            if (candidate?.signedAt) {
+              let yearLabel = String(candidate.schoolYearName || '').trim()
+              if (!yearLabel) {
+                const d = new Date(candidate.signedAt)
+                const y = d.getFullYear()
+                const m = d.getMonth()
+                const startYear = m >= 8 ? y : y - 1
+                yearLabel = `${startYear}/${startYear + 1}`
+              }
+
+              const candidateLevel = String(candidate?.level || '').trim()
+              const baseLevel = blockLevel || candidateLevel || (student as any)?.level || ''
+              const target = targetLevel || getNextLevelNameSync(baseLevel || '') || ''
+
+              promo = {
+                year: yearLabel,
+                from: baseLevel,
+                to: target || '?',
+                class: (student as any)?.className || ''
+              }
+            }
+          }
+        }
 
         if (promo) {
+          if (!promo.class && (student as any)?.className) promo.class = (student as any).className
+          if (!promo.from) {
+            if (blockLevel) promo.from = blockLevel
+            else if ((student as any)?.level) promo.from = (student as any).level
+          }
+
           const yearLabel = getPromotionYearLabel(promo, assignmentData)
           const x = px(b.props?.x || 50)
           const y = py(b.props?.y || 50)
@@ -732,28 +854,38 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), asy
           const height = sy(b.props?.height || (b.props?.field ? 30 : 100))
 
           doc.save()
-
           doc.fontSize(b.props?.fontSize || 12).fillColor(b.props?.color || '#2d3436')
 
           if (!b.props?.field) {
-            // Legacy behavior: Draw box and all info
             doc.rect(x, y, width, height).stroke('#6c5ce7')
             const textX = x + 10
             let textY = y + 15
-            doc.font('Helvetica-Bold').text(`Passage en ${targetLevel}`, textX, textY, { width: width - 20, align: 'center' })
+            doc.font('Helvetica-Bold').text(`Passage en ${promo.to || targetLevel || ''}`, textX, textY, { width: width - 20, align: 'center' })
             textY += 20
             doc.font('Helvetica').text(`${student.firstName} ${student.lastName}`, textX, textY, { width: width - 20, align: 'center' })
             textY += 20
             doc.fontSize((b.props?.fontSize || 12) * 0.8).fillColor('#666')
             doc.text(`Année ${yearLabel}`, textX, textY, { width: width - 20, align: 'center' })
           } else {
-            // Specific field
             if (b.props.field === 'level') {
-              doc.font('Helvetica-Bold').text(`Passage en ${targetLevel}`, x, y + (height / 2) - 6, { width, align: 'center' })
+              doc.font('Helvetica-Bold').text(`${promo.to || targetLevel || ''}`, x, y + (height / 2) - 6, { width, align: 'center' })
             } else if (b.props.field === 'student') {
               doc.font('Helvetica').text(`${student.firstName} ${student.lastName}`, x, y + (height / 2) - 6, { width, align: 'center' })
+            } else if (b.props.field === 'studentFirstName') {
+              doc.font('Helvetica').text(`${student.firstName}`, x, y + (height / 2) - 6, { width, align: 'center' })
+            } else if (b.props.field === 'studentLastName') {
+              doc.font('Helvetica').text(`${student.lastName}`, x, y + (height / 2) - 6, { width, align: 'center' })
             } else if (b.props.field === 'year') {
               doc.text(`Année ${yearLabel}`, x, y + (height / 2) - 6, { width, align: 'center' })
+            } else if (b.props.field === 'currentYear') {
+              doc.text(String(promo.year || ''), x, y + (height / 2) - 6, { width, align: 'center' })
+            } else if (b.props.field === 'class') {
+              const raw = String(promo.class || '')
+              const parts = raw.split(/\s*[-\s]\s*/)
+              const section = parts.length ? parts[parts.length - 1] : raw
+              doc.text(section, x, y + (height / 2) - 6, { width, align: 'center' })
+            } else if (b.props.field === 'currentLevel') {
+              doc.text(String(promo.from || ''), x, y + (height / 2) - 6, { width, align: 'center' })
             }
           }
 
@@ -782,7 +914,7 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), asy
 
   if (templateId) await renderFromTemplate(String(templateId))
   else await renderDefault()
-  const dateStr = new Date().toLocaleDateString()
+  const dateStr = formatDdMmYyyyColon(new Date())
   doc.moveDown()
   doc.fontSize(10).fillColor('#999').text(`Imprimé le ${dateStr}`, { align: 'right' })
   doc.end()
@@ -868,7 +1000,7 @@ pdfRouter.get('/class/:classId/batch', requireAuth(['ADMIN', 'SUBADMIN']), async
           const resolveText = (t: string) => t
             .replace(/\{student\.firstName\}/g, String(s.firstName))
             .replace(/\{student\.lastName\}/g, String(s.lastName))
-            .replace(/\{student\.dob\}/g, new Date(s.dateOfBirth).toLocaleDateString())
+            .replace(/\{student\.dob\}/g, formatDdMmYyyyColon(s.dateOfBirth))
             .replace(/\{class\.name\}/g, classDoc ? String((classDoc as any).name) : '')
           const drawBlock = async (b: any, blockIdx: number = 0) => {
             if (Array.isArray(b?.props?.levels) && b.props.levels.length > 0 && level && !b.props.levels.includes(level)) return
@@ -964,7 +1096,7 @@ pdfRouter.get('/class/:classId/batch', requireAuth(['ADMIN', 'SUBADMIN']), async
               const lines: string[] = []
               if (fields.includes('name')) lines.push(`${s.firstName} ${s.lastName}`)
               if (fields.includes('class')) lines.push(`Classe: ${enrollments[0] ? enrollments[0].classId : ''}`)
-              if (fields.includes('dob')) lines.push(`Naissance: ${new Date(s.dateOfBirth).toLocaleDateString()}`)
+              if (fields.includes('dob')) lines.push(`Naissance: ${formatDdMmYyyyColon(s.dateOfBirth)}`)
               if (b.props?.color) doc.fillColor(b.props.color)
               doc.fontSize(b.props?.size || b.props?.fontSize || 12)
               const text = lines.join('\n')
@@ -1326,7 +1458,7 @@ pdfRouter.get('/class/:classId/batch', requireAuth(['ADMIN', 'SUBADMIN']), async
                     if (!rendered) {
                       doc.fontSize(10).fillColor('#333')
                       const signerName = subAdmin?.displayName || 'Signé'
-                      const signedAt = (signature as any).signedAt ? new Date((signature as any).signedAt).toLocaleDateString() : ''
+                      const signedAt = (signature as any).signedAt ? formatDdMmYyyyColon((signature as any).signedAt) : ''
                       doc.text(`✓ ${signerName}`, x + 5, y + (height / 2) - 10, { width: width - 10, align: 'center' })
                       if (signedAt) {
                         doc.fontSize(8).fillColor('#666')
@@ -1390,37 +1522,160 @@ pdfRouter.get('/class/:classId/batch', requireAuth(['ADMIN', 'SUBADMIN']), async
             } else if (b.type === 'promotion_info') {
               const targetLevel = b.props?.targetLevel
               const promotions = assignmentData.promotions || []
-              const promo = promotions.find((p: any) => p.to === targetLevel)
+              const blockLevel = String(b.props?.level || '').trim()
+
+              let promo: any = null
+
+              if (targetLevel) {
+                promo = promotions.find((p: any) => p.to === targetLevel)
+              }
+
+              if (!promo && blockLevel) {
+                promo = promotions.find((p: any) => p.from === blockLevel)
+              }
+
+              if (!promo && !targetLevel && !blockLevel && promotions.length === 1) {
+                promo = { ...(promotions[0] as any) }
+              }
+
+              if (!promo && blockLevel) {
+                const history = assignmentData.signatures || []
+                const wantEndOfYear = b.props?.period === 'end-year'
+                const isMidYearBlock = b.props?.period === 'mid-year'
+                const candidates = history.filter((sig: any) => {
+                  if (wantEndOfYear) {
+                    if (sig.type !== 'end_of_year') return false
+                  } else if (isMidYearBlock) {
+                    if (sig.type && sig.type !== 'standard') return false
+                  }
+                  if (sig.level && sig.level !== blockLevel) return false
+                  return true
+                }).sort((a: any, b: any) => new Date(b.signedAt || 0).getTime() - new Date(a.signedAt || 0).getTime())
+
+                const sig = candidates[0]
+                if (sig) {
+                  let yearLabel = sig.schoolYearName as string | undefined
+                  if (!yearLabel && sig.signedAt) {
+                    const d = new Date(sig.signedAt)
+                    const y = d.getFullYear()
+                    const m = d.getMonth()
+                    const startYear = m >= 8 ? y : y - 1
+                    yearLabel = `${startYear}/${startYear + 1}`
+                  }
+                  if (!yearLabel) {
+                    const currentYear = new Date().getFullYear()
+                    const startYear = currentYear
+                    yearLabel = `${startYear}/${startYear + 1}`
+                  }
+
+                  const baseLevel = blockLevel
+                  const target = targetLevel || getNextLevelNameSync(baseLevel || '') || ''
+
+                  promo = {
+                    year: yearLabel,
+                    from: baseLevel,
+                    to: target || '?',
+                    class: (s as any)?.className || ''
+                  }
+                }
+              }
+
+              if (!promo) {
+                const TemplateAssignment = (await import('../models/TemplateAssignment')).TemplateAssignment
+                const templateAssignment = await TemplateAssignment.findOne({
+                  studentId: String(s._id),
+                  templateId: String(templateId)
+                }).lean()
+
+                if (templateAssignment) {
+                  const TemplateSignature = (await import('../models/TemplateSignature')).TemplateSignature
+                  const signatures = await TemplateSignature.find({ templateAssignmentId: String(templateAssignment._id) }).lean()
+                  const wantEndOfYear = b.props?.period === 'end-year'
+                  const candidates = (signatures || [])
+                    .filter((sig: any) => sig?.signedAt)
+                    .filter((sig: any) => {
+                      if (!blockLevel) return true
+                      const sigLevel = String(sig?.level || '').trim()
+                      return !sigLevel || sigLevel === blockLevel
+                    })
+                    .filter((sig: any) => {
+                      const t = String(sig?.type || 'standard')
+                      if (wantEndOfYear) return t === 'end_of_year'
+                      return t !== 'end_of_year'
+                    })
+                    .sort((a: any, b: any) => new Date(b.signedAt || 0).getTime() - new Date(a.signedAt || 0).getTime())
+
+                  const candidate = candidates[0]
+                  if (candidate?.signedAt) {
+                    let yearLabel = String(candidate.schoolYearName || '').trim()
+                    if (!yearLabel) {
+                      const d = new Date(candidate.signedAt)
+                      const y = d.getFullYear()
+                      const m = d.getMonth()
+                      const startYear = m >= 8 ? y : y - 1
+                      yearLabel = `${startYear}/${startYear + 1}`
+                    }
+
+                    const candidateLevel = String(candidate?.level || '').trim()
+                    const baseLevel = blockLevel || candidateLevel || (s as any)?.level || ''
+                    const target = targetLevel || getNextLevelNameSync(baseLevel || '') || ''
+
+                    promo = {
+                      year: yearLabel,
+                      from: baseLevel,
+                      to: target || '?',
+                      class: (s as any)?.className || ''
+                    }
+                  }
+                }
+              }
 
               if (promo) {
+                if (!promo.class && (s as any)?.className) promo.class = (s as any).className
+                if (!promo.from) {
+                  if (blockLevel) promo.from = blockLevel
+                  else if ((s as any)?.level) promo.from = (s as any).level
+                }
+
+                const yearLabel = getPromotionYearLabel(promo, assignmentData)
                 const x = px(b.props?.x || 50)
                 const y = py(b.props?.y || 50)
                 const width = sx(b.props?.width || (b.props?.field ? 150 : 300))
                 const height = sy(b.props?.height || (b.props?.field ? 30 : 100))
 
                 doc.save()
-
                 doc.fontSize(b.props?.fontSize || 12).fillColor(b.props?.color || '#2d3436')
 
                 if (!b.props?.field) {
-                  // Legacy behavior: Draw box and all info
                   doc.rect(x, y, width, height).stroke('#6c5ce7')
                   const textX = x + 10
                   let textY = y + 15
-                  doc.font('Helvetica-Bold').text(`Passage en ${targetLevel}`, textX, textY, { width: width - 20, align: 'center' })
+                  doc.font('Helvetica-Bold').text(`Passage en ${promo.to || targetLevel || ''}`, textX, textY, { width: width - 20, align: 'center' })
                   textY += 20
                   doc.font('Helvetica').text(`${s.firstName} ${s.lastName}`, textX, textY, { width: width - 20, align: 'center' })
                   textY += 20
                   doc.fontSize((b.props?.fontSize || 12) * 0.8).fillColor('#666')
-                  doc.text(`Année ${promo.year}`, textX, textY, { width: width - 20, align: 'center' })
+                  doc.text(`Année ${yearLabel}`, textX, textY, { width: width - 20, align: 'center' })
                 } else {
-                  // Specific field
                   if (b.props.field === 'level') {
-                    doc.font('Helvetica-Bold').text(`Passage en ${targetLevel}`, x, y + (height / 2) - 6, { width, align: 'center' })
+                    doc.font('Helvetica-Bold').text(`${promo.to || targetLevel || ''}`, x, y + (height / 2) - 6, { width, align: 'center' })
                   } else if (b.props.field === 'student') {
                     doc.font('Helvetica').text(`${s.firstName} ${s.lastName}`, x, y + (height / 2) - 6, { width, align: 'center' })
+                  } else if (b.props.field === 'studentFirstName') {
+                    doc.font('Helvetica').text(`${s.firstName}`, x, y + (height / 2) - 6, { width, align: 'center' })
+                  } else if (b.props.field === 'studentLastName') {
+                    doc.font('Helvetica').text(`${s.lastName}`, x, y + (height / 2) - 6, { width, align: 'center' })
                   } else if (b.props.field === 'year') {
-                    doc.text(`Année ${promo.year}`, x, y + (height / 2) - 6, { width, align: 'center' })
+                    doc.text(`Année ${yearLabel}`, x, y + (height / 2) - 6, { width, align: 'center' })
+                  } else if (b.props.field === 'currentYear') {
+                    doc.text(String(promo.year || ''), x, y + (height / 2) - 6, { width, align: 'center' })
+                  } else if (b.props.field === 'class') {
+                    const raw = String(promo.class || '')
+                    const parts = raw.split(/\s*[-\s]\s*/)
+                    const section = parts.length ? parts[parts.length - 1] : raw
+                    doc.text(section, x, y + (height / 2) - 6, { width, align: 'center' })
+                  } else if (b.props.field === 'currentLevel') {
+                    doc.text(String(promo.from || ''), x, y + (height / 2) - 6, { width, align: 'center' })
                   }
                 }
 
