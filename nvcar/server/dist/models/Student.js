@@ -8,6 +8,7 @@ const studentSchema = new mongoose_1.Schema({
     lastName: { type: String, required: true },
     dateOfBirth: { type: Date, required: true },
     avatarUrl: { type: String },
+    avatarHash: { type: String },
     parentName: { type: String },
     parentPhone: { type: String },
     fatherName: { type: String },

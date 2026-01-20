@@ -17,6 +17,8 @@ import { AdminSignature } from '../models/AdminSignature'
 import { signTemplateAssignment, unsignTemplateAssignment, populateSignatures } from '../services/signatureService'
 import { mergeAssignmentDataIntoTemplate } from '../utils/templateUtils'
 import { buildSignatureSnapshot } from '../utils/signatureSnapshot'
+import { createAssignmentSnapshot } from '../services/rolloverService'
+import { StudentCompetencyStatus } from '../models/StudentCompetencyStatus'
 import { spawn } from 'child_process'
 import path from 'path'
 import fs from 'fs/promises'
@@ -729,6 +731,31 @@ adminExtrasRouter.get('/ps-onboarding/students', requireAuth(['ADMIN']), async (
         const selectedYearId = String(selectedYear._id)
         const activeYearId = activeYear ? String(activeYear._id) : ''
 
+        // Check if next year exists for promotion eligibility
+        let nextYear: any = null
+        if ((selectedYear as any).sequence) {
+            nextYear = await SchoolYear.findOne({ sequence: (selectedYear as any).sequence + 1 }).lean()
+        }
+        if (!nextYear && (selectedYear as any).name) {
+            const match = String((selectedYear as any).name).match(/(\d{4})([-\/.])((\d{4}))/)
+            if (match) {
+                const startYear = parseInt(match[1], 10)
+                const sep = match[2]
+                const endYear = parseInt(match[4], 10)
+                const nextName = `${startYear + 1}${sep}${endYear + 1}`
+                nextYear = await SchoolYear.findOne({ name: nextName }).lean()
+            }
+        }
+        if (!nextYear && (selectedYear as any).endDate) {
+            nextYear = await SchoolYear.findOne({ startDate: { $gte: (selectedYear as any).endDate } }).sort({ startDate: 1 }).lean()
+        }
+        if (!nextYear && (selectedYear as any).startDate) {
+            nextYear = await SchoolYear.findOne({ startDate: { $gt: (selectedYear as any).startDate } }).sort({ startDate: 1 }).lean()
+        }
+
+        // Check if next level exists
+        const nextLevel = await getNextLevelName(fromLevel)
+
         // Get ALL classes from the selected year
         const allClasses = await ClassModel.find({ schoolYearId: selectedYearId }).lean()
         console.log(`[PS-Onboarding] Year ${selectedYear.name}: Found ${allClasses.length} classes (fromLevel=${fromLevel})`)
@@ -842,7 +869,13 @@ adminExtrasRouter.get('/ps-onboarding/students', requireAuth(['ADMIN']), async (
             students: studentList,
             selectedYear: { _id: selectedYearId, name: selectedYear.name },
             activeYear: activeYear ? { _id: activeYearId, name: activeYear.name } : null,
-            previousYearClasses: fromClasses.map(c => ({ _id: String(c._id), name: c.name, level: c.level }))
+            previousYearClasses: fromClasses.map(c => ({ _id: String(c._id), name: c.name, level: c.level })),
+            promotionEligibility: {
+                hasNextYear: !!nextYear,
+                nextYearName: nextYear?.name || null,
+                hasNextLevel: !!nextLevel,
+                nextLevelName: nextLevel || null
+            }
         })
     } catch (e: any) {
         console.error('ps-onboarding/students error:', e)
@@ -1011,6 +1044,7 @@ adminExtrasRouter.post('/ps-onboarding/batch-sign', requireAuth(['ADMIN']), asyn
                 typesToSign.push({ type: 'end_of_year', periodId: endOfYearPeriodId })
             }
 
+            let signedSuccessfully = false
             for (const { type, periodId } of typesToSign) {
                 try {
                     // Use custom date if provided, otherwise use current date
@@ -1037,7 +1071,48 @@ adminExtrasRouter.post('/ps-onboarding/batch-sign', requireAuth(['ADMIN']), asyn
                         req
                     })
 
+                    signedSuccessfully = true
                     results.success++
+
+                    // Create SavedGradebook snapshot after S1 signing only
+                    // S2/promotion snapshot is created during the promotion step
+                    if (type === 'standard' && (signatureType === 'sem1' || signatureType === 'both')) {
+                        try {
+                            const snapshotReason = 'sem1'
+
+                            // Re-fetch assignment to get updated data with signatures
+                            const updatedAssignment = await TemplateAssignment.findById(assignmentId).lean()
+                            if (updatedAssignment) {
+                                const statuses = await StudentCompetencyStatus.find({ studentId: assignment.studentId }).lean()
+                                const signatures = await TemplateSignature.find({ templateAssignmentId: assignmentId }).lean()
+                                const sem1Signatures = signatures.filter((s: any) => s.type !== 'end_of_year')
+
+                                const snapshotData = {
+                                    student: student,
+                                    enrollment: enrollment,
+                                    statuses: statuses,
+                                    assignment: updatedAssignment,
+                                    className: className,
+                                    signatures: sem1Signatures,
+                                    signature: sem1Signatures.find((s: any) => s.type === 'standard') || null,
+                                    finalSignature: null
+                                }
+
+                                await createAssignmentSnapshot(
+                                    updatedAssignment,
+                                    snapshotReason as any,
+                                    {
+                                        schoolYearId,
+                                        level: level || 'Sans niveau',
+                                        classId: enrollment?.classId || undefined,
+                                        data: snapshotData
+                                    }
+                                )
+                            }
+                        } catch (snapshotError) {
+                            console.error('Failed to create snapshot for student', assignment.studentId, snapshotError)
+                        }
+                    }
                 } catch (signError: any) {
                     const msg = String(signError?.message || '')
                     if (msg.includes('already_signed')) {
@@ -1053,6 +1128,7 @@ adminExtrasRouter.post('/ps-onboarding/batch-sign', requireAuth(['ADMIN']), asyn
                     }
                 }
             }
+
         }
 
         await logAudit({
@@ -1351,6 +1427,39 @@ adminExtrasRouter.post('/ps-onboarding/batch-promote', requireAuth(['ADMIN']), a
                     })
                     assignmentForUpdate.markModified('data')
                     await assignmentForUpdate.save()
+
+                    // Create SavedGradebook snapshot after promotion
+                    try {
+                        const updatedAssignment = await TemplateAssignment.findById(assignment._id).lean()
+                        if (updatedAssignment) {
+                            const statuses = await StudentCompetencyStatus.find({ studentId: sid }).lean()
+                            const allSignatures = await TemplateSignature.find({ templateAssignmentId: String(assignment._id) }).lean()
+                            
+                            const snapshotData = {
+                                student: student,
+                                enrollment: oldEnrollment,
+                                statuses: statuses,
+                                assignment: updatedAssignment,
+                                className: className,
+                                signatures: allSignatures,
+                                signature: allSignatures.find((s: any) => s.type === 'standard') || null,
+                                finalSignature: allSignatures.find((s: any) => s.type === 'end_of_year') || null,
+                            }
+
+                            await createAssignmentSnapshot(
+                                updatedAssignment,
+                                'promotion',
+                                {
+                                    schoolYearId,
+                                    level: normalizedFromLevel || 'Sans niveau',
+                                    classId: oldEnrollment?.classId || undefined,
+                                    data: snapshotData
+                                }
+                            )
+                        }
+                    } catch (snapshotError) {
+                        console.error('Failed to create promotion snapshot for student', sid, snapshotError)
+                    }
                 }
 
                 results.success++

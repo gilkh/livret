@@ -6,6 +6,10 @@ const Level_1 = require("../models/Level");
 const auth_1 = require("../auth");
 exports.levelsRouter = (0, express_1.Router)();
 exports.levelsRouter.get('/', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', 'AEFE', 'TEACHER']), async (req, res) => {
-    const levels = await Level_1.Level.find({}).sort({ order: 1 }).lean();
+    // By default, exclude exit levels (like EB1) from the list
+    // Use ?includeExit=true to include them
+    const includeExit = req.query.includeExit === 'true';
+    const query = includeExit ? {} : { isExitLevel: { $ne: true } };
+    const levels = await Level_1.Level.find(query).sort({ order: 1 }).lean();
     res.json(levels);
 });

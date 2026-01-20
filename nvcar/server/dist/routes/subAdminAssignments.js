@@ -249,7 +249,9 @@ exports.subAdminAssignmentsRouter.post('/bulk-level', (0, auth_1.requireAuth)(['
         const teacherAssignments = await TeacherClassAssignment_1.TeacherClassAssignment.find({ classId: { $in: classIds } }).lean();
         const teacherIds = [...new Set(teacherAssignments.map(ta => ta.teacherId))];
         if (teacherIds.length === 0) {
-            return res.json({ count: 0, message: 'No teachers found for this level' });
+            // Still persist level assignment even if no teachers are currently assigned
+            await RoleScope_1.RoleScope.findOneAndUpdate({ userId: subAdminId }, { $addToSet: { levels: level } }, { upsert: true, new: true });
+            return res.json({ count: 0, message: 'No teachers found for this level (level assigned)' });
         }
         // Create assignments
         let count = 0;
@@ -682,12 +684,25 @@ exports.subAdminAssignmentsRouter.get('/teacher-progress', (0, auth_1.requireAut
                 const level = cls.level;
                 // Determine completion status for categories based on teacher completion
                 const teacherCompletions = assignment.teacherCompletions || [];
+                const languageCompletions = assignment.languageCompletions || [];
+                const languageCompletionMap = {};
+                (Array.isArray(languageCompletions) ? languageCompletions : []).forEach((entry) => {
+                    const codeRaw = String(entry?.code || '').toLowerCase();
+                    const normalized = codeRaw === 'lb' || codeRaw === 'ar' ? 'ar' : (codeRaw === 'en' || codeRaw === 'uk' || codeRaw === 'gb') ? 'en' : codeRaw === 'fr' ? 'fr' : codeRaw;
+                    if (!normalized)
+                        return;
+                    languageCompletionMap[normalized] = { ...(entry || {}), code: normalized };
+                });
                 // Helper to check if a category is "done" by checking if any assigned teacher for that category has completed
                 const isCategoryCompleted = (categoryName, langCode) => {
                     const l = categoryName.toLowerCase();
                     const code = (langCode || '').toLowerCase();
                     const isArabic = code === 'ar' || code === 'lb' || l.includes('arabe') || l.includes('arabic') || l.includes('العربية');
                     const isEnglish = code === 'en' || code === 'uk' || code === 'gb' || l.includes('anglais') || l.includes('english');
+                    const normalized = isArabic ? 'ar' : isEnglish ? 'en' : 'fr';
+                    const lc = languageCompletionMap[normalized];
+                    if (lc && (lc.completedSem1 || lc.completedSem2 || lc.completed))
+                        return true;
                     // Find teachers responsible for this category in this class
                     let responsibleTeachers = teacherAssignments
                         .filter((ta) => ta.classId === clsId)

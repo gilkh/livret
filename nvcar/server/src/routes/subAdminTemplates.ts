@@ -1211,6 +1211,58 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', requireAut
                 signatureSchoolYearId
             })
 
+            // Create SavedGradebook snapshot after S1 signing only
+            // S2/promotion snapshot is created during the promotion step
+            if (type === 'standard') {
+            try {
+                const snapshotReason = 'sem1'
+                const updatedAssignment = await TemplateAssignment.findById(templateAssignmentId).lean()
+                if (updatedAssignment) {
+                    const student = await Student.findById(updatedAssignment.studentId).lean()
+                    const statuses = await StudentCompetencyStatus.find({ studentId: updatedAssignment.studentId }).lean()
+                    const signatures = await TemplateSignature.find({ templateAssignmentId }).lean()
+                    const sem1Signatures = signatures.filter((s: any) => s.type !== 'end_of_year')
+                    
+                    // Get enrollment and class info
+                    const activeSchoolYear = await SchoolYear.findOne({ active: true }).lean()
+                    const schoolYearId = signatureSchoolYearId || (activeSchoolYear ? String(activeSchoolYear._id) : '')
+                    let enrollment: any = null
+                    let className = ''
+                    if (schoolYearId) {
+                        enrollment = await Enrollment.findOne({ studentId: updatedAssignment.studentId, schoolYearId }).lean()
+                        if (enrollment?.classId) {
+                            const cls = await ClassModel.findById(enrollment.classId).lean()
+                            if (cls) className = cls.name || ''
+                        }
+                    }
+                    
+                    const snapshotData = {
+                        student,
+                        enrollment,
+                        statuses,
+                        assignment: updatedAssignment,
+                        className,
+                        signatures: sem1Signatures,
+                        signature: sem1Signatures.find((s: any) => s.type === 'standard') || null,
+                        finalSignature: null,
+                    }
+
+                    await createAssignmentSnapshot(
+                        updatedAssignment,
+                        snapshotReason as any,
+                        {
+                            schoolYearId,
+                            level: signatureLevel || 'Sans niveau',
+                            classId: enrollment?.classId || undefined,
+                            data: snapshotData
+                        }
+                    )
+                }
+            } catch (snapshotError) {
+                console.error('Failed to create snapshot after signing:', snapshotError)
+            }
+            }
+
             // Return created signature so client can update without extra fetch
             return res.json({ signature })
 
@@ -1877,6 +1929,41 @@ subAdminTemplatesRouter.post('/templates/sign-class/:classId', requireAuth(['SUB
                 },
                 req,
             })
+
+            // Create SavedGradebook snapshot
+            try {
+                const updatedAssignment = await TemplateAssignment.findById(assignment._id).lean()
+                if (updatedAssignment && student) {
+                    const statuses = await StudentCompetencyStatus.find({ studentId: assignment.studentId }).lean()
+                    const allSigs = await TemplateSignature.find({ templateAssignmentId: String(assignment._id) }).lean()
+                    const enrollment = enrollments.find(e => String(e.studentId) === String(assignment.studentId))
+                    const cls = await ClassModel.findById(classId).lean()
+                    
+                    const snapshotData = {
+                        student,
+                        enrollment,
+                        statuses,
+                        assignment: updatedAssignment,
+                        className: cls?.name || '',
+                        signatures: allSigs,
+                        signature: allSigs.find((s: any) => s.type === 'standard') || null,
+                        finalSignature: allSigs.find((s: any) => s.type === 'end_of_year') || null,
+                    }
+
+                    await createAssignmentSnapshot(
+                        updatedAssignment,
+                        'sem1',
+                        {
+                            schoolYearId: activeYearIdForBulk,
+                            level: cls?.level || 'Sans niveau',
+                            classId,
+                            data: snapshotData
+                        }
+                    )
+                }
+            } catch (snapshotErr) {
+                console.error('Failed to create snapshot in sign-class:', snapshotErr)
+            }
 
             return signature
         }))

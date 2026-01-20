@@ -61,6 +61,12 @@ export default function AdminPsOnboarding() {
     const [selectedYearId, setSelectedYearId] = useState<string>('')
     const [subadmins, setSubadmins] = useState<Subadmin[]>([])
     const [fromLevel, setFromLevel] = useState<OnboardingFromLevel>('PS')
+    const [promotionEligibility, setPromotionEligibility] = useState<{
+        hasNextYear: boolean
+        nextYearName: string | null
+        hasNextLevel: boolean
+        nextLevelName: string | null
+    } | null>(null)
 
     // UI State
     const [loading, setLoading] = useState(true)
@@ -213,6 +219,7 @@ export default function AdminPsOnboarding() {
             setPreviousYear(studentsRes.data.selectedYear || null)
             setActiveYear(studentsRes.data.activeYear || null)
             setSubadmins(subadminsRes.data || [])
+            setPromotionEligibility(studentsRes.data.promotionEligibility || null)
             // Reset selection when year changes
             setSelectedIds(new Set())
             setFilterClass('all')
@@ -397,6 +404,22 @@ export default function AdminPsOnboarding() {
     // Batch promote
     const handleBatchPromote = async () => {
         if (!previousYear) return
+
+        // Check promotion eligibility before attempting
+        if (promotionEligibility && !promotionEligibility.hasNextYear) {
+            setToast({ 
+                message: `Promotion impossible: l'année scolaire suivante n'existe pas. Veuillez créer l'année suivante dans les paramètres.`, 
+                type: 'error' 
+            })
+            return
+        }
+        if (promotionEligibility && !promotionEligibility.hasNextLevel) {
+            setToast({ 
+                message: `Promotion impossible: le niveau ${transition.to} n'existe pas. Veuillez créer ce niveau dans les paramètres.`, 
+                type: 'error' 
+            })
+            return
+        }
 
         const targetIds = selectedIds.size > 0
             ? Array.from(selectedIds)

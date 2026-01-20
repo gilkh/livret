@@ -15,6 +15,21 @@ const archiver_1 = __importDefault(require("archiver"));
 const fs_1 = __importDefault(require("fs"));
 const pdfkit_1 = __importDefault(require("pdfkit"));
 exports.pdfPuppeteerRouter = (0, express_1.Router)();
+const sanitizeFilename = (name) => {
+    const base = String(name || 'file')
+        .replace(/[\r\n]/g, ' ')
+        .normalize('NFKD')
+        .replace(/[^\x20-\x7E]+/g, '')
+        .replace(/["\\]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    return base || 'file';
+};
+const buildContentDisposition = (filename) => {
+    const safe = sanitizeFilename(filename);
+    const encoded = encodeURIComponent(String(filename || 'file')).replace(/[()']/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+    return `attachment; filename="${safe}"; filename*=UTF-8''${encoded}`;
+};
 // Singleton browser instance
 let browserInstance = null;
 const getBrowser = async () => {
@@ -428,7 +443,7 @@ exports.pdfPuppeteerRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN',
         // Send PDF with proper headers to avoid corruption
         res.set({
             'Content-Type': 'application/pdf',
-            'Content-Disposition': `attachment; filename="carnet-${student.lastName}-${student.firstName}.pdf"`,
+            'Content-Disposition': buildContentDisposition(`carnet-${student.lastName}-${student.firstName}.pdf`),
             'Content-Length': pdfBuffer.length.toString()
         });
         res.end(pdfBuffer);
@@ -460,6 +475,7 @@ exports.pdfPuppeteerRouter.post('/assignments/zip', (0, auth_1.requireAuth)(['AD
     try {
         const assignmentIds = Array.isArray(req.body?.assignmentIds) ? req.body.assignmentIds.filter(Boolean) : [];
         const groupLabel = String(req.body?.groupLabel || '').trim();
+        const hideSignatures = req.body?.hideSignatures === true;
         if (assignmentIds.length === 0) {
             return res.status(400).json({ error: 'missing_assignment_ids' });
         }
@@ -478,7 +494,7 @@ exports.pdfPuppeteerRouter.post('/assignments/zip', (0, auth_1.requireAuth)(['AD
         const archiveFileName = sanitizeFileName(groupLabel ? `carnets-${groupLabel}.zip` : 'carnets.zip');
         res.set({
             'Content-Type': 'application/zip',
-            'Content-Disposition': `attachment; filename="${archiveFileName}"`
+            'Content-Disposition': buildContentDisposition(String(archiveFileName || 'archive.zip'))
         });
         archive = (0, archiver_1.default)('zip', { zlib: { level: 9 } });
         let aborted = false;
@@ -531,7 +547,7 @@ exports.pdfPuppeteerRouter.post('/assignments/zip', (0, auth_1.requireAuth)(['AD
                     const studentFirst = student?.firstName || '';
                     const templateName = template?.name || 'Carnet';
                     const pdfName = sanitizeFileName(`${studentLast}-${studentFirst}-${templateName}.pdf`);
-                    const printUrl = `${frontendUrl}/print/carnet/${assignment._id}?token=${token}`;
+                    const printUrl = `${frontendUrl}/print/carnet/${assignment._id}?token=${token}${hideSignatures ? '&hideSignatures=true' : ''}`;
                     const safePrintUrl = String(printUrl || '').replace(/([?&])token=[^&]*/, '$1token=***');
                     console.log(`[PDF ZIP] (worker ${workerIdx}) Generating PDF for assignment ${assignmentId} (${safePrintUrl})`);
                     const assignStart = Date.now();
@@ -614,7 +630,7 @@ exports.pdfPuppeteerRouter.get('/preview/:templateId/:studentId', (0, auth_1.req
         }
         res.set({
             'Content-Type': 'application/pdf',
-            'Content-Disposition': `attachment; filename="carnet-${student.lastName}-${student.firstName}.pdf"`,
+            'Content-Disposition': buildContentDisposition(`carnet-${student.lastName}-${student.firstName}.pdf`),
             'Content-Length': pdfBuffer.length.toString()
         });
         res.end(pdfBuffer);
@@ -661,7 +677,7 @@ exports.pdfPuppeteerRouter.get('/saved/:id', (0, auth_1.requireAuth)(['ADMIN', '
         const studentName = saved.data?.student ? `${saved.data.student.lastName}-${saved.data.student.firstName}` : 'carnet';
         res.set({
             'Content-Type': 'application/pdf',
-            'Content-Disposition': `attachment; filename="carnet-${studentName}.pdf"`,
+            'Content-Disposition': buildContentDisposition(`carnet-${studentName}.pdf`),
             'Content-Length': pdfBuffer.length.toString()
         });
         res.end(pdfBuffer);

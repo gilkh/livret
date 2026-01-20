@@ -148,7 +148,7 @@ export async function createAssignmentSnapshot(
         studentId: assignment.studentId,
         schoolYearId: options.schoolYearId,
         level: options.level,
-        classId: options.classId,
+        classId: options.classId || '',
         templateId: assignment.templateId,
         data: options.data || assignment.data || {},
         meta,

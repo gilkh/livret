@@ -7,6 +7,7 @@ const GradebookTemplate_1 = require("../models/GradebookTemplate");
 const TemplateAssignment_1 = require("../models/TemplateAssignment");
 const auth_1 = require("../auth");
 const dateFormat_1 = require("../utils/dateFormat");
+const signatureService_1 = require("../services/signatureService");
 exports.htmlRenderRouter = (0, express_1.Router)();
 // Helper function to compute next school year name
 function computeNextSchoolYearName(year) {
@@ -50,6 +51,40 @@ function getPromotionYearLabel(promo, assignmentData, blockLevel) {
     const next = computeNextSchoolYearName(year);
     return next || year;
 }
+function getPromotionCurrentYearLabel(promo, assignmentData, blockLevel, period) {
+    const history = assignmentData?.signatures || [];
+    const wantEndOfYear = period === 'end-year';
+    const isMidYearBlock = period === 'mid-year';
+    const candidates = history
+        .filter((sig) => {
+        if (wantEndOfYear) {
+            if (sig.type !== 'end_of_year')
+                return false;
+        }
+        else if (isMidYearBlock) {
+            if (sig.type && sig.type !== 'standard')
+                return false;
+        }
+        if (sig.level && blockLevel && sig.level !== blockLevel)
+            return false;
+        return true;
+    })
+        .sort((a, b) => new Date(b.signedAt || 0).getTime() - new Date(a.signedAt || 0).getTime());
+    const sig = candidates[0];
+    if (sig) {
+        let yearLabel = String(sig.schoolYearName || '').trim();
+        if (!yearLabel && sig.signedAt) {
+            const d = new Date(sig.signedAt);
+            const y = d.getFullYear();
+            const m = d.getMonth();
+            const startYear = m >= 8 ? y : y - 1;
+            yearLabel = `${startYear}/${startYear + 1}`;
+        }
+        if (yearLabel)
+            return yearLabel;
+    }
+    return String(promo?.year || '');
+}
 // HTML template for rendering the carnet
 exports.htmlRenderRouter.get('/carnet/:assignmentId', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', 'TEACHER']), async (req, res) => {
     try {
@@ -63,7 +98,8 @@ exports.htmlRenderRouter.get('/carnet/:assignmentId', (0, auth_1.requireAuth)(['
         const student = await Student_1.Student.findById(assignment.studentId).lean();
         if (!template || !student)
             return res.status(404).send('Template or student not found');
-        const assignmentData = assignment.data || {};
+        const populatedAssignment = assignment ? await (0, signatureService_1.populateSignatures)(assignment) : assignment;
+        const assignmentData = populatedAssignment?.data || {};
         // Generate HTML with inline styles
         const html = `
 <!DOCTYPE html>
@@ -177,15 +213,33 @@ function renderBlock(block, student, assignmentData) {
     };
     const pickSignatureForLevelAndSemester = (level, semester) => {
         const history = Array.isArray(assignmentData?.signatures) ? assignmentData.signatures : [];
+        const promotions = Array.isArray(assignmentData?.promotions) ? assignmentData.promotions : [];
+        const normalizeLevel = (val) => String(val || '').trim().toLowerCase();
+        const normLevel = normalizeLevel(level);
+        const matchesLevel = (s) => {
+            if (!normLevel)
+                return true;
+            const sLevel = normalizeLevel(s?.level);
+            if (sLevel)
+                return sLevel === normLevel;
+            if (s?.schoolYearName) {
+                const promo = promotions.find((p) => String(p?.year || '') === String(s.schoolYearName));
+                const promoFrom = normalizeLevel(promo?.from || promo?.fromLevel);
+                if (promoFrom && promoFrom === normLevel)
+                    return true;
+            }
+            if (s?.schoolYearId) {
+                const promo = promotions.find((p) => String(p?.schoolYearId || '') === String(s.schoolYearId));
+                const promoFrom = normalizeLevel(promo?.from || promo?.fromLevel);
+                if (promoFrom && promoFrom === normLevel)
+                    return true;
+            }
+            const studentLevel = normalizeLevel(student?.level);
+            return !!studentLevel && studentLevel === normLevel;
+        };
         const candidates = history
             .filter((s) => matchesSemester(s, semester))
-            .filter((s) => {
-            if (!level)
-                return true;
-            if (s?.level)
-                return String(s.level) === level;
-            return false;
-        })
+            .filter(matchesLevel)
             .sort((a, b) => {
             const ta = new Date(a?.signedAt || 0).getTime();
             const tb = new Date(b?.signedAt || 0).getTime();
@@ -215,7 +269,10 @@ function renderBlock(block, student, assignmentData) {
             return `<div class="block" style="${style} width: ${props.x2 || 100}px; height: ${props.strokeWidth || 2}px; background: ${props.stroke || '#6c5ce7'}; position: relative;"><div style="position: absolute; right: 0; top: -6px; width: 0; height: 0; border-top: 8px solid transparent; border-bottom: 8px solid transparent; border-left: 12px solid ${props.stroke || '#6c5ce7'};"></div></div>`;
         case 'dropdown':
             const dropdownNum = props.dropdownNumber;
-            const selectedValue = dropdownNum ? assignmentData[`dropdown_${dropdownNum}`] : '';
+            const blockId = typeof props?.blockId === 'string' && props.blockId.trim() ? props.blockId.trim() : null;
+            const stableKey = blockId ? `dropdown_${blockId}` : null;
+            const legacyKey = dropdownNum ? `dropdown_${dropdownNum}` : (props?.variableName ? props.variableName : null);
+            const selectedValue = (stableKey ? assignmentData[stableKey] : undefined) ?? (legacyKey ? assignmentData[legacyKey] : undefined) ?? '';
             return `<div class="block" style="${style}">
         <div class="dropdown-box" style="width: ${props.width || 200}px; min-height: ${props.height || 40}px; font-size: ${props.fontSize || 12}px; color: ${props.color || '#333'};">
           ${props.label ? `<div class="dropdown-label">${props.label}</div>` : ''}
@@ -225,14 +282,19 @@ function renderBlock(block, student, assignmentData) {
       </div>`;
         case 'dropdown_reference':
             const refDropdownNum = props.dropdownNumber || 1;
-            const refValue = assignmentData[`dropdown_${refDropdownNum}`] || `[Dropdown #${refDropdownNum}]`;
+            const refBlockId = typeof props?.blockId === 'string' && props.blockId.trim() ? props.blockId.trim() : null;
+            const refStableKey = refBlockId ? `dropdown_${refBlockId}` : null;
+            const refLegacyKey = refDropdownNum ? `dropdown_${refDropdownNum}` : null;
+            const refValue = (refStableKey ? assignmentData[refStableKey] : undefined) ?? (refLegacyKey ? assignmentData[refLegacyKey] : undefined) ?? `[Dropdown #${refDropdownNum}]`;
             return `<div class="block" style="${style} color: ${props.color || '#333'}; font-size: ${props.fontSize || 12}px; width: ${props.width || 200}px; white-space: pre-wrap; word-wrap: break-word;">${refValue}</div>`;
         case 'promotion_info':
             const targetLevel = props.targetLevel;
             const promotions = assignmentData.promotions || [];
             const promo = promotions.find((p) => p.to === targetLevel);
             if (promo) {
+                const blockLevel = props.level ? String(props.level).trim() : null;
                 const yearLabel = getPromotionYearLabel(promo, assignmentData, null);
+                const currentYearLabel = getPromotionCurrentYearLabel(promo, assignmentData, blockLevel, props.period);
                 if (!props.field) {
                     return `<div class="block" style="${style}">
             <div class="promotion-box" style="width: ${props.width || 300}px; height: ${props.height || 100}px; font-size: ${props.fontSize || 12}px; color: ${props.color || '#2d3436'};">
@@ -250,6 +312,8 @@ function renderBlock(block, student, assignmentData) {
                         content = `${student.firstName} ${student.lastName}`;
                     else if (props.field === 'year')
                         content = `Année ${yearLabel}`;
+                    else if (props.field === 'currentYear')
+                        content = String(currentYearLabel || '');
                     return `<div class="block" style="${style} width: ${props.width || 150}px; height: ${props.height || 30}px; font-size: ${props.fontSize || 12}px; color: ${props.color || '#2d3436'}; display: flex; align-items: center; justify-content: center; text-align: center;">${content}</div>`;
                 }
             }
@@ -295,7 +359,7 @@ function renderBlock(block, student, assignmentData) {
                 metaParts.push(semester === 1 ? 'S1' : 'S2');
             }
             const meta = metaParts.length ? ` <span style="font-size: ${(props.fontSize || 12) * 0.85}px; color: #666;">(${metaParts.join(' ')})</span>` : '';
-            const label = props.label ? String(props.label) : '';
+            const label = 'Signé le:';
             return `<div class="block" style="${style}">
         <div class="signature-box" style="width: ${props.width || 200}px; height: ${props.height || 80}px; font-size: ${props.fontSize || 12}px; color: ${props.color || '#000'}; justify-content: ${align === 'left' ? 'flex-start' : align === 'right' ? 'flex-end' : 'center'}; padding: 6px; text-align: ${align};">
           <div style="width: 100%;">

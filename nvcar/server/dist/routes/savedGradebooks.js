@@ -333,3 +333,111 @@ exports.savedGradebooksRouter.get('/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUB
     }
     res.json(saved);
 });
+// Get all students with their gradebook history (for admin gradebooks page)
+// Returns current students and archived (EB1) students separately
+exports.savedGradebooksRouter.get('/admin/all-students', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
+    try {
+        const { schoolYearId } = req.query;
+        // Get all saved gradebooks with essential info
+        const query = {};
+        if (schoolYearId && typeof schoolYearId === 'string') {
+            query.schoolYearId = schoolYearId;
+        }
+        const allSaved = await SavedGradebook_1.SavedGradebook.find(query)
+            .select('studentId schoolYearId level meta createdAt templateId')
+            .lean();
+        if (allSaved.length === 0) {
+            return res.json({ current: [], archived: [] });
+        }
+        const studentIds = [...new Set(allSaved.map(sg => sg.studentId))];
+        // Get all students
+        const students = await Student_1.Student.find({ _id: { $in: studentIds } })
+            .select('firstName lastName level promotions status avatarUrl')
+            .lean();
+        const studentMap = new Map(students.map(s => [String(s._id), s]));
+        // Get all school years
+        const yearIds = [...new Set(allSaved.map(sg => sg.schoolYearId).filter(Boolean))];
+        const years = await SchoolYear_1.SchoolYear.find({ _id: { $in: yearIds } }).select('name').lean();
+        const yearMap = new Map(years.map(y => [String(y._id), y.name]));
+        // Group saved gradebooks by student
+        const gradebooksByStudent = new Map();
+        allSaved.forEach(sg => {
+            const sid = sg.studentId;
+            if (!gradebooksByStudent.has(sid))
+                gradebooksByStudent.set(sid, []);
+            gradebooksByStudent.get(sid).push({
+                _id: sg._id,
+                schoolYearId: sg.schoolYearId,
+                yearName: yearMap.get(sg.schoolYearId) || '',
+                level: sg.level,
+                snapshotReason: sg.meta?.snapshotReason || 'unknown',
+                createdAt: sg.createdAt,
+                templateId: sg.templateId
+            });
+        });
+        // Categorize students
+        const current = [];
+        const archived = [];
+        studentIds.forEach(sid => {
+            const student = studentMap.get(sid);
+            if (!student)
+                return;
+            const promotions = Array.isArray(student.promotions) ? student.promotions : [];
+            const isArchived = promotions.some((p) => String(p?.toLevel || '').toLowerCase() === 'eb1') || student.status === 'left';
+            const gradebooks = gradebooksByStudent.get(sid) || [];
+            // Sort by createdAt desc
+            gradebooks.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+            // Group gradebooks by year
+            const byYear = {};
+            gradebooks.forEach(gb => {
+                const yearKey = gb.schoolYearId || 'unknown';
+                if (!byYear[yearKey])
+                    byYear[yearKey] = [];
+                byYear[yearKey].push(gb);
+            });
+            // Transform to year array with S1/S2 info
+            const yearsData = Object.entries(byYear).map(([yearId, gbs]) => {
+                const yearName = yearMap.get(yearId) || 'Année inconnue';
+                const s1 = gbs.find(g => g.snapshotReason === 'sem1' || g.snapshotReason === 'manual');
+                const s2 = gbs.find(g => g.snapshotReason === 'year_end' || g.snapshotReason === 'promotion' || g.snapshotReason === 'exit');
+                const level = gbs[0]?.level || '';
+                return {
+                    yearId,
+                    yearName,
+                    level,
+                    s1: s1 ? { _id: s1._id, createdAt: s1.createdAt } : null,
+                    s2: s2 ? { _id: s2._id, createdAt: s2.createdAt } : null,
+                    allSnapshots: gbs
+                };
+            }).sort((a, b) => b.yearName.localeCompare(a.yearName));
+            const entry = {
+                studentId: sid,
+                firstName: student.firstName,
+                lastName: student.lastName,
+                currentLevel: student.level,
+                avatarUrl: student.avatarUrl,
+                years: yearsData
+            };
+            if (isArchived) {
+                // Find exit info
+                const exitPromo = promotions
+                    .filter((p) => String(p?.toLevel || '').toLowerCase() === 'eb1')
+                    .sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime())[0];
+                entry.exitedAt = exitPromo?.date || null;
+                entry.exitedFromLevel = exitPromo?.fromLevel || null;
+                archived.push(entry);
+            }
+            else {
+                current.push(entry);
+            }
+        });
+        // Sort by name
+        current.sort((a, b) => `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`));
+        archived.sort((a, b) => `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`));
+        res.json({ current, archived });
+    }
+    catch (e) {
+        console.error('admin/all-students error:', e);
+        res.status(500).json({ error: 'fetch_failed', message: e.message });
+    }
+});

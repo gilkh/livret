@@ -16,6 +16,7 @@ const pptxImporter_1 = require("../utils/pptxImporter");
 const templateUtils_1 = require("../utils/templateUtils");
 const cache_1 = require("../utils/cache");
 const User_1 = require("../models/User");
+const Setting_1 = require("../models/Setting");
 const fs_1 = __importDefault(require("fs"));
 exports.templatesRouter = (0, express_1.Router)();
 const upload = (0, multer_1.default)({ storage: multer_1.default.memoryStorage() });
@@ -83,8 +84,8 @@ exports.templatesRouter.post('/import-package', (0, auth_1.requireAuth)(['ADMIN'
             return res.status(400).json({ error: 'invalid_json' });
         }
         const userId = req.user.userId;
-        // Remove system fields
-        const { _id, __v, createdBy, createdAt, updatedAt, ...cleanData } = templateData;
+        // Remove system fields and extract visibility settings
+        const { _id, __v, createdBy, createdAt, updatedAt, blockVisibilitySettings, ...cleanData } = templateData;
         const pagesWithBlockIds = (0, templateUtils_1.ensureStableBlockIds)(undefined, cleanData?.pages);
         const pagesWithRowIds = (0, templateUtils_1.ensureStableExpandedTableRowIds)(undefined, pagesWithBlockIds);
         const newTemplate = await GradebookTemplate_1.GradebookTemplate.create({
@@ -106,6 +107,32 @@ exports.templatesRouter.post('/import-package', (0, auth_1.requireAuth)(['ADMIN'
                     changeDescription: 'Imported from package'
                 }]
         });
+        // Merge imported visibility settings if present
+        if (blockVisibilitySettings && typeof blockVisibilitySettings === 'object') {
+            const existingSetting = await Setting_1.Setting.findOne({ key: 'block_visibility_settings' });
+            const existingValue = existingSetting?.value || {};
+            // Merge imported settings into existing ones
+            // Convert portable keys (tpl:p:X:b:Y) to new template-specific keys (tpl:newId:p:X:b:Y)
+            const newTemplateId = newTemplate._id.toString();
+            const mergedSettings = { ...existingValue };
+            for (const level of Object.keys(blockVisibilitySettings)) {
+                if (!mergedSettings[level])
+                    mergedSettings[level] = {};
+                for (const view of Object.keys(blockVisibilitySettings[level])) {
+                    if (!mergedSettings[level][view])
+                        mergedSettings[level][view] = {};
+                    for (const blockKey of Object.keys(blockVisibilitySettings[level][view])) {
+                        // Convert portable format tpl:p:X:b:Y to tpl:newTemplateId:p:X:b:Y
+                        let newKey = blockKey;
+                        if (blockKey.startsWith('tpl:p:')) {
+                            newKey = blockKey.replace('tpl:p:', `tpl:${newTemplateId}:p:`);
+                        }
+                        mergedSettings[level][view][newKey] = blockVisibilitySettings[level][view][blockKey];
+                    }
+                }
+            }
+            await Setting_1.Setting.findOneAndUpdate({ key: 'block_visibility_settings' }, { key: 'block_visibility_settings', value: mergedSettings }, { upsert: true });
+        }
         (0, cache_1.clearCache)('templates');
         res.json(newTemplate);
     }
@@ -159,6 +186,47 @@ exports.templatesRouter.get('/:id/export-package', (0, auth_1.requireAuth)(['ADM
             return res.status(404).json({ error: 'not_found' });
         // Clean data
         const { _id, __v, createdBy, updatedAt, ...cleanTemplate } = template;
+        // Get block visibility settings and extract only those relevant to this template's blocks
+        const visibilitySetting = await Setting_1.Setting.findOne({ key: 'block_visibility_settings' }).lean();
+        let blockVisibilitySettings = {};
+        if (visibilitySetting?.value) {
+            // Collect all block keys from this template
+            const templateBlockKeys = new Set();
+            const pages = template.pages || [];
+            pages.forEach((page, pageIdx) => {
+                (page.blocks || []).forEach((block, blockIdx) => {
+                    if (block.id)
+                        templateBlockKeys.add(`block:${block.id}`);
+                    templateBlockKeys.add(`tpl:${id}:p:${pageIdx}:b:${blockIdx}`);
+                });
+            });
+            // Filter visibility settings to only include this template's blocks
+            // Convert template-specific keys to portable format for export
+            const allSettings = visibilitySetting.value;
+            for (const level of Object.keys(allSettings)) {
+                for (const view of Object.keys(allSettings[level] || {})) {
+                    for (const blockKey of Object.keys(allSettings[level][view] || {})) {
+                        if (templateBlockKeys.has(blockKey)) {
+                            if (!blockVisibilitySettings[level])
+                                blockVisibilitySettings[level] = {};
+                            if (!blockVisibilitySettings[level][view])
+                                blockVisibilitySettings[level][view] = {};
+                            // Convert tpl:templateId:p:X:b:Y to portable format tpl:p:X:b:Y
+                            let portableKey = blockKey;
+                            if (blockKey.startsWith(`tpl:${id}:`)) {
+                                portableKey = blockKey.replace(`tpl:${id}:`, 'tpl:');
+                            }
+                            blockVisibilitySettings[level][view][portableKey] = allSettings[level][view][blockKey];
+                        }
+                    }
+                }
+            }
+        }
+        // Add visibility settings to export data
+        const exportData = {
+            ...cleanTemplate,
+            blockVisibilitySettings: Object.keys(blockVisibilitySettings).length > 0 ? blockVisibilitySettings : undefined
+        };
         // Create archive
         const archive = (0, archiver_1.default)('zip', { zlib: { level: 9 } });
         // Determine target directory: .../nvcar/temps
@@ -191,8 +259,8 @@ exports.templatesRouter.get('/:id/export-package', (0, auth_1.requireAuth)(['ADM
             output.on('error', reject);
             archive.on('error', reject);
             archive.pipe(output);
-            // Add template JSON
-            archive.append(JSON.stringify(cleanTemplate, null, 2), { name: 'template.json' });
+            // Add template JSON with visibility settings
+            archive.append(JSON.stringify(exportData, null, 2), { name: 'template.json' });
             // Add batch file
             const batContent = `@echo off
 set /p targetUrl="Enter the target server URL (default: https://localhost:4000): "

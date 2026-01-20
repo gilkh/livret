@@ -316,9 +316,28 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                         ...savedData.data.student,
                         className: savedData.data.className || savedData.data.student.className
                     })
-                    setAssignment(savedData.data.assignment)
-                    setSignature(savedData.data.signature)
-                    setFinalSignature(savedData.data.finalSignature || null)
+                    const savedSignatures = savedData.data.signatures || []
+                    const assignmentSignatures = savedData.data.assignment?.data?.signatures || []
+                    const mergedSignatures = [...assignmentSignatures, ...savedSignatures]
+                    setAssignment({
+                        ...savedData.data.assignment,
+                        data: {
+                            ...(savedData.data.assignment?.data || {}),
+                            signatures: mergedSignatures
+                        }
+                    })
+                    const sem1Signature =
+                        savedData.data.signature ||
+                        savedSignatures.find((s: any) => s.type === 'standard') ||
+                        assignmentSignatures.find((s: any) => s.type === 'standard') ||
+                        null
+                    const endOfYearSignature =
+                        savedData.data.finalSignature ||
+                        savedSignatures.find((s: any) => s.type === 'end_of_year') ||
+                        assignmentSignatures.find((s: any) => s.type === 'end_of_year') ||
+                        null
+                    setSignature(sem1Signature)
+                    setFinalSignature(endOfYearSignature)
 
                     if (savedData.templateId) {
                         const t = await api.get(`/templates/${savedData.templateId}`)

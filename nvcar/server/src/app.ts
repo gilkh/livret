@@ -112,8 +112,21 @@ export const createApp = () => {
           { name: 'PS', order: 1 },
           { name: 'MS', order: 2 },
           { name: 'GS', order: 3 },
+          { name: 'EB1', order: 4, isExitLevel: true },
         ])
-        console.log('seeded default levels (PS, MS, GS)')
+        console.log('seeded default levels (PS, MS, GS, EB1)')
+      } else {
+        // Ensure EB1 exists (for existing databases without it)
+        const eb1Exists = await Level.findOne({ name: 'EB1' })
+        if (!eb1Exists) {
+          const maxOrder = await Level.findOne().sort({ order: -1 }).lean()
+          await Level.create({ name: 'EB1', order: (maxOrder?.order || 3) + 1, isExitLevel: true })
+          console.log('added missing EB1 level')
+        } else if (!eb1Exists.isExitLevel) {
+          // Ensure EB1 is marked as exit level
+          await Level.updateOne({ name: 'EB1' }, { isExitLevel: true })
+          console.log('marked EB1 as exit level')
+        }
       }
     })
     .catch(e => console.error('mongo error', e))
