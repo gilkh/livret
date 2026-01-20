@@ -4,6 +4,7 @@ import api from '../api'
 import { useSchoolYear } from '../context/SchoolYearContext'
 import { useLevels } from '../context/LevelContext'
 import './AdminResources.css'
+import { readTextFileWithFallback } from '../utils/textEncoding'
 import Toast, { ToastType } from '../components/Toast'
 import {
   Calendar,
@@ -933,7 +934,7 @@ function ImportStudentsModal({ isOpen, onClose, onSuccess }: { isOpen: boolean; 
   const onFile = async (e: any) => {
     const f = e.target.files?.[0]
     if (!f) return
-    const txt = await f.text()
+    const txt = await readTextFileWithFallback(f)
     setCsv(txt)
   }
 
@@ -1111,7 +1112,7 @@ function BulkAssignModal({ isOpen, onClose, schoolYearId, onSuccess }: { isOpen:
   const onFile = async (e: any) => {
     const f = e.target.files?.[0]
     if (!f) return
-    const txt = await f.text()
+    const txt = await readTextFileWithFallback(f)
     setCsv(txt)
   }
 

@@ -13,11 +13,29 @@ import { User } from '../models/User'
 import path from 'path'
 import fs from 'fs'
 import { formatDdMmYyyyColon } from '../utils/dateFormat'
+import { populateSignatures } from '../services/signatureService'
 // eslint-disable-next-line
 const archiver = require('archiver')
 import { requireAuth } from '../auth'
 
 export const pdfRouter = Router()
+
+const sanitizeFilename = (name: string) => {
+  const base = String(name || 'file')
+    .replace(/[\r\n]/g, ' ')
+    .normalize('NFKD')
+    .replace(/[^\x20-\x7E]+/g, '')
+    .replace(/["\\]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return base || 'file'
+}
+
+const buildContentDisposition = (filename: string) => {
+  const safe = sanitizeFilename(filename)
+  const encoded = encodeURIComponent(String(filename || 'file')).replace(/[()']/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)
+  return `attachment; filename="${safe}"; filename*=UTF-8''${encoded}`
+}
 
 // Helper function to compute next school year name
 function computeNextSchoolYearName(year: string | undefined): string {
@@ -73,6 +91,39 @@ function getPromotionYearLabel(promo: any, assignmentData: any): string {
   return next || year
 }
 
+function getPromotionCurrentYearLabel(promo: any, assignmentData: any, blockLevel: string | null, period?: string): string {
+  const history = assignmentData?.signatures || []
+  const wantEndOfYear = period === 'end-year'
+  const isMidYearBlock = period === 'mid-year'
+
+  const candidates = history
+    .filter((sig: any) => {
+      if (wantEndOfYear) {
+        if (sig.type !== 'end_of_year') return false
+      } else if (isMidYearBlock) {
+        if (sig.type && sig.type !== 'standard') return false
+      }
+      if (sig.level && blockLevel && sig.level !== blockLevel) return false
+      return true
+    })
+    .sort((a: any, b: any) => new Date(b.signedAt || 0).getTime() - new Date(a.signedAt || 0).getTime())
+
+  const sig = candidates[0]
+  if (sig) {
+    let yearLabel = String(sig.schoolYearName || '').trim()
+    if (!yearLabel && sig.signedAt) {
+      const d = new Date(sig.signedAt)
+      const y = d.getFullYear()
+      const m = d.getMonth()
+      const startYear = m >= 8 ? y : y - 1
+      yearLabel = `${startYear}/${startYear + 1}`
+    }
+    if (yearLabel) return yearLabel
+  }
+
+  return String(promo?.year || '')
+}
+
 const imgCache = new Map<string, Buffer>()
 const fetchImage = async (url: string) => {
   if (imgCache.has(url)) return imgCache.get(url)
@@ -115,7 +166,7 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), asy
   const statuses = await StudentCompetencyStatus.find({ studentId: id }).lean()
   const statusMap = new Map(statuses.map((s: any) => [s.competencyId, s]))
   res.setHeader('Content-Type', 'application/pdf')
-  res.setHeader('Content-Disposition', `attachment; filename="carnet-${student.lastName}.pdf"`)
+  res.setHeader('Content-Disposition', buildContentDisposition(`carnet-${student.lastName}.pdf`))
   const doc = new PDFDocument({ size: 'A4', margin: 0 })
   doc.pipe(res)
   const renderDefault = async () => {
@@ -158,7 +209,8 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), asy
       studentId: id,
       templateId: tplId
     }).lean()
-    const assignmentData = assignment?.data || {}
+    const populatedAssignment = assignment ? await populateSignatures(assignment) : assignment
+    const assignmentData = populatedAssignment?.data || {}
 
     const categories = await Category.find({}).lean()
     const comps = await Competency.find({}).lean()
@@ -890,7 +942,8 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), asy
             } else if (b.props.field === 'year') {
               doc.text(`Année ${yearLabel}`, x, y + (height / 2) - 6, { width, align: 'center' })
             } else if (b.props.field === 'currentYear') {
-              doc.text(String(promo.year || ''), x, y + (height / 2) - 6, { width, align: 'center' })
+              const currentYearLabel = getPromotionCurrentYearLabel(promo, assignmentData, blockLevel, b.props?.period)
+              doc.text(String(currentYearLabel || ''), x, y + (height / 2) - 6, { width, align: 'center' })
             } else if (b.props.field === 'class') {
               const raw = String(promo.class || '')
               const parts = raw.split(/\s*[-\s]\s*/)
@@ -939,7 +992,7 @@ pdfRouter.get('/class/:classId/batch', requireAuth(['ADMIN', 'SUBADMIN']), async
   const studentIds = enrolls.map(e => e.studentId)
   const students = await Student.find({ _id: { $in: studentIds } }).lean()
   res.setHeader('Content-Type', 'application/zip')
-  res.setHeader('Content-Disposition', `attachment; filename="reports-${classId}.zip"`)
+  res.setHeader('Content-Disposition', buildContentDisposition(`reports-${classId}.zip`))
   const archive = archiver('zip')
   archive.pipe(res)
   for (const s of students as any[]) {
@@ -987,7 +1040,8 @@ pdfRouter.get('/class/:classId/batch', requireAuth(['ADMIN', 'SUBADMIN']), async
             studentId: String(s._id),
             templateId: String(templateId)
           }).lean()
-          const assignmentData = assignment?.data || {}
+          const populatedAssignment = assignment ? await populateSignatures(assignment) : assignment
+          const assignmentData = populatedAssignment?.data || {}
 
           const categories = await Category.find({}).lean()
           const comps = await Competency.find({}).lean()
@@ -1692,7 +1746,8 @@ pdfRouter.get('/class/:classId/batch', requireAuth(['ADMIN', 'SUBADMIN']), async
                   } else if (b.props.field === 'year') {
                     doc.text(`Année ${yearLabel}`, x, y + (height / 2) - 6, { width, align: 'center' })
                   } else if (b.props.field === 'currentYear') {
-                    doc.text(String(promo.year || ''), x, y + (height / 2) - 6, { width, align: 'center' })
+                    const currentYearLabel = getPromotionCurrentYearLabel(promo, assignmentData, blockLevel, b.props?.period)
+                    doc.text(String(currentYearLabel || ''), x, y + (height / 2) - 6, { width, align: 'center' })
                   } else if (b.props.field === 'class') {
                     const raw = String(promo.class || '')
                     const parts = raw.split(/\s*[-\s]\s*/)

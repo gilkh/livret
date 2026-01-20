@@ -220,6 +220,40 @@ export default function TemplateReviewPreview({ template, student, assignment, s
         return next || year
     }
 
+    const getPromotionCurrentYearLabel = (promo: any, blockLevel: string | null, period?: string) => {
+        const history = assignment?.data?.signatures || []
+        const wantEndOfYear = period === 'end-year'
+        const isMidYearBlock = period === 'mid-year'
+        const candidates = history.filter((sig: any) => {
+            if (wantEndOfYear) {
+                if (sig.type !== 'end_of_year') return false
+            } else if (isMidYearBlock) {
+                if (sig.type && sig.type !== 'standard') return false
+            }
+            if (sig.level && blockLevel && sig.level !== blockLevel) return false
+            return true
+        }).sort((a: any, b: any) => {
+            const ad = new Date(a.signedAt || 0).getTime()
+            const bd = new Date(b.signedAt || 0).getTime()
+            return bd - ad
+        })
+
+        const sig = candidates[0]
+        if (sig) {
+            let yearLabel = String(sig.schoolYearName || '').trim()
+            if (!yearLabel && sig.signedAt) {
+                const d = new Date(sig.signedAt)
+                const y = d.getFullYear()
+                const m = d.getMonth()
+                const startYear = m >= 8 ? y : y - 1
+                yearLabel = `${startYear}/${startYear + 1}`
+            }
+            if (yearLabel) return yearLabel
+        }
+
+        return String(promo?.year || '')
+    }
+
     const isBlockVisible = (b: Block) => {
         const blockLevel = getBlockLevel(b)
 
@@ -857,7 +891,7 @@ export default function TemplateReviewPreview({ template, student, assignment, s
                                                         } else if (b.props.field === 'year') {
                                                             return <div>{getPromotionYearLabel(promo, blockLevel)}</div>
                                                         } else if (b.props.field === 'currentYear') {
-                                                            const label = activeYear?.name || promo.year || ''
+                                                            const label = getPromotionCurrentYearLabel(promo, blockLevel, b.props.period) || activeYear?.name || ''
                                                             return <div>{String(label)}</div>
                                                         } else if (b.props.field === 'class') {
                                                             const raw = promo.class || ''

@@ -12,6 +12,23 @@ import PDFDocument from 'pdfkit'
 
 export const pdfPuppeteerRouter = Router()
 
+const sanitizeFilename = (name: string) => {
+  const base = String(name || 'file')
+    .replace(/[\r\n]/g, ' ')
+    .normalize('NFKD')
+    .replace(/[^\x20-\x7E]+/g, '')
+    .replace(/["\\]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return base || 'file'
+}
+
+const buildContentDisposition = (filename: string) => {
+  const safe = sanitizeFilename(filename)
+  const encoded = encodeURIComponent(String(filename || 'file')).replace(/[()']/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)
+  return `attachment; filename="${safe}"; filename*=UTF-8''${encoded}`
+}
+
 // Singleton browser instance
 let browserInstance: Browser | null = null
 
@@ -467,7 +484,7 @@ pdfPuppeteerRouter.get('/student/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHE
     // Send PDF with proper headers to avoid corruption
     res.set({
       'Content-Type': 'application/pdf',
-      'Content-Disposition': `attachment; filename="carnet-${student.lastName}-${student.firstName}.pdf"`,
+      'Content-Disposition': buildContentDisposition(`carnet-${student.lastName}-${student.firstName}.pdf`),
       'Content-Length': pdfBuffer.length.toString()
     })
     res.end(pdfBuffer)
@@ -525,7 +542,7 @@ pdfPuppeteerRouter.post('/assignments/zip', requireAuth(['ADMIN', 'SUBADMIN', 'A
     const archiveFileName = sanitizeFileName(groupLabel ? `carnets-${groupLabel}.zip` : 'carnets.zip')
     res.set({
       'Content-Type': 'application/zip',
-      'Content-Disposition': `attachment; filename="${archiveFileName}"`
+      'Content-Disposition': buildContentDisposition(String(archiveFileName || 'archive.zip'))
     })
 
     archive = archiver('zip', { zlib: { level: 9 } })
@@ -658,7 +675,7 @@ pdfPuppeteerRouter.get('/preview/:templateId/:studentId', requireAuth(['ADMIN', 
 
     res.set({
       'Content-Type': 'application/pdf',
-      'Content-Disposition': `attachment; filename="carnet-${student.lastName}-${student.firstName}.pdf"`,
+      'Content-Disposition': buildContentDisposition(`carnet-${student.lastName}-${student.firstName}.pdf`),
       'Content-Length': pdfBuffer.length.toString()
     })
     res.end(pdfBuffer)
@@ -709,7 +726,7 @@ pdfPuppeteerRouter.get('/saved/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER'
 
     res.set({
       'Content-Type': 'application/pdf',
-      'Content-Disposition': `attachment; filename="carnet-${studentName}.pdf"`,
+      'Content-Disposition': buildContentDisposition(`carnet-${studentName}.pdf`),
       'Content-Length': pdfBuffer.length.toString()
     })
     res.end(pdfBuffer)
