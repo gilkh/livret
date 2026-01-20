@@ -44,6 +44,7 @@ import AdminGradebookReview from './pages/AdminGradebookReview'
 import AdminSignatures from './pages/AdminSignatures'
 import AdminGlobalPermissions from './pages/AdminGlobalPermissions'
 import AdminNavigationVisibility from './pages/AdminNavigationVisibility'
+import AdminBlockVisibility from './pages/AdminBlockVisibility'
 import AdminStudentPromotions from './pages/AdminStudentPromotions'
 import AdminPsOnboarding from './pages/AdminPsOnboarding'
 import AdminSkillAnalytics from './pages/AdminSkillAnalytics'
@@ -629,6 +630,14 @@ export default function App() {
           element={
             <RequireAuth>
               <AdminNavigationVisibility />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/admin/block-visibility"
+          element={
+            <RequireAuth>
+              <AdminBlockVisibility />
             </RequireAuth>
           }
         />

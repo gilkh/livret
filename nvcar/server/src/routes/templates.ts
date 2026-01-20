@@ -11,6 +11,7 @@ import { ensureStableBlockIds, ensureStableExpandedTableRowIds } from '../utils/
 import { withCache, clearCache } from '../utils/cache'
 
 import { User } from '../models/User'
+import { Setting } from '../models/Setting'
 import fs from 'fs'
 
 export const templatesRouter = Router()
@@ -86,8 +87,8 @@ templatesRouter.post('/import-package', requireAuth(['ADMIN', 'SUBADMIN']), uplo
 
     const userId = (req as any).user.userId
 
-    // Remove system fields
-    const { _id, __v, createdBy, createdAt, updatedAt, ...cleanData } = templateData
+    // Remove system fields and extract visibility settings
+    const { _id, __v, createdBy, createdAt, updatedAt, blockVisibilitySettings, ...cleanData } = templateData
     const pagesWithBlockIds = ensureStableBlockIds(undefined, (cleanData as any)?.pages)
     const pagesWithRowIds = ensureStableExpandedTableRowIds(undefined, pagesWithBlockIds)
 
@@ -110,6 +111,39 @@ templatesRouter.post('/import-package', requireAuth(['ADMIN', 'SUBADMIN']), uplo
         changeDescription: 'Imported from package'
       }]
     })
+
+    // Merge imported visibility settings if present
+    if (blockVisibilitySettings && typeof blockVisibilitySettings === 'object') {
+      const existingSetting = await Setting.findOne({ key: 'block_visibility_settings' })
+      const existingValue = existingSetting?.value || {}
+      
+      // Merge imported settings into existing ones
+      // Convert portable keys (tpl:p:X:b:Y) to new template-specific keys (tpl:newId:p:X:b:Y)
+      const newTemplateId = newTemplate._id.toString()
+      const mergedSettings = { ...existingValue }
+      
+      for (const level of Object.keys(blockVisibilitySettings)) {
+        if (!mergedSettings[level]) mergedSettings[level] = {}
+        for (const view of Object.keys(blockVisibilitySettings[level])) {
+          if (!mergedSettings[level][view]) mergedSettings[level][view] = {}
+          
+          for (const blockKey of Object.keys(blockVisibilitySettings[level][view])) {
+            // Convert portable format tpl:p:X:b:Y to tpl:newTemplateId:p:X:b:Y
+            let newKey = blockKey
+            if (blockKey.startsWith('tpl:p:')) {
+              newKey = blockKey.replace('tpl:p:', `tpl:${newTemplateId}:p:`)
+            }
+            mergedSettings[level][view][newKey] = blockVisibilitySettings[level][view][blockKey]
+          }
+        }
+      }
+      
+      await Setting.findOneAndUpdate(
+        { key: 'block_visibility_settings' },
+        { key: 'block_visibility_settings', value: mergedSettings },
+        { upsert: true }
+      )
+    }
 
     clearCache('templates')
     res.json(newTemplate)
@@ -166,6 +200,49 @@ templatesRouter.get('/:id/export-package', requireAuth(['ADMIN', 'SUBADMIN']), a
     // Clean data
     const { _id, __v, createdBy, updatedAt, ...cleanTemplate } = template
 
+    // Get block visibility settings and extract only those relevant to this template's blocks
+    const visibilitySetting = await Setting.findOne({ key: 'block_visibility_settings' }).lean()
+    let blockVisibilitySettings: Record<string, any> = {}
+    
+    if (visibilitySetting?.value) {
+      // Collect all block keys from this template
+      const templateBlockKeys = new Set<string>()
+      const pages = (template as any).pages || []
+      pages.forEach((page: any, pageIdx: number) => {
+        (page.blocks || []).forEach((block: any, blockIdx: number) => {
+          if (block.id) templateBlockKeys.add(`block:${block.id}`)
+          templateBlockKeys.add(`tpl:${id}:p:${pageIdx}:b:${blockIdx}`)
+        })
+      })
+      
+      // Filter visibility settings to only include this template's blocks
+      // Convert template-specific keys to portable format for export
+      const allSettings = visibilitySetting.value as Record<string, any>
+      for (const level of Object.keys(allSettings)) {
+        for (const view of Object.keys(allSettings[level] || {})) {
+          for (const blockKey of Object.keys(allSettings[level][view] || {})) {
+            if (templateBlockKeys.has(blockKey)) {
+              if (!blockVisibilitySettings[level]) blockVisibilitySettings[level] = {}
+              if (!blockVisibilitySettings[level][view]) blockVisibilitySettings[level][view] = {}
+              
+              // Convert tpl:templateId:p:X:b:Y to portable format tpl:p:X:b:Y
+              let portableKey = blockKey
+              if (blockKey.startsWith(`tpl:${id}:`)) {
+                portableKey = blockKey.replace(`tpl:${id}:`, 'tpl:')
+              }
+              blockVisibilitySettings[level][view][portableKey] = allSettings[level][view][blockKey]
+            }
+          }
+        }
+      }
+    }
+
+    // Add visibility settings to export data
+    const exportData = {
+      ...cleanTemplate,
+      blockVisibilitySettings: Object.keys(blockVisibilitySettings).length > 0 ? blockVisibilitySettings : undefined
+    }
+
     // Create archive
     const archive = archiver('zip', { zlib: { level: 9 } })
 
@@ -206,8 +283,8 @@ templatesRouter.get('/:id/export-package', requireAuth(['ADMIN', 'SUBADMIN']), a
 
       archive.pipe(output)
 
-      // Add template JSON
-      archive.append(JSON.stringify(cleanTemplate, null, 2), { name: 'template.json' })
+      // Add template JSON with visibility settings
+      archive.append(JSON.stringify(exportData, null, 2), { name: 'template.json' })
 
       // Add batch file
       const batContent = `@echo off

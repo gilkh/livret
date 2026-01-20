@@ -59,7 +59,7 @@ settingsRouter.get('/status', requireAuth(['ADMIN']), async (req, res) => {
 
 settingsRouter.get('/public', async (req, res) => {
   const settings = await Setting.find({
-    key: { $in: ['login_enabled_microsoft', 'school_name', 'nav_permissions', 'teacher_quick_grading_enabled', 'mobile_block_enabled', 'mobile_min_width'] }
+    key: { $in: ['login_enabled_microsoft', 'school_name', 'nav_permissions', 'teacher_quick_grading_enabled', 'mobile_block_enabled', 'mobile_min_width', 'block_visibility', 'block_visibility_instances', 'block_visibility_settings'] }
   }).lean()
 
   const settingsMap: Record<string, any> = {}
@@ -74,6 +74,9 @@ settingsRouter.get('/public', async (req, res) => {
   if (settingsMap.teacher_quick_grading_enabled === undefined) settingsMap.teacher_quick_grading_enabled = true
   if (settingsMap.mobile_block_enabled === undefined) settingsMap.mobile_block_enabled = false
   if (settingsMap.mobile_min_width === undefined) settingsMap.mobile_min_width = 1024
+  if (settingsMap.block_visibility === undefined) settingsMap.block_visibility = {}
+  if (settingsMap.block_visibility_instances === undefined) settingsMap.block_visibility_instances = {}
+  if (settingsMap.block_visibility_settings === undefined) settingsMap.block_visibility_settings = {}
 
   res.json(settingsMap)
 })

@@ -96,6 +96,7 @@ export default function SubAdminTemplateReview() {
     const [subadminAssignedLevels, setSubadminAssignedLevels] = useState<string[]>([])
     const [zoomLevel, setZoomLevel] = useState(1)
     const [isFitToScreen, setIsFitToScreen] = useState(false)
+    const [blockVisibility, setBlockVisibility] = useState<any>({})
     const containerRef = useRef<HTMLDivElement | null>(null)
 
     const computeFitScale = () => {
@@ -248,6 +249,18 @@ export default function SubAdminTemplateReview() {
         if (assignmentId) loadData()
     }, [assignmentId, apiPrefix])
 
+    useEffect(() => {
+        const loadVisibility = async () => {
+            try {
+                const res = await api.get('/settings/public')
+                setBlockVisibility(res.data.block_visibility_settings || {})
+            } catch {
+                // non-blocking
+            }
+        }
+        loadVisibility()
+    }, [])
+
     // Check if user has a signature
     useEffect(() => {
         const checkSignature = async () => {
@@ -325,6 +338,11 @@ export default function SubAdminTemplateReview() {
                 console.error(e)
             }
         }
+    }
+
+    const buildVisibilityKey = (tplId: string | undefined, pageIdx: number, blockIdx: number, blockId?: string | null) => {
+        if (blockId) return `block:${blockId}`
+        return `tpl:${tplId || ''}:p:${pageIdx}:b:${blockIdx}`
     }
 
     const getNextLevel = (current: string) => {
@@ -1293,6 +1311,16 @@ export default function SubAdminTemplateReview() {
                                     <div className="page-margins" />
                                     {page.blocks.map((b, idx) => {
                                         if (!b || !b.props) return null;
+                                        const blockId = typeof b?.props?.blockId === 'string' && b.props.blockId.trim() ? b.props.blockId.trim() : null
+                                        const key = buildVisibilityKey(template?._id, actualPageIndex, idx, blockId)
+                                        // Check visibility based on student's current level and admin settings
+                                        const studentLevel = (student?.level || 'PS').toUpperCase() as 'PS' | 'MS' | 'GS' | 'EB1'
+                                        const visibilitySetting = blockVisibility?.[studentLevel]?.subadmin?.[key]
+                                        if (visibilitySetting) {
+                                            if (visibilitySetting === 'never') return null
+                                            if (visibilitySetting === 'after_sem1' && !signature && !finalSignature) return null
+                                            if (visibilitySetting === 'after_sem2' && !finalSignature) return null
+                                        }
                                         return (
                                             <div key={idx} style={{ position: 'absolute', left: b.props.x || 0, top: b.props.y || 0, zIndex: b.props.z ?? idx, padding: 6 }}>
                                                 {b.type === 'language_toggle_v2' && (

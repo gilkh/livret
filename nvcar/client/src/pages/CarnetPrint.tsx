@@ -30,6 +30,7 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState('')
     const [activeYear, setActiveYear] = useState<any>(null)
+    const [blockVisibility, setBlockVisibility] = useState<any>({})
     const { levels } = useLevels()
 
     const getNextLevel = (current: string) => {
@@ -235,6 +236,11 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
         return filtered[0] || null
     }
 
+    const buildVisibilityKey = (tplId: string | undefined, pageIdx: number, blockIdx: number, blockId?: string | null) => {
+        if (blockId) return `block:${blockId}`
+        return `tpl:${tplId || ''}:p:${pageIdx}:b:${blockIdx}`
+    }
+
     useEffect(() => {
         // Initialize as not ready
         // @ts-ignore
@@ -269,6 +275,13 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                     const list = Array.isArray(yearsRes.data) ? yearsRes.data : []
                     const active = list.find((y: any) => y?.active)
                     if (active) setActiveYear(active)
+                } catch {
+                    // non-blocking
+                }
+
+                try {
+                    const visRes = await api.get('/settings/public')
+                    setBlockVisibility(visRes.data.block_visibility_settings || {})
                 } catch {
                     // non-blocking
                 }
@@ -469,6 +482,16 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                     >
                         {page.blocks.map((b, idx) => {
                             if (!b || !b.props) return null;
+                            const blockId = typeof b?.props?.blockId === 'string' && b.props.blockId.trim() ? b.props.blockId.trim() : null
+                            const key = buildVisibilityKey(template?._id, actualPageIndex, idx, blockId)
+                            // Check visibility based on student's current level and signature state
+                            const studentLevel = (student?.level || 'PS').toUpperCase() as 'PS' | 'MS' | 'GS' | 'EB1'
+                            const visibilitySetting = blockVisibility?.[studentLevel]?.pdf?.[key]
+                            if (visibilitySetting) {
+                                if (visibilitySetting === 'never') return null
+                                if (visibilitySetting === 'after_sem1' && !signature && !finalSignature) return null
+                                if (visibilitySetting === 'after_sem2' && !finalSignature) return null
+                            }
                             return (
                                 <div key={idx} style={{ position: 'absolute', left: b.props.x || 0, top: b.props.y || 0, zIndex: b.props.z ?? idx }}>
                                     {b.type === 'text' && (

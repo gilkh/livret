@@ -13,6 +13,7 @@ import {
   Key,
   Globe,
   Eye,
+  Layers,
   GraduationCap,
   Activity,
   UserPlus
@@ -186,6 +187,14 @@ export default function AdminDashboard() {
               to="/admin/navigation-visibility"
               color="#f3e8ff"
               iconColor="#7e22ce"
+            />
+            <DashboardCard
+              title="Blocs"
+              description="Visibilité des blocs."
+              icon={Layers}
+              to="/admin/block-visibility"
+              color="#e0f2fe"
+              iconColor="#0284c7"
             />
             <DashboardCard
               title="Suggestions"
