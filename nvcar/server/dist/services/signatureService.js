@@ -136,6 +136,38 @@ async function populateSignatures(assignments) {
         return assignments;
     const ids = list.map((a) => String(a._id));
     const signatures = await TemplateSignature_1.TemplateSignature.find({ templateAssignmentId: { $in: ids } }).lean();
+    // Enrich missing schoolYearName fields from SchoolYear collection
+    const missingYearIds = new Set();
+    signatures.forEach(s => {
+        if (!s?.schoolYearName) {
+            let schoolYearId = String(s?.schoolYearId || '');
+            if (!schoolYearId && s?.signaturePeriodId) {
+                const parsed = (0, readinessUtils_1.parseSignaturePeriodId)(String(s.signaturePeriodId));
+                if (parsed?.schoolYearId)
+                    schoolYearId = String(parsed.schoolYearId);
+            }
+            if (schoolYearId)
+                missingYearIds.add(schoolYearId);
+        }
+    });
+    const yearNameMap = new Map();
+    if (missingYearIds.size > 0) {
+        const years = await SchoolYear_1.SchoolYear.find({ _id: { $in: Array.from(missingYearIds) } }).select('name').lean();
+        years.forEach((y) => yearNameMap.set(String(y._id), String(y.name || '')));
+    }
+    signatures.forEach((s) => {
+        if (!s?.schoolYearName) {
+            let schoolYearId = String(s?.schoolYearId || '');
+            if (!schoolYearId && s?.signaturePeriodId) {
+                const parsed = (0, readinessUtils_1.parseSignaturePeriodId)(String(s.signaturePeriodId));
+                if (parsed?.schoolYearId)
+                    schoolYearId = String(parsed.schoolYearId);
+            }
+            if (schoolYearId && yearNameMap.has(schoolYearId)) {
+                s.schoolYearName = yearNameMap.get(schoolYearId);
+            }
+        }
+    });
     const sigMap = new Map();
     signatures.forEach(s => {
         const key = String(s.templateAssignmentId);
@@ -208,7 +240,7 @@ async function validateSignatureAuthorization(subAdminId, assignment, schoolYear
     }
     return false;
 }
-const signTemplateAssignment = async ({ templateAssignmentId, signerId, type = 'standard', signatureUrl, req, level, signaturePeriodId: explicitSignaturePeriodId, signatureSchoolYearId: explicitSchoolYearId }) => {
+const signTemplateAssignment = async ({ templateAssignmentId, signerId, type = 'standard', signatureUrl, signatureData, req, level, signaturePeriodId: explicitSignaturePeriodId, signatureSchoolYearId: explicitSchoolYearId, signedAt: signedAtOverride, skipCompletionCheck }) => {
     // Get the template assignment
     const assignment = await TemplateAssignment_1.TemplateAssignment.findById(templateAssignmentId);
     if (!assignment) {
@@ -221,6 +253,11 @@ const signTemplateAssignment = async ({ templateAssignmentId, signerId, type = '
         explicitSignaturePeriodId = resolved.signaturePeriodId;
         if (!explicitSchoolYearId)
             explicitSchoolYearId = resolved.schoolYearId;
+    }
+    if (!explicitSchoolYearId && explicitSignaturePeriodId) {
+        const parsed = (0, readinessUtils_1.parseSignaturePeriodId)(explicitSignaturePeriodId);
+        if (parsed?.schoolYearId)
+            explicitSchoolYearId = parsed.schoolYearId;
     }
     // Final guard
     if (!explicitSignaturePeriodId)
@@ -246,20 +283,32 @@ const signTemplateAssignment = async ({ templateAssignmentId, signerId, type = '
     // Unifies completion status logic (Task 4)
     const isCompletedSem1 = assignment.isCompletedSem1 || assignment.isCompleted || false;
     const isCompletedSem2 = assignment.isCompletedSem2 || false;
-    if (type === 'standard') {
-        if (!isCompletedSem1) {
-            throw new Error('not_completed_sem1');
+    if (!skipCompletionCheck) {
+        if (type === 'standard') {
+            if (!isCompletedSem1) {
+                throw new Error('not_completed_sem1');
+            }
         }
-    }
-    else if (type === 'end_of_year') {
-        if (!isCompletedSem2) {
-            throw new Error('not_completed_sem2');
+        else if (type === 'end_of_year') {
+            if (!isCompletedSem2) {
+                throw new Error('not_completed_sem2');
+            }
         }
     }
     // Create signature and persist metadata atomically using a transaction when possible
-    const now = new Date();
+    const now = signedAtOverride ? new Date(signedAtOverride) : new Date();
     let signaturePeriodId = explicitSignaturePeriodId;
     let schoolYearId = explicitSchoolYearId;
+    let schoolYearName = '';
+    if (schoolYearId) {
+        if (activeYear && String(activeYear._id) === String(schoolYearId)) {
+            schoolYearName = String(activeYear.name || '');
+        }
+        else {
+            const sy = await SchoolYear_1.SchoolYear.findById(schoolYearId).select('name').lean();
+            schoolYearName = String(sy?.name || '');
+        }
+    }
     // Ensure we have a valid period id
     if (!signaturePeriodId) {
         throw new Error('cannot_resolve_signature_period');
@@ -290,9 +339,11 @@ const signTemplateAssignment = async ({ templateAssignmentId, signerId, type = '
                     status: 'signed',
                     type,
                     signatureUrl,
+                    signatureData,
                     level,
                     signaturePeriodId,
-                    schoolYearId
+                    schoolYearId,
+                    schoolYearName
                 }).save({ session });
                 signature = createdSignature;
                 const updatedAssignment = await TemplateAssignment_1.TemplateAssignment.findByIdAndUpdate(templateAssignmentId, {
@@ -353,9 +404,11 @@ const signTemplateAssignment = async ({ templateAssignmentId, signerId, type = '
                     status: 'signed',
                     type,
                     signatureUrl,
+                    signatureData,
                     level,
                     signaturePeriodId,
-                    schoolYearId
+                    schoolYearId,
+                    schoolYearName
                 }).save();
                 signature = createdSignature;
                 const updatedAssignment = await TemplateAssignment_1.TemplateAssignment.findByIdAndUpdate(templateAssignmentId, {

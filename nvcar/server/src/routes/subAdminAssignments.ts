@@ -289,7 +289,13 @@ subAdminAssignmentsRouter.post('/bulk-level', requireAuth(['ADMIN']), async (req
         const teacherIds = [...new Set(teacherAssignments.map(ta => ta.teacherId))]
 
         if (teacherIds.length === 0) {
-            return res.json({ count: 0, message: 'No teachers found for this level' })
+            // Still persist level assignment even if no teachers are currently assigned
+            await RoleScope.findOneAndUpdate(
+                { userId: subAdminId },
+                { $addToSet: { levels: level } },
+                { upsert: true, new: true }
+            )
+            return res.json({ count: 0, message: 'No teachers found for this level (level assigned)' })
         }
 
         // Create assignments

@@ -41,6 +41,7 @@ const TemplateAssignment_1 = require("../models/TemplateAssignment");
 const Enrollment_1 = require("../models/Enrollment");
 const Class_1 = require("../models/Class");
 const TemplateSignature_1 = require("../models/TemplateSignature");
+const GradebookTemplate_1 = require("../models/GradebookTemplate");
 const Student_1 = require("../models/Student");
 const StudentCompetencyStatus_1 = require("../models/StudentCompetencyStatus");
 const cache_1 = require("../utils/cache");
@@ -130,13 +131,54 @@ exports.schoolYearsRouter.post('/:id/archive', (0, auth_1.requireAuth)(['ADMIN']
     if (assignments.length === 0) {
         assignments = await TemplateAssignment_1.TemplateAssignment.find({
             studentId: { $in: studentIds },
+            $or: [
+                { completionSchoolYearId: id },
+                { completionSchoolYearId: { $exists: false } },
+                { completionSchoolYearId: null },
+                { completionSchoolYearId: '' },
+            ]
         }).lean();
     }
     // 4. Create SavedGradebooks
     let savedCount = 0;
+    const allYears = await SchoolYear_1.SchoolYear.find({}).select('_id name').lean();
+    const yearNameMap = new Map(allYears.map((y) => [String(y._id), String(y.name || '')]));
     // Pre-fetch students
     const students = await Student_1.Student.find({ _id: { $in: studentIds } }).lean();
     const studentMap = new Map(students.map(s => [String(s._id), s]));
+    const templateCache = new Map();
+    const getTemplateSnapshot = async (templateId, templateVersion) => {
+        if (!templateId)
+            return null;
+        if (!templateCache.has(templateId)) {
+            const tpl = await GradebookTemplate_1.GradebookTemplate.findById(templateId).lean();
+            templateCache.set(templateId, tpl || null);
+        }
+        const tpl = templateCache.get(templateId);
+        if (!tpl)
+            return null;
+        const version = templateVersion ?? tpl.currentVersion;
+        let pages = tpl.pages;
+        let variables = tpl.variables || {};
+        let watermark = tpl.watermark;
+        if (version && Array.isArray(tpl.versionHistory)) {
+            const v = tpl.versionHistory.find((vh) => vh.version === version);
+            if (v) {
+                pages = v.pages || pages;
+                variables = v.variables || variables;
+                watermark = v.watermark;
+            }
+        }
+        return {
+            _id: tpl._id,
+            name: tpl.name,
+            pages,
+            variables,
+            watermark,
+            currentVersion: tpl.currentVersion,
+            version
+        };
+    };
     for (const assignment of assignments) {
         const enrollment = enrollments.find(e => e.studentId === assignment.studentId);
         if (!enrollment || !enrollment.classId)
@@ -149,8 +191,16 @@ exports.schoolYearsRouter.post('/:id/archive', (0, auth_1.requireAuth)(['ADMIN']
             continue;
         const statuses = await StudentCompetencyStatus_1.StudentCompetencyStatus.find({ studentId: assignment.studentId }).lean();
         const signatures = await TemplateSignature_1.TemplateSignature.find({ templateAssignmentId: String(assignment._id) }).lean();
+        signatures.forEach((s) => {
+            if (!s.schoolYearName && s.schoolYearId) {
+                const name = yearNameMap.get(String(s.schoolYearId));
+                if (name)
+                    s.schoolYearName = name;
+            }
+        });
         // Import createAssignmentSnapshot for versioning
         const { createAssignmentSnapshot } = await Promise.resolve().then(() => __importStar(require('../services/rolloverService')));
+        const templateSnapshot = await getTemplateSnapshot(assignment.templateId, assignment.templateVersion);
         const snapshotData = {
             student: student,
             enrollment: enrollment,
@@ -160,6 +210,7 @@ exports.schoolYearsRouter.post('/:id/archive', (0, auth_1.requireAuth)(['ADMIN']
             signatures: signatures,
             signature: signatures.find((s) => s.type === 'standard') || null,
             finalSignature: signatures.find((s) => s.type === 'end_of_year') || null,
+            template: templateSnapshot
         };
         await createAssignmentSnapshot(assignment, 'year_end', {
             schoolYearId: id,

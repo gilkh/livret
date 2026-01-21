@@ -26,6 +26,7 @@ const SavedGradebook_1 = require("../models/SavedGradebook");
 const StudentCompetencyStatus_1 = require("../models/StudentCompetencyStatus");
 const auditLogger_1 = require("../utils/auditLogger");
 const readinessUtils_1 = require("../utils/readinessUtils");
+const signatureSnapshot_1 = require("../utils/signatureSnapshot");
 const mongoose_1 = __importDefault(require("mongoose"));
 const templateUtils_1 = require("../utils/templateUtils");
 const cache_1 = require("../utils/cache");
@@ -1114,16 +1115,64 @@ exports.subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', (0
                     sigUrl = `${base}${user.signatureUrl}`;
                 }
             }
+            const baseUrl = `${req.protocol}://${req.get('host')}`;
+            const signatureData = await (0, signatureSnapshot_1.buildSignatureSnapshot)(sigUrl, baseUrl);
             const signature = await (0, signatureService_1.signTemplateAssignment)({
                 templateAssignmentId,
                 signerId: subAdminId,
                 type: type,
                 signatureUrl: sigUrl,
+                signatureData,
                 req,
                 level: signatureLevel || undefined,
                 signaturePeriodId,
                 signatureSchoolYearId
             });
+            // Create SavedGradebook snapshot after S1 signing only
+            // S2/promotion snapshot is created during the promotion step
+            if (type === 'standard') {
+                try {
+                    const snapshotReason = 'sem1';
+                    const updatedAssignment = await TemplateAssignment_1.TemplateAssignment.findById(templateAssignmentId).lean();
+                    if (updatedAssignment) {
+                        const student = await Student_1.Student.findById(updatedAssignment.studentId).lean();
+                        const statuses = await StudentCompetencyStatus_1.StudentCompetencyStatus.find({ studentId: updatedAssignment.studentId }).lean();
+                        const signatures = await TemplateSignature_1.TemplateSignature.find({ templateAssignmentId }).lean();
+                        // Get enrollment and class info
+                        const activeSchoolYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
+                        const schoolYearId = signatureSchoolYearId || (activeSchoolYear ? String(activeSchoolYear._id) : '');
+                        let enrollment = null;
+                        let className = '';
+                        if (schoolYearId) {
+                            enrollment = await Enrollment_1.Enrollment.findOne({ studentId: updatedAssignment.studentId, schoolYearId }).lean();
+                            if (enrollment?.classId) {
+                                const cls = await Class_1.ClassModel.findById(enrollment.classId).lean();
+                                if (cls)
+                                    className = cls.name || '';
+                            }
+                        }
+                        const snapshotData = {
+                            student,
+                            enrollment,
+                            statuses,
+                            assignment: updatedAssignment,
+                            className,
+                            signatures,
+                            signature: signatures.find((s) => s.type === 'standard') || null,
+                            finalSignature: signatures.find((s) => s.type === 'end_of_year') || null,
+                        };
+                        await (0, rolloverService_1.createAssignmentSnapshot)(updatedAssignment, snapshotReason, {
+                            schoolYearId,
+                            level: signatureLevel || 'Sans niveau',
+                            classId: enrollment?.classId || undefined,
+                            data: snapshotData
+                        });
+                    }
+                }
+                catch (snapshotError) {
+                    console.error('Failed to create snapshot after signing:', snapshotError);
+                }
+            }
             // Return created signature so client can update without extra fetch
             return res.json({ signature });
         }
@@ -1333,6 +1382,7 @@ exports.subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', (
                 schoolYearName: resolveSignatureSchoolYearName(sig),
                 level: sig.level,
                 signatureUrl: sig.signatureUrl, // Include stored signature image URL
+                signatureData: sig.signatureData,
             });
         });
         assignment.data = assignment.data || {};
@@ -1496,6 +1546,15 @@ exports.subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', (
             resolvedClassId = enrollment?.classId ? String(enrollment.classId) : null;
         }
         const teacherCompletions = assignment.teacherCompletions || [];
+        const languageCompletions = assignment.languageCompletions || [];
+        const languageCompletionMap = {};
+        (Array.isArray(languageCompletions) ? languageCompletions : []).forEach((entry) => {
+            const codeRaw = String(entry?.code || '').toLowerCase();
+            const normalized = codeRaw === 'lb' || codeRaw === 'ar' ? 'ar' : (codeRaw === 'en' || codeRaw === 'uk' || codeRaw === 'gb') ? 'en' : codeRaw === 'fr' ? 'fr' : codeRaw;
+            if (!normalized)
+                return;
+            languageCompletionMap[normalized] = { ...(entry || {}), code: normalized };
+        });
         const teacherAssignments = resolvedClassId
             ? await TeacherClassAssignment_1.TeacherClassAssignment.find({
                 classId: resolvedClassId,
@@ -1537,11 +1596,24 @@ exports.subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', (
         const polyvalentTeacherIds = (teacherAssignments || [])
             .filter((ta) => isResponsibleTeacherFor(ta, 'poly'))
             .map((ta) => String(ta.teacherId));
-        const groupStatus = (ids) => {
+        const isLanguageDone = (langCode, semester, teacherIds) => {
+            const entry = languageCompletionMap[langCode];
+            if (entry) {
+                if (semester === 1)
+                    return !!(entry.completedSem1 || entry.completed);
+                return !!entry.completedSem2;
+            }
+            const uniqueIds = [...new Set(teacherIds)];
+            if (semester === 1) {
+                return uniqueIds.some(tid => (teacherCompletions || []).some((tc) => String(tc.teacherId) === String(tid) && (tc.completedSem1 || tc.completed)));
+            }
+            return uniqueIds.some(tid => (teacherCompletions || []).some((tc) => String(tc.teacherId) === String(tid) && tc.completedSem2));
+        };
+        const groupStatus = (ids, langCode) => {
             const uniqueIds = [...new Set(ids)];
-            const doneSem1 = uniqueIds.some(tid => (teacherCompletions || []).some((tc) => String(tc.teacherId) === String(tid) && (tc.completedSem1 || tc.completed)));
-            const doneSem2 = uniqueIds.some(tid => (teacherCompletions || []).some((tc) => String(tc.teacherId) === String(tid) && tc.completedSem2));
-            const doneOverall = uniqueIds.some(tid => (teacherCompletions || []).some((tc) => String(tc.teacherId) === String(tid) && (tc.completedSem2 || tc.completedSem1 || tc.completed)));
+            const doneSem1 = isLanguageDone(langCode, 1, uniqueIds);
+            const doneSem2 = isLanguageDone(langCode, 2, uniqueIds);
+            const doneOverall = doneSem1 || doneSem2;
             return {
                 teachers: uniqueIds.map(id => ({ id, name: getTeacherName(id) })),
                 doneSem1,
@@ -1550,9 +1622,9 @@ exports.subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', (
             };
         };
         const teacherStatus = {
-            arabic: groupStatus(arabicTeacherIds),
-            english: groupStatus(englishTeacherIds),
-            polyvalent: groupStatus(polyvalentTeacherIds)
+            arabic: groupStatus(arabicTeacherIds, 'ar'),
+            english: groupStatus(englishTeacherIds, 'en'),
+            polyvalent: groupStatus(polyvalentTeacherIds, 'fr')
         };
         if (!assignment.data)
             assignment.data = {};
@@ -1579,8 +1651,10 @@ exports.subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', (
         catch (err) {
             console.warn('[/review] Error resolving class info for student:', err);
         }
+        // Populate signatures into assignment.data.signatures for visibility checks
+        const populatedAssignment = await (0, signatureService_1.populateSignatures)(assignment);
         res.json({
-            assignment,
+            assignment: populatedAssignment,
             template: versionedTemplate,
             student: { ...student, level, className },
             signature: signature || null,
@@ -1710,6 +1784,35 @@ exports.subAdminTemplatesRouter.post('/templates/sign-class/:classId', (0, auth_
                 },
                 req,
             });
+            // Create SavedGradebook snapshot
+            try {
+                const updatedAssignment = await TemplateAssignment_1.TemplateAssignment.findById(assignment._id).lean();
+                if (updatedAssignment && student) {
+                    const statuses = await StudentCompetencyStatus_1.StudentCompetencyStatus.find({ studentId: assignment.studentId }).lean();
+                    const allSigs = await TemplateSignature_1.TemplateSignature.find({ templateAssignmentId: String(assignment._id) }).lean();
+                    const enrollment = enrollments.find(e => String(e.studentId) === String(assignment.studentId));
+                    const cls = await Class_1.ClassModel.findById(classId).lean();
+                    const snapshotData = {
+                        student,
+                        enrollment,
+                        statuses,
+                        assignment: updatedAssignment,
+                        className: cls?.name || '',
+                        signatures: allSigs,
+                        signature: allSigs.find((s) => s.type === 'standard') || null,
+                        finalSignature: allSigs.find((s) => s.type === 'end_of_year') || null,
+                    };
+                    await (0, rolloverService_1.createAssignmentSnapshot)(updatedAssignment, 'sem1', {
+                        schoolYearId: activeYearIdForBulk,
+                        level: cls?.level || 'Sans niveau',
+                        classId,
+                        data: snapshotData
+                    });
+                }
+            }
+            catch (snapshotErr) {
+                console.error('Failed to create snapshot in sign-class:', snapshotErr);
+            }
             return signature;
         }));
         res.json({

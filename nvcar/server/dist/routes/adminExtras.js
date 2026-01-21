@@ -22,6 +22,9 @@ const Student_1 = require("../models/Student");
 const AdminSignature_1 = require("../models/AdminSignature");
 const signatureService_1 = require("../services/signatureService");
 const templateUtils_1 = require("../utils/templateUtils");
+const signatureSnapshot_1 = require("../utils/signatureSnapshot");
+const rolloverService_1 = require("../services/rolloverService");
+const StudentCompetencyStatus_1 = require("../models/StudentCompetencyStatus");
 const child_process_1 = require("child_process");
 const path_1 = __importDefault(require("path"));
 const promises_1 = __importDefault(require("fs/promises"));
@@ -474,12 +477,14 @@ exports.adminExtrasRouter.post('/templates/:templateAssignmentId/sign', (0, auth
         }
         // Get active admin signature
         const activeSig = await AdminSignature_1.AdminSignature.findOne({ isActive: true }).lean();
+        const signatureData = activeSig?.dataUrl;
         try {
             const signature = await (0, signatureService_1.signTemplateAssignment)({
                 templateAssignmentId,
                 signerId: adminId,
                 type: type,
                 signatureUrl: activeSig ? activeSig.dataUrl : undefined,
+                signatureData,
                 req,
                 level: signatureLevel || undefined,
                 signaturePeriodId,
@@ -600,10 +605,12 @@ exports.adminExtrasRouter.get('/templates/:templateAssignmentId/review', (0, aut
                 }
             }
         }
+        // Populate signatures into assignment.data.signatures for visibility checks
+        const populatedAssignment = await (0, signatureService_1.populateSignatures)(assignment);
         res.json({
             template: versionedTemplate,
             student: { ...student, level, className },
-            assignment,
+            assignment: populatedAssignment,
             signature,
             finalSignature,
             canEdit: true,
@@ -616,6 +623,915 @@ exports.adminExtrasRouter.get('/templates/:templateAssignmentId/review', (0, aut
         res.status(500).json({ error: 'fetch_failed', message: e.message });
     }
 });
+// ============================================================================
+// PS-TO-MS ONBOARDING ENDPOINTS
+// ============================================================================
+const Level_1 = require("../models/Level");
+const auditLogger_1 = require("../utils/auditLogger");
+const readinessUtils_1 = require("../utils/readinessUtils");
+// Helper: Get next level based on order
+const normalizeLevel = (level) => String(level || '').toUpperCase();
+const getFromLevelConfig = (fromLevelRaw) => {
+    const normalized = normalizeLevel(fromLevelRaw || 'PS') || 'PS';
+    const classLevels = normalized === 'PS' ? ['PS', 'TPS'] : [normalized];
+    const levelVariants = Array.from(new Set(classLevels.flatMap(l => [l, l.toLowerCase()])));
+    return { fromLevel: normalized, classLevels, levelVariants };
+};
+const getNextLevelName = async (currentLevel) => {
+    const currentDoc = await Level_1.Level.findOne({ name: currentLevel }).lean();
+    if (!currentDoc)
+        return null;
+    const nextDoc = await Level_1.Level.findOne({ order: currentDoc.order + 1 }).lean();
+    return nextDoc ? nextDoc.name : null;
+};
+// PS Onboarding: Get PS students for the previous school year
+exports.adminExtrasRouter.get('/ps-onboarding/students', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
+    try {
+        // Find active school year (for reference)
+        const activeYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
+        // If schoolYearId is provided, use that; otherwise try to find previous year
+        const { schoolYearId, fromLevel: fromLevelParam } = req.query;
+        let selectedYear = null;
+        if (schoolYearId && typeof schoolYearId === 'string') {
+            // User selected a specific year
+            selectedYear = await SchoolYear_1.SchoolYear.findById(schoolYearId).lean();
+            if (!selectedYear) {
+                return res.status(400).json({ error: 'year_not_found', message: 'Selected school year not found' });
+            }
+        }
+        else {
+            // Default to active year
+            if (!activeYear)
+                return res.status(400).json({ error: 'no_active_year' });
+            selectedYear = activeYear;
+        }
+        const { fromLevel, classLevels, levelVariants } = getFromLevelConfig(typeof fromLevelParam === 'string' ? fromLevelParam : undefined);
+        const selectedYearId = String(selectedYear._id);
+        const activeYearId = activeYear ? String(activeYear._id) : '';
+        // Check if next year exists for promotion eligibility
+        let nextYear = null;
+        if (selectedYear.sequence) {
+            nextYear = await SchoolYear_1.SchoolYear.findOne({ sequence: selectedYear.sequence + 1 }).lean();
+        }
+        if (!nextYear && selectedYear.name) {
+            const match = String(selectedYear.name).match(/(\d{4})([-\/.])((\d{4}))/);
+            if (match) {
+                const startYear = parseInt(match[1], 10);
+                const sep = match[2];
+                const endYear = parseInt(match[4], 10);
+                const nextName = `${startYear + 1}${sep}${endYear + 1}`;
+                nextYear = await SchoolYear_1.SchoolYear.findOne({ name: nextName }).lean();
+            }
+        }
+        if (!nextYear && selectedYear.endDate) {
+            nextYear = await SchoolYear_1.SchoolYear.findOne({ startDate: { $gte: selectedYear.endDate } }).sort({ startDate: 1 }).lean();
+        }
+        if (!nextYear && selectedYear.startDate) {
+            nextYear = await SchoolYear_1.SchoolYear.findOne({ startDate: { $gt: selectedYear.startDate } }).sort({ startDate: 1 }).lean();
+        }
+        // Check if next level exists
+        const nextLevel = await getNextLevelName(fromLevel);
+        // Get ALL classes from the selected year
+        const allClasses = await Class_1.ClassModel.find({ schoolYearId: selectedYearId }).lean();
+        console.log(`[PS-Onboarding] Year ${selectedYear.name}: Found ${allClasses.length} classes (fromLevel=${fromLevel})`);
+        // Debug: show all class levels
+        const allClassLevels = [...new Set(allClasses.map(c => c.level || 'undefined'))];
+        console.log(`[PS-Onboarding] Unique levels in classes: ${allClassLevels.join(', ')}`);
+        // Filter for requested classes - use simple matching like the rest of the app
+        const fromClasses = allClasses.filter(c => classLevels.includes(normalizeLevel(c.level)));
+        console.log(`[PS-Onboarding] Found ${fromClasses.length} ${fromLevel} classes: ${fromClasses.map(c => c.name).join(', ')}`);
+        const fromClassIds = fromClasses.map(c => String(c._id));
+        // Get ALL enrollments from the selected year
+        const allEnrollments = await Enrollment_1.Enrollment.find({
+            schoolYearId: selectedYearId
+        }).lean();
+        console.log(`[PS-Onboarding] Found ${allEnrollments.length} total enrollments`);
+        // Filter to find PS enrollments (students in PS classes)
+        const fromEnrollments = allEnrollments.filter(e => fromClassIds.includes(String(e.classId)));
+        console.log(`[PS-Onboarding] Found ${fromEnrollments.length} ${fromLevel} enrollments`);
+        const enrolledFromStudentIds = fromEnrollments.map(e => String(e.studentId));
+        // Get students: either enrolled in PS classes OR currently at PS level  
+        const fromStudents = await Student_1.Student.find({
+            $or: [
+                { _id: { $in: enrolledFromStudentIds } },
+                { level: { $in: levelVariants } }
+            ]
+        }).lean();
+        console.log(`[PS-Onboarding] Found ${fromStudents.length} ${fromLevel} students`);
+        // Map: studentId -> enrollment in selected year (use PS enrollments for accurate mapping)
+        const enrollmentMap = new Map(fromEnrollments.map(e => [String(e.studentId), e]));
+        const classMap = new Map(fromClasses.map(c => [String(c._id), c]));
+        // Get template assignments for these students
+        const studentIds = fromStudents.map(s => String(s._id));
+        const assignments = await TemplateAssignment_1.TemplateAssignment.find({ studentId: { $in: studentIds } }).lean();
+        const assignmentMap = new Map(assignments.map(a => [String(a.studentId), a]));
+        // Get signatures
+        const assignmentIds = assignments.map(a => String(a._id));
+        const signatures = assignmentIds.length > 0
+            ? await TemplateSignature_1.TemplateSignature.find({ templateAssignmentId: { $in: assignmentIds } }).lean()
+            : [];
+        // Build signature lookup by assignmentId
+        const sigByAssignment = new Map();
+        signatures.forEach(s => {
+            const key = String(s.templateAssignmentId);
+            if (!sigByAssignment.has(key))
+                sigByAssignment.set(key, []);
+            sigByAssignment.get(key).push(s);
+        });
+        // Compute signaturePeriodIds for selected year
+        const sem1PeriodId = (0, readinessUtils_1.computeSignaturePeriodId)(selectedYearId, 'sem1');
+        const endOfYearPeriodId = (0, readinessUtils_1.computeSignaturePeriodId)(selectedYearId, 'end_of_year');
+        // Build student list
+        const studentList = fromStudents.map(student => {
+            const sid = String(student._id);
+            const enrollment = enrollmentMap.get(sid);
+            const cls = enrollment?.classId ? classMap.get(String(enrollment.classId)) : null;
+            const assignment = assignmentMap.get(sid);
+            const assignmentId = assignment ? String(assignment._id) : null;
+            const sigs = assignmentId ? sigByAssignment.get(assignmentId) || [] : [];
+            // Find sem1 and end_of_year signatures
+            const sem1Sig = sigs.find(s => s.type !== 'end_of_year' &&
+                (!s.signaturePeriodId || s.signaturePeriodId === sem1PeriodId));
+            const sem2Sig = sigs.find(s => s.type === 'end_of_year' &&
+                (!s.signaturePeriodId || s.signaturePeriodId === endOfYearPeriodId));
+            // Check if promoted from this year
+            const isPromoted = Array.isArray(student.promotions) &&
+                student.promotions.some((p) => String(p.schoolYearId) === selectedYearId);
+            const promotionInfo = isPromoted
+                ? student.promotions?.find((p) => String(p.schoolYearId) === selectedYearId)
+                : null;
+            return {
+                _id: sid,
+                firstName: student.firstName,
+                lastName: student.lastName,
+                dateOfBirth: student.dateOfBirth,
+                avatarUrl: student.avatarUrl,
+                previousClassName: cls?.name || null,
+                previousClassId: cls ? String(cls._id) : null,
+                hasEnrollment: !!enrollment,
+                assignmentId,
+                isCompletedSem1: assignment?.isCompletedSem1 || assignment?.isCompleted || false,
+                isCompletedSem2: assignment?.isCompletedSem2 || false,
+                signatures: {
+                    sem1: sem1Sig ? { signedAt: sem1Sig.signedAt, signedBy: sem1Sig.subAdminId } : null,
+                    sem2: sem2Sig ? { signedAt: sem2Sig.signedAt, signedBy: sem2Sig.subAdminId } : null
+                },
+                isPromoted,
+                promotedAt: promotionInfo?.date || null
+            };
+        });
+        res.json({
+            students: studentList,
+            selectedYear: { _id: selectedYearId, name: selectedYear.name },
+            activeYear: activeYear ? { _id: activeYearId, name: activeYear.name } : null,
+            previousYearClasses: fromClasses.map(c => ({ _id: String(c._id), name: c.name, level: c.level })),
+            promotionEligibility: {
+                hasNextYear: !!nextYear,
+                nextYearName: nextYear?.name || null,
+                hasNextLevel: !!nextLevel,
+                nextLevelName: nextLevel || null
+            }
+        });
+    }
+    catch (e) {
+        console.error('ps-onboarding/students error:', e);
+        res.status(500).json({ error: 'fetch_failed', message: e.message });
+    }
+});
+// PS Onboarding: Assign a student to a PS class in the previous year
+exports.adminExtrasRouter.post('/ps-onboarding/assign-class', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
+    try {
+        const adminId = req.user.userId;
+        const { studentId, classId, schoolYearId, fromLevel } = req.body;
+        if (!studentId || !classId || !schoolYearId) {
+            return res.status(400).json({ error: 'missing_params' });
+        }
+        const { classLevels } = getFromLevelConfig(fromLevel);
+        // Verify class exists and matches requested level
+        const cls = await Class_1.ClassModel.findById(classId).lean();
+        if (!cls)
+            return res.status(404).json({ error: 'class_not_found' });
+        {
+            const level = normalizeLevel(cls.level);
+            if (!classLevels.includes(level)) {
+                return res.status(400).json({ error: 'class_not_allowed', message: 'Class level not allowed for this onboarding' });
+            }
+        }
+        // Check for existing enrollment
+        let enrollment = await Enrollment_1.Enrollment.findOne({ studentId, schoolYearId }).lean();
+        if (enrollment) {
+            // Update existing enrollment
+            await Enrollment_1.Enrollment.findByIdAndUpdate(enrollment._id, { classId, status: 'active' });
+        }
+        else {
+            // Create new enrollment
+            await Enrollment_1.Enrollment.create({ studentId, schoolYearId, classId, status: 'active' });
+        }
+        await (0, auditLogger_1.logAudit)({
+            userId: adminId,
+            action: 'PS_ONBOARDING_ASSIGN_CLASS',
+            details: { studentId, classId, schoolYearId, className: cls.name, fromLevel: normalizeLevel(fromLevel || 'PS') },
+            req
+        });
+        res.json({ success: true, className: cls.name });
+    }
+    catch (e) {
+        console.error('ps-onboarding/assign-class error:', e);
+        res.status(500).json({ error: 'assign_failed', message: e.message });
+    }
+});
+// PS Onboarding: Batch sign gradebooks
+exports.adminExtrasRouter.post('/ps-onboarding/batch-sign', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
+    try {
+        const adminId = req.user.userId;
+        const { scope, // 'student' | 'class' | 'all'
+        studentIds = [], classId, signatureType, // 'sem1' | 'sem2' | 'both'
+        signatureSource, // 'admin' | 'subadmin'
+        subadminId, schoolYearId, fromLevel, sem1SignedAt, // optional custom date for sem1
+        sem2SignedAt // optional custom date for sem2
+         } = req.body;
+        if (!schoolYearId)
+            return res.status(400).json({ error: 'missing_school_year' });
+        if (!signatureType)
+            return res.status(400).json({ error: 'missing_signature_type' });
+        if (!signatureSource)
+            return res.status(400).json({ error: 'missing_signature_source' });
+        if (signatureSource === 'subadmin' && !subadminId) {
+            return res.status(400).json({ error: 'missing_subadmin_id' });
+        }
+        // Get signer ID and signature URL
+        const signerId = signatureSource === 'subadmin' ? subadminId : adminId;
+        let signatureUrl;
+        let signatureData;
+        if (signatureSource === 'admin') {
+            const adminSig = await AdminSignature_1.AdminSignature.findOne({ isActive: true }).lean();
+            signatureUrl = adminSig?.dataUrl;
+            signatureData = adminSig?.dataUrl;
+        }
+        else {
+            // Get subadmin signature
+            let subadmin = await User_1.User.findById(subadminId).lean();
+            if (!subadmin) {
+                subadmin = await OutlookUser_1.OutlookUser.findById(subadminId).lean();
+            }
+            signatureUrl = subadmin?.signatureUrl;
+            const baseUrl = `${req.protocol}://${req.get('host')}`;
+            signatureData = await (0, signatureSnapshot_1.buildSignatureSnapshot)(signatureUrl, baseUrl);
+        }
+        const { fromLevel: normalizedFromLevel, classLevels } = getFromLevelConfig(fromLevel);
+        // Get classes for the school year (robust to casing)
+        const allClasses = await Class_1.ClassModel.find({ schoolYearId }).lean();
+        const fromClasses = allClasses.filter(c => classLevels.includes(normalizeLevel(c.level)));
+        const fromClassIds = fromClasses.map(c => String(c._id));
+        // Get enrollments
+        let targetEnrollments;
+        if (scope === 'student' && studentIds.length > 0) {
+            targetEnrollments = await Enrollment_1.Enrollment.find({
+                studentId: { $in: studentIds },
+                schoolYearId,
+                classId: { $in: fromClassIds }
+            }).lean();
+        }
+        else if (scope === 'class' && classId) {
+            targetEnrollments = await Enrollment_1.Enrollment.find({ schoolYearId, classId }).lean();
+        }
+        else {
+            // All PS students
+            targetEnrollments = await Enrollment_1.Enrollment.find({
+                schoolYearId,
+                classId: { $in: fromClassIds }
+            }).lean();
+        }
+        const targetStudentIds = targetEnrollments.map(e => String(e.studentId));
+        // Get assignments for these students
+        const assignments = await TemplateAssignment_1.TemplateAssignment.find({ studentId: { $in: targetStudentIds } }).lean();
+        if (assignments.length === 0) {
+            return res.status(400).json({
+                error: 'no_target_assignments',
+                message: 'Aucun carnet trouvé pour les élèves sélectionnés (vérifiez leur classe PS/TPS et leurs carnets)'
+            });
+        }
+        // Get school year name for signature data
+        const schoolYear = await SchoolYear_1.SchoolYear.findById(schoolYearId).lean();
+        const schoolYearName = schoolYear?.name || '';
+        // Compute signature period IDs
+        const sem1PeriodId = (0, readinessUtils_1.computeSignaturePeriodId)(schoolYearId, 'sem1');
+        const endOfYearPeriodId = (0, readinessUtils_1.computeSignaturePeriodId)(schoolYearId, 'end_of_year');
+        const results = { success: 0, failed: 0, errors: [] };
+        for (const assignment of assignments) {
+            const assignmentId = String(assignment._id);
+            // Get student to determine level and class
+            const student = await Student_1.Student.findById(assignment.studentId).lean();
+            const level = normalizedFromLevel;
+            // Get student's enrollment to find class name
+            const enrollment = targetEnrollments.find(e => String(e.studentId) === String(assignment.studentId));
+            let className = '';
+            if (enrollment?.classId) {
+                const cls = fromClasses.find(c => String(c._id) === String(enrollment.classId));
+                className = cls?.name || '';
+            }
+            const typesToSign = [];
+            if (signatureType === 'sem1' || signatureType === 'both') {
+                typesToSign.push({ type: 'standard', periodId: sem1PeriodId });
+            }
+            if (signatureType === 'sem2' || signatureType === 'both') {
+                typesToSign.push({ type: 'end_of_year', periodId: endOfYearPeriodId });
+            }
+            let signedSuccessfully = false;
+            for (const { type, periodId } of typesToSign) {
+                try {
+                    // Use custom date if provided, otherwise use current date
+                    let signedAt;
+                    if (type === 'standard' && sem1SignedAt) {
+                        signedAt = new Date(sem1SignedAt);
+                    }
+                    else if (type === 'end_of_year' && sem2SignedAt) {
+                        signedAt = new Date(sem2SignedAt);
+                    }
+                    else {
+                        signedAt = new Date();
+                    }
+                    await (0, signatureService_1.signTemplateAssignment)({
+                        templateAssignmentId: assignmentId,
+                        signerId,
+                        type,
+                        signatureUrl,
+                        signatureData,
+                        level,
+                        signaturePeriodId: periodId,
+                        signatureSchoolYearId: schoolYearId,
+                        signedAt,
+                        skipCompletionCheck: true,
+                        req
+                    });
+                    signedSuccessfully = true;
+                    results.success++;
+                }
+                catch (signError) {
+                    const msg = String(signError?.message || '');
+                    if (msg.includes('already_signed')) {
+                        continue;
+                    }
+                    if (!msg.includes('E11000')) {
+                        results.failed++;
+                        results.errors.push({
+                            studentId: assignment.studentId,
+                            type,
+                            error: msg
+                        });
+                    }
+                }
+            }
+            // Create SavedGradebook snapshot after S1 signing only
+            // S2/promotion snapshot is created during the promotion step
+            if (signedSuccessfully && (signatureType === 'sem1' || signatureType === 'both')) {
+                try {
+                    const snapshotReason = 'sem1';
+                    // Re-fetch assignment to get updated data with signatures
+                    const updatedAssignment = await TemplateAssignment_1.TemplateAssignment.findById(assignmentId).lean();
+                    if (updatedAssignment) {
+                        const statuses = await StudentCompetencyStatus_1.StudentCompetencyStatus.find({ studentId: assignment.studentId }).lean();
+                        const signatures = await TemplateSignature_1.TemplateSignature.find({ templateAssignmentId: assignmentId }).lean();
+                        const snapshotData = {
+                            student: student,
+                            enrollment: enrollment,
+                            statuses: statuses,
+                            assignment: updatedAssignment,
+                            className: className,
+                            signatures: signatures,
+                            signature: signatures.find((s) => s.type === 'standard') || null,
+                            finalSignature: signatures.find((s) => s.type === 'end_of_year') || null,
+                        };
+                        await (0, rolloverService_1.createAssignmentSnapshot)(updatedAssignment, snapshotReason, {
+                            schoolYearId,
+                            level: level || 'Sans niveau',
+                            classId: enrollment?.classId || undefined,
+                            data: snapshotData
+                        });
+                    }
+                }
+                catch (snapshotError) {
+                    console.error('Failed to create snapshot for student', assignment.studentId, snapshotError);
+                }
+            }
+        }
+        await (0, auditLogger_1.logAudit)({
+            userId: adminId,
+            action: 'PS_ONBOARDING_BATCH_SIGN',
+            details: {
+                scope,
+                signatureType,
+                signatureSource,
+                subadminId: signatureSource === 'subadmin' ? subadminId : undefined,
+                schoolYearId,
+                fromLevel: normalizedFromLevel,
+                success: results.success,
+                failed: results.failed
+            },
+            req
+        });
+        res.json(results);
+    }
+    catch (e) {
+        console.error('ps-onboarding/batch-sign error:', e);
+        res.status(500).json({ error: 'batch_sign_failed', message: e.message });
+    }
+});
+// PS Onboarding: Batch unsign gradebooks (undo)
+exports.adminExtrasRouter.post('/ps-onboarding/batch-unsign', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
+    try {
+        const adminId = req.user.userId;
+        const { scope, studentIds = [], classId, signatureType, schoolYearId, fromLevel } = req.body;
+        if (!schoolYearId)
+            return res.status(400).json({ error: 'missing_school_year' });
+        if (!signatureType)
+            return res.status(400).json({ error: 'missing_signature_type' });
+        const { fromLevel: normalizedFromLevel, classLevels } = getFromLevelConfig(fromLevel);
+        // Get classes for the school year (robust to casing)
+        const allClasses = await Class_1.ClassModel.find({ schoolYearId }).lean();
+        const fromClasses = allClasses.filter(c => classLevels.includes(normalizeLevel(c.level)));
+        const fromClassIds = fromClasses.map(c => String(c._id));
+        // Get enrollments
+        let targetEnrollments;
+        if (scope === 'student' && studentIds.length > 0) {
+            targetEnrollments = await Enrollment_1.Enrollment.find({
+                studentId: { $in: studentIds },
+                schoolYearId,
+                classId: { $in: fromClassIds }
+            }).lean();
+        }
+        else if (scope === 'class' && classId) {
+            targetEnrollments = await Enrollment_1.Enrollment.find({ schoolYearId, classId }).lean();
+        }
+        else {
+            targetEnrollments = await Enrollment_1.Enrollment.find({
+                schoolYearId,
+                classId: { $in: fromClassIds }
+            }).lean();
+        }
+        const targetStudentIds = targetEnrollments.map(e => String(e.studentId));
+        const assignments = await TemplateAssignment_1.TemplateAssignment.find({ studentId: { $in: targetStudentIds } }).lean();
+        const assignmentIds = assignments.map(a => String(a._id));
+        // Build query for deletion
+        const deleteQuery = { templateAssignmentId: { $in: assignmentIds } };
+        if (signatureType === 'sem1') {
+            deleteQuery.type = { $ne: 'end_of_year' };
+        }
+        else if (signatureType === 'sem2') {
+            deleteQuery.type = 'end_of_year';
+        }
+        // 'both' = delete all
+        const result = await TemplateSignature_1.TemplateSignature.deleteMany(deleteQuery);
+        await (0, auditLogger_1.logAudit)({
+            userId: adminId,
+            action: 'PS_ONBOARDING_BATCH_UNSIGN',
+            details: { scope, signatureType, schoolYearId, deleted: result.deletedCount, fromLevel: normalizedFromLevel },
+            req
+        });
+        res.json({ success: true, deleted: result.deletedCount });
+    }
+    catch (e) {
+        console.error('ps-onboarding/batch-unsign error:', e);
+        res.status(500).json({ error: 'batch_unsign_failed', message: e.message });
+    }
+});
+// PS Onboarding: Batch promote students from PS to MS
+exports.adminExtrasRouter.post('/ps-onboarding/batch-promote', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
+    try {
+        const adminId = req.user.userId;
+        const { scope, studentIds = [], classId, schoolYearId, // Promote FROM this school year TO the next school year
+        fromLevel } = req.body;
+        if (!schoolYearId)
+            return res.status(400).json({ error: 'missing_school_year' });
+        // Determine next school year from the selected school year (like subadmin promotion)
+        const currentSy = await SchoolYear_1.SchoolYear.findById(schoolYearId).lean();
+        if (!currentSy)
+            return res.status(404).json({ error: 'school_year_not_found' });
+        let nextSy = null;
+        if (currentSy.sequence) {
+            nextSy = await SchoolYear_1.SchoolYear.findOne({ sequence: currentSy.sequence + 1 }).lean();
+        }
+        if (!nextSy && currentSy.name) {
+            const match = String(currentSy.name).match(/(\d{4})([-/.])(\d{4})/);
+            if (match) {
+                const startYear = parseInt(match[1], 10);
+                const sep = match[2];
+                const endYear = parseInt(match[3], 10);
+                const nextName = `${startYear + 1}${sep}${endYear + 1}`;
+                nextSy = await SchoolYear_1.SchoolYear.findOne({ name: nextName }).lean();
+            }
+        }
+        if (!nextSy && currentSy.endDate) {
+            nextSy = await SchoolYear_1.SchoolYear.findOne({ startDate: { $gte: currentSy.endDate } }).sort({ startDate: 1 }).lean();
+        }
+        if (!nextSy && currentSy.startDate) {
+            nextSy = await SchoolYear_1.SchoolYear.findOne({ startDate: { $gt: currentSy.startDate } }).sort({ startDate: 1 }).lean();
+        }
+        if (!nextSy?._id) {
+            return res.status(400).json({ error: 'no_next_year', message: 'Next school year not found' });
+        }
+        const nextSchoolYearId = String(nextSy._id);
+        const { fromLevel: normalizedFromLevel, classLevels } = getFromLevelConfig(fromLevel);
+        // Get next level for requested level
+        const nextLevel = await getNextLevelName(normalizedFromLevel);
+        if (!nextLevel) {
+            return res.status(400).json({ error: 'no_next_level', message: `Cannot determine next level from ${normalizedFromLevel}` });
+        }
+        // Get classes for the previous year (robust to casing)
+        const allClasses = await Class_1.ClassModel.find({ schoolYearId }).lean();
+        const fromClasses = allClasses.filter(c => classLevels.includes(normalizeLevel(c.level)));
+        const fromClassIds = fromClasses.map(c => String(c._id));
+        // Get target enrollments
+        let targetEnrollments;
+        if (scope === 'student' && studentIds.length > 0) {
+            targetEnrollments = await Enrollment_1.Enrollment.find({
+                studentId: { $in: studentIds },
+                schoolYearId,
+                classId: { $in: fromClassIds }
+            }).lean();
+        }
+        else if (scope === 'class' && classId) {
+            targetEnrollments = await Enrollment_1.Enrollment.find({ schoolYearId, classId }).lean();
+        }
+        else {
+            targetEnrollments = await Enrollment_1.Enrollment.find({
+                schoolYearId,
+                classId: { $in: fromClassIds }
+            }).lean();
+        }
+        const targetStudentIds = targetEnrollments.map(e => e.studentId);
+        // Get school year name for promotion data
+        const prevSchoolYear = await SchoolYear_1.SchoolYear.findById(schoolYearId).lean();
+        const prevSchoolYearName = prevSchoolYear?.name || '';
+        // Get assignments
+        const assignments = await TemplateAssignment_1.TemplateAssignment.find({ studentId: { $in: targetStudentIds } }).lean();
+        const assignmentMap = new Map(assignments.map(a => [String(a.studentId), a]));
+        // Get signatures to verify end-of-year signing
+        const assignmentIds = assignments.map(a => String(a._id));
+        const sem1PeriodId = (0, readinessUtils_1.computeSignaturePeriodId)(schoolYearId, 'sem1');
+        const endOfYearPeriodId = (0, readinessUtils_1.computeSignaturePeriodId)(schoolYearId, 'end_of_year');
+        const signatures = await TemplateSignature_1.TemplateSignature.find({
+            templateAssignmentId: { $in: assignmentIds },
+            $or: [
+                { type: 'end_of_year', signaturePeriodId: endOfYearPeriodId },
+                { type: 'standard', signaturePeriodId: sem1PeriodId },
+                // Backward-compatible: older standard signatures may have no explicit type
+                { type: { $exists: false }, signaturePeriodId: sem1PeriodId }
+            ]
+        }).lean();
+        const signedSem1 = new Set(signatures
+            .filter(s => s.type !== 'end_of_year' && String(s.signaturePeriodId || '') === sem1PeriodId)
+            .map(s => String(s.templateAssignmentId)));
+        const signedSem2 = new Set(signatures
+            .filter(s => s.type === 'end_of_year' && String(s.signaturePeriodId || '') === endOfYearPeriodId)
+            .map(s => String(s.templateAssignmentId)));
+        const results = { success: 0, failed: 0, errors: [], skipped: 0 };
+        for (const studentId of targetStudentIds) {
+            const sid = String(studentId);
+            // Check if already promoted
+            const student = await Student_1.Student.findById(sid).lean();
+            if (!student) {
+                results.failed++;
+                results.errors.push({ studentId: sid, error: 'student_not_found' });
+                continue;
+            }
+            const alreadyPromoted = Array.isArray(student.promotions) &&
+                student.promotions.some((p) => String(p.schoolYearId) === schoolYearId);
+            if (alreadyPromoted) {
+                results.skipped++;
+                continue;
+            }
+            // Check if signed (Sem1 + Sem2)
+            const assignment = assignmentMap.get(sid);
+            if (!assignment) {
+                results.failed++;
+                results.errors.push({ studentId: sid, error: 'no_assignment' });
+                continue;
+            }
+            if (!signedSem1.has(String(assignment._id))) {
+                results.failed++;
+                results.errors.push({ studentId: sid, error: 'not_signed_sem1' });
+                continue;
+            }
+            if (!signedSem2.has(String(assignment._id))) {
+                results.failed++;
+                results.errors.push({ studentId: sid, error: 'not_signed_end_of_year' });
+                continue;
+            }
+            try {
+                // Create promotion record
+                const promotion = {
+                    schoolYearId,
+                    date: new Date(),
+                    fromLevel: normalizedFromLevel,
+                    toLevel: nextLevel,
+                    promotedBy: adminId
+                };
+                await Student_1.Student.findByIdAndUpdate(sid, {
+                    $push: { promotions: promotion },
+                    $set: { level: nextLevel, nextLevel: null }
+                });
+                // Update old enrollment to promoted status
+                const oldEnrollment = targetEnrollments.find(e => String(e.studentId) === sid);
+                if (oldEnrollment) {
+                    await Enrollment_1.Enrollment.findByIdAndUpdate(oldEnrollment._id, { status: 'promoted' });
+                }
+                // Create new enrollment in next school year (without class assignment)
+                const existingNextEnrollment = await Enrollment_1.Enrollment.findOne({ studentId: sid, schoolYearId: nextSchoolYearId }).lean();
+                if (!existingNextEnrollment) {
+                    await Enrollment_1.Enrollment.create({ studentId: sid, schoolYearId: nextSchoolYearId, status: 'active', classId: null });
+                }
+                // Get student's class name from enrollment
+                const enrollment = targetEnrollments.find(e => String(e.studentId) === sid);
+                let className = '';
+                if (enrollment?.classId) {
+                    const cls = fromClasses.find(c => String(c._id) === String(enrollment.classId));
+                    className = cls?.name || '';
+                }
+                // Add promotion to assignment data for history
+                const assignmentForUpdate = await TemplateAssignment_1.TemplateAssignment.findById(assignment._id);
+                if (assignmentForUpdate) {
+                    if (!assignmentForUpdate.data)
+                        assignmentForUpdate.data = {};
+                    if (!assignmentForUpdate.data.promotions)
+                        assignmentForUpdate.data.promotions = [];
+                    assignmentForUpdate.data.promotions.push({
+                        from: normalizedFromLevel,
+                        to: nextLevel,
+                        date: new Date(),
+                        by: adminId,
+                        year: prevSchoolYearName,
+                        class: className,
+                        schoolYearId
+                    });
+                    assignmentForUpdate.markModified('data');
+                    await assignmentForUpdate.save();
+                    // Create SavedGradebook snapshot after promotion
+                    try {
+                        const updatedAssignment = await TemplateAssignment_1.TemplateAssignment.findById(assignment._id).lean();
+                        if (updatedAssignment) {
+                            const statuses = await StudentCompetencyStatus_1.StudentCompetencyStatus.find({ studentId: sid }).lean();
+                            const allSignatures = await TemplateSignature_1.TemplateSignature.find({ templateAssignmentId: String(assignment._id) }).lean();
+                            const snapshotData = {
+                                student: student,
+                                enrollment: oldEnrollment,
+                                statuses: statuses,
+                                assignment: updatedAssignment,
+                                className: className,
+                                signatures: allSignatures,
+                                signature: allSignatures.find((s) => s.type === 'standard') || null,
+                                finalSignature: allSignatures.find((s) => s.type === 'end_of_year') || null,
+                            };
+                            await (0, rolloverService_1.createAssignmentSnapshot)(updatedAssignment, 'promotion', {
+                                schoolYearId,
+                                level: normalizedFromLevel || 'Sans niveau',
+                                classId: oldEnrollment?.classId || undefined,
+                                data: snapshotData
+                            });
+                        }
+                    }
+                    catch (snapshotError) {
+                        console.error('Failed to create promotion snapshot for student', sid, snapshotError);
+                    }
+                }
+                results.success++;
+            }
+            catch (promoteError) {
+                results.failed++;
+                results.errors.push({ studentId: sid, error: promoteError.message });
+            }
+        }
+        await (0, auditLogger_1.logAudit)({
+            userId: adminId,
+            action: 'PS_ONBOARDING_BATCH_PROMOTE',
+            details: {
+                scope,
+                schoolYearId,
+                fromLevel: normalizedFromLevel,
+                toLevel: nextLevel,
+                success: results.success,
+                failed: results.failed,
+                skipped: results.skipped
+            },
+            req
+        });
+        res.json(results);
+    }
+    catch (e) {
+        console.error('ps-onboarding/batch-promote error:', e);
+        res.status(500).json({ error: 'batch_promote_failed', message: e.message });
+    }
+});
+// PS Onboarding: Batch unpromote students (undo PS -> MS promotion)
+exports.adminExtrasRouter.post('/ps-onboarding/batch-unpromote', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
+    try {
+        const adminId = req.user.userId;
+        const { scope, studentIds = [], classId, schoolYearId, // Undo promotion for this school year (remove next-year enrollment)
+        fromLevel } = req.body;
+        if (!schoolYearId)
+            return res.status(400).json({ error: 'missing_school_year' });
+        // Determine next school year from the selected school year
+        const currentSy = await SchoolYear_1.SchoolYear.findById(schoolYearId).lean();
+        if (!currentSy)
+            return res.status(404).json({ error: 'school_year_not_found' });
+        let nextSy = null;
+        if (currentSy.sequence) {
+            nextSy = await SchoolYear_1.SchoolYear.findOne({ sequence: currentSy.sequence + 1 }).lean();
+        }
+        if (!nextSy && currentSy.name) {
+            const match = String(currentSy.name).match(/(\d{4})([-/.])(\d{4})/);
+            if (match) {
+                const startYear = parseInt(match[1], 10);
+                const sep = match[2];
+                const endYear = parseInt(match[3], 10);
+                const nextName = `${startYear + 1}${sep}${endYear + 1}`;
+                nextSy = await SchoolYear_1.SchoolYear.findOne({ name: nextName }).lean();
+            }
+        }
+        if (!nextSy && currentSy.endDate) {
+            nextSy = await SchoolYear_1.SchoolYear.findOne({ startDate: { $gte: currentSy.endDate } }).sort({ startDate: 1 }).lean();
+        }
+        if (!nextSy && currentSy.startDate) {
+            nextSy = await SchoolYear_1.SchoolYear.findOne({ startDate: { $gt: currentSy.startDate } }).sort({ startDate: 1 }).lean();
+        }
+        if (!nextSy?._id) {
+            return res.status(400).json({ error: 'no_next_year', message: 'Next school year not found' });
+        }
+        const nextSchoolYearId = String(nextSy._id);
+        const { fromLevel: normalizedFromLevel, classLevels } = getFromLevelConfig(fromLevel);
+        // Get classes for the previous year (robust to casing)
+        const allClasses = await Class_1.ClassModel.find({ schoolYearId }).lean();
+        const fromClasses = allClasses.filter(c => classLevels.includes(normalizeLevel(c.level)));
+        const fromClassIds = fromClasses.map(c => String(c._id));
+        // Get target enrollments (previous year)
+        let targetEnrollments;
+        if (scope === 'student' && studentIds.length > 0) {
+            targetEnrollments = await Enrollment_1.Enrollment.find({
+                studentId: { $in: studentIds },
+                schoolYearId,
+                classId: { $in: fromClassIds }
+            }).lean();
+        }
+        else if (scope === 'class' && classId) {
+            targetEnrollments = await Enrollment_1.Enrollment.find({ schoolYearId, classId }).lean();
+        }
+        else {
+            targetEnrollments = await Enrollment_1.Enrollment.find({
+                schoolYearId,
+                classId: { $in: fromClassIds }
+            }).lean();
+        }
+        const targetStudentIds = targetEnrollments.map(e => String(e.studentId));
+        // Get assignments
+        const assignments = await TemplateAssignment_1.TemplateAssignment.find({ studentId: { $in: targetStudentIds } }).lean();
+        const assignmentMap = new Map(assignments.map(a => [String(a.studentId), a]));
+        const results = { success: 0, failed: 0, skipped: 0, errors: [] };
+        for (const sid of targetStudentIds) {
+            try {
+                const student = await Student_1.Student.findById(sid).lean();
+                if (!student) {
+                    results.failed++;
+                    results.errors.push({ studentId: sid, error: 'student_not_found' });
+                    continue;
+                }
+                const promotions = Array.isArray(student.promotions) ? student.promotions : [];
+                const promotion = promotions.find((p) => String(p.schoolYearId) === String(schoolYearId));
+                if (!promotion) {
+                    results.skipped++;
+                    continue;
+                }
+                // Only delete next-year enrollment if still unassigned (classId null/empty)
+                const nextEnrollment = await Enrollment_1.Enrollment.findOne({ studentId: sid, schoolYearId: nextSchoolYearId }).lean();
+                if (nextEnrollment && nextEnrollment.classId) {
+                    results.failed++;
+                    results.errors.push({ studentId: sid, error: 'already_assigned_next_year' });
+                    continue;
+                }
+                // Revert student promotions + level
+                const fromLevel = String(promotion.fromLevel || normalizedFromLevel);
+                await Student_1.Student.findByIdAndUpdate(sid, {
+                    $pull: { promotions: { schoolYearId: String(schoolYearId) } },
+                    $set: { level: fromLevel, nextLevel: null }
+                });
+                // Revert previous-year enrollment status back to active
+                const oldEnrollment = targetEnrollments.find(e => String(e.studentId) === sid);
+                if (oldEnrollment?._id) {
+                    await Enrollment_1.Enrollment.findByIdAndUpdate(oldEnrollment._id, { status: 'active' });
+                }
+                // Remove next-year enrollment if it exists and is unassigned
+                if (nextEnrollment && !nextEnrollment.classId) {
+                    await Enrollment_1.Enrollment.findByIdAndDelete(String(nextEnrollment._id));
+                }
+                // Remove promotion entries from assignment history for this school year
+                const assignment = assignmentMap.get(sid);
+                if (assignment?._id) {
+                    await TemplateAssignment_1.TemplateAssignment.findByIdAndUpdate(String(assignment._id), {
+                        $pull: { 'data.promotions': { schoolYearId: String(schoolYearId) } },
+                        $inc: { dataVersion: 1 }
+                    });
+                }
+                results.success++;
+            }
+            catch (err) {
+                results.failed++;
+                results.errors.push({ studentId: sid, error: err.message });
+            }
+        }
+        await (0, auditLogger_1.logAudit)({
+            userId: adminId,
+            action: 'PS_ONBOARDING_BATCH_UNPROMOTE',
+            details: { scope, schoolYearId, success: results.success, failed: results.failed, skipped: results.skipped, fromLevel: normalizedFromLevel },
+            req
+        });
+        res.json(results);
+    }
+    catch (e) {
+        console.error('ps-onboarding/batch-unpromote error:', e);
+        res.status(500).json({ error: 'batch_unpromote_failed', message: e.message });
+    }
+});
+// PS Onboarding: Get available subadmins for signature selection
+exports.adminExtrasRouter.get('/ps-onboarding/subadmins', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
+    try {
+        // Get all subadmins with signatures
+        const [users, outlookUsers] = await Promise.all([
+            User_1.User.find({ role: 'SUBADMIN', signatureUrl: { $exists: true, $ne: '' } })
+                .select('displayName email signatureUrl').lean(),
+            OutlookUser_1.OutlookUser.find({ role: 'SUBADMIN', signatureUrl: { $exists: true, $ne: '' } })
+                .select('displayName email signatureUrl').lean()
+        ]);
+        const subadmins = [...users, ...outlookUsers].map(u => ({
+            _id: String(u._id),
+            displayName: u.displayName || u.email,
+            hasSignature: !!u.signatureUrl,
+            signatureUrl: u.signatureUrl || null
+        }));
+        res.json(subadmins);
+    }
+    catch (e) {
+        res.status(500).json({ error: 'fetch_failed', message: e.message });
+    }
+});
+// PS Onboarding: Batch export PDFs (without signature blocks)
+exports.adminExtrasRouter.post('/ps-onboarding/batch-export', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
+    try {
+        const { scope, // 'student' | 'class' | 'all'
+        studentIds = [], classId, schoolYearId, fromLevel } = req.body;
+        if (!schoolYearId)
+            return res.status(400).json({ error: 'missing_school_year' });
+        const { fromLevel: normalizedFromLevel, classLevels } = getFromLevelConfig(fromLevel);
+        // Get classes for the school year (robust to casing)
+        const allClasses = await Class_1.ClassModel.find({ schoolYearId }).lean();
+        const fromClasses = allClasses.filter(c => classLevels.includes(normalizeLevel(c.level)));
+        const fromClassIds = fromClasses.map(c => String(c._id));
+        // Get target enrollments
+        let targetEnrollments;
+        if (scope === 'student' && studentIds.length > 0) {
+            targetEnrollments = await Enrollment_1.Enrollment.find({
+                studentId: { $in: studentIds },
+                schoolYearId,
+                classId: { $in: fromClassIds }
+            }).lean();
+        }
+        else if (scope === 'class' && classId) {
+            targetEnrollments = await Enrollment_1.Enrollment.find({ schoolYearId, classId }).lean();
+        }
+        else {
+            targetEnrollments = await Enrollment_1.Enrollment.find({
+                schoolYearId,
+                classId: { $in: fromClassIds }
+            }).lean();
+        }
+        const targetStudentIds = targetEnrollments.map(e => String(e.studentId));
+        // Get assignments for these students
+        const assignments = await TemplateAssignment_1.TemplateAssignment.find({ studentId: { $in: targetStudentIds } }).lean();
+        // Return assignment IDs for the frontend to use with the existing batch export
+        // Frontend will add hideSignatures=true to the print URLs
+        const assignmentIds = assignments.map(a => String(a._id));
+        // Get class name for groupLabel
+        let groupLabel = normalizedFromLevel;
+        if (scope === 'class' && classId) {
+            const cls = fromClasses.find(c => String(c._id) === classId);
+            groupLabel = cls?.name || normalizedFromLevel;
+        }
+        else if (scope === 'student' && studentIds.length === 1) {
+            const student = await Student_1.Student.findById(studentIds[0]).lean();
+            groupLabel = student ? `${student.lastName}-${student.firstName}` : normalizedFromLevel;
+        }
+        res.json({
+            assignmentIds,
+            groupLabel,
+            count: assignmentIds.length
+        });
+    }
+    catch (e) {
+        console.error('ps-onboarding/batch-export error:', e);
+        res.status(500).json({ error: 'batch_export_failed', message: e.message });
+    }
+});
+// ============================================================================
+// END PS-TO-MS ONBOARDING ENDPOINTS
+// ============================================================================
 // --- Server tests: list available test files (recursive) ---
 exports.adminExtrasRouter.get('/run-tests/list', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
     try {

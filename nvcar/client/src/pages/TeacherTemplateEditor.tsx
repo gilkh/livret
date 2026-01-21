@@ -51,6 +51,7 @@ export default function TeacherTemplateEditor() {
     const [zoomLevel, setZoomLevel] = useState(1)
     const [isFitToScreen, setIsFitToScreen] = useState(false)
     const [quickGradingEnabled, setQuickGradingEnabled] = useState(true)
+    const [blockVisibility, setBlockVisibility] = useState<any>({})
     const containerRef = useRef<HTMLDivElement | null>(null)
 
     const computeFitScale = () => {
@@ -253,6 +254,9 @@ export default function TeacherTemplateEditor() {
                 if (settingsRes.data.teacher_quick_grading_enabled !== undefined) {
                     setQuickGradingEnabled(settingsRes.data.teacher_quick_grading_enabled)
                 }
+                if (settingsRes.data.block_visibility_settings !== undefined) {
+                    setBlockVisibility(settingsRes.data.block_visibility_settings || {})
+                }
             } catch (e: any) {
                 setError('Impossible de charger le carnet')
                 console.error(e)
@@ -271,6 +275,11 @@ export default function TeacherTemplateEditor() {
             return () => document.removeEventListener('click', handleClickOutside)
         }
     }, [openDropdown])
+
+    const buildVisibilityKey = (tplId: string | undefined, pageIdx: number, blockIdx: number, blockId?: string | null) => {
+        if (blockId) return `block:${blockId}`
+        return `tpl:${tplId || ''}:p:${pageIdx}:b:${blockIdx}`
+    }
 
     const updateLanguageToggle = async (pageIndex: number, blockIndex: number, items: any[]) => {
         try {
@@ -925,6 +934,16 @@ export default function TeacherTemplateEditor() {
                                     <div className="page-margins" />
                                     {page.blocks.map((b, idx) => {
                                         if (!b || !b.props) return null;
+                                        const blockId = typeof b?.props?.blockId === 'string' && b.props.blockId.trim() ? b.props.blockId.trim() : null
+                                        const key = buildVisibilityKey(template?._id, actualPageIndex, idx, blockId)
+                                        // Check visibility based on student's current level and admin settings
+                                        const studentLevel = (student?.level || 'PS').toUpperCase() as 'PS' | 'MS' | 'GS' | 'EB1'
+                                        const visibilitySetting = blockVisibility?.[studentLevel]?.teacher?.[key]
+                                        if (visibilitySetting) {
+                                            if (visibilitySetting === 'never') return null
+                                            if (visibilitySetting === 'after_sem1' && !signature && !finalSignature) return null
+                                            if (visibilitySetting === 'after_sem2' && !finalSignature) return null
+                                        }
                                         return (
                                             <div key={idx} style={{ position: 'absolute', left: b.props.x || 0, top: b.props.y || 0, zIndex: b.props.z ?? idx, padding: 6 }}>
                                                 {b.type === 'text' && (

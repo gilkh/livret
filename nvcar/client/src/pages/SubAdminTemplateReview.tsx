@@ -96,6 +96,7 @@ export default function SubAdminTemplateReview() {
     const [subadminAssignedLevels, setSubadminAssignedLevels] = useState<string[]>([])
     const [zoomLevel, setZoomLevel] = useState(1)
     const [isFitToScreen, setIsFitToScreen] = useState(false)
+    const [blockVisibility, setBlockVisibility] = useState<any>({})
     const containerRef = useRef<HTMLDivElement | null>(null)
 
     const computeFitScale = () => {
@@ -248,6 +249,18 @@ export default function SubAdminTemplateReview() {
         if (assignmentId) loadData()
     }, [assignmentId, apiPrefix])
 
+    useEffect(() => {
+        const loadVisibility = async () => {
+            try {
+                const res = await api.get('/settings/public')
+                setBlockVisibility(res.data.block_visibility_settings || {})
+            } catch {
+                // non-blocking
+            }
+        }
+        loadVisibility()
+    }, [])
+
     // Check if user has a signature
     useEffect(() => {
         const checkSignature = async () => {
@@ -325,6 +338,60 @@ export default function SubAdminTemplateReview() {
                 console.error(e)
             }
         }
+    }
+
+    const buildVisibilityKey = (tplId: string | undefined, pageIdx: number, blockIdx: number, blockId?: string | null) => {
+        if (blockId) return `block:${blockId}`
+        return `tpl:${tplId || ''}:p:${pageIdx}:b:${blockIdx}`
+    }
+
+    // Level order for comparison (lower number = lower level)
+    const levelOrder: Record<string, number> = { 'TPS': 0, 'PS': 1, 'MS': 2, 'GS': 3, 'EB1': 4, 'KG1': 1, 'KG2': 2, 'KG3': 3 }
+
+    // Check if block's level is higher than student's current level
+    const isBlockLevelHigherThanStudent = (blockLevel: string | null): boolean => {
+        if (!blockLevel) return false
+        const studentLvl = (student?.level || '').toUpperCase()
+        const blockLvl = blockLevel.toUpperCase()
+        const studentOrder = levelOrder[studentLvl] ?? 99
+        const blockOrder = levelOrder[blockLvl] ?? 99
+        return blockOrder > studentOrder
+    }
+
+    // Find signature for a specific level
+    const getSignatureForLevel = (targetLevel: string | null) => {
+        if (!targetLevel) return { hasSem1: !!signature, hasSem2: !!finalSignature }
+        
+        const normalizedTarget = targetLevel.toUpperCase()
+        const history = assignment?.data?.signatures || []
+        const promotions = assignment?.data?.promotions || []
+        
+        let hasSem1 = false
+        let hasSem2 = false
+        
+        // Check if current student level matches and use current signatures
+        if (student?.level?.toUpperCase() === normalizedTarget) {
+            hasSem1 = !!signature
+            hasSem2 = !!finalSignature
+        }
+        
+        // Check historical signatures
+        history.forEach((sig: any) => {
+            if (sig.schoolYearName) {
+                const promo = promotions.find((p: any) => p.year === sig.schoolYearName)
+                if (promo && promo.from?.toUpperCase() === normalizedTarget) {
+                    if (sig.type === 'standard' || !sig.type) hasSem1 = true
+                    if (sig.type === 'end_of_year') hasSem2 = true
+                }
+            }
+            // Also check direct level match on signature
+            if (sig.level?.toUpperCase() === normalizedTarget) {
+                if (sig.type === 'standard' || !sig.type) hasSem1 = true
+                if (sig.type === 'end_of_year') hasSem2 = true
+            }
+        })
+        
+        return { hasSem1, hasSem2 }
     }
 
     const getNextLevel = (current: string) => {
@@ -464,47 +531,52 @@ export default function SubAdminTemplateReview() {
         return next || year
     }
 
-    const isBlockVisible = (b: Block) => {
-        const blockLevel = getBlockLevel(b)
-
-        // Case 1: Block has NO specific level (generic)
-        if (!blockLevel) {
-            // Use current active signature state
-            if (b.props.period === 'mid-year' && !signature && !b.props.field?.includes('signature')) return false
-            if (b.props.period === 'end-year' && !finalSignature && !b.props.field?.includes('signature')) return false
+    const getPromotionCurrentYearLabel = (promo: any, blockLevel: string | null, period?: string) => {
+        const history = assignment?.data?.signatures || []
+        const wantEndOfYear = period === 'end-year'
+        const isMidYearBlock = period === 'mid-year'
+        const candidates = history.filter((sig: any) => {
+            if (wantEndOfYear) {
+                if (sig.type !== 'end_of_year') return false
+            } else if (isMidYearBlock) {
+                if (sig.type && sig.type !== 'standard') return false
+            }
+            if (sig.level && blockLevel && sig.level !== blockLevel) return false
             return true
+        }).sort((a: any, b: any) => {
+            const ad = new Date(a.signedAt || 0).getTime()
+            const bd = new Date(b.signedAt || 0).getTime()
+            return bd - ad
+        })
+
+        const sig = candidates[0]
+        if (sig) {
+            let yearLabel = String(sig.schoolYearName || '').trim()
+            if (!yearLabel && sig.signedAt) {
+                const d = new Date(sig.signedAt)
+                const y = d.getFullYear()
+                const m = d.getMonth()
+                const startYear = m >= 8 ? y : y - 1
+                yearLabel = `${startYear}/${startYear + 1}`
+            }
+            if (yearLabel) return yearLabel
         }
 
-        // Case 2: Block HAS a level
-        // Check if we have a signature for that level
-        let isSignedStandard = false
-        let isSignedFinal = false
+        return String(promo?.year || '')
+    }
 
-        // Check current props
-        if (student?.level === blockLevel) {
-            if (signature) isSignedStandard = true
-            if (finalSignature) isSignedFinal = true
+    // Block visibility is now controlled entirely by admin settings (block_visibility_settings)
+    // This function is kept for backward compatibility but defers to admin settings
+    const checkBlockVisibilityFromSettings = (blockKey: string): boolean => {
+        const studentLevel = (student?.level || 'PS').toUpperCase() as 'PS' | 'MS' | 'GS' | 'EB1'
+        const visibilitySetting = blockVisibility?.[studentLevel]?.subadmin?.[blockKey]
+        
+        if (visibilitySetting) {
+            if (visibilitySetting === 'never') return false
+            if (visibilitySetting === 'after_sem1' && !signature && !finalSignature) return false
+            if (visibilitySetting === 'after_sem2' && !finalSignature) return false
         }
-
-        // Check history
-        if (!isSignedStandard || !isSignedFinal) {
-            const history = assignment?.data?.signatures || []
-            const promotions = assignment?.data?.promotions || []
-
-            history.forEach((sig: any) => {
-                if (sig.schoolYearName) {
-                    const promo = promotions.find((p: any) => p.year === sig.schoolYearName)
-                    if (promo && promo.from === blockLevel) {
-                        if (sig.type === 'standard' || !sig.type) isSignedStandard = true
-                        if (sig.type === 'end_of_year') isSignedFinal = true
-                    }
-                }
-            })
-        }
-
-        if (b.props.period === 'mid-year' && !isSignedStandard && !b.props.field?.includes('signature') && b.type !== 'signature_box' && b.type !== 'final_signature_box') return false
-        if (b.props.period === 'end-year' && !isSignedFinal && !b.props.field?.includes('signature') && b.type !== 'signature_box' && b.type !== 'final_signature_box') return false
-
+        // Default: always visible if no setting configured
         return true
     }
 
@@ -1259,6 +1331,63 @@ export default function SubAdminTemplateReview() {
                                     <div className="page-margins" />
                                     {page.blocks.map((b, idx) => {
                                         if (!b || !b.props) return null;
+                                        
+                                        // Get block's level
+                                        const blockLevel = getBlockLevel(b)
+                                        
+                                        // Hide blocks whose level is higher than student's current level
+                                        if (isBlockLevelHigherThanStudent(blockLevel)) return null
+                                        
+                                        const blockId = typeof b?.props?.blockId === 'string' && b.props.blockId.trim() ? b.props.blockId.trim() : null
+                                        const key = buildVisibilityKey(template?._id, actualPageIndex, idx, blockId)
+                                        
+                                        // For blocks WITH a level: use that level's settings and signatures
+                                        // For blocks WITHOUT a level: check all levels at or below student's level
+                                        // Show the block if ANY applicable level would show it (with its signature)
+                                        let shouldShow = true
+                                        
+                                        if (blockLevel) {
+                                            // Block has a level - use that level's settings
+                                            const visibilitySetting = blockVisibility?.[blockLevel.toUpperCase()]?.subadmin?.[key]
+                                            const { hasSem1, hasSem2 } = getSignatureForLevel(blockLevel)
+                                            
+                                            if (visibilitySetting) {
+                                                if (visibilitySetting === 'never') shouldShow = false
+                                                else if (visibilitySetting === 'after_sem1' && !hasSem1 && !hasSem2) shouldShow = false
+                                                else if (visibilitySetting === 'after_sem2' && !hasSem2) shouldShow = false
+                                            }
+                                        } else {
+                                            // Block has NO level - check all levels at or below student's current level
+                                            const studentLvl = (student?.level || 'PS').toUpperCase()
+                                            const studentOrder = levelOrder[studentLvl] ?? 99
+                                            const levelsToCheck = Object.keys(levelOrder).filter(lvl => levelOrder[lvl] <= studentOrder)
+                                            
+                                            let foundSetting = false
+                                            let anyLevelWouldShow = false
+                                            
+                                            for (const lvl of levelsToCheck) {
+                                                const visibilitySetting = blockVisibility?.[lvl]?.subadmin?.[key]
+                                                if (visibilitySetting) {
+                                                    foundSetting = true
+                                                    const { hasSem1, hasSem2 } = getSignatureForLevel(lvl)
+                                                    
+                                                    if (visibilitySetting === 'always') {
+                                                        anyLevelWouldShow = true
+                                                        break
+                                                    } else if (visibilitySetting === 'after_sem1' && (hasSem1 || hasSem2)) {
+                                                        anyLevelWouldShow = true
+                                                        break
+                                                    } else if (visibilitySetting === 'after_sem2' && hasSem2) {
+                                                        anyLevelWouldShow = true
+                                                        break
+                                                    }
+                                                }
+                                            }
+                                            
+                                            shouldShow = !foundSetting || anyLevelWouldShow
+                                        }
+                                        
+                                        if (!shouldShow) return null
                                         return (
                                             <div key={idx} style={{ position: 'absolute', left: b.props.x || 0, top: b.props.y || 0, zIndex: b.props.z ?? idx, padding: 6 }}>
                                                 {b.type === 'language_toggle_v2' && (
@@ -1273,9 +1402,7 @@ export default function SubAdminTemplateReview() {
                                                         padding: b.props.padding || 8,
                                                         width: b.props.width,
                                                         height: b.props.height,
-                                                        boxSizing: 'border-box',
-                                                        // Visibility check
-                                                        ...((!isBlockVisible(b)) ? { display: 'none' } : {})
+                                                        boxSizing: 'border-box'
                                                     }}>
                                                         {(b.props.items || []).map((it: any, i: number) => {
                                                             // Check level - item visibility for student
@@ -1461,8 +1588,7 @@ export default function SubAdminTemplateReview() {
                                                 {b.type === 'category_title' && <div style={{ color: b.props.color, fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden' }}>Titre catégorie</div>}
                                                 {b.type === 'competency_list' && <div style={{ color: b.props.color, fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden' }}>Liste des compétences</div>}
                                                 {b.type === 'dropdown' && (() => {
-                                                    // Check visibility first
-                                                    if (!isBlockVisible(b)) return null
+                                                    // Visibility is now controlled by admin settings at block level
 
                                                     // Check if dropdown is allowed for current level - allow if at or below student's level
                                                     const isLevelAllowed = isLevelAtOrBelow(undefined, b.props.levels, student?.level)
@@ -1750,7 +1876,7 @@ export default function SubAdminTemplateReview() {
                                                                 } else if (b.props.field === 'year') {
                                                                     return <div>{getPromotionYearLabel(promo, blockLevel)}</div>
                                                                 } else if (b.props.field === 'currentYear') {
-                                                                    const label = activeYear?.name || promo.year || ''
+                                                                    const label = getPromotionCurrentYearLabel(promo, blockLevel, b.props.period) || activeYear?.name || ''
                                                                     return <div>{String(label)}</div>
                                                                 } else if (b.props.field === 'class') {
                                                                     const raw = promo.class || ''
@@ -2149,11 +2275,7 @@ export default function SubAdminTemplateReview() {
                                                         alignItems: 'center',
                                                         justifyContent: 'center',
                                                         fontSize: 10,
-                                                        color: '#999',
-                                                        // Hide if not visible
-                                                        ...((!isBlockVisible(b)) ? { display: 'none' } : {}),
-                                                        // Ensure it's treated as end-year
-                                                        ...((!finalSignature && !isBlockVisible({ ...b, props: { ...b.props, period: 'end-year' } })) ? { display: 'none' } : {})
+                                                        color: '#999'
                                                     }}>
                                                         {(() => {
                                                             if (finalSignature) return '✓ Signé Fin Année'
@@ -2220,8 +2342,7 @@ export default function SubAdminTemplateReview() {
                                                         alignItems: 'center',
                                                         justifyContent: 'center',
                                                         fontSize: 10,
-                                                        color: '#999',
-                                                        ...((!isBlockVisible(b)) ? { display: 'none' } : {})
+                                                        color: '#999'
                                                     }}>
                                                         {(() => {
                                                             const blockLevel = getBlockLevel(b)
@@ -2231,21 +2352,25 @@ export default function SubAdminTemplateReview() {
                                                             if (!blockLevel) {
                                                                 if (b.props.period === 'end-year') {
                                                                     if (finalSignature) {
-                                                                        return finalSignature.signatureUrl ? <img src={finalSignature.signatureUrl} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé Fin Année'
+                                                                        const src = finalSignature.signatureData || finalSignature.signatureUrl
+                                                                        return src ? <img src={src} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé Fin Année'
                                                                     }
                                                                 } else {
                                                                     if (signature) {
-                                                                        return signature.signatureUrl ? <img src={signature.signatureUrl} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé'
+                                                                        const src = signature.signatureData || signature.signatureUrl
+                                                                        return src ? <img src={src} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé'
                                                                     }
                                                                 }
                                                             } else {
                                                                 if (b.props.period === 'end-year') {
                                                                     if (finalSignature && ((finalSigLevel && finalSigLevel === blockLevel) || (!finalSigLevel && student?.level === blockLevel))) {
-                                                                        return finalSignature.signatureUrl ? <img src={finalSignature.signatureUrl} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé Fin Année'
+                                                                        const src = finalSignature.signatureData || finalSignature.signatureUrl
+                                                                        return src ? <img src={src} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé Fin Année'
                                                                     }
                                                                 } else {
                                                                     if (signature && ((sigLevel && sigLevel === blockLevel) || (!sigLevel && student?.level === blockLevel))) {
-                                                                        return signature.signatureUrl ? <img src={signature.signatureUrl} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé'
+                                                                        const src = signature.signatureData || signature.signatureUrl
+                                                                        return src ? <img src={src} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé'
                                                                     }
                                                                 }
                                                             }
@@ -2268,6 +2393,8 @@ export default function SubAdminTemplateReview() {
                                                                 })
 
                                                                 if (matchingSig) {
+                                                                    const src = matchingSig.signatureData || matchingSig.signatureUrl
+                                                                    if (src) return <img src={src} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} />
                                                                     return `✓ Signé (${matchingSig.schoolYearName || 'Ancien'})`
                                                                 }
                                                             }

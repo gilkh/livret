@@ -14,13 +14,32 @@ import { OutlookUser } from '../models/OutlookUser'
 import { TemplateSignature } from '../models/TemplateSignature'
 import { Student } from '../models/Student'
 import { AdminSignature } from '../models/AdminSignature'
-import { signTemplateAssignment, unsignTemplateAssignment } from '../services/signatureService'
+import { signTemplateAssignment, unsignTemplateAssignment, populateSignatures } from '../services/signatureService'
 import { mergeAssignmentDataIntoTemplate } from '../utils/templateUtils'
+import { buildSignatureSnapshot } from '../utils/signatureSnapshot'
+import { createAssignmentSnapshot } from '../services/rolloverService'
+import { StudentCompetencyStatus } from '../models/StudentCompetencyStatus'
 import { spawn } from 'child_process'
 import path from 'path'
+import { existsSync, mkdirSync } from 'fs'
 import fs from 'fs/promises'
+import multer from 'multer'
 
 export const adminExtrasRouter = Router()
+
+const ensureDir = (p: string) => { if (!existsSync(p)) mkdirSync(p, { recursive: true }) }
+const psSignatureUploadDir = path.join(process.cwd(), 'public', 'uploads', 'ps-signatures')
+ensureDir(psSignatureUploadDir)
+
+const psSignatureStorage = multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, psSignatureUploadDir),
+    filename: (_req, file, cb) => {
+        const ext = path.extname(file.originalname).toLowerCase()
+        const base = path.basename(file.originalname, ext).replace(/[^a-z0-9_-]+/gi, '_')
+        cb(null, `${base}-${Date.now()}${ext}`)
+    },
+})
+const psSignatureUpload = multer({ storage: psSignatureStorage })
 
 // 1. Progress (All Classes)
 adminExtrasRouter.get('/progress', requireAuth(['ADMIN']), async (req, res) => {
@@ -519,6 +538,7 @@ adminExtrasRouter.post('/templates/:templateAssignmentId/sign', requireAuth(['AD
 
         // Get active admin signature
         const activeSig = await AdminSignature.findOne({ isActive: true }).lean()
+        const signatureData = activeSig?.dataUrl
 
         try {
             const signature = await signTemplateAssignment({
@@ -526,6 +546,7 @@ adminExtrasRouter.post('/templates/:templateAssignmentId/sign', requireAuth(['AD
                 signerId: adminId,
                 type: type as any,
                 signatureUrl: activeSig ? activeSig.dataUrl : undefined,
+                signatureData,
                 req,
                 level: signatureLevel || undefined,
                 signaturePeriodId,
@@ -653,10 +674,13 @@ adminExtrasRouter.get('/templates/:templateAssignmentId/review', requireAuth(['A
             }
         }
 
+        // Populate signatures into assignment.data.signatures for visibility checks
+        const populatedAssignment = await populateSignatures(assignment)
+        
         res.json({
             template: versionedTemplate,
             student: { ...student, level, className },
-            assignment,
+            assignment: populatedAssignment,
             signature,
             finalSignature,
             canEdit: true,
@@ -722,6 +746,31 @@ adminExtrasRouter.get('/ps-onboarding/students', requireAuth(['ADMIN']), async (
 
         const selectedYearId = String(selectedYear._id)
         const activeYearId = activeYear ? String(activeYear._id) : ''
+
+        // Check if next year exists for promotion eligibility
+        let nextYear: any = null
+        if ((selectedYear as any).sequence) {
+            nextYear = await SchoolYear.findOne({ sequence: (selectedYear as any).sequence + 1 }).lean()
+        }
+        if (!nextYear && (selectedYear as any).name) {
+            const match = String((selectedYear as any).name).match(/(\d{4})([-\/.])((\d{4}))/)
+            if (match) {
+                const startYear = parseInt(match[1], 10)
+                const sep = match[2]
+                const endYear = parseInt(match[4], 10)
+                const nextName = `${startYear + 1}${sep}${endYear + 1}`
+                nextYear = await SchoolYear.findOne({ name: nextName }).lean()
+            }
+        }
+        if (!nextYear && (selectedYear as any).endDate) {
+            nextYear = await SchoolYear.findOne({ startDate: { $gte: (selectedYear as any).endDate } }).sort({ startDate: 1 }).lean()
+        }
+        if (!nextYear && (selectedYear as any).startDate) {
+            nextYear = await SchoolYear.findOne({ startDate: { $gt: (selectedYear as any).startDate } }).sort({ startDate: 1 }).lean()
+        }
+
+        // Check if next level exists
+        const nextLevel = await getNextLevelName(fromLevel)
 
         // Get ALL classes from the selected year
         const allClasses = await ClassModel.find({ schoolYearId: selectedYearId }).lean()
@@ -836,7 +885,13 @@ adminExtrasRouter.get('/ps-onboarding/students', requireAuth(['ADMIN']), async (
             students: studentList,
             selectedYear: { _id: selectedYearId, name: selectedYear.name },
             activeYear: activeYear ? { _id: activeYearId, name: activeYear.name } : null,
-            previousYearClasses: fromClasses.map(c => ({ _id: String(c._id), name: c.name, level: c.level }))
+            previousYearClasses: fromClasses.map(c => ({ _id: String(c._id), name: c.name, level: c.level })),
+            promotionEligibility: {
+                hasNextYear: !!nextYear,
+                nextYearName: nextYear?.name || null,
+                hasNextLevel: !!nextLevel,
+                nextLevelName: nextLevel || null
+            }
         })
     } catch (e: any) {
         console.error('ps-onboarding/students error:', e)
@@ -891,6 +946,18 @@ adminExtrasRouter.post('/ps-onboarding/assign-class', requireAuth(['ADMIN']), as
     }
 })
 
+// PS Onboarding: Upload a custom signature image
+adminExtrasRouter.post('/ps-onboarding/custom-signature/upload', requireAuth(['ADMIN']), psSignatureUpload.single('file'), async (req: any, res) => {
+    try {
+        if (!req.file) return res.status(400).json({ error: 'no_file' })
+        const signatureUrl = `/uploads/ps-signatures/${req.file.filename}`
+        res.json({ signatureUrl })
+    } catch (e: any) {
+        console.error('ps-onboarding/custom-signature/upload error:', e)
+        res.status(500).json({ error: 'upload_failed', message: e.message })
+    }
+})
+
 // PS Onboarding: Batch sign gradebooks
 adminExtrasRouter.post('/ps-onboarding/batch-sign', requireAuth(['ADMIN']), async (req, res) => {
     try {
@@ -902,6 +969,7 @@ adminExtrasRouter.post('/ps-onboarding/batch-sign', requireAuth(['ADMIN']), asyn
             signatureType, // 'sem1' | 'sem2' | 'both'
             signatureSource, // 'admin' | 'subadmin'
             subadminId,
+            customSignatureUrl,
             schoolYearId,
             fromLevel,
             sem1SignedAt, // optional custom date for sem1
@@ -914,14 +982,23 @@ adminExtrasRouter.post('/ps-onboarding/batch-sign', requireAuth(['ADMIN']), asyn
         if (signatureSource === 'subadmin' && !subadminId) {
             return res.status(400).json({ error: 'missing_subadmin_id' })
         }
+        if (signatureSource === 'custom' && !customSignatureUrl) {
+            return res.status(400).json({ error: 'missing_custom_signature_url' })
+        }
 
         // Get signer ID and signature URL
         const signerId = signatureSource === 'subadmin' ? subadminId : adminId
         let signatureUrl: string | undefined
+        let signatureData: string | undefined
 
         if (signatureSource === 'admin') {
             const adminSig = await AdminSignature.findOne({ isActive: true }).lean()
             signatureUrl = adminSig?.dataUrl
+            signatureData = adminSig?.dataUrl
+        } else if (signatureSource === 'custom') {
+            signatureUrl = String(customSignatureUrl)
+            const baseUrl = `${req.protocol}://${req.get('host')}`
+            signatureData = await buildSignatureSnapshot(signatureUrl, baseUrl)
         } else {
             // Get subadmin signature
             let subadmin = await User.findById(subadminId).lean() as any
@@ -929,6 +1006,8 @@ adminExtrasRouter.post('/ps-onboarding/batch-sign', requireAuth(['ADMIN']), asyn
                 subadmin = await OutlookUser.findById(subadminId).lean()
             }
             signatureUrl = subadmin?.signatureUrl
+            const baseUrl = `${req.protocol}://${req.get('host')}`
+            signatureData = await buildSignatureSnapshot(signatureUrl, baseUrl)
         }
 
         const { fromLevel: normalizedFromLevel, classLevels } = getFromLevelConfig(fromLevel)
@@ -1001,6 +1080,7 @@ adminExtrasRouter.post('/ps-onboarding/batch-sign', requireAuth(['ADMIN']), asyn
                 typesToSign.push({ type: 'end_of_year', periodId: endOfYearPeriodId })
             }
 
+            let signedSuccessfully = false
             for (const { type, periodId } of typesToSign) {
                 try {
                     // Use custom date if provided, otherwise use current date
@@ -1018,6 +1098,7 @@ adminExtrasRouter.post('/ps-onboarding/batch-sign', requireAuth(['ADMIN']), asyn
                         signerId,
                         type,
                         signatureUrl,
+                        signatureData,
                         level,
                         signaturePeriodId: periodId,
                         signatureSchoolYearId: schoolYearId,
@@ -1026,7 +1107,48 @@ adminExtrasRouter.post('/ps-onboarding/batch-sign', requireAuth(['ADMIN']), asyn
                         req
                     })
 
+                    signedSuccessfully = true
                     results.success++
+
+                    // Create SavedGradebook snapshot after S1 signing only
+                    // S2/promotion snapshot is created during the promotion step
+                    if (type === 'standard' && (signatureType === 'sem1' || signatureType === 'both')) {
+                        try {
+                            const snapshotReason = 'sem1'
+
+                            // Re-fetch assignment to get updated data with signatures
+                            const updatedAssignment = await TemplateAssignment.findById(assignmentId).lean()
+                            if (updatedAssignment) {
+                                const statuses = await StudentCompetencyStatus.find({ studentId: assignment.studentId }).lean()
+                                const signatures = await TemplateSignature.find({ templateAssignmentId: assignmentId }).lean()
+                                const sem1Signatures = signatures.filter((s: any) => s.type !== 'end_of_year')
+
+                                const snapshotData = {
+                                    student: student,
+                                    enrollment: enrollment,
+                                    statuses: statuses,
+                                    assignment: updatedAssignment,
+                                    className: className,
+                                    signatures: sem1Signatures,
+                                    signature: sem1Signatures.find((s: any) => s.type === 'standard') || null,
+                                    finalSignature: null
+                                }
+
+                                await createAssignmentSnapshot(
+                                    updatedAssignment,
+                                    snapshotReason as any,
+                                    {
+                                        schoolYearId,
+                                        level: level || 'Sans niveau',
+                                        classId: enrollment?.classId || undefined,
+                                        data: snapshotData
+                                    }
+                                )
+                            }
+                        } catch (snapshotError) {
+                            console.error('Failed to create snapshot for student', assignment.studentId, snapshotError)
+                        }
+                    }
                 } catch (signError: any) {
                     const msg = String(signError?.message || '')
                     if (msg.includes('already_signed')) {
@@ -1042,6 +1164,7 @@ adminExtrasRouter.post('/ps-onboarding/batch-sign', requireAuth(['ADMIN']), asyn
                     }
                 }
             }
+
         }
 
         await logAudit({
@@ -1340,6 +1463,39 @@ adminExtrasRouter.post('/ps-onboarding/batch-promote', requireAuth(['ADMIN']), a
                     })
                     assignmentForUpdate.markModified('data')
                     await assignmentForUpdate.save()
+
+                    // Create SavedGradebook snapshot after promotion
+                    try {
+                        const updatedAssignment = await TemplateAssignment.findById(assignment._id).lean()
+                        if (updatedAssignment) {
+                            const statuses = await StudentCompetencyStatus.find({ studentId: sid }).lean()
+                            const allSignatures = await TemplateSignature.find({ templateAssignmentId: String(assignment._id) }).lean()
+                            
+                            const snapshotData = {
+                                student: student,
+                                enrollment: oldEnrollment,
+                                statuses: statuses,
+                                assignment: updatedAssignment,
+                                className: className,
+                                signatures: allSignatures,
+                                signature: allSignatures.find((s: any) => s.type === 'standard') || null,
+                                finalSignature: allSignatures.find((s: any) => s.type === 'end_of_year') || null,
+                            }
+
+                            await createAssignmentSnapshot(
+                                updatedAssignment,
+                                'promotion',
+                                {
+                                    schoolYearId,
+                                    level: normalizedFromLevel || 'Sans niveau',
+                                    classId: oldEnrollment?.classId || undefined,
+                                    data: snapshotData
+                                }
+                            )
+                        }
+                    } catch (snapshotError) {
+                        console.error('Failed to create promotion snapshot for student', sid, snapshotError)
+                    }
                 }
 
                 results.success++

@@ -1,361 +1,358 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import api from '../api'
-import { GradebookRenderer } from '../components/GradebookRenderer'
 import { openPdfExport, buildSavedGradebookPdfUrl } from '../utils/pdfExport'
 import './AdminGradebooks.css'
 
+interface YearData {
+    yearId: string
+    yearName: string
+    level: string
+    s1: { _id: string; createdAt: string } | null
+    s2: { _id: string; createdAt: string } | null
+    allSnapshots: any[]
+}
+
+interface StudentEntry {
+    studentId: string
+    firstName: string
+    lastName: string
+    currentLevel: string
+    avatarUrl?: string
+    years: YearData[]
+    exitedAt?: string
+    exitedFromLevel?: string
+}
+
 export default function AdminGradebooks() {
-    const [viewMode, setViewMode] = useState<'saved' | 'manual'>('saved')
+    const [viewMode, setViewMode] = useState<'current' | 'archived'>('current')
+    const [loading, setLoading] = useState(true)
+    const [currentStudents, setCurrentStudents] = useState<StudentEntry[]>([])
+    const [archivedStudents, setArchivedStudents] = useState<StudentEntry[]>([])
+    const [searchQuery, setSearchQuery] = useState('')
+    const [selectedStudent, setSelectedStudent] = useState<StudentEntry | null>(null)
+    const [expandedYears, setExpandedYears] = useState<Set<string>>(new Set())
 
-    // --- Saved Gradebooks State ---
-    const [savedYears, setSavedYears] = useState<any[]>([])
-    const [selectedSavedYear, setSelectedSavedYear] = useState<string>('')
-    const [savedLevels, setSavedLevels] = useState<string[]>([])
-    const [selectedSavedLevel, setSelectedSavedLevel] = useState<string>('')
-    const [savedStudents, setSavedStudents] = useState<any[]>([])
-    const [selectedSavedStudentId, setSelectedSavedStudentId] = useState<string>('')
-    const [savedGradebook, setSavedGradebook] = useState<any>(null)
-    const [savedTemplate, setSavedTemplate] = useState<any>(null)
-    const [loadingSaved, setLoadingSaved] = useState(false)
+    // School year filter
+    const [allYears, setAllYears] = useState<{ _id: string; name: string; active?: boolean }[]>([])
+    const [selectedYearId, setSelectedYearId] = useState<string>('')
 
-    // --- Manual Save State ---
-    const [years, setYears] = useState<any[]>([])
-    const [year, setYear] = useState<any | null>(null)
-    const [classes, setClasses] = useState<any[]>([])
-    const [classId, setClassId] = useState('')
-    const [students, setStudents] = useState<any[]>([])
-    const [studentId, setStudentId] = useState('')
-    const [templates, setTemplates] = useState<any[]>([])
-    const [templateId, setTemplateId] = useState('')
-    const [pwd, setPwd] = useState('')
-    const [files, setFiles] = useState<{ name: string, path: string, type: string }[]>([])
-
-    // --- Effects for Saved View ---
+    // Load school years on mount
     useEffect(() => {
-        if (viewMode === 'saved') {
-            api.get('/saved-gradebooks/years').then(r => setSavedYears(r.data))
-        }
-    }, [viewMode])
+        loadYears()
+    }, [])
 
+    // Load students when year/view changes
     useEffect(() => {
-        if (selectedSavedYear) {
-            api.get(`/saved-gradebooks/years/${selectedSavedYear}/levels`).then(r => setSavedLevels(r.data))
-            setSelectedSavedLevel('')
-            setSavedStudents([])
-            setSavedGradebook(null)
+        if (viewMode === 'archived') {
+            loadAllStudents()
+            return
         }
-    }, [selectedSavedYear])
-
-    useEffect(() => {
-        if (selectedSavedYear && selectedSavedLevel) {
-            api.get(`/saved-gradebooks/years/${selectedSavedYear}/levels/${selectedSavedLevel}/students`).then(r => setSavedStudents(r.data))
-            setSelectedSavedStudentId('')
-            setSavedGradebook(null)
+        if (selectedYearId) {
+            loadAllStudents(selectedYearId)
         }
-    }, [selectedSavedLevel])
+    }, [selectedYearId, viewMode])
 
-    useEffect(() => {
-        if (selectedSavedStudentId) {
-            setLoadingSaved(true)
-            api.get(`/saved-gradebooks/${selectedSavedStudentId}`).then(async r => {
-                setSavedGradebook(r.data)
-                if (r.data.templateId) {
-                    const t = await api.get(`/templates/${r.data.templateId}`)
-                    let templateData = t.data
 
-                    // Handle versioning
-                    const assignment = r.data.data?.assignment
-                    const templateVersion = assignment?.templateVersion ?? r.data.meta?.templateVersion
-                    if (templateVersion && templateData.versionHistory) {
-                        const version = templateData.versionHistory.find((v: any) => v.version === templateVersion)
-                        if (version) {
-                            templateData = {
-                                ...templateData,
-                                pages: version.pages,
-                                variables: version.variables || {},
-                                watermark: version.watermark
-                            }
-                        }
-                    }
-
-                    setSavedTemplate(templateData)
-                }
-                setLoadingSaved(false)
-            })
+    const loadYears = async () => {
+        try {
+            const res = await api.get('/school-years')
+            const years = res.data || []
+            setAllYears(years)
+            // Default to active year
+            const activeYear = years.find((y: any) => y.active)
+            if (activeYear) {
+                setSelectedYearId(activeYear._id)
+            } else if (years.length > 0) {
+                setSelectedYearId(years[0]._id)
+            }
+        } catch (e) {
+            console.error('Failed to load years:', e)
         }
-    }, [selectedSavedStudentId])
-
-    // --- Effects for Manual View ---
-    const loadYears = async () => { const r = await api.get('/school-years'); setYears(r.data) }
-    const loadClasses = async (yr: string) => { const r = await api.get('/classes', { params: { schoolYearId: yr } }); setClasses(r.data) }
-    const loadStudents = async (cls: string) => { const r = await api.get(`/students/by-class/${cls}`); setStudents(r.data) }
-    const loadTemplates = async () => { const r = await api.get('/templates'); setTemplates(r.data) }
-    const listSaved = async () => { if (!year || !classId) { setFiles([]); return } const r = await api.get('/media/list', { params: { folder: `gradebooks/${year._id}/${classId}` } }); setFiles(r.data) }
-
-    useEffect(() => {
-        if (viewMode === 'manual') {
-            loadYears(); loadTemplates()
-        }
-    }, [viewMode])
-
-    useEffect(() => { if (year) { loadClasses(year._id); setClassId(''); setStudents([]); setFiles([]) } }, [year])
-    useEffect(() => { if (classId) { loadStudents(classId); listSaved() } }, [classId])
-
-    // --- Manual Actions ---
-    const uploadBlob = async (folder: string, filename: string, blob: Blob, mime: string) => {
-        const fd = new FormData()
-        fd.append('file', new File([blob], filename, { type: mime }))
-        await fetch(`/media/upload?folder=${encodeURIComponent(folder)}`, { method: 'POST', headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` }, body: fd })
     }
-    const saveStudent = async () => {
-        if (!year || !classId || !studentId) return
-        const q: string[] = []
-        if (templateId) q.push(`templateId=${encodeURIComponent(templateId)}`)
-        if (pwd) q.push(`pwd=${encodeURIComponent(pwd)}`)
-        const url = `/pdf/student/${studentId}${q.length ? '?' + q.join('&') : ''}`
-        const r = await fetch(url, { headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` } })
-        const blob = await r.blob()
-        const name = `student-${studentId}.pdf`
-        await uploadBlob(`gradebooks/${year._id}/${classId}`, name, blob, 'application/pdf')
-        await listSaved()
-    }
-    const saveClass = async () => {
-        if (!year || !classId) return
-        const q: string[] = []
-        if (templateId) q.push(`templateId=${encodeURIComponent(templateId)}`)
-        if (pwd) q.push(`pwd=${encodeURIComponent(pwd)}`)
-        const url = `/pdf/class/${classId}/batch${q.length ? '?' + q.join('&') : ''}`
-        const r = await fetch(url, { headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` } })
-        const blob = await r.blob()
-        const name = `class-${classId}.zip`
-        await uploadBlob(`gradebooks/${year._id}/${classId}`, name, blob, 'application/zip')
-        await listSaved()
-    }
-    const saveYear = async () => {
-        if (!year) return
-        for (const c of classes) {
-            const q: string[] = []
-            if (templateId) q.push(`templateId=${encodeURIComponent(templateId)}`)
-            if (pwd) q.push(`pwd=${encodeURIComponent(pwd)}`)
-            const url = `/pdf/class/${c._id}/batch${q.length ? '?' + q.join('&') : ''}`
-            const r = await fetch(url, { headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` } })
-            const blob = await r.blob()
-            const name = `class-${c._id}.zip`
-            await uploadBlob(`gradebooks/${year._id}/${c._id}`, name, blob, 'application/zip')
+
+    const loadAllStudents = async (yearId?: string) => {
+        setLoading(true)
+        setSelectedStudent(null)
+        try {
+            const params = yearId ? { schoolYearId: yearId } : {}
+            const res = await api.get('/saved-gradebooks/admin/all-students', { params })
+            setCurrentStudents(res.data.current || [])
+            setArchivedStudents(res.data.archived || [])
+        } catch (e) {
+            console.error('Failed to load students:', e)
+        } finally {
+            setLoading(false)
         }
-        await listSaved()
+    }
+
+    const students = viewMode === 'current' ? currentStudents : archivedStudents
+
+    const filteredStudents = useMemo(() => {
+        if (!searchQuery.trim()) return students
+        const q = searchQuery.toLowerCase()
+        return students.filter(s =>
+            `${s.firstName} ${s.lastName}`.toLowerCase().includes(q) ||
+            `${s.lastName} ${s.firstName}`.toLowerCase().includes(q)
+        )
+    }, [students, searchQuery])
+
+    const exportGradebook = (gradebookId: string) => {
+        const base = (api.defaults.baseURL || '').replace(/\/$/, '')
+        const pdfUrl = buildSavedGradebookPdfUrl(base, gradebookId)
+        const studentFullName = selectedStudent
+            ? `${selectedStudent.firstName} ${selectedStudent.lastName}`
+            : 'Carnet'
+        openPdfExport(pdfUrl, studentFullName, 'single', 1)
+    }
+
+    const toggleYear = (yearId: string) => {
+        const next = new Set(expandedYears)
+        if (next.has(yearId)) next.delete(yearId)
+        else next.add(yearId)
+        setExpandedYears(next)
+    }
+
+    const formatDate = (dateStr: string) => {
+        if (!dateStr) return ''
+        return new Date(dateStr).toLocaleDateString('fr-FR', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric'
+        })
+    }
+
+    const formatSnapshotReason = (reason: string) => {
+        switch (reason) {
+            case 'sem1':
+                return 'Semestre 1'
+            case 'year_end':
+                return 'Semestre 2'
+            case 'promotion':
+                return 'Promotion'
+            case 'transfer':
+                return 'Transfert'
+            case 'exit':
+                return 'Sortie'
+            case 'manual':
+                return 'Manuel'
+            default:
+                return reason || 'Snapshot'
+        }
     }
 
     return (
         <div className="gradebooks-container">
             <div className="gradebooks-header">
-                <h2 className="gradebooks-title">Carnets sauvegardés</h2>
-                <div className="mode-switcher">
-                    <button
-                        className={`mode-btn ${viewMode === 'saved' ? 'active' : ''}`}
-                        onClick={() => setViewMode('saved')}
-                    >
-                        Archives
-                    </button>
-                    <button
-                        className={`mode-btn ${viewMode === 'manual' ? 'active' : ''}`}
-                        onClick={() => setViewMode('manual')}
-                    >
-                        Sauvegarde Manuelle
-                    </button>
+                <h2 className="gradebooks-title">📚 Carnets Scolaires</h2>
+                <div className="header-controls">
+                    <div className="year-selector">
+                        <label>Année scolaire:</label>
+                        <select
+                            value={selectedYearId}
+                            onChange={e => setSelectedYearId(e.target.value)}
+                            className="year-select"
+                            disabled={viewMode === 'archived'}
+                        >
+                            {allYears.map(y => (
+                                <option key={y._id} value={y._id}>
+                                    {y.name} {y.active ? '(active)' : ''}
+                                </option>
+                            ))}
+                        </select>
+                        {viewMode === 'archived' && (
+                            <span className="year-note">Toutes les années affichées</span>
+                        )}
+                    </div>
+                    <div className="mode-switcher">
+                        <button
+                            className={`mode-btn ${viewMode === 'current' ? 'active' : ''}`}
+                            onClick={() => { setViewMode('current'); setSelectedStudent(null) }}
+                        >
+                            🎓 En cours ({currentStudents.length})
+                        </button>
+                        <button
+                            className={`mode-btn ${viewMode === 'archived' ? 'active' : ''}`}
+                            onClick={() => { setViewMode('archived'); setSelectedStudent(null) }}
+                        >
+                            📦 Archives ({archivedStudents.length})
+                        </button>
+                    </div>
                 </div>
             </div>
 
-            {viewMode === 'saved' && (
-                <div className="content-area">
-                    <div className="filters-bar">
-                        <div className="filter-group">
-                            <label className="filter-label">Année Scolaire</label>
-                            <select
-                                className="filter-select"
-                                value={selectedSavedYear}
-                                onChange={e => setSelectedSavedYear(e.target.value)}
-                            >
-                                <option value="">Sélectionner une année</option>
-                                {savedYears.map(y => <option key={y._id} value={y._id}>{y.name}</option>)}
-                            </select>
-                        </div>
-
-                        <div className="filter-group">
-                            <label className="filter-label">Niveau</label>
-                            <select
-                                className="filter-select"
-                                value={selectedSavedLevel}
-                                onChange={e => setSelectedSavedLevel(e.target.value)}
-                                disabled={!selectedSavedYear}
-                            >
-                                <option value="">Sélectionner un niveau</option>
-                                {savedLevels.map(l => <option key={l} value={l}>{l}</option>)}
-                            </select>
-                        </div>
-
-                        <div className="filter-group">
-                            <label className="filter-label">Élève</label>
-                            <select
-                                className="filter-select"
-                                value={selectedSavedStudentId}
-                                onChange={e => setSelectedSavedStudentId(e.target.value)}
-                                disabled={!selectedSavedLevel}
-                            >
-                                <option value="">Sélectionner un élève</option>
-                                {savedStudents.map(s => <option key={s._id} value={s._id}>{s.firstName} {s.lastName}</option>)}
-                            </select>
-                        </div>
+            <div className="gradebooks-layout">
+                {/* Left Panel - Student List */}
+                <div className="students-panel">
+                    <div className="search-box">
+                        <input
+                            type="text"
+                            placeholder="🔍 Rechercher un élève..."
+                            value={searchQuery}
+                            onChange={e => setSearchQuery(e.target.value)}
+                            className="search-input"
+                        />
                     </div>
 
-                    {loadingSaved && (
-                        <div className="empty-state">
-                            <div className="empty-icon">⏳</div>
-                            <div>Chargement du carnet...</div>
+                    {loading ? (
+                        <div className="panel-loading">Chargement...</div>
+                    ) : filteredStudents.length === 0 ? (
+                        <div className="panel-empty">
+                            {searchQuery ? 'Aucun élève trouvé' : 'Aucun carnet sauvegardé'}
                         </div>
-                    )}
-
-                    {savedGradebook && savedTemplate && (
-                        <div>
-                            <div className="preview-actions">
-                                <button className="action-btn" onClick={() => {
-                                    const base = (api.defaults.baseURL || '').replace(/\/$/, '')
-                                    const pdfUrl = buildSavedGradebookPdfUrl(base, savedGradebook._id)
-                                    const studentFullName = `${savedGradebook.data.student.firstName} ${savedGradebook.data.student.lastName}`
-                                    openPdfExport(pdfUrl, studentFullName, 'single', 1)
-                                }}>
-                                    <span>🖨️ Imprimer / PDF</span>
-                                </button>
-                            </div>
-                            <div className="preview-container">
-                                <GradebookRenderer
-                                    template={savedTemplate}
-                                    student={savedGradebook.data.student}
-                                    assignment={savedGradebook.data.assignment}
-                                    signature={savedGradebook.data.signatures?.find((s: any) => s.type === 'standard') ||
-                                        savedGradebook.data.assignment?.data?.signatures?.find((s: any) => s.type === 'standard') ||
-                                        savedGradebook.data.signature}
-                                    finalSignature={savedGradebook.data.signatures?.find((s: any) => s.type === 'end_of_year') ||
-                                        savedGradebook.data.assignment?.data?.signatures?.find((s: any) => s.type === 'end_of_year') ||
-                                        savedGradebook.data.finalSignature}
-                                />
-                            </div>
-                        </div>
-                    )}
-
-                    {!savedGradebook && !loadingSaved && (
-                        <div className="empty-state">
-                            <div className="empty-icon">📚</div>
-                            <div>
-                                {selectedSavedStudentId
-                                    ? "Aucun carnet trouvé pour cet élève."
-                                    : "Sélectionnez une année, un niveau et un élève pour voir le carnet archivé."}
-                            </div>
-                        </div>
-                    )}
-                </div>
-            )}
-
-            {viewMode === 'manual' && (
-                <div className="content-area">
-                    <div className="filters-bar">
-                        <div className="filter-group">
-                            <label className="filter-label">Année Scolaire</label>
-                            <select
-                                className="filter-select"
-                                value={year?._id || ''}
-                                onChange={e => { const y = years.find(yy => yy._id === e.target.value); setYear(y || null) }}
-                            >
-                                <option value="">Sélectionner une année</option>
-                                {years.map(y => <option key={y._id} value={y._id}>{y.name}</option>)}
-                            </select>
-                        </div>
-
-                        <div className="filter-group">
-                            <label className="filter-label">Classe</label>
-                            <select
-                                className="filter-select"
-                                value={classId}
-                                onChange={e => setClassId(e.target.value)}
-                                disabled={!year}
-                            >
-                                <option value="">Sélectionner une classe</option>
-                                {classes.map(c => <option key={c._id} value={c._id}>{c.name}</option>)}
-                            </select>
-                        </div>
-
-                        <div className="filter-group">
-                            <label className="filter-label">Élève (Optionnel)</label>
-                            <select
-                                className="filter-select"
-                                value={studentId}
-                                onChange={e => setStudentId(e.target.value)}
-                                disabled={!classId}
-                            >
-                                <option value="">Tous les élèves</option>
-                                {students.map(s => <option key={s._id} value={s._id}>{s.firstName} {s.lastName}</option>)}
-                            </select>
-                        </div>
-
-                        <div className="filter-group">
-                            <label className="filter-label">Modèle (Optionnel)</label>
-                            <select
-                                className="filter-select"
-                                value={templateId}
-                                onChange={e => setTemplateId(e.target.value)}
-                            >
-                                <option value="">Modèle par défaut</option>
-                                {templates.map(t => <option key={String(t._id)} value={String(t._id)}>{t.name}</option>)}
-                            </select>
-                        </div>
-
-                        <div className="filter-group">
-                            <label className="filter-label">Mot de passe (Optionnel)</label>
-                            <input
-                                className="filter-input"
-                                placeholder="Mot de passe export"
-                                value={pwd}
-                                onChange={e => setPwd(e.target.value)}
-                            />
-                        </div>
-                    </div>
-
-                    <div className="manual-actions">
-                        <button className="action-btn" onClick={saveYear} disabled={!year}>
-                            <span>💾 Sauvegarder Année</span>
-                        </button>
-                        <button className="action-btn" onClick={saveClass} disabled={!classId}>
-                            <span>💾 Sauvegarder Classe</span>
-                        </button>
-                        <button className="action-btn" onClick={saveStudent} disabled={!studentId}>
-                            <span>💾 Sauvegarder Élève</span>
-                        </button>
-                    </div>
-
-                    <div className="files-section">
-                        <h4 className="files-title">📂 Fichiers enregistrés</h4>
-                        {files.length === 0 ? (
-                            <div className="empty-state">
-                                <div className="empty-icon">📁</div>
-                                <div>Aucun fichier trouvé pour cette sélection.</div>
-                            </div>
-                        ) : (
-                            <div className="files-grid">
-                                {files.map(u => (
-                                    <div key={u.path} className="file-card">
-                                        <div className="file-name">{u.name}</div>
-                                        <div className="file-actions">
-                                            <a className="download-link" href={`/uploads${u.path}`} target="_blank">
-                                                ⬇️ Télécharger
-                                            </a>
+                    ) : (
+                        <div className="students-list">
+                            {filteredStudents.map(student => (
+                                <div
+                                    key={student.studentId}
+                                    className={`student-item ${selectedStudent?.studentId === student.studentId ? 'selected' : ''}`}
+                                    onClick={() => { setSelectedStudent(student); setExpandedYears(new Set()) }}
+                                >
+                                    <div className="student-avatar">
+                                        {student.avatarUrl ? (
+                                            <img src={student.avatarUrl} alt="" />
+                                        ) : (
+                                            <span>{student.firstName[0]}{student.lastName[0]}</span>
+                                        )}
+                                    </div>
+                                    <div className="student-info">
+                                        <div className="student-name">{student.lastName} {student.firstName}</div>
+                                        <div className="student-meta">
+                                            {viewMode === 'archived' ? (
+                                                <span className="badge badge-archived">
+                                                    Sorti {student.exitedFromLevel ? `de ${student.exitedFromLevel}` : ''}
+                                                </span>
+                                            ) : (
+                                                <span className="badge badge-level">{student.currentLevel || 'N/A'}</span>
+                                            )}
+                                            <span className="years-count">{student.years.length} année(s)</span>
                                         </div>
                                     </div>
-                                ))}
-                            </div>
-                        )}
-                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </div>
-            )}
+
+                {/* Right Panel - Student Detail / Gradebook Viewer */}
+                <div className="detail-panel">
+                    {!selectedStudent ? (
+                        <div className="detail-empty">
+                            <div className="empty-icon">👈</div>
+                            <div>Sélectionnez un élève pour voir ses carnets</div>
+                        </div>
+                    ) : (
+                        <div className="student-detail">
+                            <div className="detail-header">
+                                <div className="detail-avatar">
+                                    {selectedStudent.avatarUrl ? (
+                                        <img src={selectedStudent.avatarUrl} alt="" />
+                                    ) : (
+                                        <span>{selectedStudent.firstName[0]}{selectedStudent.lastName[0]}</span>
+                                    )}
+                                </div>
+                                <div className="detail-title">
+                                    <h3>{selectedStudent.lastName} {selectedStudent.firstName}</h3>
+                                    {viewMode === 'archived' && selectedStudent.exitedAt && (
+                                        <p className="exit-info">
+                                            Sorti le {formatDate(selectedStudent.exitedAt)}
+                                            {selectedStudent.exitedFromLevel && ` (${selectedStudent.exitedFromLevel} → EB1)`}
+                                        </p>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div className="years-timeline">
+                                <h4>📅 Historique des carnets</h4>
+                                {selectedStudent.years.length === 0 ? (
+                                    <div className="no-years">Aucun carnet enregistré</div>
+                                ) : (
+                                    <div className="years-list">
+                                        {selectedStudent.years.map(year => (
+                                            <div key={year.yearId} className="year-card">
+                                                <div
+                                                    className="year-header"
+                                                    onClick={() => toggleYear(year.yearId)}
+                                                >
+                                                    <span className="year-name">{year.yearName}</span>
+                                                    <span className="year-level">{year.level}</span>
+                                                    <span className="year-toggle">
+                                                        {expandedYears.has(year.yearId) ? '▼' : '▶'}
+                                                    </span>
+                                                </div>
+
+                                                {expandedYears.has(year.yearId) && (
+                                                    <div className="year-content">
+                                                        {viewMode === 'archived' ? (
+                                                            <div className="snapshot-list">
+                                                                {[...year.allSnapshots]
+                                                                    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+                                                                    .map(snapshot => (
+                                                                        <div key={snapshot._id} className="snapshot-item">
+                                                                            <div className="snapshot-meta">
+                                                                                <div className="snapshot-reason">{formatSnapshotReason(snapshot.snapshotReason)}</div>
+                                                                                <div className="snapshot-sub">
+                                                                                    <span>{snapshot.level || year.level}</span>
+                                                                                    <span>•</span>
+                                                                                    <span>{formatDate(snapshot.createdAt)}</span>
+                                                                                </div>
+                                                                            </div>
+                                                                            <button
+                                                                                className="view-btn"
+                                                                                onClick={() => exportGradebook(snapshot._id)}
+                                                                            >
+                                                                                🖨️ Exporter PDF
+                                                                            </button>
+                                                                        </div>
+                                                                    ))}
+                                                            </div>
+                                                        ) : (
+                                                            <div className="semester-grid">
+                                                                <div className={`semester-card ${year.s1 ? 'available' : 'unavailable'}`}>
+                                                                    <div className="semester-label">S1</div>
+                                                                    {year.s1 ? (
+                                                                        <>
+                                                                            <div className="semester-date">{formatDate(year.s1.createdAt)}</div>
+                                                                            <button
+                                                                                className="view-btn"
+                                                                                onClick={() => exportGradebook(year.s1!._id)}
+                                                                            >
+                                                                                🖨️ Exporter PDF
+                                                                            </button>
+                                                                        </>
+                                                                    ) : (
+                                                                        <div className="semester-na">Non disponible</div>
+                                                                    )}
+                                                                </div>
+
+                                                                <div className={`semester-card ${year.s2 ? 'available' : 'unavailable'}`}>
+                                                                    <div className="semester-label">S2</div>
+                                                                    {year.s2 ? (
+                                                                        <>
+                                                                            <div className="semester-date">{formatDate(year.s2.createdAt)}</div>
+                                                                            <button
+                                                                                className="view-btn"
+                                                                                onClick={() => exportGradebook(year.s2!._id)}
+                                                                            >
+                                                                                🖨️ Exporter PDF
+                                                                            </button>
+                                                                        </>
+                                                                    ) : (
+                                                                        <div className="semester-na">Non disponible</div>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            </div>
         </div>
     )
 }

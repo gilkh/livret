@@ -58,7 +58,7 @@ exports.settingsRouter.get('/status', (0, auth_1.requireAuth)(['ADMIN']), async 
 });
 exports.settingsRouter.get('/public', async (req, res) => {
     const settings = await Setting_1.Setting.find({
-        key: { $in: ['login_enabled_microsoft', 'school_name', 'nav_permissions', 'teacher_quick_grading_enabled', 'mobile_block_enabled', 'mobile_min_width'] }
+        key: { $in: ['login_enabled_microsoft', 'school_name', 'nav_permissions', 'teacher_quick_grading_enabled', 'mobile_block_enabled', 'mobile_min_width', 'block_visibility', 'block_visibility_instances', 'block_visibility_settings'] }
     }).lean();
     const settingsMap = {};
     settings.forEach(s => {
@@ -77,6 +77,12 @@ exports.settingsRouter.get('/public', async (req, res) => {
         settingsMap.mobile_block_enabled = false;
     if (settingsMap.mobile_min_width === undefined)
         settingsMap.mobile_min_width = 1024;
+    if (settingsMap.block_visibility === undefined)
+        settingsMap.block_visibility = {};
+    if (settingsMap.block_visibility_instances === undefined)
+        settingsMap.block_visibility_instances = {};
+    if (settingsMap.block_visibility_settings === undefined)
+        settingsMap.block_visibility_settings = {};
     res.json(settingsMap);
 });
 exports.settingsRouter.get('/', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {

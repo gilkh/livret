@@ -68,6 +68,7 @@ interface SignTemplateOptions {
     signerId: string
     type?: 'standard' | 'end_of_year'
     signatureUrl?: string
+    signatureData?: string
     req?: any
     level?: string
     // Allow the caller to supply an explicit signature period to avoid ambiguous date heuristics
@@ -279,6 +280,7 @@ export const signTemplateAssignment = async ({
     signerId,
     type = 'standard',
     signatureUrl,
+    signatureData,
     req,
     level,
     signaturePeriodId: explicitSignaturePeriodId,
@@ -389,6 +391,7 @@ export const signTemplateAssignment = async ({
                     status: 'signed',
                     type,
                     signatureUrl,
+                    signatureData,
                     level,
                     signaturePeriodId,
                     schoolYearId,
@@ -452,6 +455,7 @@ export const signTemplateAssignment = async ({
                     status: 'signed',
                     type,
                     signatureUrl,
+                    signatureData,
                     level,
                     signaturePeriodId,
                     schoolYearId,

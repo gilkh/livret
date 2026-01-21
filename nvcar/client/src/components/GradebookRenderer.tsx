@@ -3,7 +3,7 @@ import { useLevels } from '../context/LevelContext'
 import { useSchoolYear } from '../context/SchoolYearContext'
 import { GradebookPocket } from './GradebookPocket'
 import { CroppedImage } from './CroppedImage'
-import { computeSignatureStatusForBlock } from '../utils/signatureVisibility'
+// Block visibility is now controlled entirely by admin settings (block_visibility_settings)
 
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
@@ -22,9 +22,11 @@ interface GradebookRendererProps {
     finalSignature?: any
     visiblePages?: number[]
     activeSchoolYearName?: string
+    blockVisibilitySettings?: any
+    viewType?: 'subadmin' | 'pdf' | 'teacher'
 }
 
-export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, student, assignment, signature, finalSignature, visiblePages, activeSchoolYearName }) => {
+export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, student, assignment, signature, finalSignature, visiblePages, activeSchoolYearName, blockVisibilitySettings, viewType = 'pdf' }) => {
     const { levels } = useLevels()
     const { activeYear } = useSchoolYear()
 
@@ -111,6 +113,11 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
         return `${start + 1}${sep}${end + 1}`
     }
 
+    const getSignatureImageSrc = (sig: any) => {
+        if (!sig) return null
+        return sig.signatureData || sig.signatureUrl || null
+    }
+
     const getPromotionYearLabel = (promo: any, blockLevel: string | null) => {
         const year = String(promo?.year || '')
         if (year) {
@@ -142,6 +149,40 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
 
         const next = computeNextSchoolYearName(year)
         return next || year
+    }
+
+    const getPromotionCurrentYearLabel = (promo: any, blockLevel: string | null, period?: string) => {
+        const history = assignment?.data?.signatures || []
+        const wantEndOfYear = period === 'end-year'
+        const isMidYearBlock = period === 'mid-year'
+        const candidates = history.filter((sig: any) => {
+            if (wantEndOfYear) {
+                if (sig.type !== 'end_of_year') return false
+            } else if (isMidYearBlock) {
+                if (sig.type && sig.type !== 'standard') return false
+            }
+            if (sig.level && blockLevel && sig.level !== blockLevel) return false
+            return true
+        }).sort((a: any, b: any) => {
+            const ad = new Date(a.signedAt || 0).getTime()
+            const bd = new Date(b.signedAt || 0).getTime()
+            return bd - ad
+        })
+
+        const sig = candidates[0]
+        if (sig) {
+            let yearLabel = String(sig.schoolYearName || '').trim()
+            if (!yearLabel && sig.signedAt) {
+                const d = new Date(sig.signedAt)
+                const y = d.getFullYear()
+                const m = d.getMonth()
+                const startYear = m >= 8 ? y : y - 1
+                yearLabel = `${startYear}/${startYear + 1}`
+            }
+            if (yearLabel) return yearLabel
+        }
+
+        return String(promo?.year || '')
     }
 
     const isSignedForLevel = (level: string, type: 'standard' | 'end_of_year') => {
@@ -221,38 +262,119 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
         return false
     }
 
-    // Helper to check if a block should be visible based on signatures
-    const isBlockVisible = (b: Block) => {
-        const blockLevel = getBlockLevel(b)
+    // Build visibility key for a block
+    const buildVisibilityKey = (tplId: string | undefined, pageIdx: number, blockIdx: number, blockId?: string | null) => {
+        if (blockId) return `block:${blockId}`
+        return `tpl:${tplId || ''}:p:${pageIdx}:b:${blockIdx}`
+    }
 
-        // Case 1: Block has NO specific level (generic)
-        if (!blockLevel) {
-            // Use current active signature state
-            if (b.props.period === 'mid-year' && !signature && !b.props.field?.includes('signature')) return false
-            if (b.props.period === 'end-year' && !finalSignature && !b.props.field?.includes('signature')) return false
-            return true
+    // Level order for comparison (lower number = lower level)
+    const levelOrder: Record<string, number> = { 'TPS': 0, 'PS': 1, 'MS': 2, 'GS': 3, 'EB1': 4, 'KG1': 1, 'KG2': 2, 'KG3': 3 }
+
+    // Check if block's level is higher than student's current level
+    const isBlockLevelHigherThanStudent = (blockLevel: string | null): boolean => {
+        if (!blockLevel) return false
+        const studentLvl = (student?.level || '').toUpperCase()
+        const blockLvl = blockLevel.toUpperCase()
+        const studentOrder = levelOrder[studentLvl] ?? 99
+        const blockOrder = levelOrder[blockLvl] ?? 99
+        return blockOrder > studentOrder
+    }
+
+    // Find signature for a specific level
+    const getSignatureForLevel = (targetLevel: string | null) => {
+        if (!targetLevel) return { hasSem1: !!signature, hasSem2: !!finalSignature }
+        
+        const normalizedTarget = targetLevel.toUpperCase()
+        const history = assignment?.data?.signatures || []
+        const promotions = assignment?.data?.promotions || []
+        
+        let hasSem1 = false
+        let hasSem2 = false
+        
+        // Check if current student level matches and use current signatures
+        if (student?.level?.toUpperCase() === normalizedTarget) {
+            hasSem1 = !!signature
+            hasSem2 = !!finalSignature
         }
-
-        // Case 2: Block HAS a level
-        // Check if we have a signature for that level
-        // We check BOTH the current `signature` prop (if it matches level) AND history.
-
-        const { isSignedStandard, isSignedFinal } = computeSignatureStatusForBlock({
-            signature,
-            finalSignature,
-            history: assignment?.data?.signatures || [],
-            promotions: assignment?.data?.promotions || [],
-            studentLevel: student?.level || null,
-            blockLevel,
-            includeDirectLevelMatch: false,
-            useFinalSignature: true,
-            useSignatureAsFinal: false
+        
+        // Check historical signatures
+        history.forEach((sig: any) => {
+            if (sig.schoolYearName) {
+                const promo = promotions.find((p: any) => p.year === sig.schoolYearName)
+                if (promo && promo.from?.toUpperCase() === normalizedTarget) {
+                    if (sig.type === 'standard' || !sig.type) hasSem1 = true
+                    if (sig.type === 'end_of_year') hasSem2 = true
+                }
+            }
+            // Also check direct level match on signature
+            if (sig.level?.toUpperCase() === normalizedTarget) {
+                if (sig.type === 'standard' || !sig.type) hasSem1 = true
+                if (sig.type === 'end_of_year') hasSem2 = true
+            }
         })
+        
+        return { hasSem1, hasSem2 }
+    }
 
-        if (b.props.period === 'mid-year' && !isSignedStandard && !b.props.field?.includes('signature') && b.type !== 'signature_box' && b.type !== 'final_signature_box') return false
-        if (b.props.period === 'end-year' && !isSignedFinal && !b.props.field?.includes('signature') && b.type !== 'signature_box' && b.type !== 'final_signature_box') return false
-
-        return true
+    // Helper to check if a block should be visible based on admin visibility settings (single source of truth)
+    const checkBlockVisibility = (b: Block, pageIdx: number, blockIdx: number): boolean => {
+        const blockLevel = getBlockLevel(b)
+        
+        // Hide blocks whose level is higher than student's current level
+        if (isBlockLevelHigherThanStudent(blockLevel)) return false
+        
+        const blockId = typeof b?.props?.blockId === 'string' && b.props.blockId.trim() ? b.props.blockId.trim() : null
+        const key = buildVisibilityKey(template?._id, pageIdx, blockIdx, blockId)
+        
+        // For blocks WITH a level: use that level's settings and signatures
+        // For blocks WITHOUT a level: check all levels at or below student's level
+        // Show the block if ANY applicable level would show it (with its signature)
+        
+        if (blockLevel) {
+            // Block has a level - use that level's settings
+            const visibilitySetting = blockVisibilitySettings?.[blockLevel.toUpperCase()]?.[viewType]?.[key]
+            const { hasSem1, hasSem2 } = getSignatureForLevel(blockLevel)
+            
+            if (visibilitySetting) {
+                if (visibilitySetting === 'never') return false
+                if (visibilitySetting === 'after_sem1' && !hasSem1 && !hasSem2) return false
+                if (visibilitySetting === 'after_sem2' && !hasSem2) return false
+            }
+            return true
+        } else {
+            // Block has NO level - check all levels at or below student's current level
+            // Find settings for this block in any applicable level
+            const studentLvl = (student?.level || 'PS').toUpperCase()
+            const studentOrder = levelOrder[studentLvl] ?? 99
+            const levelsToCheck = Object.keys(levelOrder).filter(lvl => levelOrder[lvl] <= studentOrder)
+            
+            let foundSetting = false
+            let anyLevelWouldShow = false
+            
+            for (const lvl of levelsToCheck) {
+                const visibilitySetting = blockVisibilitySettings?.[lvl]?.[viewType]?.[key]
+                if (visibilitySetting) {
+                    foundSetting = true
+                    const { hasSem1, hasSem2 } = getSignatureForLevel(lvl)
+                    
+                    if (visibilitySetting === 'always') {
+                        anyLevelWouldShow = true
+                        break
+                    } else if (visibilitySetting === 'after_sem1' && (hasSem1 || hasSem2)) {
+                        anyLevelWouldShow = true
+                        break
+                    } else if (visibilitySetting === 'after_sem2' && hasSem2) {
+                        anyLevelWouldShow = true
+                        break
+                    }
+                    // 'never' doesn't set anyLevelWouldShow
+                }
+            }
+            
+            // If no settings found, default to visible; if found, use the result
+            return !foundSetting || anyLevelWouldShow
+        }
     }
 
     return (
@@ -360,7 +482,7 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                             width: b.props.width,
                                             height: b.props.height,
                                             boxSizing: 'border-box',
-                                            ...((!isBlockVisible(b)) ? { display: 'none' } : {})
+                                            ...(!checkBlockVisibility(b, originalPageIdx, blockIdx) ? { display: 'none' } : {})
                                         }}>
                                             {(() => {
                                                 const toggleKeyOriginal = `language_toggle_${originalPageIdx}_${blockIdx}`
@@ -481,7 +603,7 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                     {b.type === 'dropdown' && (
                                         <div style={{
                                             width: b.props.width || 200,
-                                            ...((!isBlockVisible(b)) ? { display: 'none' } : {})
+                                            ...(!checkBlockVisibility(b, originalPageIdx, blockIdx) ? { display: 'none' } : {})
                                         }}>
                                             <div style={{ fontSize: 10, fontWeight: 'bold', color: '#6c5ce7', marginBottom: 2 }}>
                                                 {b.props.dropdownNumber && `Dropdown #${b.props.dropdownNumber}`}
@@ -600,10 +722,49 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
 
                                                     const sig = candidates[0]
                                                     if (sig) {
-                                                        const yearLabel = sig.schoolYearName as string | undefined
-                                                        if (!yearLabel) return null
+                                                        let yearLabel = sig.schoolYearName as string | undefined
+                                                        if (!yearLabel && sig.signedAt) {
+                                                            const d = new Date(sig.signedAt)
+                                                            const y = d.getFullYear()
+                                                            const m = d.getMonth()
+                                                            const startYear = m >= 8 ? y : y - 1
+                                                            yearLabel = `${startYear}/${startYear + 1}`
+                                                        }
+                                                        if (!yearLabel) {
+                                                            const currentYear = new Date().getFullYear()
+                                                            const startYear = currentYear
+                                                            yearLabel = `${startYear}/${startYear + 1}`
+                                                        }
 
                                                         const baseLevel = blockLevel
+                                                        const target = explicitTarget || getNextLevel(baseLevel || '') || ''
+
+                                                        promo = {
+                                                            year: yearLabel,
+                                                            from: baseLevel,
+                                                            to: target || '?',
+                                                            class: student?.className || ''
+                                                        }
+                                                    }
+                                                }
+
+                                                if (!promo) {
+                                                    const isEndYear = b.props.period === 'end-year'
+                                                    const candidate = isEndYear ? (finalSignature || signature) : signature
+                                                    const candidateLevel = String(candidate?.level || '').trim()
+                                                    const matchesLevel = !blockLevel || !candidateLevel || candidateLevel === blockLevel
+
+                                                    if (candidate && candidate.signedAt && matchesLevel) {
+                                                        let yearLabel = String(candidate.schoolYearName || '').trim()
+                                                        if (!yearLabel) {
+                                                            const d = new Date(candidate.signedAt)
+                                                            const y = d.getFullYear()
+                                                            const m = d.getMonth()
+                                                            const startYear = m >= 8 ? y : y - 1
+                                                            yearLabel = `${startYear}/${startYear + 1}`
+                                                        }
+
+                                                        const baseLevel = blockLevel || candidateLevel || student?.level || ''
                                                         const target = explicitTarget || getNextLevel(baseLevel || '') || ''
 
                                                         promo = {
@@ -675,7 +836,7 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                                     } else if (b.props.field === 'year') {
                                                         return <div>{getPromotionYearLabel(promo, blockLevel)}</div>
                                                     } else if (b.props.field === 'currentYear') {
-                                                        const label = activeSchoolYearName || (activeYear ? activeYear.name : null) || promo.year || ''
+                                                        const label = getPromotionCurrentYearLabel(promo, blockLevel, b.props.period) || activeSchoolYearName || (activeYear ? activeYear.name : null) || promo.year || ''
                                                         return <div>{String(label)}</div>
                                                     } else if (b.props.field === 'class') {
                                                         const raw = promo.class || ''
@@ -931,7 +1092,7 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                             justifyContent: 'center',
                                             fontSize: 10,
                                             color: '#999',
-                                            ...((!isBlockVisible(b)) ? { display: 'none' } : {})
+                                            ...(!checkBlockVisibility(b, originalPageIdx, blockIdx) ? { display: 'none' } : {})
                                         }}>
                                             {(() => {
                                                 const blockLevel = getBlockLevel(b)
@@ -941,21 +1102,25 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                                 if (!blockLevel) {
                                                     if (b.props.period === 'end-year') {
                                                         if (finalSignature) {
-                                                            return finalSignature.signatureUrl ? <img src={finalSignature.signatureUrl} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé Fin Année'
+                                                            const src = getSignatureImageSrc(finalSignature)
+                                                            return src ? <img src={src} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé Fin Année'
                                                         }
                                                     } else {
                                                         if (signature) {
-                                                            return signature.signatureUrl ? <img src={signature.signatureUrl} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé'
+                                                            const src = getSignatureImageSrc(signature)
+                                                            return src ? <img src={src} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé'
                                                         }
                                                     }
                                                 } else {
                                                     if (b.props.period === 'end-year') {
                                                         if (finalSignature && ((finalSigLevel && finalSigLevel === blockLevel) || (!finalSigLevel && student?.level === blockLevel))) {
-                                                            return finalSignature.signatureUrl ? <img src={finalSignature.signatureUrl} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé Fin Année'
+                                                            const src = getSignatureImageSrc(finalSignature)
+                                                            return src ? <img src={src} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé Fin Année'
                                                         }
                                                     } else {
                                                         if (signature && ((sigLevel && sigLevel === blockLevel) || (!sigLevel && student?.level === blockLevel))) {
-                                                            return signature.signatureUrl ? <img src={signature.signatureUrl} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé'
+                                                            const src = getSignatureImageSrc(signature)
+                                                            return src ? <img src={src} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé'
                                                         }
                                                     }
                                                 }
@@ -978,6 +1143,10 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                                     })
 
                                                     if (matchingSig) {
+                                                        const src = getSignatureImageSrc(matchingSig)
+                                                        if (src) {
+                                                            return <img src={src} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} />
+                                                        }
                                                         return `✓ Signé (${matchingSig.schoolYearName || 'Ancien'})`
                                                     }
                                                 }
@@ -997,11 +1166,13 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                             justifyContent: 'center',
                                             fontSize: 10,
                                             color: '#999',
-                                            ...((!isBlockVisible(b)) ? { display: 'none' } : {}),
-                                            ...((!finalSignature && !isBlockVisible({ ...b, props: { ...b.props, period: 'end-year' } })) ? { display: 'none' } : {})
+                                            ...(!checkBlockVisibility(b, originalPageIdx, blockIdx) ? { display: 'none' } : {})
                                         }}>
                                             {(() => {
-                                                if (finalSignature) return '✓ Signé Fin Année'
+                                                if (finalSignature) {
+                                                    const src = getSignatureImageSrc(finalSignature)
+                                                    return src ? <img src={src} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé Fin Année'
+                                                }
                                                 const history = assignment?.data?.signatures || []
                                                 const promotions = assignment?.data?.promotions || []
                                                 const blockLevel = getBlockLevel(b)
@@ -1014,7 +1185,13 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                                         }
                                                         return false
                                                     })
-                                                    if (matchingSig) return `✓ Signé (${matchingSig.schoolYearName || 'Ancien'})`
+                                                    if (matchingSig) {
+                                                        const src = getSignatureImageSrc(matchingSig)
+                                                        if (src) {
+                                                            return <img src={src} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} />
+                                                        }
+                                                        return `✓ Signé (${matchingSig.schoolYearName || 'Ancien'})`
+                                                    }
                                                 }
                                                 return null
                                             })()}

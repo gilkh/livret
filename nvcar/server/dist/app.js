@@ -75,6 +75,7 @@ const Level_1 = require("./models/Level");
 const adminExtras_1 = require("./routes/adminExtras");
 const simulations_1 = require("./routes/simulations");
 const templatePropagation_1 = require("./routes/templatePropagation");
+const errorLogs_1 = require("./routes/errorLogs");
 const compression_1 = __importDefault(require("compression"));
 const createApp = () => {
     const app = (0, express_1.default)();
@@ -124,6 +125,7 @@ const createApp = () => {
     app.use('/saved-gradebooks', savedGradebooks_1.savedGradebooksRouter);
     app.use('/simulations', simulations_1.simulationsRouter);
     app.use('/template-propagation', templatePropagation_1.templatePropagationRouter);
+    app.use('/error-logs', errorLogs_1.errorLogsRouter);
     app.use('/uploads', express_1.default.static(path_1.default.join(process.cwd(), 'public', 'uploads')));
     app.get('/health', (_, res) => res.json({ ok: true }));
     (0, db_1.connectDb)()
@@ -142,8 +144,23 @@ const createApp = () => {
                 { name: 'PS', order: 1 },
                 { name: 'MS', order: 2 },
                 { name: 'GS', order: 3 },
+                { name: 'EB1', order: 4, isExitLevel: true },
             ]);
-            console.log('seeded default levels (PS, MS, GS)');
+            console.log('seeded default levels (PS, MS, GS, EB1)');
+        }
+        else {
+            // Ensure EB1 exists (for existing databases without it)
+            const eb1Exists = await Level_1.Level.findOne({ name: 'EB1' });
+            if (!eb1Exists) {
+                const maxOrder = await Level_1.Level.findOne().sort({ order: -1 }).lean();
+                await Level_1.Level.create({ name: 'EB1', order: (maxOrder?.order || 3) + 1, isExitLevel: true });
+                console.log('added missing EB1 level');
+            }
+            else if (!eb1Exists.isExitLevel) {
+                // Ensure EB1 is marked as exit level
+                await Level_1.Level.updateOne({ name: 'EB1' }, { isExitLevel: true });
+                console.log('marked EB1 as exit level');
+            }
         }
     })
         .catch(e => console.error('mongo error', e));

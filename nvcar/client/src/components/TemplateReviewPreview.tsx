@@ -220,6 +220,40 @@ export default function TemplateReviewPreview({ template, student, assignment, s
         return next || year
     }
 
+    const getPromotionCurrentYearLabel = (promo: any, blockLevel: string | null, period?: string) => {
+        const history = assignment?.data?.signatures || []
+        const wantEndOfYear = period === 'end-year'
+        const isMidYearBlock = period === 'mid-year'
+        const candidates = history.filter((sig: any) => {
+            if (wantEndOfYear) {
+                if (sig.type !== 'end_of_year') return false
+            } else if (isMidYearBlock) {
+                if (sig.type && sig.type !== 'standard') return false
+            }
+            if (sig.level && blockLevel && sig.level !== blockLevel) return false
+            return true
+        }).sort((a: any, b: any) => {
+            const ad = new Date(a.signedAt || 0).getTime()
+            const bd = new Date(b.signedAt || 0).getTime()
+            return bd - ad
+        })
+
+        const sig = candidates[0]
+        if (sig) {
+            let yearLabel = String(sig.schoolYearName || '').trim()
+            if (!yearLabel && sig.signedAt) {
+                const d = new Date(sig.signedAt)
+                const y = d.getFullYear()
+                const m = d.getMonth()
+                const startYear = m >= 8 ? y : y - 1
+                yearLabel = `${startYear}/${startYear + 1}`
+            }
+            if (yearLabel) return yearLabel
+        }
+
+        return String(promo?.year || '')
+    }
+
     const isBlockVisible = (b: Block) => {
         const blockLevel = getBlockLevel(b)
 
@@ -744,10 +778,49 @@ export default function TemplateReviewPreview({ template, student, assignment, s
 
                                                         const sig = candidates[0]
                                                         if (sig) {
-                                                            const yearLabel = sig.schoolYearName as string | undefined
-                                                            if (!yearLabel) return null
+                                                            let yearLabel = sig.schoolYearName as string | undefined
+                                                            if (!yearLabel && sig.signedAt) {
+                                                                const d = new Date(sig.signedAt)
+                                                                const y = d.getFullYear()
+                                                                const m = d.getMonth()
+                                                                const startYear = m >= 8 ? y : y - 1
+                                                                yearLabel = `${startYear}/${startYear + 1}`
+                                                            }
+                                                            if (!yearLabel) {
+                                                                const currentYear = new Date().getFullYear()
+                                                                const startYear = currentYear
+                                                                yearLabel = `${startYear}/${startYear + 1}`
+                                                            }
 
                                                             const baseLevel = blockLevel
+                                                            const target = explicitTarget || getNextLevel(baseLevel || '') || ''
+
+                                                            promo = {
+                                                                year: yearLabel,
+                                                                from: baseLevel,
+                                                                to: target || '?',
+                                                                class: student?.className || ''
+                                                            }
+                                                        }
+                                                    }
+
+                                                    if (!promo) {
+                                                        const isEndYear = b.props.period === 'end-year'
+                                                        const candidate = isEndYear ? (finalSignature || signature) : signature
+                                                        const candidateLevel = String(candidate?.level || '').trim()
+                                                        const matchesLevel = !blockLevel || !candidateLevel || candidateLevel === blockLevel
+
+                                                        if (candidate && candidate.signedAt && matchesLevel) {
+                                                            let yearLabel = String(candidate.schoolYearName || '').trim()
+                                                            if (!yearLabel) {
+                                                                const d = new Date(candidate.signedAt)
+                                                                const y = d.getFullYear()
+                                                                const m = d.getMonth()
+                                                                const startYear = m >= 8 ? y : y - 1
+                                                                yearLabel = `${startYear}/${startYear + 1}`
+                                                            }
+
+                                                            const baseLevel = blockLevel || candidateLevel || student?.level || ''
                                                             const target = explicitTarget || getNextLevel(baseLevel || '') || ''
 
                                                             promo = {
@@ -818,7 +891,7 @@ export default function TemplateReviewPreview({ template, student, assignment, s
                                                         } else if (b.props.field === 'year') {
                                                             return <div>{getPromotionYearLabel(promo, blockLevel)}</div>
                                                         } else if (b.props.field === 'currentYear') {
-                                                            const label = activeYear?.name || promo.year || ''
+                                                            const label = getPromotionCurrentYearLabel(promo, blockLevel, b.props.period) || activeYear?.name || ''
                                                             return <div>{String(label)}</div>
                                                         } else if (b.props.field === 'class') {
                                                             const raw = promo.class || ''
@@ -1289,21 +1362,25 @@ export default function TemplateReviewPreview({ template, student, assignment, s
                                                     if (!blockLevel) {
                                                         if (b.props.period === 'end-year') {
                                                             if (finalSignature) {
-                                                                return finalSignature.signatureUrl ? <img src={finalSignature.signatureUrl} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé Fin Année'
+                                                                const src = finalSignature.signatureData || finalSignature.signatureUrl
+                                                                return src ? <img src={src} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé Fin Année'
                                                             }
                                                         } else {
                                                             if (signature) {
-                                                                return signature.signatureUrl ? <img src={signature.signatureUrl} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé'
+                                                                const src = signature.signatureData || signature.signatureUrl
+                                                                return src ? <img src={src} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé'
                                                             }
                                                         }
                                                     } else {
                                                         if (b.props.period === 'end-year') {
                                                             if (finalSignature && ((finalSigLevel && finalSigLevel === blockLevel) || (!finalSigLevel && student?.level === blockLevel))) {
-                                                                return finalSignature.signatureUrl ? <img src={finalSignature.signatureUrl} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé Fin Année'
+                                                                const src = finalSignature.signatureData || finalSignature.signatureUrl
+                                                                return src ? <img src={src} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé Fin Année'
                                                             }
                                                         } else {
                                                             if (signature && ((sigLevel && sigLevel === blockLevel) || (!sigLevel && student?.level === blockLevel))) {
-                                                                return signature.signatureUrl ? <img src={signature.signatureUrl} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé'
+                                                                const src = signature.signatureData || signature.signatureUrl
+                                                                return src ? <img src={src} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé'
                                                             }
                                                         }
                                                     }
@@ -1326,6 +1403,8 @@ export default function TemplateReviewPreview({ template, student, assignment, s
                                                         })
 
                                                         if (matchingSig) {
+                                                            const src = matchingSig.signatureData || matchingSig.signatureUrl
+                                                            if (src) return <img src={src} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} />
                                                             return `✓ Signé (${matchingSig.schoolYearName || 'Ancien'})`
                                                         }
                                                     }

@@ -13,6 +13,19 @@ const templateUtils_1 = require("../utils/templateUtils");
 const transactionUtils_1 = require("../utils/transactionUtils");
 exports.importRouter = (0, express_1.Router)();
 const normalizeText = (v) => String(v ?? '').trim().toLowerCase();
+const parseDateValue = (value) => {
+    const raw = String(value ?? '').trim();
+    if (!raw)
+        return new Date('');
+    const match = raw.match(/^(\d{2})[\/-](\d{2})[\/-](\d{4})$/);
+    if (match) {
+        const day = Number(match[1]);
+        const month = Number(match[2]);
+        const year = Number(match[3]);
+        return new Date(Date.UTC(year, month - 1, day));
+    }
+    return new Date(raw);
+};
 const dobUtcDayRange = (dob) => {
     const y = dob.getUTCFullYear();
     const m = dob.getUTCMonth();
@@ -43,7 +56,7 @@ exports.importRouter.post('/students', (0, auth_1.requireAuth)(['ADMIN', 'SUBADM
                 const col = (k, def) => r[(mapping && mapping[k]) || def];
                 const firstName = col('firstName', 'FirstName');
                 const lastName = col('lastName', 'LastName');
-                const dob = new Date(col('dateOfBirth', 'DateOfBirth'));
+                const dob = parseDateValue(col('dateOfBirth', 'DateOfBirth'));
                 const className = col('className', 'ClassName');
                 const studentId = col('studentId', 'StudentId');
                 const logicalKey = col('logicalKey', 'LogicalKey');
@@ -95,7 +108,7 @@ exports.importRouter.post('/students', (0, auth_1.requireAuth)(['ADMIN', 'SUBADM
                 const col = (k, def) => r[(mapping && mapping[k]) || def];
                 const firstName = col('firstName', 'FirstName');
                 const lastName = col('lastName', 'LastName');
-                const dob = new Date(col('dateOfBirth', 'DateOfBirth'));
+                const dob = parseDateValue(col('dateOfBirth', 'DateOfBirth'));
                 const className = col('className', 'ClassName');
                 const parentName = col('parentName', 'ParentName');
                 const parentPhone = col('parentPhone', 'ParentPhone');

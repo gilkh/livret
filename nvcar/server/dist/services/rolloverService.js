@@ -1,5 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.computeVisibleBlockKeys = computeVisibleBlockKeys;
 exports.archiveYearCompletions = archiveYearCompletions;
 exports.getRolloverUpdate = getRolloverUpdate;
 exports.getCompleteRolloverUpdate = getCompleteRolloverUpdate;
@@ -8,7 +9,115 @@ exports.getTeacherCompletionsForYear = getTeacherCompletionsForYear;
 exports.getCompletionFlagsForYear = getCompletionFlagsForYear;
 exports.getAssignedTeachersForYear = getAssignedTeachersForYear;
 const SavedGradebook_1 = require("../models/SavedGradebook");
+const Setting_1 = require("../models/Setting");
+const GradebookTemplate_1 = require("../models/GradebookTemplate");
 const readinessUtils_1 = require("../utils/readinessUtils");
+// Level order for comparing block levels
+const levelOrder = { PS: 0, MS: 1, GS: 2, CP: 3, CE1: 4, CE2: 5, CM1: 6, CM2: 7, EB1: 8 };
+/**
+ * Build the visibility key for a block (same as client-side)
+ */
+function buildVisibilityKey(templateId, pageIndex, blockIndex, blockId) {
+    if (blockId)
+        return `block:${blockId}`;
+    return `tpl:${templateId || ''}:p:${pageIndex}:b:${blockIndex}`;
+}
+/**
+ * Get the level from a block's props
+ */
+function getBlockLevel(b) {
+    if (!b?.props)
+        return null;
+    const lvl = b.props.level || b.props.levels;
+    if (typeof lvl === 'string' && lvl.trim())
+        return lvl.trim();
+    if (Array.isArray(lvl) && lvl.length === 1)
+        return String(lvl[0]).trim();
+    return null;
+}
+/**
+ * Check if block's level is higher than student's level
+ */
+function isBlockLevelHigherThanStudent(blockLevel, studentLevel) {
+    if (!blockLevel)
+        return false;
+    const blockOrd = levelOrder[blockLevel.toUpperCase()] ?? 99;
+    const studentOrd = levelOrder[studentLevel.toUpperCase()] ?? 99;
+    return blockOrd > studentOrd;
+}
+/**
+ * Compute visible block keys for a snapshot based on template, visibility settings, and signature status.
+ * This captures exactly which blocks should be shown, matching the PDF export logic.
+ */
+async function computeVisibleBlockKeys(templateId, studentLevel, blockVisibilitySettings, signatureStatus) {
+    const template = await GradebookTemplate_1.GradebookTemplate.findById(templateId).lean();
+    if (!template?.pages)
+        return [];
+    const visibleKeys = [];
+    const { hasSem1, hasSem2 } = signatureStatus;
+    for (let pageIndex = 0; pageIndex < template.pages.length; pageIndex++) {
+        const page = template.pages[pageIndex];
+        if (!page?.blocks)
+            continue;
+        for (let blockIndex = 0; blockIndex < page.blocks.length; blockIndex++) {
+            const b = page.blocks[blockIndex];
+            if (!b || !b.props)
+                continue;
+            const blockLevel = getBlockLevel(b);
+            // Hide blocks whose level is higher than student's current level
+            if (isBlockLevelHigherThanStudent(blockLevel, studentLevel))
+                continue;
+            const blockId = typeof b?.props?.blockId === 'string' && b.props.blockId.trim() ? b.props.blockId.trim() : null;
+            const key = buildVisibilityKey(templateId, pageIndex, blockIndex, blockId);
+            let shouldShow = true;
+            if (blockLevel) {
+                // Block has a level - use that level's settings
+                const visibilitySetting = blockVisibilitySettings?.[blockLevel.toUpperCase()]?.pdf?.[key];
+                if (visibilitySetting) {
+                    if (visibilitySetting === 'never')
+                        shouldShow = false;
+                    else if (visibilitySetting === 'after_sem1' && !hasSem1 && !hasSem2)
+                        shouldShow = false;
+                    else if (visibilitySetting === 'after_sem2' && !hasSem2)
+                        shouldShow = false;
+                }
+            }
+            else {
+                // Block has NO level - check all levels at or below student's current level
+                const studentLvl = studentLevel.toUpperCase();
+                const studentOrder = levelOrder[studentLvl] ?? 99;
+                const levelsToCheck = Object.keys(levelOrder).filter(lvl => levelOrder[lvl] <= studentOrder);
+                let foundSetting = false;
+                let anyLevelWouldShow = false;
+                for (const lvl of levelsToCheck) {
+                    const visibilitySetting = blockVisibilitySettings?.[lvl]?.pdf?.[key];
+                    if (visibilitySetting) {
+                        foundSetting = true;
+                        if (visibilitySetting === 'always') {
+                            anyLevelWouldShow = true;
+                            break;
+                        }
+                        else if (visibilitySetting === 'after_sem1' && (hasSem1 || hasSem2)) {
+                            anyLevelWouldShow = true;
+                            break;
+                        }
+                        else if (visibilitySetting === 'after_sem2' && hasSem2) {
+                            anyLevelWouldShow = true;
+                            break;
+                        }
+                        // 'never' doesn't set anyLevelWouldShow
+                    }
+                }
+                // If no settings found, default to visible; if found, use the result
+                shouldShow = !foundSetting || anyLevelWouldShow;
+            }
+            if (shouldShow) {
+                visibleKeys.push(key);
+            }
+        }
+    }
+    return visibleKeys;
+}
 /**
  * Archives the current year's teacher completions, completion flags, and assigned teachers before rollover.
  * This ensures historical progress is NEVER lost.
@@ -123,13 +232,46 @@ async function createAssignmentSnapshot(assignment, reason, options) {
         level: options.level,
         snapshotReason: reason
     });
+    let blockVisibilitySettings = {};
+    try {
+        const setting = await Setting_1.Setting.findOne({ key: 'block_visibility_settings' }).lean();
+        if (setting?.value)
+            blockVisibilitySettings = setting.value;
+    }
+    catch {
+        // non-blocking
+    }
+    // Compute signature status for visibility calculation
+    // For sem1 snapshot: hasSem1=true, hasSem2=false
+    // For year_end/promotion: hasSem1=true, hasSem2=true
+    const signatureStatus = {
+        hasSem1: reason === 'sem1' || reason === 'year_end' || reason === 'promotion' || reason === 'exit',
+        hasSem2: reason === 'year_end' || reason === 'promotion' || reason === 'exit'
+    };
+    // Compute which blocks are visible at this snapshot moment
+    let visibleBlockKeys = [];
+    try {
+        visibleBlockKeys = await computeVisibleBlockKeys(assignment.templateId, options.level, blockVisibilitySettings, signatureStatus);
+    }
+    catch (e) {
+        console.error('Failed to compute visible block keys:', e);
+        // Continue without - fallback to old behavior
+    }
+    const baseData = options.data || assignment.data || {};
+    const dataWithVisibility = (baseData && typeof baseData === 'object' && !Array.isArray(baseData))
+        ? {
+            ...baseData,
+            blockVisibilitySettings: baseData.blockVisibilitySettings || blockVisibilitySettings,
+            visibleBlockKeys // Store the computed visible keys
+        }
+        : baseData;
     const payload = {
         studentId: assignment.studentId,
         schoolYearId: options.schoolYearId,
         level: options.level,
         classId: options.classId,
         templateId: assignment.templateId,
-        data: options.data || assignment.data || {},
+        data: dataWithVisibility,
         meta,
         createdAt: new Date()
     };

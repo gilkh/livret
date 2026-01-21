@@ -177,14 +177,21 @@ exports.backupRouter.post('/restore/:filename', (0, auth_1.requireAuth)(['ADMIN'
 // Empty database
 exports.backupRouter.post('/empty', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
     try {
-        // Preserve ALL admin users
-        const adminUsers = await User_1.User.find({ role: 'ADMIN' }).lean();
+        // Preserve only: default admin (email: 'admin') and Microsoft-authenticated admin accounts
+        const adminUsersToKeep = await User_1.User.find({
+            role: 'ADMIN',
+            $or: [
+                { email: 'admin' },
+                { authProvider: 'microsoft' }
+            ]
+        }).lean();
         await clearDatabase();
-        // Restore admins
-        if (adminUsers.length > 0) {
-            await User_1.User.insertMany(adminUsers);
+        // Restore preserved admins
+        if (adminUsersToKeep.length > 0) {
+            await User_1.User.insertMany(adminUsersToKeep);
         }
         else {
+            // Fallback: create default admin if none preserved
             const hash = await bcrypt.hash('admin', 10);
             await User_1.User.create({ email: 'admin', passwordHash: hash, role: 'ADMIN', displayName: 'Admin' });
         }
@@ -201,7 +208,7 @@ exports.backupRouter.post('/empty', (0, auth_1.requireAuth)(['ADMIN']), async (r
                 userId: adminId,
                 action: 'EMPTY_DATABASE',
                 details: {
-                    adminsPreserved: adminUsers.length,
+                    adminsPreserved: adminUsersToKeep.length,
                     levelsReseeded: true
                 },
                 req
@@ -320,6 +327,31 @@ pause
         const rootFiles = fs_1.default.readdirSync(rootDir).filter(f => fs_1.default.statSync(path_1.default.join(rootDir, f)).isFile());
         rootFiles.forEach(f => {
             archive.file(path_1.default.join(rootDir, f), { name: f });
+        });
+        // Add root directories (like certs/, backups/, etc.)
+        const rootDirs = fs_1.default.readdirSync(rootDir)
+            .filter(name => {
+            const full = path_1.default.join(rootDir, name);
+            if (!fs_1.default.existsSync(full))
+                return false;
+            if (!fs_1.default.statSync(full).isDirectory())
+                return false;
+            if (name === 'server' || name === 'client')
+                return false;
+            if (name === 'node_modules' || name === '.git')
+                return false;
+            return true;
+        });
+        rootDirs.forEach(dirName => {
+            archive.directory(path_1.default.join(rootDir, dirName), dirName, (entry) => {
+                if (entry.name.includes('node_modules') ||
+                    entry.name.includes('dist') ||
+                    entry.name.includes('build') ||
+                    entry.name.includes('.git')) {
+                    return false;
+                }
+                return entry;
+            });
         });
         await archive.finalize();
     }

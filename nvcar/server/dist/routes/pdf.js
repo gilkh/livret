@@ -52,10 +52,26 @@ const User_1 = require("../models/User");
 const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
 const dateFormat_1 = require("../utils/dateFormat");
+const signatureService_1 = require("../services/signatureService");
 // eslint-disable-next-line
 const archiver = require('archiver');
 const auth_1 = require("../auth");
 exports.pdfRouter = (0, express_1.Router)();
+const sanitizeFilename = (name) => {
+    const base = String(name || 'file')
+        .replace(/[\r\n]/g, ' ')
+        .normalize('NFKD')
+        .replace(/[^\x20-\x7E]+/g, '')
+        .replace(/["\\]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    return base || 'file';
+};
+const buildContentDisposition = (filename) => {
+    const safe = sanitizeFilename(filename);
+    const encoded = encodeURIComponent(String(filename || 'file')).replace(/[()']/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+    return `attachment; filename="${safe}"; filename*=UTF-8''${encoded}`;
+};
 // Helper function to compute next school year name
 function computeNextSchoolYearName(year) {
     if (!year)
@@ -69,6 +85,27 @@ function computeNextSchoolYearName(year) {
     if (Number.isNaN(start) || Number.isNaN(end))
         return '';
     return `${start + 1}${sep}${end + 1}`;
+}
+// Helper function to get next level (sync)
+function getNextLevelNameSync(current) {
+    const c = String(current || '').toUpperCase();
+    if (!c)
+        return '';
+    if (c === 'TPS')
+        return 'PS';
+    if (c === 'PS')
+        return 'MS';
+    if (c === 'MS')
+        return 'GS';
+    if (c === 'GS')
+        return 'EB1';
+    if (c === 'KG1')
+        return 'KG2';
+    if (c === 'KG2')
+        return 'KG3';
+    if (c === 'KG3')
+        return 'EB1';
+    return '';
 }
 // Helper function to get the promotion year label (next year)
 function getPromotionYearLabel(promo, assignmentData) {
@@ -97,6 +134,40 @@ function getPromotionYearLabel(promo, assignmentData) {
         return String(endSig.schoolYearName);
     const next = computeNextSchoolYearName(year);
     return next || year;
+}
+function getPromotionCurrentYearLabel(promo, assignmentData, blockLevel, period) {
+    const history = assignmentData?.signatures || [];
+    const wantEndOfYear = period === 'end-year';
+    const isMidYearBlock = period === 'mid-year';
+    const candidates = history
+        .filter((sig) => {
+        if (wantEndOfYear) {
+            if (sig.type !== 'end_of_year')
+                return false;
+        }
+        else if (isMidYearBlock) {
+            if (sig.type && sig.type !== 'standard')
+                return false;
+        }
+        if (sig.level && blockLevel && sig.level !== blockLevel)
+            return false;
+        return true;
+    })
+        .sort((a, b) => new Date(b.signedAt || 0).getTime() - new Date(a.signedAt || 0).getTime());
+    const sig = candidates[0];
+    if (sig) {
+        let yearLabel = String(sig.schoolYearName || '').trim();
+        if (!yearLabel && sig.signedAt) {
+            const d = new Date(sig.signedAt);
+            const y = d.getFullYear();
+            const m = d.getMonth();
+            const startYear = m >= 8 ? y : y - 1;
+            yearLabel = `${startYear}/${startYear + 1}`;
+        }
+        if (yearLabel)
+            return yearLabel;
+    }
+    return String(promo?.year || '');
 }
 const imgCache = new Map();
 const fetchImage = async (url) => {
@@ -147,7 +218,7 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
     const statuses = await StudentCompetencyStatus_1.StudentCompetencyStatus.find({ studentId: id }).lean();
     const statusMap = new Map(statuses.map((s) => [s.competencyId, s]));
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="carnet-${student.lastName}.pdf"`);
+    res.setHeader('Content-Disposition', buildContentDisposition(`carnet-${student.lastName}.pdf`));
     const doc = new pdfkit_1.default({ size: 'A4', margin: 0 });
     doc.pipe(res);
     const renderDefault = async () => {
@@ -191,7 +262,8 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
             studentId: id,
             templateId: tplId
         }).lean();
-        const assignmentData = assignment?.data || {};
+        const populatedAssignment = assignment ? await (0, signatureService_1.populateSignatures)(assignment) : assignment;
+        const assignmentData = populatedAssignment?.data || {};
         const categories = await Category_1.Category.find({}).lean();
         const comps = await Competency_1.Competency.find({}).lean();
         const compByCat = {};
@@ -219,7 +291,7 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
         const resolveText = (t) => t
             .replace(/\{student\.firstName\}/g, String(student.firstName))
             .replace(/\{student\.lastName\}/g, String(student.lastName))
-            .replace(/\{student\.dob\}/g, new Date(student.dateOfBirth).toLocaleDateString())
+            .replace(/\{student\.dob\}/g, (0, dateFormat_1.formatDdMmYyyyColon)(student.dateOfBirth))
             .replace(/\{class\.name\}/g, classDoc ? String(classDoc.name) : '');
         const drawBlock = async (b, blockIdx = 0) => {
             if (b.type === 'text') {
@@ -485,7 +557,7 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
                 if (fields.includes('class'))
                     lines.push(`Classe: ${enrollment ? enrollment.classId : ''}`);
                 if (fields.includes('dob'))
-                    lines.push(`Naissance: ${new Date(student.dateOfBirth).toLocaleDateString()}`);
+                    lines.push(`Naissance: ${(0, dateFormat_1.formatDdMmYyyyColon)(student.dateOfBirth)}`);
                 if (b.props?.color)
                     doc.fillColor(b.props.color);
                 doc.fontSize(b.props?.size || b.props?.fontSize || 12);
@@ -638,8 +710,20 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
                             const imgWidth = Math.min(width - 10, width * 0.9);
                             const imgHeight = height - 10;
                             let rendered = false;
+                            const sigData = signature.signatureData;
+                            if (sigData) {
+                                try {
+                                    const base64 = String(sigData).split(',').pop() || '';
+                                    const buf = Buffer.from(base64, 'base64');
+                                    doc.image(buf, x + 5, y + 5, { fit: [imgWidth, imgHeight], align: 'center', valign: 'center' });
+                                    rendered = true;
+                                }
+                                catch (e) {
+                                    console.error('Failed to load signature snapshot:', e);
+                                }
+                            }
                             const sigUrl = signature.signatureUrl;
-                            if (sigUrl) {
+                            if (!rendered && sigUrl) {
                                 try {
                                     if (String(sigUrl).startsWith('data:')) {
                                         const base64 = String(sigUrl).split(',').pop() || '';
@@ -670,7 +754,7 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
                             if (!rendered) {
                                 doc.fontSize(10).fillColor('#333');
                                 const signerName = subAdmin?.displayName || 'Signé';
-                                const signedAt = signature.signedAt ? new Date(signature.signedAt).toLocaleDateString() : '';
+                                const signedAt = signature.signedAt ? (0, dateFormat_1.formatDdMmYyyyColon)(signature.signedAt) : '';
                                 doc.text(`✓ ${signerName}`, x + 5, y + (height / 2) - 10, { width: width - 10, align: 'center' });
                                 if (signedAt) {
                                     doc.fontSize(8).fillColor('#666');
@@ -696,14 +780,33 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
                 const targetLevel = String(b.props?.level || '').trim();
                 const semesterRaw = b.props?.semester ?? b.props?.semestre;
                 const semester = (semesterRaw === 2 || semesterRaw === '2') ? 2 : 1;
+                const promotions = Array.isArray(templateAssignment?.data?.promotions) ? templateAssignment.data.promotions : [];
+                const normalizeLevel = (val) => String(val || '').trim().toLowerCase();
+                const normTargetLevel = normalizeLevel(targetLevel);
+                const matchesLevel = (s) => {
+                    if (!normTargetLevel)
+                        return true;
+                    const sLevel = normalizeLevel(s?.level);
+                    if (sLevel)
+                        return sLevel === normTargetLevel;
+                    if (s?.schoolYearName) {
+                        const promo = promotions.find((p) => String(p?.year || '') === String(s.schoolYearName));
+                        const promoFrom = normalizeLevel(promo?.from || promo?.fromLevel);
+                        if (promoFrom && promoFrom === normTargetLevel)
+                            return true;
+                    }
+                    if (s?.schoolYearId) {
+                        const promo = promotions.find((p) => String(p?.schoolYearId || '') === String(s.schoolYearId));
+                        const promoFrom = normalizeLevel(promo?.from || promo?.fromLevel);
+                        if (promoFrom && promoFrom === normTargetLevel)
+                            return true;
+                    }
+                    const studentLevel = normalizeLevel(level);
+                    return !!studentLevel && studentLevel === normTargetLevel;
+                };
                 const matches = (signatures || [])
                     .filter((s) => s?.signedAt)
-                    .filter((s) => {
-                    if (!targetLevel)
-                        return true;
-                    const sLevel = String(s?.level || '').trim();
-                    return sLevel === targetLevel;
-                })
+                    .filter(matchesLevel)
                     .filter((s) => {
                     const spid = String(s?.signaturePeriodId || '');
                     const t = String(s?.type || 'standard');
@@ -720,10 +823,12 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
                 const width = sx(b.props?.width || 220);
                 const height = sy(b.props?.height || 34);
                 const showMeta = b.props?.showMeta !== false;
-                const label = String(b.props?.label || '').trim();
+                const prefix = 'Signé le:';
                 const dateStr = (0, dateFormat_1.formatDdMmYyyyColon)(found.signedAt);
-                const meta = showMeta ? `${label ? `${label} ` : ''}${targetLevel ? `${targetLevel} ` : ''}S${semester} : ` : '';
-                const text = `${meta}${dateStr}`;
+                const metaPart = `${targetLevel ? `${targetLevel} ` : ''}S${semester}`;
+                const text = showMeta
+                    ? `${prefix}${metaPart.trim() ? ` ${metaPart.trim()}` : ''} ${dateStr}`
+                    : `${prefix} ${dateStr}`;
                 doc.save();
                 doc.fontSize(b.props?.fontSize || 12).fillColor(b.props?.color || '#111');
                 doc.text(text, x, y, { width, height, align: (b.props?.align === 'center' ? 'center' : (b.props?.align === 'flex-end' ? 'right' : 'left')) });
@@ -736,7 +841,10 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
                 }
                 // Render dropdown with selected value or skip if empty
                 const dropdownNum = b.props?.dropdownNumber;
-                const selectedValue = dropdownNum ? assignmentData[`dropdown_${dropdownNum}`] : (b.props?.variableName ? assignmentData[b.props.variableName] : '');
+                const blockId = typeof b?.props?.blockId === 'string' && b.props.blockId.trim() ? b.props.blockId.trim() : null;
+                const stableKey = blockId ? `dropdown_${blockId}` : null;
+                const legacyKey = dropdownNum ? `dropdown_${dropdownNum}` : (b.props?.variableName ? b.props.variableName : null);
+                const selectedValue = (stableKey ? assignmentData[stableKey] : undefined) ?? (legacyKey ? assignmentData[legacyKey] : undefined) ?? '';
                 // Skip rendering if no value is selected
                 if (!selectedValue)
                     return;
@@ -767,7 +875,10 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
             else if (b.type === 'dropdown_reference') {
                 // Render the value selected in the referenced dropdown
                 const dropdownNum = b.props?.dropdownNumber || 1;
-                const raw = assignmentData[`dropdown_${dropdownNum}`];
+                const blockId = typeof b?.props?.blockId === 'string' && b.props.blockId.trim() ? b.props.blockId.trim() : null;
+                const stableKey = blockId ? `dropdown_${blockId}` : null;
+                const legacyKey = dropdownNum ? `dropdown_${dropdownNum}` : null;
+                const raw = (stableKey ? assignmentData[stableKey] : undefined) ?? (legacyKey ? assignmentData[legacyKey] : undefined);
                 const selectedValue = typeof raw === 'string' ? raw.trim() : raw;
                 if (!selectedValue)
                     return;
@@ -835,8 +946,112 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
             else if (b.type === 'promotion_info') {
                 const targetLevel = b.props?.targetLevel;
                 const promotions = assignmentData.promotions || [];
-                const promo = promotions.find((p) => p.to === targetLevel);
+                const blockLevel = String(b.props?.level || '').trim();
+                let promo = null;
+                if (targetLevel) {
+                    promo = promotions.find((p) => p.to === targetLevel);
+                }
+                if (!promo && blockLevel) {
+                    promo = promotions.find((p) => p.from === blockLevel);
+                }
+                if (!promo && !targetLevel && !blockLevel && promotions.length === 1) {
+                    promo = { ...promotions[0] };
+                }
+                if (!promo && blockLevel) {
+                    const history = assignmentData.signatures || [];
+                    const wantEndOfYear = b.props?.period === 'end-year';
+                    const isMidYearBlock = b.props?.period === 'mid-year';
+                    const candidates = history.filter((sig) => {
+                        if (wantEndOfYear) {
+                            if (sig.type !== 'end_of_year')
+                                return false;
+                        }
+                        else if (isMidYearBlock) {
+                            if (sig.type && sig.type !== 'standard')
+                                return false;
+                        }
+                        if (sig.level && sig.level !== blockLevel)
+                            return false;
+                        return true;
+                    }).sort((a, b) => new Date(b.signedAt || 0).getTime() - new Date(a.signedAt || 0).getTime());
+                    const sig = candidates[0];
+                    if (sig) {
+                        let yearLabel = sig.schoolYearName;
+                        if (!yearLabel && sig.signedAt) {
+                            const d = new Date(sig.signedAt);
+                            const y = d.getFullYear();
+                            const m = d.getMonth();
+                            const startYear = m >= 8 ? y : y - 1;
+                            yearLabel = `${startYear}/${startYear + 1}`;
+                        }
+                        if (!yearLabel) {
+                            const currentYear = new Date().getFullYear();
+                            const startYear = currentYear;
+                            yearLabel = `${startYear}/${startYear + 1}`;
+                        }
+                        const baseLevel = blockLevel;
+                        const target = targetLevel || getNextLevelNameSync(baseLevel || '') || '';
+                        promo = {
+                            year: yearLabel,
+                            from: baseLevel,
+                            to: target || '?',
+                            class: student?.className || ''
+                        };
+                    }
+                }
+                if (!promo) {
+                    const TemplateAssignment = (await Promise.resolve().then(() => __importStar(require('../models/TemplateAssignment')))).TemplateAssignment;
+                    const templateAssignment = await TemplateAssignment.findOne({ studentId: id, templateId: tplId }).lean();
+                    if (templateAssignment) {
+                        const TemplateSignature = (await Promise.resolve().then(() => __importStar(require('../models/TemplateSignature')))).TemplateSignature;
+                        const signatures = await TemplateSignature.find({ templateAssignmentId: String(templateAssignment._id) }).lean();
+                        const wantEndOfYear = b.props?.period === 'end-year';
+                        const candidates = (signatures || [])
+                            .filter((sig) => sig?.signedAt)
+                            .filter((sig) => {
+                            if (!blockLevel)
+                                return true;
+                            const sigLevel = String(sig?.level || '').trim();
+                            return !sigLevel || sigLevel === blockLevel;
+                        })
+                            .filter((sig) => {
+                            const t = String(sig?.type || 'standard');
+                            if (wantEndOfYear)
+                                return t === 'end_of_year';
+                            return t !== 'end_of_year';
+                        })
+                            .sort((a, b) => new Date(b.signedAt || 0).getTime() - new Date(a.signedAt || 0).getTime());
+                        const candidate = candidates[0];
+                        if (candidate?.signedAt) {
+                            let yearLabel = String(candidate.schoolYearName || '').trim();
+                            if (!yearLabel) {
+                                const d = new Date(candidate.signedAt);
+                                const y = d.getFullYear();
+                                const m = d.getMonth();
+                                const startYear = m >= 8 ? y : y - 1;
+                                yearLabel = `${startYear}/${startYear + 1}`;
+                            }
+                            const candidateLevel = String(candidate?.level || '').trim();
+                            const baseLevel = blockLevel || candidateLevel || student?.level || '';
+                            const target = targetLevel || getNextLevelNameSync(baseLevel || '') || '';
+                            promo = {
+                                year: yearLabel,
+                                from: baseLevel,
+                                to: target || '?',
+                                class: student?.className || ''
+                            };
+                        }
+                    }
+                }
                 if (promo) {
+                    if (!promo.class && student?.className)
+                        promo.class = student.className;
+                    if (!promo.from) {
+                        if (blockLevel)
+                            promo.from = blockLevel;
+                        else if (student?.level)
+                            promo.from = student.level;
+                    }
                     const yearLabel = getPromotionYearLabel(promo, assignmentData);
                     const x = px(b.props?.x || 50);
                     const y = py(b.props?.y || 50);
@@ -845,11 +1060,10 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
                     doc.save();
                     doc.fontSize(b.props?.fontSize || 12).fillColor(b.props?.color || '#2d3436');
                     if (!b.props?.field) {
-                        // Legacy behavior: Draw box and all info
                         doc.rect(x, y, width, height).stroke('#6c5ce7');
                         const textX = x + 10;
                         let textY = y + 15;
-                        doc.font('Helvetica-Bold').text(`Passage en ${targetLevel}`, textX, textY, { width: width - 20, align: 'center' });
+                        doc.font('Helvetica-Bold').text(`Passage en ${promo.to || targetLevel || ''}`, textX, textY, { width: width - 20, align: 'center' });
                         textY += 20;
                         doc.font('Helvetica').text(`${student.firstName} ${student.lastName}`, textX, textY, { width: width - 20, align: 'center' });
                         textY += 20;
@@ -857,15 +1071,33 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
                         doc.text(`Année ${yearLabel}`, textX, textY, { width: width - 20, align: 'center' });
                     }
                     else {
-                        // Specific field
                         if (b.props.field === 'level') {
-                            doc.font('Helvetica-Bold').text(`Passage en ${targetLevel}`, x, y + (height / 2) - 6, { width, align: 'center' });
+                            doc.font('Helvetica-Bold').text(`${promo.to || targetLevel || ''}`, x, y + (height / 2) - 6, { width, align: 'center' });
                         }
                         else if (b.props.field === 'student') {
                             doc.font('Helvetica').text(`${student.firstName} ${student.lastName}`, x, y + (height / 2) - 6, { width, align: 'center' });
                         }
+                        else if (b.props.field === 'studentFirstName') {
+                            doc.font('Helvetica').text(`${student.firstName}`, x, y + (height / 2) - 6, { width, align: 'center' });
+                        }
+                        else if (b.props.field === 'studentLastName') {
+                            doc.font('Helvetica').text(`${student.lastName}`, x, y + (height / 2) - 6, { width, align: 'center' });
+                        }
                         else if (b.props.field === 'year') {
                             doc.text(`Année ${yearLabel}`, x, y + (height / 2) - 6, { width, align: 'center' });
+                        }
+                        else if (b.props.field === 'currentYear') {
+                            const currentYearLabel = getPromotionCurrentYearLabel(promo, assignmentData, blockLevel, b.props?.period);
+                            doc.text(String(currentYearLabel || ''), x, y + (height / 2) - 6, { width, align: 'center' });
+                        }
+                        else if (b.props.field === 'class') {
+                            const raw = String(promo.class || '');
+                            const parts = raw.split(/\s*[-\s]\s*/);
+                            const section = parts.length ? parts[parts.length - 1] : raw;
+                            doc.text(section, x, y + (height / 2) - 6, { width, align: 'center' });
+                        }
+                        else if (b.props.field === 'currentLevel') {
+                            doc.text(String(promo.from || ''), x, y + (height / 2) - 6, { width, align: 'center' });
                         }
                     }
                     doc.restore();
@@ -897,7 +1129,7 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
         await renderFromTemplate(String(templateId));
     else
         await renderDefault();
-    const dateStr = new Date().toLocaleDateString();
+    const dateStr = (0, dateFormat_1.formatDdMmYyyyColon)(new Date());
     doc.moveDown();
     doc.fontSize(10).fillColor('#999').text(`Imprimé le ${dateStr}`, { align: 'right' });
     doc.end();
@@ -910,7 +1142,7 @@ exports.pdfRouter.get('/class/:classId/batch', (0, auth_1.requireAuth)(['ADMIN',
     const studentIds = enrolls.map(e => e.studentId);
     const students = await Student_1.Student.find({ _id: { $in: studentIds } }).lean();
     res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Disposition', `attachment; filename="reports-${classId}.zip"`);
+    res.setHeader('Content-Disposition', buildContentDisposition(`reports-${classId}.zip`));
     const archive = archiver('zip');
     archive.pipe(res);
     for (const s of students) {
@@ -959,7 +1191,8 @@ exports.pdfRouter.get('/class/:classId/batch', (0, auth_1.requireAuth)(['ADMIN',
                         studentId: String(s._id),
                         templateId: String(templateId)
                     }).lean();
-                    const assignmentData = assignment?.data || {};
+                    const populatedAssignment = assignment ? await (0, signatureService_1.populateSignatures)(assignment) : assignment;
+                    const assignmentData = populatedAssignment?.data || {};
                     const categories = await Category_1.Category.find({}).lean();
                     const comps = await Competency_1.Competency.find({}).lean();
                     const compByCat = {};
@@ -986,7 +1219,7 @@ exports.pdfRouter.get('/class/:classId/batch', (0, auth_1.requireAuth)(['ADMIN',
                     const resolveText = (t) => t
                         .replace(/\{student\.firstName\}/g, String(s.firstName))
                         .replace(/\{student\.lastName\}/g, String(s.lastName))
-                        .replace(/\{student\.dob\}/g, new Date(s.dateOfBirth).toLocaleDateString())
+                        .replace(/\{student\.dob\}/g, (0, dateFormat_1.formatDdMmYyyyColon)(s.dateOfBirth))
                         .replace(/\{class\.name\}/g, classDoc ? String(classDoc.name) : '');
                     const drawBlock = async (b, blockIdx = 0) => {
                         if (Array.isArray(b?.props?.levels) && b.props.levels.length > 0 && level && !b.props.levels.includes(level))
@@ -1139,7 +1372,7 @@ exports.pdfRouter.get('/class/:classId/batch', (0, auth_1.requireAuth)(['ADMIN',
                             if (fields.includes('class'))
                                 lines.push(`Classe: ${enrollments[0] ? enrollments[0].classId : ''}`);
                             if (fields.includes('dob'))
-                                lines.push(`Naissance: ${new Date(s.dateOfBirth).toLocaleDateString()}`);
+                                lines.push(`Naissance: ${(0, dateFormat_1.formatDdMmYyyyColon)(s.dateOfBirth)}`);
                             if (b.props?.color)
                                 doc.fillColor(b.props.color);
                             doc.fontSize(b.props?.size || b.props?.fontSize || 12);
@@ -1258,7 +1491,10 @@ exports.pdfRouter.get('/class/:classId/batch', (0, auth_1.requireAuth)(['ADMIN',
                         else if (b.type === 'dropdown') {
                             // Render dropdown with selected value or skip if empty
                             const dropdownNum = b.props?.dropdownNumber;
-                            const selectedValue = dropdownNum ? assignmentData[`dropdown_${dropdownNum}`] : (b.props?.variableName ? assignmentData[b.props.variableName] : '');
+                            const blockId = typeof b?.props?.blockId === 'string' && b.props.blockId.trim() ? b.props.blockId.trim() : null;
+                            const stableKey = blockId ? `dropdown_${blockId}` : null;
+                            const legacyKey = dropdownNum ? `dropdown_${dropdownNum}` : (b.props?.variableName ? b.props.variableName : null);
+                            const selectedValue = (stableKey ? assignmentData[stableKey] : undefined) ?? (legacyKey ? assignmentData[legacyKey] : undefined) ?? '';
                             // Skip rendering if no value is selected
                             if (!selectedValue)
                                 return;
@@ -1289,7 +1525,10 @@ exports.pdfRouter.get('/class/:classId/batch', (0, auth_1.requireAuth)(['ADMIN',
                         else if (b.type === 'dropdown_reference') {
                             // Render the value selected in the referenced dropdown
                             const dropdownNum = b.props?.dropdownNumber || 1;
-                            const raw = assignmentData[`dropdown_${dropdownNum}`];
+                            const blockId = typeof b?.props?.blockId === 'string' && b.props.blockId.trim() ? b.props.blockId.trim() : null;
+                            const stableKey = blockId ? `dropdown_${blockId}` : null;
+                            const legacyKey = dropdownNum ? `dropdown_${dropdownNum}` : null;
+                            const raw = (stableKey ? assignmentData[stableKey] : undefined) ?? (legacyKey ? assignmentData[legacyKey] : undefined);
                             const selectedValue = typeof raw === 'string' ? raw.trim() : raw;
                             if (!selectedValue)
                                 return;
@@ -1498,8 +1737,20 @@ exports.pdfRouter.get('/class/:classId/batch', (0, auth_1.requireAuth)(['ADMIN',
                                         const imgWidth = Math.min(width - 10, width * 0.9);
                                         const imgHeight = height - 10;
                                         let rendered = false;
+                                        const sigData = signature.signatureData;
+                                        if (sigData) {
+                                            try {
+                                                const base64 = String(sigData).split(',').pop() || '';
+                                                const buf = Buffer.from(base64, 'base64');
+                                                doc.image(buf, x + 5, y + 5, { fit: [imgWidth, imgHeight], align: 'center', valign: 'center' });
+                                                rendered = true;
+                                            }
+                                            catch (e) {
+                                                console.error('Failed to load signature snapshot:', e);
+                                            }
+                                        }
                                         const sigUrl = signature.signatureUrl;
-                                        if (sigUrl) {
+                                        if (!rendered && sigUrl) {
                                             try {
                                                 if (String(sigUrl).startsWith('data:')) {
                                                     const base64 = String(sigUrl).split(',').pop() || '';
@@ -1530,7 +1781,7 @@ exports.pdfRouter.get('/class/:classId/batch', (0, auth_1.requireAuth)(['ADMIN',
                                         if (!rendered) {
                                             doc.fontSize(10).fillColor('#333');
                                             const signerName = subAdmin?.displayName || 'Signé';
-                                            const signedAt = signature.signedAt ? new Date(signature.signedAt).toLocaleDateString() : '';
+                                            const signedAt = signature.signedAt ? (0, dateFormat_1.formatDdMmYyyyColon)(signature.signedAt) : '';
                                             doc.text(`✓ ${signerName}`, x + 5, y + (height / 2) - 10, { width: width - 10, align: 'center' });
                                             if (signedAt) {
                                                 doc.fontSize(8).fillColor('#666');
@@ -1592,8 +1843,116 @@ exports.pdfRouter.get('/class/:classId/batch', (0, auth_1.requireAuth)(['ADMIN',
                         else if (b.type === 'promotion_info') {
                             const targetLevel = b.props?.targetLevel;
                             const promotions = assignmentData.promotions || [];
-                            const promo = promotions.find((p) => p.to === targetLevel);
+                            const blockLevel = String(b.props?.level || '').trim();
+                            let promo = null;
+                            if (targetLevel) {
+                                promo = promotions.find((p) => p.to === targetLevel);
+                            }
+                            if (!promo && blockLevel) {
+                                promo = promotions.find((p) => p.from === blockLevel);
+                            }
+                            if (!promo && !targetLevel && !blockLevel && promotions.length === 1) {
+                                promo = { ...promotions[0] };
+                            }
+                            if (!promo && blockLevel) {
+                                const history = assignmentData.signatures || [];
+                                const wantEndOfYear = b.props?.period === 'end-year';
+                                const isMidYearBlock = b.props?.period === 'mid-year';
+                                const candidates = history.filter((sig) => {
+                                    if (wantEndOfYear) {
+                                        if (sig.type !== 'end_of_year')
+                                            return false;
+                                    }
+                                    else if (isMidYearBlock) {
+                                        if (sig.type && sig.type !== 'standard')
+                                            return false;
+                                    }
+                                    if (sig.level && sig.level !== blockLevel)
+                                        return false;
+                                    return true;
+                                }).sort((a, b) => new Date(b.signedAt || 0).getTime() - new Date(a.signedAt || 0).getTime());
+                                const sig = candidates[0];
+                                if (sig) {
+                                    let yearLabel = sig.schoolYearName;
+                                    if (!yearLabel && sig.signedAt) {
+                                        const d = new Date(sig.signedAt);
+                                        const y = d.getFullYear();
+                                        const m = d.getMonth();
+                                        const startYear = m >= 8 ? y : y - 1;
+                                        yearLabel = `${startYear}/${startYear + 1}`;
+                                    }
+                                    if (!yearLabel) {
+                                        const currentYear = new Date().getFullYear();
+                                        const startYear = currentYear;
+                                        yearLabel = `${startYear}/${startYear + 1}`;
+                                    }
+                                    const baseLevel = blockLevel;
+                                    const target = targetLevel || getNextLevelNameSync(baseLevel || '') || '';
+                                    promo = {
+                                        year: yearLabel,
+                                        from: baseLevel,
+                                        to: target || '?',
+                                        class: s?.className || ''
+                                    };
+                                }
+                            }
+                            if (!promo) {
+                                const TemplateAssignment = (await Promise.resolve().then(() => __importStar(require('../models/TemplateAssignment')))).TemplateAssignment;
+                                const templateAssignment = await TemplateAssignment.findOne({
+                                    studentId: String(s._id),
+                                    templateId: String(templateId)
+                                }).lean();
+                                if (templateAssignment) {
+                                    const TemplateSignature = (await Promise.resolve().then(() => __importStar(require('../models/TemplateSignature')))).TemplateSignature;
+                                    const signatures = await TemplateSignature.find({ templateAssignmentId: String(templateAssignment._id) }).lean();
+                                    const wantEndOfYear = b.props?.period === 'end-year';
+                                    const candidates = (signatures || [])
+                                        .filter((sig) => sig?.signedAt)
+                                        .filter((sig) => {
+                                        if (!blockLevel)
+                                            return true;
+                                        const sigLevel = String(sig?.level || '').trim();
+                                        return !sigLevel || sigLevel === blockLevel;
+                                    })
+                                        .filter((sig) => {
+                                        const t = String(sig?.type || 'standard');
+                                        if (wantEndOfYear)
+                                            return t === 'end_of_year';
+                                        return t !== 'end_of_year';
+                                    })
+                                        .sort((a, b) => new Date(b.signedAt || 0).getTime() - new Date(a.signedAt || 0).getTime());
+                                    const candidate = candidates[0];
+                                    if (candidate?.signedAt) {
+                                        let yearLabel = String(candidate.schoolYearName || '').trim();
+                                        if (!yearLabel) {
+                                            const d = new Date(candidate.signedAt);
+                                            const y = d.getFullYear();
+                                            const m = d.getMonth();
+                                            const startYear = m >= 8 ? y : y - 1;
+                                            yearLabel = `${startYear}/${startYear + 1}`;
+                                        }
+                                        const candidateLevel = String(candidate?.level || '').trim();
+                                        const baseLevel = blockLevel || candidateLevel || s?.level || '';
+                                        const target = targetLevel || getNextLevelNameSync(baseLevel || '') || '';
+                                        promo = {
+                                            year: yearLabel,
+                                            from: baseLevel,
+                                            to: target || '?',
+                                            class: s?.className || ''
+                                        };
+                                    }
+                                }
+                            }
                             if (promo) {
+                                if (!promo.class && s?.className)
+                                    promo.class = s.className;
+                                if (!promo.from) {
+                                    if (blockLevel)
+                                        promo.from = blockLevel;
+                                    else if (s?.level)
+                                        promo.from = s.level;
+                                }
+                                const yearLabel = getPromotionYearLabel(promo, assignmentData);
                                 const x = px(b.props?.x || 50);
                                 const y = py(b.props?.y || 50);
                                 const width = sx(b.props?.width || (b.props?.field ? 150 : 300));
@@ -1601,27 +1960,44 @@ exports.pdfRouter.get('/class/:classId/batch', (0, auth_1.requireAuth)(['ADMIN',
                                 doc.save();
                                 doc.fontSize(b.props?.fontSize || 12).fillColor(b.props?.color || '#2d3436');
                                 if (!b.props?.field) {
-                                    // Legacy behavior: Draw box and all info
                                     doc.rect(x, y, width, height).stroke('#6c5ce7');
                                     const textX = x + 10;
                                     let textY = y + 15;
-                                    doc.font('Helvetica-Bold').text(`Passage en ${targetLevel}`, textX, textY, { width: width - 20, align: 'center' });
+                                    doc.font('Helvetica-Bold').text(`Passage en ${promo.to || targetLevel || ''}`, textX, textY, { width: width - 20, align: 'center' });
                                     textY += 20;
                                     doc.font('Helvetica').text(`${s.firstName} ${s.lastName}`, textX, textY, { width: width - 20, align: 'center' });
                                     textY += 20;
                                     doc.fontSize((b.props?.fontSize || 12) * 0.8).fillColor('#666');
-                                    doc.text(`Année ${promo.year}`, textX, textY, { width: width - 20, align: 'center' });
+                                    doc.text(`Année ${yearLabel}`, textX, textY, { width: width - 20, align: 'center' });
                                 }
                                 else {
-                                    // Specific field
                                     if (b.props.field === 'level') {
-                                        doc.font('Helvetica-Bold').text(`Passage en ${targetLevel}`, x, y + (height / 2) - 6, { width, align: 'center' });
+                                        doc.font('Helvetica-Bold').text(`${promo.to || targetLevel || ''}`, x, y + (height / 2) - 6, { width, align: 'center' });
                                     }
                                     else if (b.props.field === 'student') {
                                         doc.font('Helvetica').text(`${s.firstName} ${s.lastName}`, x, y + (height / 2) - 6, { width, align: 'center' });
                                     }
+                                    else if (b.props.field === 'studentFirstName') {
+                                        doc.font('Helvetica').text(`${s.firstName}`, x, y + (height / 2) - 6, { width, align: 'center' });
+                                    }
+                                    else if (b.props.field === 'studentLastName') {
+                                        doc.font('Helvetica').text(`${s.lastName}`, x, y + (height / 2) - 6, { width, align: 'center' });
+                                    }
                                     else if (b.props.field === 'year') {
-                                        doc.text(`Année ${promo.year}`, x, y + (height / 2) - 6, { width, align: 'center' });
+                                        doc.text(`Année ${yearLabel}`, x, y + (height / 2) - 6, { width, align: 'center' });
+                                    }
+                                    else if (b.props.field === 'currentYear') {
+                                        const currentYearLabel = getPromotionCurrentYearLabel(promo, assignmentData, blockLevel, b.props?.period);
+                                        doc.text(String(currentYearLabel || ''), x, y + (height / 2) - 6, { width, align: 'center' });
+                                    }
+                                    else if (b.props.field === 'class') {
+                                        const raw = String(promo.class || '');
+                                        const parts = raw.split(/\s*[-\s]\s*/);
+                                        const section = parts.length ? parts[parts.length - 1] : raw;
+                                        doc.text(section, x, y + (height / 2) - 6, { width, align: 'center' });
+                                    }
+                                    else if (b.props.field === 'currentLevel') {
+                                        doc.text(String(promo.from || ''), x, y + (height / 2) - 6, { width, align: 'center' });
                                     }
                                 }
                                 doc.restore();

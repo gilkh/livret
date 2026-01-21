@@ -4,6 +4,7 @@ import { GradebookTemplate } from '../models/GradebookTemplate'
 import { TemplateAssignment } from '../models/TemplateAssignment'
 import { requireAuth } from '../auth'
 import { formatDdMmYyyyColon } from '../utils/dateFormat'
+import { populateSignatures } from '../services/signatureService'
 
 export const htmlRenderRouter = Router()
 
@@ -47,6 +48,39 @@ function getPromotionYearLabel(promo: any, assignmentData: any, blockLevel: stri
   return next || year
 }
 
+function getPromotionCurrentYearLabel(promo: any, assignmentData: any, blockLevel: string | null, period?: string): string {
+  const history = assignmentData?.signatures || []
+  const wantEndOfYear = period === 'end-year'
+  const isMidYearBlock = period === 'mid-year'
+
+  const candidates = history
+    .filter((sig: any) => {
+      if (wantEndOfYear) {
+        if (sig.type !== 'end_of_year') return false
+      } else if (isMidYearBlock) {
+        if (sig.type && sig.type !== 'standard') return false
+      }
+      if (sig.level && blockLevel && sig.level !== blockLevel) return false
+      return true
+    })
+    .sort((a: any, b: any) => new Date(b.signedAt || 0).getTime() - new Date(a.signedAt || 0).getTime())
+
+  const sig = candidates[0]
+  if (sig) {
+    let yearLabel = String(sig.schoolYearName || '').trim()
+    if (!yearLabel && sig.signedAt) {
+      const d = new Date(sig.signedAt)
+      const y = d.getFullYear()
+      const m = d.getMonth()
+      const startYear = m >= 8 ? y : y - 1
+      yearLabel = `${startYear}/${startYear + 1}`
+    }
+    if (yearLabel) return yearLabel
+  }
+
+  return String(promo?.year || '')
+}
+
 // HTML template for rendering the carnet
 htmlRenderRouter.get('/carnet/:assignmentId', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), async (req, res) => {
   try {
@@ -62,7 +96,8 @@ htmlRenderRouter.get('/carnet/:assignmentId', requireAuth(['ADMIN', 'SUBADMIN', 
 
     if (!template || !student) return res.status(404).send('Template or student not found')
 
-    const assignmentData = assignment.data || {}
+    const populatedAssignment = assignment ? await populateSignatures(assignment) : assignment
+    const assignmentData = populatedAssignment?.data || {}
 
     // Generate HTML with inline styles
     const html = `
@@ -267,7 +302,9 @@ function renderBlock(block: any, student: any, assignmentData: any): string {
       const promotions = assignmentData.promotions || []
       const promo = promotions.find((p: any) => p.to === targetLevel)
       if (promo) {
+        const blockLevel = props.level ? String(props.level).trim() : null
         const yearLabel = getPromotionYearLabel(promo, assignmentData, null)
+        const currentYearLabel = getPromotionCurrentYearLabel(promo, assignmentData, blockLevel, props.period)
         if (!props.field) {
           return `<div class="block" style="${style}">
             <div class="promotion-box" style="width: ${props.width || 300}px; height: ${props.height || 100}px; font-size: ${props.fontSize || 12}px; color: ${props.color || '#2d3436'};">
@@ -281,6 +318,7 @@ function renderBlock(block: any, student: any, assignmentData: any): string {
           if (props.field === 'level') content = `Passage en ${targetLevel}`
           else if (props.field === 'student') content = `${student.firstName} ${student.lastName}`
           else if (props.field === 'year') content = `Année ${yearLabel}`
+          else if (props.field === 'currentYear') content = String(currentYearLabel || '')
           return `<div class="block" style="${style} width: ${props.width || 150}px; height: ${props.height || 30}px; font-size: ${props.fontSize || 12}px; color: ${props.color || '#2d3436'}; display: flex; align-items: center; justify-content: center; text-align: center;">${content}</div>`
         }
       }

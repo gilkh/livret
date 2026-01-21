@@ -5,7 +5,7 @@ import { useLevels } from '../context/LevelContext'
 import { GradebookPocket } from '../components/GradebookPocket'
 import { CroppedImage } from '../components/CroppedImage'
 import { formatDdMmYyyyColon } from '../utils/dateFormat'
-import { computeSignatureStatusForBlock } from '../utils/signatureVisibility'
+// Block visibility is now controlled entirely by admin settings (block_visibility_settings)
 
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
@@ -26,8 +26,11 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
     const [student, setStudent] = useState<Student | null>(null)
     const [assignment, setAssignment] = useState<Assignment | null>(null)
     const [signature, setSignature] = useState<any>(null)
+    const [finalSignature, setFinalSignature] = useState<any>(null)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState('')
+    const [activeYear, setActiveYear] = useState<any>(null)
+    const [blockVisibility, setBlockVisibility] = useState<any>({})
     const { levels } = useLevels()
 
     const getNextLevel = (current: string) => {
@@ -65,6 +68,55 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
         if (/\bKG2\b/.test(label)) return 'KG2'
         if (/\bKG3\b/.test(label)) return 'KG3'
         return null
+    }
+
+    // Level order for comparison (lower number = lower level)
+    const levelOrder: Record<string, number> = { 'TPS': 0, 'PS': 1, 'MS': 2, 'GS': 3, 'EB1': 4, 'KG1': 1, 'KG2': 2, 'KG3': 3 }
+
+    // Check if block's level is higher than student's current level
+    const isBlockLevelHigherThanStudent = (blockLevel: string | null): boolean => {
+        if (!blockLevel) return false
+        const studentLvl = (student?.level || '').toUpperCase()
+        const blockLvl = blockLevel.toUpperCase()
+        const studentOrder = levelOrder[studentLvl] ?? 99
+        const blockOrder = levelOrder[blockLvl] ?? 99
+        return blockOrder > studentOrder
+    }
+
+    // Find signature for a specific level
+    const getSignatureForLevel = (targetLevel: string | null) => {
+        if (!targetLevel) return { hasSem1: !!signature, hasSem2: !!finalSignature }
+        
+        const normalizedTarget = targetLevel.toUpperCase()
+        const history = assignment?.data?.signatures || []
+        const promotions = assignment?.data?.promotions || []
+        
+        let hasSem1 = false
+        let hasSem2 = false
+        
+        // Check if current student level matches and use current signatures
+        if (student?.level?.toUpperCase() === normalizedTarget) {
+            hasSem1 = !!signature
+            hasSem2 = !!finalSignature
+        }
+        
+        // Check historical signatures
+        history.forEach((sig: any) => {
+            if (sig.schoolYearName) {
+                const promo = promotions.find((p: any) => p.year === sig.schoolYearName)
+                if (promo && promo.from?.toUpperCase() === normalizedTarget) {
+                    if (sig.type === 'standard' || !sig.type) hasSem1 = true
+                    if (sig.type === 'end_of_year') hasSem2 = true
+                }
+            }
+            // Also check direct level match on signature
+            if (sig.level?.toUpperCase() === normalizedTarget) {
+                if (sig.type === 'standard' || !sig.type) hasSem1 = true
+                if (sig.type === 'end_of_year') hasSem2 = true
+            }
+        })
+        
+        return { hasSem1, hasSem2 }
     }
 
     const computeNextSchoolYearName = (year: string | undefined) => {
@@ -105,42 +157,44 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
         return next || year
     }
 
-    // Check if a block should be visible based on signature status
-    const isBlockVisible = (b: Block) => {
-        // Hide signature blocks entirely when hideSignatures is true
-        if (hideSignatures && (b.type === 'signature_block' || b.type === 'signature_date')) {
-            return false
-        }
-        
-        // If block has no period, it's always visible
-        if (!b.props.period) return true
-
-        const blockLevel = getBlockLevel(b)
-
-        // Case 1: Block has NO specific level (generic)
-        if (!blockLevel) {
-            // Use current active signature state
-            if (b.props.period === 'mid-year' && !signature) return false
-            if (b.props.period === 'end-year' && !signature) return false // Use signature for end-year in PDF context
+    const getPromotionCurrentYearLabel = (promo: any, blockLevel: string | null, period?: string) => {
+        const history = assignment?.data?.signatures || []
+        const wantEndOfYear = period === 'end-year'
+        const isMidYearBlock = period === 'mid-year'
+        const candidates = history.filter((sig: any) => {
+            if (wantEndOfYear) {
+                if (sig.type !== 'end_of_year') return false
+            } else if (isMidYearBlock) {
+                if (sig.type && sig.type !== 'standard') return false
+            }
+            if (sig.level && blockLevel && sig.level !== blockLevel) return false
             return true
-        }
-
-        const { isSignedStandard, isSignedFinal } = computeSignatureStatusForBlock({
-            signature,
-            finalSignature: null,
-            history: assignment?.data?.signatures || [],
-            promotions: assignment?.data?.promotions || [],
-            studentLevel: student?.level || null,
-            blockLevel,
-            includeDirectLevelMatch: true,
-            useFinalSignature: false,
-            useSignatureAsFinal: true
+        }).sort((a: any, b: any) => {
+            const ad = new Date(a.signedAt || 0).getTime()
+            const bd = new Date(b.signedAt || 0).getTime()
+            return bd - ad
         })
 
-        if (b.props.period === 'mid-year' && !isSignedStandard) return false
-        if (b.props.period === 'end-year' && !isSignedFinal) return false
+        const sig = candidates[0]
+        if (sig) {
+            let yearLabel = String(sig.schoolYearName || '').trim()
+            if (!yearLabel && sig.signedAt) {
+                const d = new Date(sig.signedAt)
+                const y = d.getFullYear()
+                const m = d.getMonth()
+                const startYear = m >= 8 ? y : y - 1
+                yearLabel = `${startYear}/${startYear + 1}`
+            }
+            if (yearLabel) return yearLabel
+        }
 
-        return true
+        return String(promo?.year || '')
+    }
+
+    // Block visibility is now controlled entirely by admin settings (block_visibility_settings)
+    // Only hideSignatures URL param is still respected for special PDF export cases
+    const shouldHideSignatureBlock = (b: Block) => {
+        return hideSignatures && (b.type === 'signature_block' || b.type === 'signature_date')
     }
 
     const getSemesterNumber = (b: Block): 1 | 2 | null => {
@@ -159,6 +213,7 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
         const history = assignment?.data?.signatures
         if (Array.isArray(history)) sigs.push(...history)
         if (signature) sigs.push(signature)
+        if (finalSignature) sigs.push(finalSignature)
 
         const promotions = Array.isArray(assignment?.data?.promotions) ? assignment?.data?.promotions : []
         const normalizeLevel = (val: any) => String(val || '').trim().toLowerCase()
@@ -202,6 +257,11 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
         return filtered[0] || null
     }
 
+    const buildVisibilityKey = (tplId: string | undefined, pageIdx: number, blockIdx: number, blockId?: string | null) => {
+        if (blockId) return `block:${blockId}`
+        return `tpl:${tplId || ''}:p:${pageIdx}:b:${blockIdx}`
+    }
+
     useEffect(() => {
         // Initialize as not ready
         // @ts-ignore
@@ -231,6 +291,22 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                     localStorage.setItem('token', token)
                 }
 
+                try {
+                    const yearsRes = await api.get('/school-years')
+                    const list = Array.isArray(yearsRes.data) ? yearsRes.data : []
+                    const active = list.find((y: any) => y?.active)
+                    if (active) setActiveYear(active)
+                } catch {
+                    // non-blocking
+                }
+
+                try {
+                    const visRes = await api.get('/settings/public')
+                    setBlockVisibility(visRes.data.block_visibility_settings || {})
+                } catch {
+                    // non-blocking
+                }
+
                 if (mode === 'saved' && savedId) {
                     console.log('[CarnetPrint] Loading saved gradebook:', savedId)
                     const r = await api.get(`/saved-gradebooks/${savedId}`)
@@ -240,8 +316,28 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                         ...savedData.data.student,
                         className: savedData.data.className || savedData.data.student.className
                     })
-                    setAssignment(savedData.data.assignment)
-                    setSignature(savedData.data.signature)
+                    const savedSignatures = savedData.data.signatures || []
+                    const assignmentSignatures = savedData.data.assignment?.data?.signatures || []
+                    const mergedSignatures = [...assignmentSignatures, ...savedSignatures]
+                    setAssignment({
+                        ...savedData.data.assignment,
+                        data: {
+                            ...(savedData.data.assignment?.data || {}),
+                            signatures: mergedSignatures
+                        }
+                    })
+                    const sem1Signature =
+                        savedData.data.signature ||
+                        savedSignatures.find((s: any) => s.type === 'standard') ||
+                        assignmentSignatures.find((s: any) => s.type === 'standard') ||
+                        null
+                    const endOfYearSignature =
+                        savedData.data.finalSignature ||
+                        savedSignatures.find((s: any) => s.type === 'end_of_year') ||
+                        assignmentSignatures.find((s: any) => s.type === 'end_of_year') ||
+                        null
+                    setSignature(sem1Signature)
+                    setFinalSignature(endOfYearSignature)
 
                     if (savedData.templateId) {
                         const t = await api.get(`/templates/${savedData.templateId}`)
@@ -314,7 +410,10 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                     const studentData = r.data.student
                     setStudent(studentData)
                     setAssignment(assignmentData)
-                    if (!isTeacher) setSignature(r.data.signature)
+                    if (!isTeacher) {
+                        setSignature(r.data.signature)
+                        setFinalSignature(r.data.finalSignature || null)
+                    }
 
                     if (assignmentData?.templateVersion && templateData?.versionHistory) {
                         const version = templateData.versionHistory.find((v: any) => v.version === assignmentData.templateVersion)
@@ -423,6 +522,69 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                     >
                         {page.blocks.map((b, idx) => {
                             if (!b || !b.props) return null;
+                            
+                            // Get block's level
+                            const blockLevel = getBlockLevel(b)
+                            
+                            // Hide blocks whose level is higher than student's current level
+                            if (isBlockLevelHigherThanStudent(blockLevel)) return null
+                            
+                            // Hide signature blocks if hideSignatures is true
+                            if (shouldHideSignatureBlock(b)) return null
+                            
+                            const blockId = typeof b?.props?.blockId === 'string' && b.props.blockId.trim() ? b.props.blockId.trim() : null
+                            const key = buildVisibilityKey(template?._id, actualPageIndex, idx, blockId)
+                            
+                            // For blocks WITH a level: use that level's settings and signatures
+                            // For blocks WITHOUT a level: check all levels at or below student's level
+                            // Show the block if ANY applicable level would show it (with its signature)
+                            let shouldShow = true
+                            
+                            if (blockLevel) {
+                                // Block has a level - use that level's settings
+                                const visibilitySetting = blockVisibility?.[blockLevel.toUpperCase()]?.pdf?.[key]
+                                const { hasSem1, hasSem2 } = getSignatureForLevel(blockLevel)
+                                
+                                if (visibilitySetting) {
+                                    if (visibilitySetting === 'never') shouldShow = false
+                                    else if (visibilitySetting === 'after_sem1' && !hasSem1 && !hasSem2) shouldShow = false
+                                    else if (visibilitySetting === 'after_sem2' && !hasSem2) shouldShow = false
+                                }
+                            } else {
+                                // Block has NO level - check all levels at or below student's current level
+                                // Find settings for this block in any applicable level
+                                const studentLvl = (student?.level || 'PS').toUpperCase()
+                                const studentOrder = levelOrder[studentLvl] ?? 99
+                                const levelsToCheck = Object.keys(levelOrder).filter(lvl => levelOrder[lvl] <= studentOrder)
+                                
+                                let foundSetting = false
+                                let anyLevelWouldShow = false
+                                
+                                for (const lvl of levelsToCheck) {
+                                    const visibilitySetting = blockVisibility?.[lvl]?.pdf?.[key]
+                                    if (visibilitySetting) {
+                                        foundSetting = true
+                                        const { hasSem1, hasSem2 } = getSignatureForLevel(lvl)
+                                        
+                                        if (visibilitySetting === 'always') {
+                                            anyLevelWouldShow = true
+                                            break
+                                        } else if (visibilitySetting === 'after_sem1' && (hasSem1 || hasSem2)) {
+                                            anyLevelWouldShow = true
+                                            break
+                                        } else if (visibilitySetting === 'after_sem2' && hasSem2) {
+                                            anyLevelWouldShow = true
+                                            break
+                                        }
+                                        // 'never' doesn't set anyLevelWouldShow
+                                    }
+                                }
+                                
+                                // If no settings found, default to visible; if found, use the result
+                                shouldShow = !foundSetting || anyLevelWouldShow
+                            }
+                            
+                            if (!shouldShow) return null
                             return (
                                 <div key={idx} style={{ position: 'absolute', left: b.props.x || 0, top: b.props.y || 0, zIndex: b.props.z ?? idx }}>
                                     {b.type === 'text' && (
@@ -820,9 +982,10 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                         // Check current signature
                                         if (!blockLevel) {
                                             if (signature) {
+                                                const src = signature.signatureData || signature.signatureUrl
                                                 return (
                                                     <div style={{ width: b.props.width || 200, height: b.props.height || 80, border: 'none', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#999' }}>
-                                                        {signature.signatureUrl ? <img src={signature.signatureUrl} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé'}
+                                                        {src ? <img src={src} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé'}
                                                     </div>
                                                 )
                                             }
@@ -830,9 +993,10 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                             // Block has specific level
                                             const sigLevel = (signature as any)?.level
                                             if (signature && ((sigLevel && sigLevel === blockLevel) || (!sigLevel && student?.level === blockLevel))) {
+                                                const src = signature.signatureData || signature.signatureUrl
                                                 return (
                                                     <div style={{ width: b.props.width || 200, height: b.props.height || 80, border: 'none', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#999' }}>
-                                                        {signature.signatureUrl ? <img src={signature.signatureUrl} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé'}
+                                                        {src ? <img src={src} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé'}
                                                     </div>
                                                 )
                                             }
@@ -854,9 +1018,10 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                             })
 
                                             if (matchingSig) {
+                                                const src = matchingSig.signatureData || matchingSig.signatureUrl
                                                 return (
                                                     <div style={{ width: b.props.width || 200, height: b.props.height || 80, border: 'none', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#999' }}>
-                                                        {matchingSig.signatureUrl ? <img src={matchingSig.signatureUrl} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : `✓ Signé (${matchingSig.schoolYearName || 'Ancien'})`}
+                                                        {src ? <img src={src} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : `✓ Signé (${matchingSig.schoolYearName || 'Ancien'})`}
                                                     </div>
                                                 )
                                             }
@@ -912,8 +1077,7 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                     })()}
 
                                     {b.type === 'promotion_info' && (() => {
-                                        // Check if block should be visible based on signature status
-                                        if (!isBlockVisible(b)) return null
+                                        // Visibility is now controlled by admin settings at block level
 
                                         return (
                                             <div style={{
@@ -935,31 +1099,22 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                                     const blockLevel = getBlockLevel(b)
                                                     const explicitTarget = b.props.targetLevel as string | undefined
 
-                                                    if (b.props.field === 'student') return <div>{student?.firstName} {student?.lastName}</div>
-                                                    if (b.props.field === 'studentFirstName') return <div>{student?.firstName}</div>
-                                                    if (b.props.field === 'studentLastName') return <div>{student?.lastName}</div>
-                                                    if (b.props.field === 'currentLevel') return <div>{student?.level}</div>
-
                                                     let promo: any = null
 
-                                                    // Strategy 1: Match by explicit target level
                                                     if (explicitTarget) {
                                                         promo = promotions.find((p: any) => p.to === explicitTarget)
                                                     }
 
-                                                    // Strategy 2: Match by block level (from)
                                                     if (!promo && blockLevel) {
                                                         promo = promotions.find((p: any) => p.from === blockLevel)
                                                     }
 
-                                                    // Strategy 3: If only one promotion exists and no specific target/level
                                                     if (!promo && !explicitTarget && !blockLevel) {
                                                         if (promotions.length === 1) {
                                                             promo = { ...(promotions[0] as any) }
                                                         }
                                                     }
 
-                                                    // Strategy 4: Try to find from signature history
                                                     if (!promo && blockLevel) {
                                                         const history = assignment?.data?.signatures || []
                                                         const isMidYearBlock = b.props.period === 'mid-year'
@@ -990,8 +1145,7 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                                             }
                                                             if (!yearLabel) {
                                                                 const currentYear = new Date().getFullYear()
-                                                                const month = new Date().getMonth()
-                                                                const startYear = month >= 8 ? currentYear : currentYear - 1
+                                                                const startYear = currentYear
                                                                 yearLabel = `${startYear}/${startYear + 1}`
                                                             }
 
@@ -1007,17 +1161,46 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                                         }
                                                     }
 
-                                                    // No fallback - if no promo found, return null
                                                     if (!promo) {
-                                                        return null
+                                                        const blockIsCurrentLevel = !!blockLevel && !!student?.level && blockLevel === student.level
+                                                        const isMidYearBlock = b.props.period === 'mid-year'
+                                                        const hasMidSignature = !!signature
+                                                        const hasFinalSignature = !!finalSignature
+                                                        const canPredict = isMidYearBlock
+                                                            ? (hasMidSignature && (blockIsCurrentLevel || (!blockLevel && promotions.length === 0)))
+                                                            : (hasFinalSignature && (blockIsCurrentLevel || (!blockLevel && promotions.length === 0)))
+
+                                                        if (!canPredict) {
+                                                            return null
+                                                        }
+
+                                                        let startYear = 0
+                                                        if (activeYear && activeYear.name) {
+                                                            const m = String(activeYear.name).match(/(\d{4})/)
+                                                            if (m) startYear = parseInt(m[1], 10)
+                                                        }
+
+                                                        if (!startYear) return null
+
+                                                        const baseLevel = blockLevel || student?.level || ''
+                                                        const target = explicitTarget || getNextLevel(baseLevel || '') || ''
+                                                        const displayYear = `${startYear}/${startYear + 1}`
+
+                                                        promo = {
+                                                            year: displayYear,
+                                                            from: baseLevel,
+                                                            to: target || '?',
+                                                            class: student?.className || ''
+                                                        }
+                                                    } else {
+                                                        if (!promo.class && student?.className) promo.class = student.className
+                                                        if (!promo.from) {
+                                                            if (blockLevel) promo.from = blockLevel
+                                                            else if (student?.level) promo.from = student.level
+                                                        }
                                                     }
 
-                                                    // Enrich existing promo with current data if missing
-                                                    if (!promo.class && student?.className) promo.class = student.className
-                                                    if (!promo.from) {
-                                                        if (blockLevel) promo.from = blockLevel
-                                                        else if (student?.level) promo.from = student.level
-                                                    }
+                                                    if (!promo) return null
 
                                                     const yearLabel = getPromotionYearLabel(promo, blockLevel)
                                                     if (!b.props.field) {
@@ -1025,7 +1208,7 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                                             <>
                                                                 <div style={{ fontWeight: 'bold', marginBottom: 8 }}>Passage en {promo.to}</div>
                                                                 <div>{student?.firstName} {student?.lastName}</div>
-                                                                <div style={{ fontSize: (b.props.fontSize || 12) * 0.8, color: '#666', marginTop: 8 }}>Année {yearLabel}</div>
+                                                                <div style={{ fontSize: (b.props.fontSize || 12) * 0.8, color: '#666', marginTop: 8 }}>Next Year {yearLabel}</div>
                                                             </>
                                                         )
                                                     } else if (b.props.field === 'level') {
@@ -1039,7 +1222,8 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                                     } else if (b.props.field === 'year') {
                                                         return <div>{yearLabel}</div>
                                                     } else if (b.props.field === 'currentYear') {
-                                                        return <div>{String(promo.year || '')}</div>
+                                                        const label = getPromotionCurrentYearLabel(promo, blockLevel, b.props.period) || activeYear?.name || ''
+                                                        return <div>{String(label)}</div>
                                                     } else if (b.props.field === 'class') {
                                                         const raw = promo.class || ''
                                                         const parts = raw.split(/\s*[-\s]\s*/)

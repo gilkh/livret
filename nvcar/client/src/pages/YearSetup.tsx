@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import api from '../api'
+import { readTextFileWithFallback } from '../utils/textEncoding'
 
 type Year = { _id: string; name: string; startDate: string; endDate: string; active: boolean }
 type ClassDoc = { _id: string; name: string; level?: string; schoolYearId: string }
@@ -11,7 +12,7 @@ function InlineImportCSV({ schoolYearId }: { schoolYearId: string }) {
   const onFile = async (e: any) => {
     const f = e.target.files?.[0]
     if (!f) return
-    const txt = await f.text()
+    const txt = await readTextFileWithFallback(f)
     setCsv(txt)
   }
   const submit = async () => {
