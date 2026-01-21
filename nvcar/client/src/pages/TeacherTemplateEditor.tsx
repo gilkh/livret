@@ -547,6 +547,27 @@ export default function TeacherTemplateEditor() {
         return next || year
     }
 
+    const savedSignatures = useMemo(() => {
+        const sigs = assignment?.data?.signatures
+        return Array.isArray(sigs) ? sigs : []
+    }, [assignment?.data])
+
+    const hasSem1Signature = useMemo(() => {
+        return savedSignatures.some((s: any) => {
+            const t = String(s?.type || 'standard')
+            const spid = String(s?.signaturePeriodId || '')
+            return t === 'standard' || spid.endsWith('_sem1') || spid.endsWith('_sem2')
+        })
+    }, [savedSignatures])
+
+    const hasFinalSignature = useMemo(() => {
+        return savedSignatures.some((s: any) => {
+            const t = String(s?.type || '')
+            const spid = String(s?.signaturePeriodId || '')
+            return t === 'end_of_year' || spid.endsWith('_end_of_year')
+        })
+    }, [savedSignatures])
+
     if (loading) return <div className="container"><div className="card"><div className="note">Chargement...</div></div></div>
     if (error && !template) return <div className="container"><div className="card"><div className="note" style={{ color: 'crimson' }}>{error}</div></div></div>
     if (!template) return <div className="container"><div className="card"><div className="note">Carnet introuvable</div></div></div>
@@ -945,8 +966,8 @@ export default function TeacherTemplateEditor() {
                                         const visibilitySetting = blockVisibility?.[studentLevel]?.teacher?.[key]
                                         if (visibilitySetting) {
                                             if (visibilitySetting === 'never') return null
-                                            if (visibilitySetting === 'after_sem1' && !signature && !finalSignature) return null
-                                            if (visibilitySetting === 'after_sem2' && !finalSignature) return null
+                                            if (visibilitySetting === 'after_sem1' && !hasSem1Signature && !hasFinalSignature) return null
+                                            if (visibilitySetting === 'after_sem2' && !hasFinalSignature) return null
                                         }
                                         return (
                                             <div key={idx} style={{ position: 'absolute', left: b.props.x || 0, top: b.props.y || 0, zIndex: b.props.z ?? idx, padding: 6 }}>
