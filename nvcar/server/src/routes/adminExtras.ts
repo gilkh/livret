@@ -21,9 +21,25 @@ import { createAssignmentSnapshot } from '../services/rolloverService'
 import { StudentCompetencyStatus } from '../models/StudentCompetencyStatus'
 import { spawn } from 'child_process'
 import path from 'path'
+import { existsSync, mkdirSync } from 'fs'
 import fs from 'fs/promises'
+import multer from 'multer'
 
 export const adminExtrasRouter = Router()
+
+const ensureDir = (p: string) => { if (!existsSync(p)) mkdirSync(p, { recursive: true }) }
+const psSignatureUploadDir = path.join(process.cwd(), 'public', 'uploads', 'ps-signatures')
+ensureDir(psSignatureUploadDir)
+
+const psSignatureStorage = multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, psSignatureUploadDir),
+    filename: (_req, file, cb) => {
+        const ext = path.extname(file.originalname).toLowerCase()
+        const base = path.basename(file.originalname, ext).replace(/[^a-z0-9_-]+/gi, '_')
+        cb(null, `${base}-${Date.now()}${ext}`)
+    },
+})
+const psSignatureUpload = multer({ storage: psSignatureStorage })
 
 // 1. Progress (All Classes)
 adminExtrasRouter.get('/progress', requireAuth(['ADMIN']), async (req, res) => {
@@ -930,6 +946,18 @@ adminExtrasRouter.post('/ps-onboarding/assign-class', requireAuth(['ADMIN']), as
     }
 })
 
+// PS Onboarding: Upload a custom signature image
+adminExtrasRouter.post('/ps-onboarding/custom-signature/upload', requireAuth(['ADMIN']), psSignatureUpload.single('file'), async (req: any, res) => {
+    try {
+        if (!req.file) return res.status(400).json({ error: 'no_file' })
+        const signatureUrl = `/uploads/ps-signatures/${req.file.filename}`
+        res.json({ signatureUrl })
+    } catch (e: any) {
+        console.error('ps-onboarding/custom-signature/upload error:', e)
+        res.status(500).json({ error: 'upload_failed', message: e.message })
+    }
+})
+
 // PS Onboarding: Batch sign gradebooks
 adminExtrasRouter.post('/ps-onboarding/batch-sign', requireAuth(['ADMIN']), async (req, res) => {
     try {
@@ -941,6 +969,7 @@ adminExtrasRouter.post('/ps-onboarding/batch-sign', requireAuth(['ADMIN']), asyn
             signatureType, // 'sem1' | 'sem2' | 'both'
             signatureSource, // 'admin' | 'subadmin'
             subadminId,
+            customSignatureUrl,
             schoolYearId,
             fromLevel,
             sem1SignedAt, // optional custom date for sem1
@@ -953,6 +982,9 @@ adminExtrasRouter.post('/ps-onboarding/batch-sign', requireAuth(['ADMIN']), asyn
         if (signatureSource === 'subadmin' && !subadminId) {
             return res.status(400).json({ error: 'missing_subadmin_id' })
         }
+        if (signatureSource === 'custom' && !customSignatureUrl) {
+            return res.status(400).json({ error: 'missing_custom_signature_url' })
+        }
 
         // Get signer ID and signature URL
         const signerId = signatureSource === 'subadmin' ? subadminId : adminId
@@ -963,6 +995,10 @@ adminExtrasRouter.post('/ps-onboarding/batch-sign', requireAuth(['ADMIN']), asyn
             const adminSig = await AdminSignature.findOne({ isActive: true }).lean()
             signatureUrl = adminSig?.dataUrl
             signatureData = adminSig?.dataUrl
+        } else if (signatureSource === 'custom') {
+            signatureUrl = String(customSignatureUrl)
+            const baseUrl = `${req.protocol}://${req.get('host')}`
+            signatureData = await buildSignatureSnapshot(signatureUrl, baseUrl)
         } else {
             // Get subadmin signature
             let subadmin = await User.findById(subadminId).lean() as any
