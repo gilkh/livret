@@ -178,7 +178,7 @@ export default function TeacherTemplateEditor() {
                 }
 
                 if (payload.type === 'completion-update') {
-                    if (payload.assignmentId && payload.assignmentId !== assignment?._id) return
+                    if (payload.assignmentId && payload.assignmentId !== assignmentId) return
 
                     if (payload.assignmentPatch) {
                         setAssignment(prev => prev ? { ...prev, ...payload.assignmentPatch } : prev)
@@ -188,12 +188,16 @@ export default function TeacherTemplateEditor() {
                         const nextMap = buildLanguageCompletionMap({ languageCompletions: payload.languageCompletions } as any)
                         setLanguageCompletion(nextMap)
 
-                        if (completionLanguages.length === 0 && Array.isArray(payload.languages) && payload.languages.length > 0) {
-                            setCompletionLanguages(payload.languages.map(normalizeLanguageCode).filter(Boolean))
+                        const languagesForCalc = completionLanguages.length > 0
+                            ? completionLanguages
+                            : (Array.isArray(payload.languages) ? payload.languages : [])
+
+                        if (completionLanguages.length === 0 && languagesForCalc.length > 0) {
+                            setCompletionLanguages(languagesForCalc.map(normalizeLanguageCode).filter(Boolean))
                         }
 
-                        const nextSem1 = areAllLanguagesCompleted(1, nextMap, payload.languages)
-                        const nextSem2 = areAllLanguagesCompleted(2, nextMap, payload.languages)
+                        const nextSem1 = areAllLanguagesCompleted(1, nextMap, languagesForCalc)
+                        const nextSem2 = areAllLanguagesCompleted(2, nextMap, languagesForCalc)
                         setIsMyWorkCompletedSem1(nextSem1)
                         setIsMyWorkCompletedSem2(nextSem2)
                         setIsMyWorkCompleted(nextSem1)
@@ -208,7 +212,7 @@ export default function TeacherTemplateEditor() {
                 socket.off('update-received', handleUpdate)
             }
         }
-    }, [assignmentId, socket])
+    }, [assignmentId, socket, completionLanguages])
 
     const emitAssignmentDataUpdate = (dataPatch: Record<string, any>) => {
         if (!socket || !assignmentId) return
@@ -542,6 +546,27 @@ export default function TeacherTemplateEditor() {
         const next = computeNextSchoolYearName(year)
         return next || year
     }
+
+    const savedSignatures = useMemo(() => {
+        const sigs = assignment?.data?.signatures
+        return Array.isArray(sigs) ? sigs : []
+    }, [assignment?.data])
+
+    const hasSem1Signature = useMemo(() => {
+        return savedSignatures.some((s: any) => {
+            const t = String(s?.type || 'standard')
+            const spid = String(s?.signaturePeriodId || '')
+            return t === 'standard' || spid.endsWith('_sem1') || spid.endsWith('_sem2')
+        })
+    }, [savedSignatures])
+
+    const hasFinalSignature = useMemo(() => {
+        return savedSignatures.some((s: any) => {
+            const t = String(s?.type || '')
+            const spid = String(s?.signaturePeriodId || '')
+            return t === 'end_of_year' || spid.endsWith('_end_of_year')
+        })
+    }, [savedSignatures])
 
     if (loading) return <div className="container"><div className="card"><div className="note">Chargement...</div></div></div>
     if (error && !template) return <div className="container"><div className="card"><div className="note" style={{ color: 'crimson' }}>{error}</div></div></div>
@@ -941,8 +966,8 @@ export default function TeacherTemplateEditor() {
                                         const visibilitySetting = blockVisibility?.[studentLevel]?.teacher?.[key]
                                         if (visibilitySetting) {
                                             if (visibilitySetting === 'never') return null
-                                            if (visibilitySetting === 'after_sem1' && !signature && !finalSignature) return null
-                                            if (visibilitySetting === 'after_sem2' && !finalSignature) return null
+                                            if (visibilitySetting === 'after_sem1' && !hasSem1Signature && !hasFinalSignature) return null
+                                            if (visibilitySetting === 'after_sem2' && !hasFinalSignature) return null
                                         }
                                         return (
                                             <div key={idx} style={{ position: 'absolute', left: b.props.x || 0, top: b.props.y || 0, zIndex: b.props.z ?? idx, padding: 6 }}>
