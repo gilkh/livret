@@ -885,10 +885,58 @@
     animation: fadeInUp 0.5s ease-out;
 }
 
+
+.class-detailed-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #1e293b;
+    margin: 0;
+}
+
+/* Detailed Controls - Expand/Collapse All */
+.detailed-controls {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+}
+
+.expand-all-btn,
+.collapse-all-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 18px;
+    border-radius: 12px;
+    border: 1px solid #e2e8f0;
+    background: white;
+    color: #475569;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-family: inherit;
+}
+
+.expand-all-btn:hover,
+.collapse-all-btn:hover {
+    background: linear-gradient(135deg, #f8fafc, #f1f5f9);
+    border-color: #6366f1;
+    color: #6366f1;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.15);
+}
+
+.expand-all-btn .icon,
+.collapse-all-btn .icon {
+    font-size: 14px;
+}
+
+/* Class Detailed Card - Collapsible */
 .class-detailed-card {
     background: white;
     border-radius: 12px;
-    margin-bottom: 16px;
+    margin-bottom: 12px;
     overflow: hidden;
     box-shadow: 0 1px 8px rgba(0, 0, 0, 0.04);
     border: 1px solid #e2e8f0;
@@ -900,18 +948,130 @@
     border-color: rgba(99, 102, 241, 0.2);
 }
 
-.class-detailed-header {
-    padding: 10px 16px;
-    background: linear-gradient(135deg, #f8fafc, #f1f5f9);
-    border-bottom: 1px solid #e2e8f0;
+.class-detailed-card.expanded {
+    border-color: rgba(99, 102, 241, 0.3);
 }
 
-.class-detailed-title {
-    font-size: 14px;
-    font-weight: 600;
-    color: #1e293b;
-    margin: 0;
+.class-detailed-header {
+    padding: 12px 16px;
+    background: linear-gradient(135deg, #f8fafc, #f1f5f9);
+    border-bottom: 1px solid #e2e8f0;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    transition: all 0.2s ease;
+    user-select: none;
 }
+
+.class-detailed-header:hover {
+    background: linear-gradient(135deg, #f1f5f9, #e2e8f0);
+}
+
+.class-detailed-card.expanded .class-detailed-header {
+    border-bottom-color: rgba(99, 102, 241, 0.2);
+}
+
+.class-detailed-header-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.class-detailed-header-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+/* Expand Toggle Button */
+.class-expand-toggle {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0;
+    background: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+}
+
+.class-expand-toggle:hover {
+    background: #f8fafc;
+    border-color: #6366f1;
+}
+
+.toggle-icon {
+    font-size: 10px;
+    color: #64748b;
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    display: inline-block;
+}
+
+.toggle-icon.rotated {
+    transform: rotate(90deg);
+    color: #6366f1;
+}
+
+/* Student Count Badge */
+.class-student-count {
+    font-size: 12px;
+    color: #64748b;
+    background: rgba(99, 102, 241, 0.1);
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-weight: 500;
+}
+
+/* Completion Badge */
+.class-completion-badge {
+    padding: 6px 12px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 700;
+    min-width: 48px;
+    text-align: center;
+}
+
+.class-completion-badge.complete {
+    background: linear-gradient(135deg, #dcfce7, #bbf7d0);
+    color: #15803d;
+}
+
+.class-completion-badge.high {
+    background: linear-gradient(135deg, #dbeafe, #bfdbfe);
+    color: #1d4ed8;
+}
+
+.class-completion-badge.medium {
+    background: linear-gradient(135deg, #fef3c7, #fde68a);
+    color: #b45309;
+}
+
+.class-completion-badge.low {
+    background: linear-gradient(135deg, #fee2e2, #fecaca);
+    color: #b91c1c;
+}
+
+/* Student Table Wrapper - Animated Collapse */
+.student-table-wrapper {
+    overflow: hidden;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.student-table-wrapper.collapsed {
+    max-height: 0;
+    opacity: 0;
+}
+
+.student-table-wrapper.expanded {
+    max-height: 2000px;
+    opacity: 1;
+}
+
 
 /* Table Styles - Compact Version */
 .student-table-container {

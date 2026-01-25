@@ -4,7 +4,7 @@ import api from '../api'
 import { useLevels } from '../context/LevelContext'
 import { GradebookPocket } from '../components/GradebookPocket'
 import { CroppedImage } from '../components/CroppedImage'
-import { formatDdMmYyyyColon } from '../utils/dateFormat'
+import { formatDdMonthYyyy, formatDdMmYyyyColon } from '../utils/dateFormat'
 // Block visibility is now controlled entirely by admin settings (block_visibility_settings)
 
 type Block = { type: string; props: any }
@@ -623,15 +623,14 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                         const fatherInitial = fatherName ? fatherName.charAt(0).toUpperCase() : ''
                                         const fatherInitialWithDot = fatherInitial ? `${fatherInitial}.` : ''
                                         const fullNameFatherInitial = [student.firstName, fatherInitialWithDot, student.lastName].filter(Boolean).join(' ')
-                                        const dob = student.dateOfBirth ? new Date(student.dateOfBirth) : new Date(NaN)
-                                        const dobDdMmYyyy = isNaN(dob.getTime()) ? '' : `${String(dob.getUTCDate()).padStart(2, '0')}/${String(dob.getUTCMonth() + 1).padStart(2, '0')}/${String(dob.getUTCFullYear())}`
+                                        const dobDdMmYyyy = formatDdMonthYyyy(student.dateOfBirth)
 
                                         let text = (b.props.text || '')
                                             .replace(/\{student\.firstName\}/g, student.firstName)
                                             .replace(/\{student\.lastName\}/g, student.lastName)
                                             .replace(/\{student\.className\}/g, student.className || '')
                                             .replace(/\{student\.level\}/g, student.level || '')
-                                            .replace(/\{student\.dob\}/g, student.dateOfBirth ? new Date(student.dateOfBirth).toLocaleDateString() : '')
+                                            .replace(/\{student\.dob\}/g, formatDdMonthYyyy(student.dateOfBirth))
                                             .replace(/\{student\.fatherInitial\}/g, fatherInitialWithDot)
                                             .replace(/\{student\.fullNameFatherInitial\}/g, fullNameFatherInitial)
                                             .replace(/\{student\.dob_ddmmyyyy\}/g, dobDdMmYyyy)
