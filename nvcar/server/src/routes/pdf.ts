@@ -37,6 +37,9 @@ const buildContentDisposition = (filename: string) => {
   return `attachment; filename="${safe}"; filename*=UTF-8''${encoded}`
 }
 
+// Helper function to normalize year string
+const normalizeYear = (y: any) => String(y || '').replace(/\s+/g, '').replace(/-/g, '/').trim()
+
 // Helper function to compute next school year name
 function computeNextSchoolYearName(year: string | undefined): string {
   if (!year) return ''
@@ -647,7 +650,7 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), asy
           if (sLevel) return sLevel === normTargetLevel
 
           if (s?.schoolYearName) {
-            const promo = promotions.find((p: any) => String(p?.year || '') === String(s.schoolYearName))
+            const promo = promotions.find((p: any) => normalizeYear(p?.year) === normalizeYear(s.schoolYearName))
             const promoFrom = normalizeLevel(promo?.from || promo?.fromLevel)
             if (promoFrom && promoFrom === normTargetLevel) return true
           }

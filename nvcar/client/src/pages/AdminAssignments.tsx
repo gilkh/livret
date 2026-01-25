@@ -1,10 +1,12 @@
 import { useMemo, useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { Trash2, Check, X, Plus, Users, BookOpen, Shield, Globe, Download, Search, ChevronRight, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react'
+import { Trash2, Check, X, Plus, Users, BookOpen, Shield, Globe, Download, Search, ChevronRight, AlertCircle, CheckCircle2, Loader2, Upload, FileText } from 'lucide-react'
 import api from '../api'
 import { useLevels } from '../context/LevelContext'
 import { useSchoolYear } from '../context/SchoolYearContext'
 import './AdminAssignments.css'
+import { readTextFileWithFallback } from '../utils/textEncoding'
+import * as XLSX from 'xlsx'
 
 type User = { _id: string; email: string; displayName: string; role: string }
 type Class = { _id: string; name: string; level?: string }
@@ -82,6 +84,18 @@ export default function AdminAssignments() {
     const [availableImports, setAvailableImports] = useState<ImportableTeacherAssignment[]>([])
     const [selectedImportIndices, setSelectedImportIndices] = useState<Set<number>>(new Set())
 
+    const [teacherFileErrors, setTeacherFileErrors] = useState<string[]>([])
+    const [teacherFileStatus, setTeacherFileStatus] = useState<string>('')
+    const [teacherFileReport, setTeacherFileReport] = useState<Array<{ line: number; status: 'success' | 'error'; message: string }>>([])
+    const [teacherFileUnmatched, setTeacherFileUnmatched] = useState<Array<{
+        line: number
+        teacherName: string
+        classes: { id: string; name: string }[]
+        languages: string[]
+        isProfPolyvalent: boolean
+        suggestions: Array<{ teacher: User; score: number }>
+    }>>([])
+
     const loadData = async () => {
         if (!activeYearId) return
         try {
@@ -115,6 +129,407 @@ export default function AdminAssignments() {
         } finally {
             setLoading(false)
         }
+    }
+
+    const normalizeText = (value: string) => {
+        return value
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/\p{Diacritic}/gu, '')
+            .replace(/[^a-z0-9]+/g, ' ')
+            .trim()
+            .replace(/\s+/g, ' ')
+    }
+
+    const getTokenSimilarity = (left: string[], right: string[]) => {
+        if (left.length === 0 || right.length === 0) return 0
+        const overlap = left.filter(token => right.includes(token)).length
+        return (2 * overlap) / (left.length + right.length)
+    }
+
+    const detectDelimiter = (line: string) => {
+        const comma = (line.match(/,/g) || []).length
+        const semicolon = (line.match(/;/g) || []).length
+        if (semicolon > comma) return ';'
+        return ','
+    }
+
+    const parseDelimitedLine = (line: string, delimiter: string) => {
+        const result: string[] = []
+        let current = ''
+        let inQuotes = false
+
+        for (let i = 0; i < line.length; i++) {
+            const char = line[i]
+            if (char === '"') {
+                if (inQuotes && line[i + 1] === '"') {
+                    current += '"'
+                    i++
+                } else {
+                    inQuotes = !inQuotes
+                }
+                continue
+            }
+            if (char === delimiter && !inQuotes) {
+                result.push(current)
+                current = ''
+                continue
+            }
+            current += char
+        }
+        result.push(current)
+        return result
+    }
+
+    const parseCsvRows = (text: string) => {
+        const lines = text.split(/\r?\n/).filter(line => line.trim().length > 0)
+        if (lines.length === 0) return [] as string[][]
+        const delimiter = detectDelimiter(lines[0])
+        return lines.map(line => parseDelimitedLine(line, delimiter).map(cell => cell.trim()))
+    }
+
+    const parseUploadRows = async (file: File) => {
+        const name = file.name.toLowerCase()
+        if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
+            const buffer = await file.arrayBuffer()
+            const workbook = XLSX.read(buffer, { type: 'array' })
+            const sheetName = workbook.SheetNames[0]
+            const sheet = workbook.Sheets[sheetName]
+            return XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' }) as string[][]
+        }
+        const text = await readTextFileWithFallback(file)
+        return parseCsvRows(text)
+    }
+
+    const resolveTeacherAssignmentsFromRows = (rows: string[][]) => {
+        if (rows.length === 0) {
+            return {
+                assignments: [],
+                errors: ['Aucune ligne trouvée dans le fichier.'],
+                report: [] as Array<{ line: number; status: 'success' | 'error'; message: string }>,
+                unmatched: [] as Array<{ line: number; teacherName: string; classes: { id: string; name: string }[]; languages: string[]; isProfPolyvalent: boolean; suggestions: Array<{ teacher: User; score: number }> }>
+            }
+        }
+
+        const headerRow = rows[0].map(cell => normalizeText(String(cell)))
+        const teacherIndex = headerRow.findIndex(h => ['teacher', 'enseignant', 'prof', 'professeur'].includes(h))
+        const languagesIndex = headerRow.findIndex(h => ['languages', 'langues', 'language', 'langue'].includes(h))
+        const classesIndex = headerRow.findIndex(h => ['classes', 'classe', 'class', 'classs'].includes(h))
+
+        if (teacherIndex === -1 || classesIndex === -1) {
+            return {
+                assignments: [],
+                errors: ['Colonnes attendues: Teacher, Languages, Classes.'],
+                report: [] as Array<{ line: number; status: 'success' | 'error'; message: string }>,
+                unmatched: [] as Array<{ line: number; teacherName: string; classes: { id: string; name: string }[]; languages: string[]; isProfPolyvalent: boolean; suggestions: Array<{ teacher: User; score: number }> }>
+            }
+        }
+
+        const teacherLookup = new Map<string, User>()
+        const teacherSignatureLookup = new Map<string, User>()
+        const teacherTokenSets: Array<{ tokens: string[]; teacher: User }> = []
+        const teacherCandidates: Array<{ teacher: User; tokens: string[] }> = []
+        teachers.forEach(teacher => {
+            const display = normalizeText(teacher.displayName || '')
+            const email = normalizeText(teacher.email || '')
+            if (display) teacherLookup.set(display, teacher)
+            if (email) teacherLookup.set(email, teacher)
+            if (display) {
+                const tokens = display.split(' ').filter(Boolean)
+                if (tokens.length > 0) {
+                    const signature = [...tokens].sort().join(' ')
+                    if (!teacherSignatureLookup.has(signature)) teacherSignatureLookup.set(signature, teacher)
+                    teacherTokenSets.push({ tokens, teacher })
+                    teacherCandidates.push({ teacher, tokens })
+                }
+            }
+            if (teacher.email) {
+                const localPart = teacher.email.split('@')[0] || ''
+                const localTokens = normalizeText(localPart).split(' ').filter(Boolean)
+                if (localTokens.length > 0) {
+                    const signature = [...localTokens].sort().join(' ')
+                    if (!teacherSignatureLookup.has(signature)) teacherSignatureLookup.set(signature, teacher)
+                    teacherTokenSets.push({ tokens: localTokens, teacher })
+                    teacherCandidates.push({ teacher, tokens: localTokens })
+                }
+            }
+        })
+
+        const classLookup = new Map<string, Class>()
+        classes.forEach(cls => {
+            classLookup.set(normalizeText(cls.name), cls)
+        })
+
+        const assignments: Array<{ teacherId: string; classId: string; languages: string[]; isProfPolyvalent: boolean }> = []
+        const errors: string[] = []
+        const report: Array<{ line: number; status: 'success' | 'error'; message: string }> = []
+        const unmatched: Array<{ line: number; teacherName: string; classes: { id: string; name: string }[]; languages: string[]; isProfPolyvalent: boolean; suggestions: Array<{ teacher: User; score: number }> }> = []
+
+        rows.slice(1).forEach((row, idx) => {
+            const teacherCell = String(row[teacherIndex] ?? '').trim()
+            const classesCell = String(row[classesIndex] ?? '').trim()
+            const languagesCell = String(row[languagesIndex] ?? '').trim()
+
+            if (!teacherCell || !classesCell) return
+
+            const teacherKey = normalizeText(teacherCell)
+            const teacherTokens = teacherKey.split(' ').filter(Boolean)
+            const teacherSignature = teacherTokens.slice().sort().join(' ')
+            const teacher = teacherLookup.get(teacherKey)
+                || teacherSignatureLookup.get(teacherSignature)
+                || teacherTokenSets.find(entry =>
+                    teacherTokens.length > 0
+                    && teacherTokens.every(token => entry.tokens.includes(token))
+                )?.teacher
+
+            if (!teacher) {
+                const bestCandidates = new Map<string, { teacher: User; score: number }>()
+                teacherCandidates.forEach(candidate => {
+                    const score = getTokenSimilarity(teacherTokens, candidate.tokens)
+                    if (score > 0) {
+                        const existing = bestCandidates.get(candidate.teacher._id)
+                        if (!existing || score > existing.score) {
+                            bestCandidates.set(candidate.teacher._id, { teacher: candidate.teacher, score })
+                        }
+                    }
+                })
+                const suggestions = Array.from(bestCandidates.values())
+                    .filter(item => item.score >= 0.45)
+                    .sort((a, b) => b.score - a.score)
+                    .slice(0, 3)
+
+                errors.push(`Ligne ${idx + 2}: enseignant introuvable (${teacherCell}).`)
+                report.push({ line: idx + 2, status: 'error', message: `Enseignant introuvable (${teacherCell}).` })
+                if (suggestions.length > 0) {
+                    const classesList = classesCell
+                        .split(/[;,]/)
+                        .map(item => item.trim())
+                        .filter(Boolean)
+                    const validClasses = classesList
+                        .map(className => {
+                            const cls = classLookup.get(normalizeText(className))
+                            return cls ? { id: cls._id, name: cls.name } : null
+                        })
+                        .filter((entry): entry is { id: string; name: string } => Boolean(entry))
+                    const normalizedLanguages = normalizeText(languagesCell)
+                    const isProfPolyvalent = normalizedLanguages.includes('poly')
+                    const languages: string[] = []
+                    if (!isProfPolyvalent && languagesCell) {
+                        languagesCell
+                            .split(/[;,]/)
+                            .map(item => normalizeText(item))
+                            .filter(Boolean)
+                            .forEach(lang => {
+                                if (lang.includes('arab')) languages.push('ar')
+                                else if (lang.includes('angl') || lang.includes('english')) languages.push('en')
+                            })
+                    }
+
+                    if (validClasses.length > 0) {
+                        unmatched.push({
+                            line: idx + 2,
+                            teacherName: teacherCell,
+                            classes: validClasses,
+                            languages: isProfPolyvalent ? [] : Array.from(new Set(languages)),
+                            isProfPolyvalent,
+                            suggestions
+                        })
+                    }
+                }
+                return
+            }
+
+            const classesList = classesCell
+                .split(/[;,]/)
+                .map(item => item.trim())
+                .filter(Boolean)
+
+            if (classesList.length === 0) {
+                errors.push(`Ligne ${idx + 2}: aucune classe valide.`)
+                report.push({ line: idx + 2, status: 'error', message: 'Aucune classe valide.' })
+                return
+            }
+
+            const normalizedLanguages = normalizeText(languagesCell)
+            const isProfPolyvalent = normalizedLanguages.includes('poly')
+            const languages: string[] = []
+
+            if (!isProfPolyvalent && languagesCell) {
+                languagesCell
+                    .split(/[;,]/)
+                    .map(item => normalizeText(item))
+                    .filter(Boolean)
+                    .forEach(lang => {
+                        if (lang.includes('arab')) languages.push('ar')
+                        else if (lang.includes('angl') || lang.includes('english')) languages.push('en')
+                    })
+            }
+
+            const rowErrors: string[] = []
+            const assignedClasses: string[] = []
+            classesList.forEach(className => {
+                const cls = classLookup.get(normalizeText(className))
+                if (!cls) {
+                    errors.push(`Ligne ${idx + 2}: classe introuvable (${className}).`)
+                    rowErrors.push(`Classe introuvable (${className})`)
+                    return
+                }
+                assignments.push({
+                    teacherId: teacher._id,
+                    classId: cls._id,
+                    languages: isProfPolyvalent ? [] : Array.from(new Set(languages)),
+                    isProfPolyvalent
+                })
+                assignedClasses.push(cls.name)
+            })
+
+            if (rowErrors.length > 0) {
+                report.push({
+                    line: idx + 2,
+                    status: 'error',
+                    message: `${teacher.displayName}: ${rowErrors.join('; ')}`
+                })
+            }
+            if (assignedClasses.length > 0) {
+                report.push({
+                    line: idx + 2,
+                    status: 'success',
+                    message: `${teacher.displayName}: ${assignedClasses.join(', ')}`
+                })
+            }
+        })
+
+        return { assignments, errors, report, unmatched }
+    }
+
+    const handleTeacherFileImport = async (file: File | undefined) => {
+        if (!file || !activeYearId) return
+        setTeacherFileErrors([])
+        setTeacherFileStatus('')
+        setTeacherFileReport([])
+        setTeacherFileUnmatched([])
+        try {
+            setBusyAction('import-teacher-file')
+            const rows = await parseUploadRows(file)
+            const { assignments, errors, report, unmatched } = resolveTeacherAssignmentsFromRows(rows)
+            if (assignments.length === 0) {
+                setTeacherFileErrors(errors.length > 0 ? errors : ['Aucune assignation détectée.'])
+                setTeacherFileReport(report)
+                setTeacherFileUnmatched(unmatched)
+                return
+            }
+
+            const results = await Promise.allSettled(
+                assignments.map(a => api.post('/teacher-assignments', a))
+            )
+            const failed = results.filter(r => r.status === 'rejected').length
+            const success = results.length - failed
+
+            setTeacherFileErrors(errors)
+            setTeacherFileStatus(`✓ ${success} assignation(s) importée(s)${failed ? `, ${failed} erreur(s)` : ''}`)
+            setTeacherFileReport(report)
+            setTeacherFileUnmatched(unmatched)
+            setMessage(`✓ ${success} assignation(s) importée(s)`)
+            loadData()
+            setTimeout(() => setMessage(''), 3000)
+        } catch (e) {
+            setTeacherFileErrors(['Impossible de lire le fichier.'])
+        } finally {
+            setBusyAction(null)
+        }
+    }
+
+    const applyTeacherSuggestion = async (targetLine: number, teacherId: string) => {
+        const target = teacherFileUnmatched.find(item => item.line === targetLine)
+        if (!target) return
+        try {
+            setBusyAction('import-teacher-file')
+            await Promise.all(target.classes.map(entry =>
+                api.post('/teacher-assignments', {
+                    teacherId,
+                    classId: entry.id,
+                    languages: target.languages,
+                    isProfPolyvalent: target.isProfPolyvalent
+                })
+            ))
+            const teacherName = teachers.find(t => t._id === teacherId)?.displayName || 'Enseignant'
+            setTeacherFileReport(prev => ([
+                ...prev,
+                { line: target.line, status: 'success', message: `${teacherName}: ${target.classes.map(c => c.name).join(', ')}` }
+            ]))
+            setTeacherFileUnmatched(prev => prev.filter(item => item.line !== targetLine))
+            loadData()
+        } catch (e) {
+            setTeacherFileReport(prev => ([
+                ...prev,
+                { line: target.line, status: 'error', message: `Échec de l'assignation pour ${target.teacherName}.` }
+            ]))
+        } finally {
+            setBusyAction(null)
+        }
+    }
+
+    const dismissTeacherSuggestion = (targetLine: number) => {
+        setTeacherFileUnmatched(prev => prev.filter(item => item.line !== targetLine))
+    }
+
+    const downloadTeacherTemplate = () => {
+        const sample = [
+            ['Teacher', 'Languages', 'Classes'],
+            ['Mme Example', 'Poly', 'MS-A'],
+            ['Mr Example', 'Anglais', 'MS-A, MS-B']
+        ]
+        const csvContent = sample.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n')
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+        const url = window.URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = url
+        link.setAttribute('download', 'teacher_assignments_template.csv')
+        document.body.appendChild(link)
+        link.click()
+        link.remove()
+        window.URL.revokeObjectURL(url)
+    }
+
+    const exportTeacherAssignments = () => {
+        if (teacherAssignments.length === 0) return
+        const teacherLookup = new Map<string, User>()
+        teachers.forEach(t => teacherLookup.set(t._id, t))
+
+        const grouped = new Map<string, { teacherName: string; languages: string; classes: Set<string> }>()
+        teacherAssignments.forEach(ta => {
+            const teacherName = teacherLookup.get(ta.teacherId)?.displayName || ta.teacherName || 'Inconnu'
+            const languageLabel = ta.isProfPolyvalent
+                ? 'Poly'
+                : ta.languages && ta.languages.length > 0
+                    ? ta.languages.map(l => l.toUpperCase()).sort().join(', ')
+                    : 'Toutes'
+            const key = `${ta.teacherId}-${languageLabel}`
+            if (!grouped.has(key)) {
+                grouped.set(key, { teacherName, languages: languageLabel, classes: new Set() })
+            }
+            grouped.get(key)?.classes.add(ta.className || ta.classId)
+        })
+
+        const rows = Array.from(grouped.values()).map(row => [
+            row.teacherName,
+            row.languages,
+            Array.from(row.classes).sort().join(', ')
+        ])
+        const csvContent = [
+            ['Teacher', 'Languages', 'Classes'],
+            ...rows
+        ].map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n')
+
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+        const url = window.URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = url
+        link.setAttribute('download', `teacher_assignments_${activeYearName}.csv`)
+        document.body.appendChild(link)
+        link.click()
+        link.remove()
+        window.URL.revokeObjectURL(url)
     }
 
     useEffect(() => {
@@ -451,11 +866,98 @@ export default function AdminAssignments() {
                                 <Users size={20} style={{ color: '#3b82f6' }} />
                                 <span>Enseignant → Classe</span>
                             </div>
-                            <button className="aa-btn aa-btn-outline" onClick={handleOpenImport} disabled={busyAction !== null || loading}>
-                                <Download size={16} />
-                                Importer N-1
-                            </button>
+                            <div className="aa-panel-actions">
+                                <button className="aa-btn aa-btn-outline" onClick={downloadTeacherTemplate} disabled={loading}>
+                                    <FileText size={16} />
+                                    Télécharger modèle
+                                </button>
+                                <button className="aa-btn aa-btn-outline" onClick={exportTeacherAssignments} disabled={loading || teacherAssignments.length === 0}>
+                                    <Download size={16} />
+                                    Exporter assignations
+                                </button>
+                                <button className="aa-btn aa-btn-outline" onClick={handleOpenImport} disabled={busyAction !== null || loading}>
+                                    <Download size={16} />
+                                    Importer N-1
+                                </button>
+                            </div>
                         </div>
+
+                        <div className="aa-import-card">
+                            <div className="aa-import-info">
+                                <div className="aa-import-title">Importer un fichier (CSV / Excel)</div>
+                                <div className="aa-import-hint">Colonnes attendues: Teacher, Languages, Classes</div>
+                            </div>
+                            <div className="aa-import-actions">
+                                <input
+                                    id="teacher-import-file"
+                                    type="file"
+                                    accept=".csv,.xlsx,.xls"
+                                    style={{ display: 'none' }}
+                                    onChange={e => handleTeacherFileImport(e.target.files?.[0])}
+                                />
+                                <button
+                                    className="aa-btn aa-btn-primary"
+                                    onClick={() => document.getElementById('teacher-import-file')?.click()}
+                                    disabled={loading || busyAction !== null}
+                                >
+                                    {busyAction === 'import-teacher-file' ? <Loader2 size={16} className="aa-spin" /> : <Upload size={16} />}
+                                    Importer fichier
+                                </button>
+                            </div>
+                        </div>
+
+                        {(teacherFileStatus || teacherFileErrors.length > 0 || teacherFileReport.length > 0 || teacherFileUnmatched.length > 0) && (
+                            <div className="aa-import-report">
+                                {teacherFileStatus && <div className="aa-import-success">{teacherFileStatus}</div>}
+                                {teacherFileErrors.length > 0 && (
+                                    <ul>
+                                        {teacherFileErrors.slice(0, 6).map((err, idx) => (
+                                            <li key={`${err}-${idx}`}>{err}</li>
+                                        ))}
+                                    </ul>
+                                )}
+                                {teacherFileReport.length > 0 && (
+                                    <ul>
+                                        {teacherFileReport.map(item => (
+                                            <li key={`${item.line}-${item.message}`} className={item.status === 'success' ? 'aa-import-item-success' : 'aa-import-item-error'}>
+                                                <strong>Ligne {item.line}:</strong> {item.message}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                )}
+                                {teacherFileUnmatched.length > 0 && (
+                                    <div className="aa-import-suggestions">
+                                        <div className="aa-import-suggestions-title">Suggestions pour enseignants non reconnus</div>
+                                        {teacherFileUnmatched.map(item => (
+                                            <div key={`unmatched-${item.line}`} className="aa-import-suggestion-row">
+                                                <div>
+                                                    <strong>Ligne {item.line}:</strong> {item.teacherName} — {item.classes.map(c => c.name).join(', ')}
+                                                </div>
+                                                <div className="aa-import-suggestion-actions">
+                                                    {item.suggestions.map(suggestion => (
+                                                        <button
+                                                            key={`${item.line}-${suggestion.teacher._id}`}
+                                                            className="aa-btn aa-btn-xs"
+                                                            onClick={() => applyTeacherSuggestion(item.line, suggestion.teacher._id)}
+                                                            disabled={busyAction !== null}
+                                                        >
+                                                            Utiliser {suggestion.teacher.displayName}
+                                                        </button>
+                                                    ))}
+                                                    <button
+                                                        className="aa-btn aa-btn-xs"
+                                                        onClick={() => dismissTeacherSuggestion(item.line)}
+                                                        disabled={busyAction !== null}
+                                                    >
+                                                        Ignorer
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
 
                         <div className="aa-search-row">
                             <div className="aa-search-field">

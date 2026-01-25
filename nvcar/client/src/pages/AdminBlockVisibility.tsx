@@ -158,7 +158,7 @@ export default function AdminBlockVisibility() {
     return items.filter(item => {
       // Must match type filter
       if (!typeFilters.has(item.type as BlockType)) return false
-      
+
       // Block must have a level that matches the selected student level
       // Blocks without a level ('_none') are shown under all levels
       const blockLevel = item.level?.toUpperCase() || '_none'
@@ -170,13 +170,13 @@ export default function AdminBlockVisibility() {
   // Group items by block type, then by level
   const grouped = useMemo(() => {
     const typeGroups: { type: BlockType; typeLabel: string; typeIcon: string; levelGroups: { level: string; levelLabel: string; items: TemplateBlockItem[] }[] }[] = []
-    
+
     BLOCK_TYPES.forEach(blockType => {
       if (!typeFilters.has(blockType.key)) return
-      
+
       const typeItems = filteredItems.filter(item => item.type === blockType.key)
       if (typeItems.length === 0) return
-      
+
       // Group by level within this type
       const levelMap = new Map<string, TemplateBlockItem[]>()
       typeItems.forEach(item => {
@@ -184,10 +184,10 @@ export default function AdminBlockVisibility() {
         if (!levelMap.has(levelKey)) levelMap.set(levelKey, [])
         levelMap.get(levelKey)!.push(item)
       })
-      
+
       // Define level order
       const levelOrder: Record<string, number> = { 'PS': 0, 'MS': 1, 'GS': 2, 'EB1': 3, '_none': 4 }
-      
+
       const levelGroups = Array.from(levelMap.entries())
         .sort((a, b) => (levelOrder[a[0]] ?? 5) - (levelOrder[b[0]] ?? 5))
         .map(([level, items]) => ({
@@ -195,7 +195,7 @@ export default function AdminBlockVisibility() {
           levelLabel: level === '_none' ? 'Sans niveau' : level,
           items: items.sort((a, b) => a.pageIndex - b.pageIndex || a.blockIndex - b.blockIndex)
         }))
-      
+
       typeGroups.push({
         type: blockType.key,
         typeLabel: blockType.label,
@@ -203,7 +203,7 @@ export default function AdminBlockVisibility() {
         levelGroups
       })
     })
-    
+
     return typeGroups
   }, [filteredItems, typeFilters])
 
@@ -311,6 +311,9 @@ export default function AdminBlockVisibility() {
         <p className="block-visibility-hero-subtitle">
           Configurez quand les blocs sont visibles selon le niveau de l'eleve et l'etat des signatures.
         </p>
+        <div className="block-visibility-info-box">
+          <strong>Note de Sécurité (Level Guard) :</strong> Le système masque automatiquement tout bloc appartenant à un niveau supérieur à celui de l'élève (ex: un bloc "MS" ne sera jamais visible pour un élève de "PS"), quelle que soit la configuration ci-dessous.
+        </div>
       </header>
 
       {/* Template Selector */}
@@ -391,8 +394,8 @@ export default function AdminBlockVisibility() {
               <div key={v} className="bulk-action-group">
                 <span className="bulk-label">{VIEW_LABELS[v].icon} {VIEW_LABELS[v].label}:</span>
                 {VISIBILITY_OPTIONS.map(opt => (
-                  <button 
-                    key={opt.value} 
+                  <button
+                    key={opt.value}
                     className={`bulk-btn ${opt.value}`}
                     onClick={() => setAllForView(selectedLevel, v, opt.value)}
                     title={`Mettre tous sur "${opt.label}"`}
@@ -414,13 +417,13 @@ export default function AdminBlockVisibility() {
                     <span className="type-group-icon">{typeGroup.typeIcon}</span>
                     <span className="type-group-title">{typeGroup.typeLabel}</span>
                   </div>
-                  
+
                   {typeGroup.levelGroups.map(levelGroup => (
                     <div key={levelGroup.level} className="level-group">
                       <div className="level-group-header">
                         <span className="level-badge">{levelGroup.levelLabel}</span>
                       </div>
-                      
+
                       <table className="block-visibility-table">
                         <thead>
                           <tr>

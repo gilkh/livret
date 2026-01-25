@@ -34,6 +34,18 @@ type User = {
   isOutlook?: boolean;
 }
 type OutlookUser = { _id: string; email: string; role: 'ADMIN' | 'SUBADMIN' | 'TEACHER' | 'AEFE'; displayName?: string; lastLogin?: string }
+type TeacherClassAssignment = {
+  _id: string;
+  teacherId: string;
+  classId: string;
+  className?: string;
+  languages?: string[];
+  isProfPolyvalent?: boolean;
+}
+type SubAdminLevelAssignment = {
+  subAdminId: string;
+  levels: string[];
+}
 
 const getInitials = (name: string) => {
   return name
@@ -52,7 +64,9 @@ const UserCard = ({
   onDelete,
   onResetPassword,
   onImpersonate,
-  impersonatingId
+  impersonatingId,
+  assignmentTitle,
+  assignmentItems
 }: {
   user: User,
   roleStyle: any,
@@ -60,7 +74,9 @@ const UserCard = ({
   onDelete: (id: string) => void,
   onResetPassword: (id: string, pass: string) => void,
   onImpersonate: (user: User) => void,
-  impersonatingId: string | null
+  impersonatingId: string | null,
+  assignmentTitle?: string | null,
+  assignmentItems?: string[]
 }) => {
   const [name, setName] = useState(user.displayName || '')
   const [password, setPassword] = useState('')
@@ -131,6 +147,20 @@ const UserCard = ({
             <span className="user-email-text">{user.email}</span>
             {copied ? <Check size={14} color="#10B981" /> : <Copy size={14} className="copy-icon" />}
           </div>
+          {assignmentTitle && (
+            <div className="user-assignments">
+              <span className="assignment-label">{assignmentTitle}</span>
+              {assignmentItems && assignmentItems.length > 0 ? (
+                <div className="assignment-pills">
+                  {assignmentItems.map((item, index) => (
+                    <span key={`${item}-${index}`} className="assignment-pill">{item}</span>
+                  ))}
+                </div>
+              ) : (
+                <span className="assignment-empty">Non assigné</span>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="user-actions-area">
@@ -193,7 +223,9 @@ const OutlookUserCard = ({
   onDelete,
   onUpdateRole,
   onImpersonate,
-  impersonatingId
+  impersonatingId,
+  assignmentTitle,
+  assignmentItems
 }: {
   user: OutlookUser,
   roleStyle: any,
@@ -201,7 +233,9 @@ const OutlookUserCard = ({
   onDelete: (id: string) => void,
   onUpdateRole: (id: string, role: string) => void,
   onImpersonate: (user: OutlookUser) => void,
-  impersonatingId: string | null
+  impersonatingId: string | null,
+  assignmentTitle?: string | null,
+  assignmentItems?: string[]
 }) => {
   const [name, setName] = useState(user.displayName || '')
   const [copied, setCopied] = useState(false)
@@ -259,6 +293,20 @@ const OutlookUserCard = ({
             <span className="user-email-text">{user.email}</span>
             {copied ? <Check size={14} color="#10B981" /> : <Copy size={14} className="copy-icon" />}
           </div>
+          {assignmentTitle && (
+            <div className="user-assignments">
+              <span className="assignment-label">{assignmentTitle}</span>
+              {assignmentItems && assignmentItems.length > 0 ? (
+                <div className="assignment-pills">
+                  {assignmentItems.map((item, index) => (
+                    <span key={`${item}-${index}`} className="assignment-pill">{item}</span>
+                  ))}
+                </div>
+              ) : (
+                <span className="assignment-empty">Non assigné</span>
+              )}
+            </div>
+          )}
           {user.lastLogin && (
             <div className="last-login">
               <Calendar size={14} />
@@ -317,6 +365,8 @@ export default function Users() {
   const [role, setRole] = useState<'ADMIN' | 'SUBADMIN' | 'TEACHER' | 'AEFE'>('TEACHER')
   const [displayName, setDisplayName] = useState('')
   const [impersonating, setImpersonating] = useState<string | null>(null)
+  const [teacherAssignments, setTeacherAssignments] = useState<TeacherClassAssignment[]>([])
+  const [subAdminAssignments, setSubAdminAssignments] = useState<SubAdminLevelAssignment[]>([])
 
   // Outlook Users state
   const [outlookUsers, setOutlookUsers] = useState<OutlookUser[]>([])
@@ -342,6 +392,62 @@ export default function Users() {
 
   const showToast = (message: string, type: ToastType = 'info') => {
     setToast({ message, type })
+  }
+
+  const parseEmails = (raw: string) => {
+    return raw
+      .split(';')
+      .map(email => email.trim().toLowerCase())
+      .filter(email => email.length > 0)
+  }
+
+  const teacherAssignmentsByTeacher = useMemo(() => {
+    return teacherAssignments.reduce<Record<string, TeacherClassAssignment[]>>((acc, assignment) => {
+      if (!acc[assignment.teacherId]) acc[assignment.teacherId] = []
+      acc[assignment.teacherId].push(assignment)
+      return acc
+    }, {})
+  }, [teacherAssignments])
+
+  const subAdminLevelsByUser = useMemo(() => {
+    return subAdminAssignments.reduce<Record<string, string[]>>((acc, assignment) => {
+      acc[assignment.subAdminId] = assignment.levels
+      return acc
+    }, {})
+  }, [subAdminAssignments])
+
+  const formatLanguage = (lang: string) => {
+    const normalized = lang.toLowerCase()
+    if (normalized.includes('arab')) return 'AR'
+    if (normalized.includes('anglais') || normalized.includes('english')) return 'EN'
+    if (normalized.includes('poly')) return 'POLY'
+    return lang.toUpperCase()
+  }
+
+  const formatTeacherAssignment = (assignment: TeacherClassAssignment) => {
+    const classLabel = assignment.className || assignment.classId
+    if (assignment.isProfPolyvalent) return `${classLabel} (POLY)`
+    if (assignment.languages && assignment.languages.length > 0) {
+      return `${classLabel} (${assignment.languages.map(formatLanguage).join(', ')})`
+    }
+    return `${classLabel} (TOUTES)`
+  }
+
+  const getAssignmentInfo = (user: User | OutlookUser) => {
+    if (user.role === 'SUBADMIN' || user.role === 'AEFE') {
+      return {
+        title: 'Niveaux',
+        items: subAdminLevelsByUser[user._id] || []
+      }
+    }
+    if (user.role === 'TEACHER') {
+      const items = (teacherAssignmentsByTeacher[user._id] || []).map(formatTeacherAssignment)
+      return {
+        title: 'Classes',
+        items
+      }
+    }
+    return null
   }
 
   const getRoleColor = (role: string) => {
@@ -398,6 +504,8 @@ export default function Users() {
                 onUpdateRole={updateOutlookUserRole}
                 onImpersonate={viewAsOutlookUser}
                 impersonatingId={impersonating}
+                assignmentTitle={getAssignmentInfo(u)?.title}
+                assignmentItems={getAssignmentInfo(u)?.items}
               />
             ) : (
               <UserCard
@@ -409,6 +517,8 @@ export default function Users() {
                 onResetPassword={resetPassword}
                 onImpersonate={viewAsUser}
                 impersonatingId={impersonating}
+                assignmentTitle={getAssignmentInfo(u)?.title}
+                assignmentItems={getAssignmentInfo(u)?.items}
               />
             )
           ))}
@@ -429,15 +539,6 @@ export default function Users() {
     )
   }
 
-  const loadDeletedUsers = async () => {
-    try {
-      const r = await api.get('/users/deleted')
-      setDeletedUsers(r.data)
-    } catch (e) {
-      console.error('Failed to load deleted users:', e)
-    }
-  }
-
   const loadOutlookUsers = async () => {
     try {
       const r = await api.get('/outlook-users')
@@ -447,10 +548,37 @@ export default function Users() {
     }
   }
 
+  const loadAssignments = async () => {
+    try {
+      const [yearsRes, subAdminRes] = await Promise.all([
+        api.get('/school-years'),
+        api.get('/subadmin-assignments/levels')
+      ])
+      const activeYear = yearsRes.data.find((year: { _id: string; active?: boolean }) => year.active)
+      const teacherRes = await api.get(
+        activeYear ? `/teacher-assignments?schoolYearId=${activeYear._id}` : '/teacher-assignments'
+      )
+      setTeacherAssignments(teacherRes.data)
+      setSubAdminAssignments(subAdminRes.data)
+    } catch (e) {
+      console.error('Failed to load assignments:', e)
+    }
+  }
+
+  const loadDeletedUsers = async () => {
+    try {
+      const r = await api.get('/users/deleted')
+      setDeletedUsers(r.data)
+    } catch (e) {
+      console.error('Failed to load deleted users:', e)
+    }
+  }
+
   useEffect(() => {
     load()
     loadOutlookUsers()
     loadDeletedUsers()
+    loadAssignments()
   }, [])
 
   const localCount = users.length
@@ -458,15 +586,24 @@ export default function Users() {
   const deletedCount = deletedUsers.length
 
   const createUser = async () => {
-    if (!email || !password) {
+    const emails = parseEmails(email)
+    if (emails.length === 0 || !password) {
       showToast('Email et mot de passe requis', 'error')
       return
     }
     try {
-      await api.post('/users', { email, password, role, displayName })
+      const singleDisplayName = emails.length === 1 ? displayName : ''
+      const results = await Promise.allSettled(
+        emails.map(entry => api.post('/users', { email: entry, password, role, displayName: singleDisplayName }))
+      )
       setEmail(''); setPassword(''); setDisplayName(''); setRole('TEACHER')
       await load()
-      showToast('Utilisateur créé avec succès', 'success')
+      const failures = results.filter(result => result.status === 'rejected')
+      if (failures.length > 0) {
+        showToast(`${failures.length} création(s) ont échoué`, 'error')
+      } else {
+        showToast('Utilisateur créé avec succès', 'success')
+      }
     } catch (e) {
       showToast('Erreur lors de la création', 'error')
     }
@@ -513,18 +650,27 @@ export default function Users() {
   }
 
   const addOutlookUser = async () => {
-    if (!outlookEmail.trim()) return
+    const emails = parseEmails(outlookEmail)
+    if (emails.length === 0) return
     try {
-      await api.post('/outlook-users', {
-        email: outlookEmail.trim().toLowerCase(),
-        role: outlookRole,
-        displayName: outlookDisplayName.trim() || undefined
-      })
+      const singleDisplayName = emails.length === 1 ? outlookDisplayName.trim() : ''
+      const results = await Promise.allSettled(
+        emails.map(entry => api.post('/outlook-users', {
+          email: entry,
+          role: outlookRole,
+          displayName: singleDisplayName || undefined
+        }))
+      )
       setOutlookEmail('')
       setOutlookDisplayName('')
       setOutlookRole('TEACHER')
       await loadOutlookUsers()
-      showToast('Utilisateur Outlook ajouté', 'success')
+      const failures = results.filter(result => result.status === 'rejected')
+      if (failures.length > 0) {
+        showToast(`${failures.length} ajout(s) ont échoué`, 'error')
+      } else {
+        showToast('Utilisateur Outlook ajouté', 'success')
+      }
     } catch (e: any) {
       showToast(e.response?.data?.error || 'Erreur lors de l\'ajout', 'error')
     }

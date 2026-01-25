@@ -86,24 +86,24 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
     // Find signature for a specific level
     const getSignatureForLevel = (targetLevel: string | null) => {
         if (!targetLevel) return { hasSem1: !!signature, hasSem2: !!finalSignature }
-        
+
         const normalizedTarget = targetLevel.toUpperCase()
         const history = assignment?.data?.signatures || []
         const promotions = assignment?.data?.promotions || []
-        
+
         let hasSem1 = false
         let hasSem2 = false
-        
+
         // Check if current student level matches and use current signatures
         if (student?.level?.toUpperCase() === normalizedTarget) {
             hasSem1 = !!signature
             hasSem2 = !!finalSignature
         }
-        
+
         // Check historical signatures
         history.forEach((sig: any) => {
             if (sig.schoolYearName) {
-                const promo = promotions.find((p: any) => p.year === sig.schoolYearName)
+                const promo = promotions.find((p: any) => normalizeYear(p.year) === normalizeYear(sig.schoolYearName))
                 if (promo && promo.from?.toUpperCase() === normalizedTarget) {
                     if (sig.type === 'standard' || !sig.type) hasSem1 = true
                     if (sig.type === 'end_of_year') hasSem2 = true
@@ -115,9 +115,11 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                 if (sig.type === 'end_of_year') hasSem2 = true
             }
         })
-        
+
         return { hasSem1, hasSem2 }
     }
+
+    const normalizeYear = (y: any) => String(y || '').replace(/\s+/g, '').replace(/-/g, '/').trim()
 
     const computeNextSchoolYearName = (year: string | undefined) => {
         if (!year) return ''
@@ -233,7 +235,7 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
             if (sLevel) return sLevel === normLevel
 
             if (s?.schoolYearName) {
-                const promo = promotions.find((p: any) => String(p?.year || '') === String(s.schoolYearName))
+                const promo = promotions.find((p: any) => normalizeYear(p?.year) === normalizeYear(s.schoolYearName))
                 const promoFrom = normalizeLevel(promo?.from || promo?.fromLevel)
                 if (promoFrom && promoFrom === normLevel) return true
             }
@@ -522,29 +524,29 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                     >
                         {page.blocks.map((b, idx) => {
                             if (!b || !b.props) return null;
-                            
+
                             // Get block's level
                             const blockLevel = getBlockLevel(b)
-                            
+
                             // Hide blocks whose level is higher than student's current level
                             if (isBlockLevelHigherThanStudent(blockLevel)) return null
-                            
+
                             // Hide signature blocks if hideSignatures is true
                             if (shouldHideSignatureBlock(b)) return null
-                            
+
                             const blockId = typeof b?.props?.blockId === 'string' && b.props.blockId.trim() ? b.props.blockId.trim() : null
                             const key = buildVisibilityKey(template?._id, actualPageIndex, idx, blockId)
-                            
+
                             // For blocks WITH a level: use that level's settings and signatures
                             // For blocks WITHOUT a level: check all levels at or below student's level
                             // Show the block if ANY applicable level would show it (with its signature)
                             let shouldShow = true
-                            
+
                             if (blockLevel) {
                                 // Block has a level - use that level's settings
                                 const visibilitySetting = blockVisibility?.[blockLevel.toUpperCase()]?.pdf?.[key]
                                 const { hasSem1, hasSem2 } = getSignatureForLevel(blockLevel)
-                                
+
                                 if (visibilitySetting) {
                                     if (visibilitySetting === 'never') shouldShow = false
                                     else if (visibilitySetting === 'after_sem1' && !hasSem1 && !hasSem2) shouldShow = false
@@ -556,16 +558,16 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                 const studentLvl = (student?.level || 'PS').toUpperCase()
                                 const studentOrder = levelOrder[studentLvl] ?? 99
                                 const levelsToCheck = Object.keys(levelOrder).filter(lvl => levelOrder[lvl] <= studentOrder)
-                                
+
                                 let foundSetting = false
                                 let anyLevelWouldShow = false
-                                
+
                                 for (const lvl of levelsToCheck) {
                                     const visibilitySetting = blockVisibility?.[lvl]?.pdf?.[key]
                                     if (visibilitySetting) {
                                         foundSetting = true
                                         const { hasSem1, hasSem2 } = getSignatureForLevel(lvl)
-                                        
+
                                         if (visibilitySetting === 'always') {
                                             anyLevelWouldShow = true
                                             break
@@ -579,11 +581,11 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                         // 'never' doesn't set anyLevelWouldShow
                                     }
                                 }
-                                
+
                                 // If no settings found, default to visible; if found, use the result
                                 shouldShow = !foundSetting || anyLevelWouldShow
                             }
-                            
+
                             if (!shouldShow) return null
                             return (
                                 <div key={idx} style={{ position: 'absolute', left: b.props.x || 0, top: b.props.y || 0, zIndex: b.props.z ?? idx }}>
@@ -623,7 +625,7 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                         const fullNameFatherInitial = [student.firstName, fatherInitialWithDot, student.lastName].filter(Boolean).join(' ')
                                         const dob = student.dateOfBirth ? new Date(student.dateOfBirth) : new Date(NaN)
                                         const dobDdMmYyyy = isNaN(dob.getTime()) ? '' : `${String(dob.getUTCDate()).padStart(2, '0')}/${String(dob.getUTCMonth() + 1).padStart(2, '0')}/${String(dob.getUTCFullYear())}`
-                                        
+
                                         let text = (b.props.text || '')
                                             .replace(/\{student\.firstName\}/g, student.firstName)
                                             .replace(/\{student\.lastName\}/g, student.lastName)
@@ -633,7 +635,7 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                             .replace(/\{student\.fatherInitial\}/g, fatherInitialWithDot)
                                             .replace(/\{student\.fullNameFatherInitial\}/g, fullNameFatherInitial)
                                             .replace(/\{student\.dob_ddmmyyyy\}/g, dobDdMmYyyy)
-                                        
+
                                         if (assignment?.data) {
                                             Object.entries(assignment.data).forEach(([k, v]) => {
                                                 if (typeof v === 'string' || typeof v === 'number') {
@@ -641,7 +643,7 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                                 }
                                             })
                                         }
-                                        
+
                                         return (
                                             <div style={{
                                                 color: b.props.color,
@@ -1011,7 +1013,7 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                                 if (sig.level && sig.level === blockLevel) return true
 
                                                 if (sig.schoolYearName) {
-                                                    const promo = promotions.find((p: any) => p.year === sig.schoolYearName)
+                                                    const promo = promotions.find((p: any) => normalizeYear(p.year) === normalizeYear(sig.schoolYearName))
                                                     if (promo && promo.from === blockLevel) return true
                                                 }
                                                 return false
