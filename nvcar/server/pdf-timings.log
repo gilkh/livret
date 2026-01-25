@@ -399,3 +399,5 @@
 2026-01-20T23:39:06.827Z https://127.0.0.1/print/saved/697011b270e21c6f6b7cde38?token=*** totalMs=4301 navMs=196 readyMs=844 pdfMs=2948 size=3424730 native=false
 2026-01-20T23:39:11.693Z https://127.0.0.1/print/saved/697011b270e21c6f6b7cde38?token=*** totalMs=4823 navMs=248 readyMs=970 pdfMs=3254 size=3424730 native=false
 2026-01-20T23:39:14.961Z https://127.0.0.1/print/saved/697011b270e21c6f6b7cde38?token=*** totalMs=8102 navMs=465 readyMs=4255 pdfMs=2940 size=3424730 native=false
+2026-01-25T15:31:58.101Z https://127.0.0.1/print/carnet/696fbd48eb0d508ec8b8f89b?token=*** totalMs=7005 navMs=307 readyMs=1083 pdfMs=4492 size=3409115 native=false
+2026-01-25T15:32:06.882Z https://127.0.0.1/print/carnet/696fbd48eb0d508ec8b8f89b?token=*** totalMs=6696 navMs=338 readyMs=1209 pdfMs=4790 size=3409115 native=false

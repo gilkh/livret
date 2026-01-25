@@ -268,6 +268,8 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
         return `tpl:${tplId || ''}:p:${pageIdx}:b:${blockIdx}`
     }
 
+    const normalizeYear = (y: any) => String(y || '').replace(/\s+/g, '').replace(/-/g, '/').trim()
+
     // Level order for comparison (lower number = lower level)
     const levelOrder: Record<string, number> = { 'TPS': 0, 'PS': 1, 'MS': 2, 'GS': 3, 'EB1': 4, 'KG1': 1, 'KG2': 2, 'KG3': 3 }
 
@@ -284,24 +286,24 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
     // Find signature for a specific level
     const getSignatureForLevel = (targetLevel: string | null) => {
         if (!targetLevel) return { hasSem1: !!signature, hasSem2: !!finalSignature }
-        
+
         const normalizedTarget = targetLevel.toUpperCase()
         const history = assignment?.data?.signatures || []
         const promotions = assignment?.data?.promotions || []
-        
+
         let hasSem1 = false
         let hasSem2 = false
-        
+
         // Check if current student level matches and use current signatures
         if (student?.level?.toUpperCase() === normalizedTarget) {
             hasSem1 = !!signature
             hasSem2 = !!finalSignature
         }
-        
+
         // Check historical signatures
         history.forEach((sig: any) => {
             if (sig.schoolYearName) {
-                const promo = promotions.find((p: any) => p.year === sig.schoolYearName)
+                const promo = promotions.find((p: any) => normalizeYear(p.year) === normalizeYear(sig.schoolYearName))
                 if (promo && promo.from?.toUpperCase() === normalizedTarget) {
                     if (sig.type === 'standard' || !sig.type) hasSem1 = true
                     if (sig.type === 'end_of_year') hasSem2 = true
@@ -313,29 +315,29 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                 if (sig.type === 'end_of_year') hasSem2 = true
             }
         })
-        
+
         return { hasSem1, hasSem2 }
     }
 
     // Helper to check if a block should be visible based on admin visibility settings (single source of truth)
     const checkBlockVisibility = (b: Block, pageIdx: number, blockIdx: number): boolean => {
         const blockLevel = getBlockLevel(b)
-        
+
         // Hide blocks whose level is higher than student's current level
         if (isBlockLevelHigherThanStudent(blockLevel)) return false
-        
+
         const blockId = typeof b?.props?.blockId === 'string' && b.props.blockId.trim() ? b.props.blockId.trim() : null
         const key = buildVisibilityKey(template?._id, pageIdx, blockIdx, blockId)
-        
+
         // For blocks WITH a level: use that level's settings and signatures
         // For blocks WITHOUT a level: check all levels at or below student's level
         // Show the block if ANY applicable level would show it (with its signature)
-        
+
         if (blockLevel) {
             // Block has a level - use that level's settings
             const visibilitySetting = blockVisibilitySettings?.[blockLevel.toUpperCase()]?.[viewType]?.[key]
             const { hasSem1, hasSem2 } = getSignatureForLevel(blockLevel)
-            
+
             if (visibilitySetting) {
                 if (visibilitySetting === 'never') return false
                 if (visibilitySetting === 'after_sem1' && !hasSem1 && !hasSem2) return false
@@ -348,16 +350,16 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
             const studentLvl = (student?.level || 'PS').toUpperCase()
             const studentOrder = levelOrder[studentLvl] ?? 99
             const levelsToCheck = Object.keys(levelOrder).filter(lvl => levelOrder[lvl] <= studentOrder)
-            
+
             let foundSetting = false
             let anyLevelWouldShow = false
-            
+
             for (const lvl of levelsToCheck) {
                 const visibilitySetting = blockVisibilitySettings?.[lvl]?.[viewType]?.[key]
                 if (visibilitySetting) {
                     foundSetting = true
                     const { hasSem1, hasSem2 } = getSignatureForLevel(lvl)
-                    
+
                     if (visibilitySetting === 'always') {
                         anyLevelWouldShow = true
                         break
@@ -371,7 +373,7 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                     // 'never' doesn't set anyLevelWouldShow
                 }
             }
-            
+
             // If no settings found, default to visible; if found, use the result
             return !foundSetting || anyLevelWouldShow
         }
@@ -750,7 +752,7 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
 
                                                 if (!promo) {
                                                     const isEndYear = b.props.period === 'end-year'
-                                                    const candidate = isEndYear ? (finalSignature || signature) : signature
+                                                    const candidate = isEndYear ? finalSignature : signature
                                                     const candidateLevel = String(candidate?.level || '').trim()
                                                     const matchesLevel = !blockLevel || !candidateLevel || candidateLevel === blockLevel
 
@@ -866,10 +868,12 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                             whiteSpace: 'pre-wrap'
                                         }}>
                                             {(() => {
-                                                // Level filtering: if block has a specific level, check if it matches student's level
+                                                // Level filtering: Strict check removed to allow viewing past years
+                                                /*
                                                 if (b.props.level && student?.level && b.props.level !== student.level) {
                                                     return null
                                                 }
+                                                */
 
                                                 // Generate unique key for this teacher text block
                                                 const blockId = (b as any).id || `teacher_text_${originalPageIdx}_${blockIdx}`
@@ -1136,7 +1140,7 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                                         if (sig.level && sig.level === blockLevel) return true
 
                                                         if (sig.schoolYearName) {
-                                                            const promo = promotions.find((p: any) => p.year === sig.schoolYearName)
+                                                            const promo = promotions.find((p: any) => normalizeYear(p.year) === normalizeYear(sig.schoolYearName))
                                                             if (promo && promo.from === blockLevel) return true
                                                         }
                                                         return false
@@ -1180,7 +1184,7 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                                     const matchingSig = history.find((sig: any) => {
                                                         if (sig.type !== 'end_of_year') return false
                                                         if (sig.schoolYearName) {
-                                                            const promo = promotions.find((p: any) => p.year === sig.schoolYearName)
+                                                            const promo = promotions.find((p: any) => normalizeYear(p.year) === normalizeYear(sig.schoolYearName))
                                                             if (promo && promo.from === blockLevel) return true
                                                         }
                                                         return false
