@@ -3,7 +3,7 @@ import { Student } from '../models/Student'
 import { GradebookTemplate } from '../models/GradebookTemplate'
 import { TemplateAssignment } from '../models/TemplateAssignment'
 import { requireAuth } from '../auth'
-import { formatDdMmYyyyColon } from '../utils/dateFormat'
+import { formatDdMmYyyyColon, formatDdMonthYyyy } from '../utils/dateFormat'
 import { populateSignatures } from '../services/signatureService'
 
 export const htmlRenderRouter = Router()
@@ -256,7 +256,7 @@ function renderBlock(block: any, student: any, assignmentData: any): string {
       const text = (props.text || '')
         .replace(/\{student\.firstName\}/g, student.firstName)
         .replace(/\{student\.lastName\}/g, student.lastName)
-        .replace(/\{student\.dob\}/g, new Date(student.dateOfBirth).toLocaleDateString())
+        .replace(/\{student\.dob\}/g, formatDdMonthYyyy(student.dateOfBirth))
       return `<div class="block" style="${style} color: ${props.color || '#000'}; font-size: ${props.fontSize || 12}px;">${text}</div>`
 
     case 'image':

@@ -201,57 +201,101 @@ const getGradientColors = (idx: number): string => {
 }
 
 // Detailed Table View Component
-const DetailedClassTable = ({ cls }: { cls: ClassDetailedProgress }) => (
-    <div className="class-detailed-card">
-        <div className="class-detailed-header">
-            <h4 className="class-detailed-title">{cls.className}</h4>
+const DetailedClassTable = ({ cls, isExpanded, onToggle }: { cls: ClassDetailedProgress, isExpanded: boolean, onToggle: () => void }) => {
+    // Calculate completion stats for the class
+    const completionStats = useMemo(() => {
+        let completed = 0
+        let total = 0
+        cls.students.forEach(student => {
+            if (student.hasPolyvalent) {
+                total++
+                if (student.polyvalent) completed++
+            }
+            if (student.hasArabic) {
+                total++
+                if (student.arabic) completed++
+            }
+            if (student.hasEnglish) {
+                total++
+                if (student.english) completed++
+            }
+        })
+        const percentage = total > 0 ? Math.round((completed / total) * 100) : 0
+        return { completed, total, percentage }
+    }, [cls.students])
+
+    const getBadgeClass = (percentage: number) => {
+        if (percentage === 100) return 'complete'
+        if (percentage >= 75) return 'high'
+        if (percentage >= 50) return 'medium'
+        return 'low'
+    }
+
+    return (
+        <div className={`class-detailed-card ${isExpanded ? 'expanded' : 'collapsed'}`}>
+            <div className="class-detailed-header" onClick={onToggle}>
+                <div className="class-detailed-header-left">
+                    <button className="class-expand-toggle" aria-label={isExpanded ? 'Réduire' : 'Développer'}>
+                        <span className={`toggle-icon ${isExpanded ? 'rotated' : ''}`}>▶</span>
+                    </button>
+                    <h4 className="class-detailed-title">{cls.className}</h4>
+                    <span className="class-student-count">{cls.students.length} élèves</span>
+                </div>
+                <div className="class-detailed-header-right">
+                    <div className={`class-completion-badge ${getBadgeClass(completionStats.percentage)}`}>
+                        {completionStats.percentage}%
+                    </div>
+                </div>
+            </div>
+            <div className={`student-table-wrapper ${isExpanded ? 'expanded' : 'collapsed'}`}>
+                <div className="student-table-container">
+                    <table className="student-table">
+                        <thead>
+                            <tr>
+                                <th>Élève</th>
+                                <th>Prof. Polyvalent</th>
+                                <th>Arabe</th>
+                                <th>Anglais</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {cls.students.map((student) => (
+                                <tr key={student.studentId}>
+                                    <td>
+                                        <span className="student-name">
+                                            {student.lastName} {student.firstName}
+                                        </span>
+                                    </td>
+                                    <td>
+                                        {student.hasPolyvalent ? (
+                                            student.polyvalent
+                                                ? <span className="status-icon complete">✓</span>
+                                                : <span className="status-icon pending">✗</span>
+                                        ) : <span className="status-icon na">N/A</span>}
+                                    </td>
+                                    <td>
+                                        {student.hasArabic ? (
+                                            student.arabic
+                                                ? <span className="status-icon complete">✓</span>
+                                                : <span className="status-icon pending">✗</span>
+                                        ) : <span className="status-icon na">N/A</span>}
+                                    </td>
+                                    <td>
+                                        {student.hasEnglish ? (
+                                            student.english
+                                                ? <span className="status-icon complete">✓</span>
+                                                : <span className="status-icon pending">✗</span>
+                                        ) : <span className="status-icon na">N/A</span>}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </div>
-        <div className="student-table-container">
-            <table className="student-table">
-                <thead>
-                    <tr>
-                        <th>Élève</th>
-                        <th>Prof. Polyvalent</th>
-                        <th>Arabe</th>
-                        <th>Anglais</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {cls.students.map((student) => (
-                        <tr key={student.studentId}>
-                            <td>
-                                <span className="student-name">
-                                    {student.lastName} {student.firstName}
-                                </span>
-                            </td>
-                            <td>
-                                {student.hasPolyvalent ? (
-                                    student.polyvalent
-                                        ? <span className="status-icon complete">✓</span>
-                                        : <span className="status-icon pending">✗</span>
-                                ) : <span className="status-icon na">N/A</span>}
-                            </td>
-                            <td>
-                                {student.hasArabic ? (
-                                    student.arabic
-                                        ? <span className="status-icon complete">✓</span>
-                                        : <span className="status-icon pending">✗</span>
-                                ) : <span className="status-icon na">N/A</span>}
-                            </td>
-                            <td>
-                                {student.hasEnglish ? (
-                                    student.english
-                                        ? <span className="status-icon complete">✓</span>
-                                        : <span className="status-icon pending">✗</span>
-                                ) : <span className="status-icon na">N/A</span>}
-                            </td>
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
-        </div>
-    </div>
-)
+    )
+}
 
 export default function SubAdminTeacherProgress() {
     const [viewMode, setViewMode] = useState<'summary' | 'detailed'>('summary')
@@ -259,6 +303,28 @@ export default function SubAdminTeacherProgress() {
     const [detailedClasses, setDetailedClasses] = useState<ClassDetailedProgress[]>([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState('')
+    const [expandedClasses, setExpandedClasses] = useState<Set<string>>(new Set())
+
+    const toggleClassExpanded = (classId: string) => {
+        setExpandedClasses(prev => {
+            const newSet = new Set(prev)
+            if (newSet.has(classId)) {
+                newSet.delete(classId)
+            } else {
+                newSet.add(classId)
+            }
+            return newSet
+        })
+    }
+
+    const expandAllClasses = () => {
+        const allIds = detailedClasses.map(cls => cls.classId)
+        setExpandedClasses(new Set(allIds))
+    }
+
+    const collapseAllClasses = () => {
+        setExpandedClasses(new Set())
+    }
     const { activeYearId, isLoading: yearLoading } = useSchoolYear()
 
     useEffect(() => {
@@ -522,6 +588,16 @@ export default function SubAdminTeacherProgress() {
                 {/* Detailed View */}
                 {!loading && !yearLoading && !error && activeYearId && viewMode === 'detailed' && detailedClasses.length > 0 && (
                     <div className="detailed-section">
+                        <div className="detailed-controls">
+                            <button className="expand-all-btn" onClick={expandAllClasses}>
+                                <span className="icon">⬇️</span>
+                                Tout développer
+                            </button>
+                            <button className="collapse-all-btn" onClick={collapseAllClasses}>
+                                <span className="icon">⬆️</span>
+                                Tout réduire
+                            </button>
+                        </div>
                         {detailedSortedLevels.map((level, levelIdx) => (
                             <div
                                 key={level}
@@ -536,7 +612,12 @@ export default function SubAdminTeacherProgress() {
                                 </div>
 
                                 {detailedGroupedByLevel[level].map(cls => (
-                                    <DetailedClassTable key={cls.classId} cls={cls} />
+                                    <DetailedClassTable
+                                        key={cls.classId}
+                                        cls={cls}
+                                        isExpanded={expandedClasses.has(cls.classId)}
+                                        onToggle={() => toggleClassExpanded(cls.classId)}
+                                    />
                                 ))}
                             </div>
                         ))}

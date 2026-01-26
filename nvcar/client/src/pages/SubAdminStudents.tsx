@@ -1,7 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import api from '../api'
 import Modal from '../components/Modal'
 import Toast from '../components/Toast'
+import { Users, GraduationCap, BookOpen, AlertTriangle, Search, X, ChevronDown, Plus, Edit2, UserPlus, User, Info } from 'lucide-react'
+import './SubAdminStudents.css'
 
 type Student = {
     _id: string
@@ -31,7 +33,8 @@ export default function SubAdminStudents() {
     const [loading, setLoading] = useState(true)
     const [search, setSearch] = useState('')
     const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null)
-    
+    const [expandedLevels, setExpandedLevels] = useState<Record<string, boolean>>({})
+
     // Modal state
     const [showAssignModal, setShowAssignModal] = useState(false)
     const [showAddModal, setShowAddModal] = useState(false)
@@ -53,6 +56,14 @@ export default function SubAdminStudents() {
             ])
             setStudents(studentsRes.data)
             setClasses(classesRes.data)
+
+            // Auto-expand all levels by default
+            const levels = new Set<string>()
+            classesRes.data.forEach((c: ClassInfo) => levels.add(c.level))
+            studentsRes.data.forEach((s: Student) => { if (s.level) levels.add(s.level) })
+            const expanded: Record<string, boolean> = {}
+            levels.forEach(l => expanded[l] = true)
+            setExpandedLevels(expanded)
         } catch (e) {
             console.error(e)
             setMessage({ type: 'error', text: 'Erreur lors du chargement des données' })
@@ -96,7 +107,7 @@ export default function SubAdminStudents() {
 
     const handleAddStudent = async () => {
         if (!targetClassId || !newStudentFirstName.trim() || !newStudentLastName.trim()) return
-        
+
         try {
             await api.post('/students', {
                 firstName: newStudentFirstName.trim(),
@@ -114,141 +125,282 @@ export default function SubAdminStudents() {
         }
     }
 
+    const toggleLevel = (level: string) => {
+        setExpandedLevels(prev => ({ ...prev, [level]: !prev[level] }))
+    }
+
     // Group data
-    const groupedData: LevelGroup[] = []
-    
-    // Get all unique levels from classes and students
-    const levels = new Set<string>()
-    classes.forEach(c => levels.add(c.level))
-    students.forEach(s => { if (s.level) levels.add(s.level) })
-    
-    const sortedLevels = Array.from(levels).sort()
+    const groupedData: LevelGroup[] = useMemo(() => {
+        const data: LevelGroup[] = []
 
-    sortedLevels.forEach(level => {
-        const levelClasses = classes.filter(c => c.level === level)
-        const levelStudents = students.filter(s => s.level === level)
-        
-        const studentsByClass: Record<string, Student[]> = {}
-        levelClasses.forEach(c => {
-            studentsByClass[c._id] = levelStudents.filter(s => s.classId === c._id)
+        // Get all unique levels from classes and students
+        const levels = new Set<string>()
+        classes.forEach(c => levels.add(c.level))
+        students.forEach(s => { if (s.level) levels.add(s.level) })
+
+        const sortedLevels = Array.from(levels).sort()
+
+        sortedLevels.forEach(level => {
+            const levelClasses = classes.filter(c => c.level === level)
+            const levelStudents = students.filter(s => s.level === level)
+
+            const studentsByClass: Record<string, Student[]> = {}
+            levelClasses.forEach(c => {
+                studentsByClass[c._id] = levelStudents.filter(s => s.classId === c._id)
+            })
+
+            const unassignedStudents = levelStudents.filter(s => !s.classId)
+
+            data.push({
+                level,
+                classes: levelClasses,
+                unassignedStudents,
+                studentsByClass
+            })
         })
 
-        const unassignedStudents = levelStudents.filter(s => !s.classId)
-
-        groupedData.push({
-            level,
-            classes: levelClasses,
-            unassignedStudents,
-            studentsByClass
-        })
-    })
+        return data
+    }, [students, classes])
 
     const filteredStudents = (list: Student[]) => {
         if (!search) return list
         const lowerSearch = search.toLowerCase()
-        return list.filter(s => 
-            s.firstName.toLowerCase().includes(lowerSearch) || 
+        return list.filter(s =>
+            s.firstName.toLowerCase().includes(lowerSearch) ||
             s.lastName.toLowerCase().includes(lowerSearch)
         )
     }
 
+    // Stats
+    const totalStudents = students.length
+    const totalClasses = classes.length
+    const unassignedCount = groupedData.reduce((sum, g) => sum + g.unassignedStudents.length, 0)
+    const levelsCount = groupedData.length
+
+    const getInitials = (firstName: string, lastName: string) => {
+        return `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase()
+    }
+
+    const getClassStudentCount = (studentsByClass: Record<string, Student[]>) => {
+        return Object.values(studentsByClass).reduce((sum, arr) => sum + arr.length, 0)
+    }
+
     return (
-        <div className="container">
-            <div className="card">
-                <h2 className="title">Gestion des Élèves</h2>
-                
+        <div className="students-page">
+            <div className="container">
                 {message && (
-                    <Toast 
+                    <Toast
                         message={message.text}
                         type={message.type}
                         onClose={() => setMessage(null)}
                     />
                 )}
 
-                <div style={{ marginBottom: 20 }}>
-                    <input 
-                        placeholder="Rechercher un élève..." 
-                        value={search} 
-                        onChange={e => setSearch(e.target.value)} 
-                        style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid #ddd' }} 
-                    />
+                {/* Header Section */}
+                <div className="students-header">
+                    <div className="students-header-left">
+                        <h1>
+                            <span className="header-icon">
+                                <GraduationCap size={26} />
+                            </span>
+                            Gestion des Élèves
+                        </h1>
+                        <p>Gérez et organisez les élèves par niveau et par classe</p>
+                    </div>
                 </div>
 
-                {loading ? (
-                    <div>Chargement...</div>
-                ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 30 }}>
-                        {groupedData.map(group => (
-                            <div key={group.level} style={{ border: '1px solid #e2e8f0', borderRadius: 12, padding: 20, background: '#f8fafc' }}>
-                                <h3 style={{ fontSize: '1.2rem', color: '#334155', marginBottom: 15, borderBottom: '2px solid #cbd5e1', paddingBottom: 5 }}>
-                                    Niveau {group.level}
-                                </h3>
+                {/* Stats Grid */}
+                <div className="students-stats-grid">
+                    <div className="stat-card purple">
+                        <div className="stat-card-icon">
+                            <Users size={24} />
+                        </div>
+                        <div className="stat-card-value">{totalStudents}</div>
+                        <div className="stat-card-label">Nombre total d'élèves</div>
+                    </div>
+                    <div className="stat-card blue">
+                        <div className="stat-card-icon">
+                            <BookOpen size={24} />
+                        </div>
+                        <div className="stat-card-value">{totalClasses}</div>
+                        <div className="stat-card-label">Classes actives</div>
+                    </div>
+                    <div className="stat-card green">
+                        <div className="stat-card-icon">
+                            <GraduationCap size={24} />
+                        </div>
+                        <div className="stat-card-value">{levelsCount}</div>
+                        <div className="stat-card-label">Niveaux scolaires</div>
+                    </div>
+                    {unassignedCount > 0 && (
+                        <div className="stat-card amber">
+                            <div className="stat-card-icon">
+                                <AlertTriangle size={24} />
+                            </div>
+                            <div className="stat-card-value">{unassignedCount}</div>
+                            <div className="stat-card-label">Non assignés</div>
+                        </div>
+                    )}
+                </div>
 
-                                {/* Unassigned Students */}
-                                {filteredStudents(group.unassignedStudents).length > 0 && (
-                                    <div style={{ marginBottom: 20 }}>
-                                        <h4 style={{ fontSize: '1rem', color: '#64748b', marginBottom: 10 }}>⚠️ Élèves non assignés</h4>
-                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 10 }}>
-                                            {filteredStudents(group.unassignedStudents).map(s => (
-                                                <div key={s._id} style={{ background: 'white', padding: 10, borderRadius: 6, border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                    <span style={{ fontWeight: 500 }}>{s.firstName} {s.lastName}</span>
-                                                    <button 
-                                                        onClick={() => openAssignModal(s)}
-                                                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#3b82f6', fontSize: '1.2rem' }}
-                                                        title="Assigner à une classe"
-                                                    >
-                                                        ➜
-                                                    </button>
-                                                </div>
-                                            ))}
+                {/* Search Bar */}
+                <div className="students-search-bar">
+                    <Search size={20} className="search-icon" />
+                    <input
+                        placeholder="Rechercher un élève par nom ou prénom..."
+                        value={search}
+                        onChange={e => setSearch(e.target.value)}
+                    />
+                    {search && (
+                        <button className="clear-btn" onClick={() => setSearch('')} title="Effacer">
+                            <X size={16} />
+                        </button>
+                    )}
+                </div>
+
+                {/* Loading State */}
+                {loading ? (
+                    <div className="students-loading">
+                        <div className="loading-spinner" />
+                        <p>Chargement des élèves...</p>
+                    </div>
+                ) : groupedData.length === 0 ? (
+                    <div className="students-empty">
+                        <div className="empty-icon">
+                            <Users size={36} />
+                        </div>
+                        <h3>Aucun élève trouvé</h3>
+                        <p>Commencez par ajouter des élèves à votre établissement</p>
+                    </div>
+                ) : (
+                    /* Level Groups */
+                    <div>
+                        {groupedData.map(group => {
+                            const isExpanded = expandedLevels[group.level] !== false
+                            const totalInLevel = getClassStudentCount(group.studentsByClass) + group.unassignedStudents.length
+                            const filteredUnassigned = filteredStudents(group.unassignedStudents)
+
+                            return (
+                                <div key={group.level} className={`level-group ${isExpanded ? 'expanded' : ''}`}>
+                                    <div className="level-header" onClick={() => toggleLevel(group.level)}>
+                                        <div className="level-header-left">
+                                            <div className="level-badge">{group.level}</div>
+                                            <div className="level-info">
+                                                <h3>Niveau {group.level}</h3>
+                                                <p>{group.classes.length} classe{group.classes.length > 1 ? 's' : ''} • {totalInLevel} élève{totalInLevel > 1 ? 's' : ''}</p>
+                                            </div>
+                                        </div>
+                                        <div className="level-header-right">
+                                            {group.unassignedStudents.length > 0 && (
+                                                <span className="level-count-badge" style={{ background: '#fef3c7', color: '#92400e', borderColor: '#fcd34d' }}>
+                                                    <AlertTriangle size={14} />
+                                                    {group.unassignedStudents.length} non assigné{group.unassignedStudents.length > 1 ? 's' : ''}
+                                                </span>
+                                            )}
+                                            <div className="expand-icon">
+                                                <ChevronDown size={18} />
+                                            </div>
                                         </div>
                                     </div>
-                                )}
 
-                                {/* Classes */}
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 20 }}>
-                                    {group.classes.map(cls => (
-                                        <div key={cls._id} style={{ background: 'white', borderRadius: 8, border: '1px solid #e2e8f0', overflow: 'hidden' }}>
-                                            <div style={{ padding: '10px 15px', background: '#f1f5f9', borderBottom: '1px solid #e2e8f0', fontWeight: 600, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                <span>{cls.name}</span>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                                    <span style={{ fontSize: '0.8em', color: '#64748b', background: '#e2e8f0', padding: '2px 6px', borderRadius: 4 }}>
-                                                        {filteredStudents(group.studentsByClass[cls._id] || []).length} élèves
-                                                    </span>
-                                                    <button 
-                                                        onClick={() => openAddModal(cls._id)}
-                                                        style={{ background: '#3b82f6', color: 'white', border: 'none', borderRadius: '50%', width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: '1.2rem', lineHeight: 1 }}
-                                                        title="Ajouter un élève"
-                                                    >
-                                                        +
-                                                    </button>
-                                                </div>
-                                            </div>
-                                            <div style={{ padding: 10, maxHeight: 300, overflowY: 'auto' }}>
-                                                {filteredStudents(group.studentsByClass[cls._id] || []).length === 0 ? (
-                                                    <div style={{ color: '#94a3b8', fontStyle: 'italic', fontSize: '0.9em', textAlign: 'center', padding: 10 }}>Aucun élève</div>
-                                                ) : (
-                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                                                        {filteredStudents(group.studentsByClass[cls._id] || []).map(s => (
-                                                            <div key={s._id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0', borderBottom: '1px solid #f1f5f9' }}>
-                                                                <span style={{ fontSize: '0.95em' }}>{s.firstName} {s.lastName}</span>
-                                                                <button 
+                                    {isExpanded && (
+                                        <div className="level-content">
+                                            {/* Unassigned Students Warning */}
+                                            {filteredUnassigned.length > 0 && (
+                                                <div className="unassigned-section">
+                                                    <div className="unassigned-header">
+                                                        <div className="warning-icon">
+                                                            <AlertTriangle size={20} />
+                                                        </div>
+                                                        <h4>Élèves non assignés à une classe</h4>
+                                                    </div>
+                                                    <div className="unassigned-list">
+                                                        {filteredUnassigned.map(s => (
+                                                            <div key={s._id} className="unassigned-student-card">
+                                                                <div className="student-info">
+                                                                    <div className="student-avatar-placeholder">
+                                                                        {getInitials(s.firstName, s.lastName)}
+                                                                    </div>
+                                                                    <span className="student-name">{s.firstName} {s.lastName}</span>
+                                                                </div>
+                                                                <button
+                                                                    className="assign-btn"
                                                                     onClick={() => openAssignModal(s)}
-                                                                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '1rem' }}
-                                                                    title="Changer de classe"
+                                                                    title="Assigner à une classe"
                                                                 >
-                                                                    ✎
+                                                                    <UserPlus size={18} />
                                                                 </button>
                                                             </div>
                                                         ))}
                                                     </div>
-                                                )}
+                                                </div>
+                                            )}
+
+                                            {/* Classes Grid */}
+                                            <div className="classes-grid">
+                                                {group.classes.map(cls => {
+                                                    const classStudents = filteredStudents(group.studentsByClass[cls._id] || [])
+
+                                                    return (
+                                                        <div key={cls._id} className="class-card">
+                                                            <div className="class-card-header">
+                                                                <div className="class-card-header-left">
+                                                                    <div className="class-icon">
+                                                                        <BookOpen size={20} />
+                                                                    </div>
+                                                                    <h4 className="class-name">{cls.name}</h4>
+                                                                </div>
+                                                                <div className="class-card-header-right">
+                                                                    <span className="student-count-chip">
+                                                                        <Users size={14} />
+                                                                        {classStudents.length} élève{classStudents.length !== 1 ? 's' : ''}
+                                                                    </span>
+                                                                    <button
+                                                                        className="add-student-btn"
+                                                                        onClick={() => openAddModal(cls._id)}
+                                                                        title="Ajouter un élève"
+                                                                    >
+                                                                        <Plus size={18} />
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                            <div className="class-card-body">
+                                                                {classStudents.length === 0 ? (
+                                                                    <div className="empty-class-placeholder">
+                                                                        <div className="empty-icon">
+                                                                            <User size={24} />
+                                                                        </div>
+                                                                        <p>Aucun élève dans cette classe</p>
+                                                                    </div>
+                                                                ) : (
+                                                                    classStudents.map(s => (
+                                                                        <div key={s._id} className="student-row">
+                                                                            <div className="student-info">
+                                                                                <div className="student-avatar">
+                                                                                    {getInitials(s.firstName, s.lastName)}
+                                                                                </div>
+                                                                                <span className="student-name">{s.firstName} {s.lastName}</span>
+                                                                            </div>
+                                                                            <button
+                                                                                className="edit-btn"
+                                                                                onClick={() => openAssignModal(s)}
+                                                                                title="Changer de classe"
+                                                                            >
+                                                                                <Edit2 size={16} />
+                                                                            </button>
+                                                                        </div>
+                                                                    ))
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    )
+                                                })}
                                             </div>
                                         </div>
-                                    ))}
+                                    )}
                                 </div>
-                            </div>
-                        ))}
+                            )
+                        })}
                     </div>
                 )}
             </div>
@@ -258,18 +410,17 @@ export default function SubAdminStudents() {
                 isOpen={showAssignModal && !!selectedStudent}
                 onClose={() => setShowAssignModal(false)}
                 title={selectedStudent ? `Assigner ${selectedStudent.firstName} ${selectedStudent.lastName}` : 'Assigner'}
-                width={400}
+                width={450}
                 footer={
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-                        <button 
-                            className="btn secondary" 
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
+                        <button
+                            className="btn secondary"
                             onClick={() => setShowAssignModal(false)}
-                            style={{ background: '#f1f5f9', color: '#475569' }}
                         >
                             Annuler
                         </button>
-                        <button 
-                            className="btn" 
+                        <button
+                            className="btn"
                             onClick={handleAssign}
                             disabled={!targetClassId || (selectedStudent?.classId === targetClassId)}
                         >
@@ -278,76 +429,79 @@ export default function SubAdminStudents() {
                     </div>
                 }
             >
-                {selectedStudent && (
-                    <div style={{ marginBottom: 20 }}>
-                        <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Choisir une classe</label>
-                        <select 
-                            value={targetClassId} 
-                            onChange={e => setTargetClassId(e.target.value)}
-                            style={{ width: '100%', padding: 10, borderRadius: 6, border: '1px solid #cbd5e1' }}
-                        >
-                            <option value="">Sélectionner...</option>
-                            {classes
-                                .filter(c => c.level === selectedStudent.level)
-                                .sort((a, b) => a.level.localeCompare(b.level))
-                                .map(c => (
-                                    <option key={c._id} value={c._id}>
-                                        {c.name} ({c.level})
-                                    </option>
-                                ))
-                            }
-                        </select>
-                        <div style={{ marginTop: 5, fontSize: '0.85em', color: '#64748b' }}>
-                            Note: Changer de niveau mettra à jour le niveau de l'élève.
+                <div className="students-modal-content">
+                    {selectedStudent && (
+                        <div className="modal-field">
+                            <label>Choisir une classe</label>
+                            <select
+                                value={targetClassId}
+                                onChange={e => setTargetClassId(e.target.value)}
+                            >
+                                <option value="">Sélectionner une classe...</option>
+                                {classes
+                                    .filter(c => c.level === selectedStudent.level)
+                                    .sort((a, b) => a.name.localeCompare(b.name))
+                                    .map(c => (
+                                        <option key={c._id} value={c._id}>
+                                            {c.name} ({c.level})
+                                        </option>
+                                    ))
+                                }
+                            </select>
                         </div>
+                    )}
+                    <div className="modal-note">
+                        <Info size={16} />
+                        <span>Changer de classe modifiera l'affectation de l'élève pour l'année en cours.</span>
                     </div>
-                )}
+                </div>
             </Modal>
 
             {/* Add Student Modal */}
             <Modal
                 isOpen={showAddModal}
                 onClose={() => setShowAddModal(false)}
-                title="Ajouter un élève à la classe"
+                title="Ajouter un nouvel élève"
                 width={500}
                 footer={
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-                        <button 
-                            className="btn secondary" 
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
+                        <button
+                            className="btn secondary"
                             onClick={() => setShowAddModal(false)}
-                            style={{ background: '#f1f5f9', color: '#475569' }}
                         >
                             Annuler
                         </button>
-                        <button 
-                            className="btn" 
+                        <button
+                            className="btn"
                             onClick={handleAddStudent}
                             disabled={!newStudentFirstName.trim() || !newStudentLastName.trim() || !targetClassId}
                         >
-                            Ajouter
+                            Ajouter l'élève
                         </button>
                     </div>
                 }
             >
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                    <div>
-                        <label style={{ display: 'block', marginBottom: 6, fontWeight: 500 }}>Prénom</label>
-                        <input 
-                            placeholder="Prénom" 
+                <div className="students-modal-content">
+                    <div className="modal-field">
+                        <label>Prénom</label>
+                        <input
+                            placeholder="Entrez le prénom de l'élève"
                             value={newStudentFirstName}
                             onChange={e => setNewStudentFirstName(e.target.value)}
-                            style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid #ddd' }}
                             autoFocus
                         />
                     </div>
-                    <div>
-                        <label style={{ display: 'block', marginBottom: 6, fontWeight: 500 }}>Nom</label>
-                        <input 
-                            placeholder="Nom" 
+                    <div className="modal-field">
+                        <label>Nom de famille</label>
+                        <input
+                            placeholder="Entrez le nom de famille"
                             value={newStudentLastName}
                             onChange={e => setNewStudentLastName(e.target.value)}
-                            style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid #ddd' }}
                         />
+                    </div>
+                    <div className="modal-note">
+                        <Info size={16} />
+                        <span>L'élève sera automatiquement ajouté à la classe sélectionnée.</span>
                     </div>
                 </div>
             </Modal>

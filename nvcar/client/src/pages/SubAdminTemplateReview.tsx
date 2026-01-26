@@ -11,7 +11,7 @@ import Toast, { ToastType } from '../components/Toast'
 import ScrollToTopButton from '../components/ScrollToTopButton'
 import ScrollPageDownButton from '../components/ScrollPageDownButton'
 import { openPdfExport, buildStudentPdfUrl } from '../utils/pdfExport'
-import { formatDdMmYyyyColon } from '../utils/dateFormat'
+import { formatDdMonthYyyy, formatDdMmYyyyColon } from '../utils/dateFormat'
 
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
@@ -1566,13 +1566,12 @@ export default function SubAdminTemplateReview() {
                                                         const fatherInitial = fatherName ? fatherName.charAt(0).toUpperCase() : ''
                                                         const fatherInitialWithDot = fatherInitial ? `${fatherInitial}.` : ''
                                                         const fullNameFatherInitial = [student.firstName, fatherInitialWithDot, student.lastName].filter(Boolean).join(' ')
-                                                        const dob = student.dateOfBirth ? new Date(student.dateOfBirth) : new Date(NaN)
-                                                        const dobDdMmYyyy = isNaN(dob.getTime()) ? '' : `${String(dob.getUTCDate()).padStart(2, '0')}/${String(dob.getUTCMonth() + 1).padStart(2, '0')}/${String(dob.getUTCFullYear())}`
+                                                        const dobDdMmYyyy = formatDdMonthYyyy(student.dateOfBirth)
 
                                                         text = text
                                                             .replace(/{student.firstName}/g, student.firstName)
                                                             .replace(/{student.lastName}/g, student.lastName)
-                                                            .replace(/{student.dob}/g, student.dateOfBirth ? new Date(student.dateOfBirth).toLocaleDateString() : '')
+                                                            .replace(/{student.dob}/g, formatDdMonthYyyy(student.dateOfBirth))
                                                             .replace(/{student.fatherInitial}/g, fatherInitialWithDot)
                                                             .replace(/{student.fullNameFatherInitial}/g, fullNameFatherInitial)
                                                             .replace(/{student.dob_ddmmyyyy}/g, dobDdMmYyyy)

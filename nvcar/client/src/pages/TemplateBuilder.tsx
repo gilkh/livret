@@ -10,6 +10,7 @@ import { TemplatePropagationModal } from '../components/TemplatePropagationModal
 import { TemplateHistoryModal } from '../components/TemplateHistoryModal'
 import { TemplateStateHistoryModal } from '../components/TemplateStateHistoryModal'
 import { openPdfExport, buildPreviewPdfUrl } from '../utils/pdfExport'
+import { formatDdMonthYyyy } from '../utils/dateFormat'
 import { ImageCropOverlay } from '../components/ImageCropOverlay'
 import { CroppedImage } from '../components/CroppedImage'
 import ScrollToTopButton from '../components/ScrollToTopButton'
@@ -735,7 +736,7 @@ export default function TemplateBuilder() {
     { type: 'dropdown_reference', props: { dropdownNumber: 1, text: 'Référence dropdown #{number}', fontSize: 12, color: '#2d3436' } },
     { type: 'dynamic_text', props: { text: '{student.firstName} {student.lastName}', fontSize: 14, color: '#2d3436', label: 'Nom complet (Prénom + Nom)' } },
     { type: 'dynamic_text', props: { text: '{student.fullNameFatherInitial}', fontSize: 14, color: '#2d3436', label: 'Nom complet (Prénom + initiale père + nom)' } },
-    { type: 'dynamic_text', props: { text: '{student.dob_ddmmyyyy}', fontSize: 14, color: '#2d3436', label: 'Date de naissance (JJ/MM/AAAA)' } },
+    { type: 'dynamic_text', props: { text: '{student.dob_ddmmyyyy}', fontSize: 14, color: '#2d3436', label: 'Date de naissance (JJ Mois AAAA)' } },
 
     // Title Pocket (pocket with text/image)
     {
@@ -748,15 +749,7 @@ export default function TemplateBuilder() {
     },
   ]), [])
 
-  const formatDobDdMmYyyy = (value: any) => {
-    if (!value) return ''
-    const d = new Date(value)
-    if (isNaN(d.getTime())) return ''
-    const dd = String(d.getUTCDate()).padStart(2, '0')
-    const mm = String(d.getUTCMonth() + 1).padStart(2, '0')
-    const yyyy = String(d.getUTCFullYear())
-    return `${dd}/${mm}/${yyyy}`
-  }
+  const formatDobDdMmYyyy = (value: any) => formatDdMonthYyyy(value)
 
   const fatherInitialFromStudent = (s: any) => {
     const raw = String(s?.fatherName || s?.parentName || '').trim()
@@ -3493,7 +3486,7 @@ export default function TemplateBuilder() {
                                   .replace(/{student.lastName}/g, s.lastName)
                                   .replace(/{student.fatherInitial}/g, fatherInitialWithDot)
                                   .replace(/{student.fullNameFatherInitial}/g, fullNameFatherInitial)
-                                  .replace(/{student.dob}/g, s.dateOfBirth ? new Date(s.dateOfBirth).toLocaleDateString() : '')
+                                  .replace(/{student.dob}/g, formatDdMonthYyyy(s.dateOfBirth))
                                   .replace(/{student.dob_ddmmyyyy}/g, formatDobDdMmYyyy(s.dateOfBirth))
                               }
                             }

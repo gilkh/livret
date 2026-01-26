@@ -155,7 +155,7 @@ subAdminTemplatesRouter.post('/signature/upload', requireAuth(['SUBADMIN', 'AEFE
             req,
         })
 
-        res.json({ signatureUrl: `http://localhost:4000${signatureUrl}` })
+        res.json({ signatureUrl })
     } catch (e: any) {
         res.status(500).json({ error: 'upload_failed', message: e.message })
     }
@@ -1681,10 +1681,27 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
             ])
             : [[], []]
 
+        const toTitleCase = (value: string) => value
+            .split(' ')
+            .filter(Boolean)
+            .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+            .join(' ')
+
+        const normalizeTeacherName = (teacher: any) => {
+            const displayName = String(teacher?.displayName || '').trim()
+            const email = String(teacher?.email || '').trim()
+            if (displayName && displayName.toLowerCase() !== email.toLowerCase()) return displayName
+            if (!email) return 'Unknown'
+
+            const localPart = email.split('@')[0] || ''
+            const cleaned = localPart.replace(/[._-]+/g, ' ').replace(/\s+/g, ' ').trim()
+            return cleaned ? toTitleCase(cleaned) : email
+        }
+
         const teacherMap = new Map(
             [...(teachers as any[]), ...(outlookTeachers as any[])].map((t: any) => [
                 String(t._id),
-                String(t.displayName || t.email || 'Unknown')
+                normalizeTeacherName(t)
             ])
         )
 
