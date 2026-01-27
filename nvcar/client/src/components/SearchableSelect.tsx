@@ -68,8 +68,8 @@ export default function SearchableSelect({
             <div
                 onClick={() => !disabled && setIsOpen(!isOpen)}
                 style={{
-                    padding: '10px 12px',
-                    borderRadius: 8,
+                    padding: '4px 8px',
+                    borderRadius: 6,
                     border: '1px solid #cbd5e1',
                     background: disabled ? '#f1f5f9' : 'white',
                     color: disabled ? '#94a3b8' : '#1e293b',
@@ -77,8 +77,8 @@ export default function SearchableSelect({
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
-                    fontSize: 14,
-                    minHeight: 42,
+                    fontSize: 12,
+                    minHeight: 26,
                     boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
                 }}
             >
@@ -90,7 +90,7 @@ export default function SearchableSelect({
                 }}>
                     {selectedOption ? selectedOption.label : <span style={{ color: '#94a3b8' }}>{placeholder}</span>}
                 </span>
-                <ChevronDown size={16} color="#64748b" />
+                <ChevronDown size={14} color="#64748b" />
             </div>
 
             {isOpen && !disabled && (
@@ -109,8 +109,8 @@ export default function SearchableSelect({
                     flexDirection: 'column',
                     overflow: 'hidden'
                 }}>
-                    <div style={{ padding: 8, borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <Search size={14} color="#94a3b8" />
+                    <div style={{ padding: 6, borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <Search size={12} color="#94a3b8" />
                         <input
                             ref={inputRef}
                             value={search}
@@ -120,14 +120,14 @@ export default function SearchableSelect({
                                 border: 'none',
                                 outline: 'none',
                                 width: '100%',
-                                fontSize: 13,
+                                fontSize: 12,
                                 background: 'transparent'
                             }}
                             onClick={e => e.stopPropagation()}
                         />
                         {search && (
                             <X
-                                size={14}
+                                size={12}
                                 color="#94a3b8"
                                 style={{ cursor: 'pointer' }}
                                 onClick={(e) => {
@@ -140,7 +140,7 @@ export default function SearchableSelect({
 
                     <div style={{ overflowY: 'auto', flex: 1 }}>
                         {filteredOptions.length === 0 ? (
-                            <div style={{ padding: '12px', fontSize: 13, color: '#94a3b8', textAlign: 'center' }}>
+                            <div style={{ padding: '10px', fontSize: 12, color: '#94a3b8', textAlign: 'center' }}>
                                 Aucun résultat
                             </div>
                         ) : (
@@ -152,9 +152,9 @@ export default function SearchableSelect({
                                         setIsOpen(false)
                                     }}
                                     style={{
-                                        padding: '8px 12px',
+                                        padding: '5px 8px',
                                         cursor: 'pointer',
-                                        fontSize: 14,
+                                        fontSize: 12,
                                         color: '#334155',
                                         background: option.value === value ? '#f1f5f9' : 'white',
                                         display: 'flex',
