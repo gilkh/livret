@@ -1034,3 +1034,161 @@
   font-family: monospace;
   color: var(--danger-color);
 }
+
+/* --- Left Students Section --- */
+.left-students-panel {
+  margin-top: 24px;
+  border-color: #fca5a5;
+  background: #fef2f2;
+}
+
+.left-icon {
+  color: var(--danger-color);
+}
+
+.left-students-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.left-student-card {
+  background: white;
+  padding: 12px 16px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  box-shadow: var(--shadow-sm);
+  border: 1px solid #fecaca;
+}
+
+.left-student-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.left-student-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-main);
+}
+
+.left-student-year {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.left-student-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.left-action-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.left-action-btn.undo {
+  color: var(--warning-color);
+}
+.left-action-btn.undo:hover {
+  background: #fffbeb;
+  border-color: var(--warning-color);
+}
+
+.left-action-btn.return {
+  color: var(--success-color);
+}
+.left-action-btn.return:hover {
+  background: #ecfdf5;
+  border-color: var(--success-color);
+}
+
+/* --- Unassigned Item Actions --- */
+.u-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.u-leave-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--text-light);
+  transition: all 0.2s;
+}
+
+.u-leave-btn:hover {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: var(--danger-color);
+}
+
+/* --- Return Student Modal --- */
+.return-modal {
+  max-width: 450px;
+}
+
+.return-student-info {
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.return-student-info p {
+  margin: 0;
+  font-size: 16px;
+}
+
+.return-left-info {
+  color: var(--text-secondary);
+  font-size: 14px !important;
+  margin-top: 4px !important;
+}
+
+.return-year-select {
+  margin-bottom: 16px;
+}
+
+.return-year-select label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 500;
+  font-size: 14px;
+}
+
+.return-year-select .clean-select {
+  width: 100%;
+}
+
+.return-info-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  background: #f0f9ff;
+  padding: 12px;
+  border-radius: 8px;
+}
+
+.modal-btn.primary svg {
+  margin-right: 6px;
+}

@@ -39,6 +39,9 @@ type AuditAction =
     | 'CREATE_STUDENT'
     | 'UPDATE_STUDENT'
     | 'DELETE_STUDENT'
+    | 'MARK_STUDENT_LEFT'
+    | 'UNDO_STUDENT_LEFT'
+    | 'MARK_STUDENT_RETURNED'
     // System
     | 'CREATE_BACKUP'
     | 'RESTORE_BACKUP'

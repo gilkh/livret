@@ -1033,8 +1033,265 @@ studentsRouter.post('/:studentId/promote', requireAuth(['ADMIN']), async (req, r
   }
 })
 
+// Mark a student as leaving the school
+studentsRouter.post('/:id/mark-leaving', requireAuth(['ADMIN', 'SUBADMIN']), async (req, res) => {
+  const { id } = req.params
+  const adminId = (req as any).user.userId
+
+  try {
+    const student = await Student.findById(id)
+    if (!student) return res.status(404).json({ error: 'student_not_found' })
+
+    if (student.status === 'left') {
+      return res.status(400).json({ error: 'already_left', message: 'Student is already marked as left' })
+    }
+
+    const activeYear = await SchoolYear.findOne({ active: true }).lean()
+    if (!activeYear) return res.status(400).json({ error: 'no_active_year' })
+
+    // Find the current enrollment
+    const enrollment = await Enrollment.findOne({
+      studentId: id,
+      schoolYearId: String(activeYear._id),
+      status: { $in: ['active', 'promoted'] }
+    })
+
+    // Create a snapshot/archive of the gradebook before marking as left
+    const assignment = await TemplateAssignment.findOne({ studentId: id }).sort({ assignedAt: -1 }).lean()
+    
+    if (assignment) {
+      const statuses = await StudentCompetencyStatus.find({ studentId: id }).lean()
+      const signatures = await TemplateSignature.find({ templateAssignmentId: String(assignment._id) }).lean()
+      
+      let templateData: any = null
+      if (assignment.templateId) {
+        const template = await GradebookTemplate.findById(assignment.templateId).lean()
+        if (template) {
+          templateData = template
+          if (assignment.templateVersion && template.versionHistory) {
+            const version = template.versionHistory.find((v: any) => v.version === assignment.templateVersion)
+            if (version) {
+              templateData = {
+                ...template,
+                pages: version.pages,
+                variables: version.variables || {},
+                watermark: version.watermark
+              }
+            }
+          }
+        }
+      }
+
+      const snapshotData = {
+        student: student.toObject(),
+        enrollment: enrollment ? enrollment.toObject() : null,
+        statuses: statuses,
+        assignment: assignment,
+        signatures: signatures,
+        template: templateData,
+        reason: 'left_school'
+      }
+
+      // Save the gradebook snapshot
+      await SavedGradebook.create({
+        studentId: id,
+        schoolYearId: String(activeYear._id),
+        level: student.level || 'Sans niveau',
+        classId: enrollment?.classId,
+        templateId: assignment.templateId,
+        data: snapshotData,
+        reason: 'left_school'
+      })
+    }
+
+    // Update student status
+    student.status = 'left'
+    student.leftAt = new Date()
+    student.leftSchoolYearId = String(activeYear._id)
+    student.leftBy = adminId
+    await student.save()
+
+    // Update enrollment status if exists
+    if (enrollment) {
+      enrollment.status = 'left'
+      enrollment.promotionStatus = 'left'
+      await enrollment.save()
+    }
+
+    // Also mark any pending enrollments (for next year) as left
+    await Enrollment.updateMany(
+      { studentId: id, status: 'active' },
+      { status: 'left', promotionStatus: 'left' }
+    )
+
+    await logAudit({
+      userId: adminId,
+      action: 'MARK_STUDENT_LEFT',
+      details: { studentId: id, studentName: `${student.firstName} ${student.lastName}`, schoolYearId: String(activeYear._id) },
+      req
+    })
+
+    res.json({ ok: true, student })
+  } catch (e: any) {
+    console.error('Mark leaving error:', e)
+    res.status(500).json({ error: 'mark_leaving_failed', message: e.message })
+  }
+})
+
+// Undo marking a student as leaving (restore to active)
+studentsRouter.post('/:id/undo-leaving', requireAuth(['ADMIN', 'SUBADMIN']), async (req, res) => {
+  const { id } = req.params
+  const adminId = (req as any).user.userId
+
+  try {
+    const student = await Student.findById(id)
+    if (!student) return res.status(404).json({ error: 'student_not_found' })
+
+    if (student.status !== 'left') {
+      return res.status(400).json({ error: 'not_left', message: 'Student is not marked as left' })
+    }
+
+    const leftSchoolYearId = student.leftSchoolYearId
+
+    // Restore student status
+    student.status = 'active'
+    student.leftAt = undefined
+    student.leftSchoolYearId = undefined
+    student.leftBy = undefined
+    await student.save()
+
+    // Restore enrollment status for the year they left
+    if (leftSchoolYearId) {
+      await Enrollment.updateMany(
+        { studentId: id, schoolYearId: leftSchoolYearId, status: 'left' },
+        { status: 'active', promotionStatus: 'pending' }
+      )
+    }
+
+    // Delete the "left_school" snapshot if it exists
+    if (leftSchoolYearId) {
+      await SavedGradebook.deleteOne({
+        studentId: id,
+        schoolYearId: leftSchoolYearId,
+        reason: 'left_school'
+      })
+    }
+
+    await logAudit({
+      userId: adminId,
+      action: 'UNDO_STUDENT_LEFT',
+      details: { studentId: id, studentName: `${student.firstName} ${student.lastName}` },
+      req
+    })
+
+    res.json({ ok: true, student })
+  } catch (e: any) {
+    console.error('Undo leaving error:', e)
+    res.status(500).json({ error: 'undo_leaving_failed', message: e.message })
+  }
+})
+
+// Mark a student as returned to school
+studentsRouter.post('/:id/mark-returned', requireAuth(['ADMIN', 'SUBADMIN']), async (req, res) => {
+  const { id } = req.params
+  const { returnSchoolYearId } = req.body // The year they're returning to
+  const adminId = (req as any).user.userId
+
+  try {
+    const student = await Student.findById(id)
+    if (!student) return res.status(404).json({ error: 'student_not_found' })
+
+    if (student.status !== 'left') {
+      return res.status(400).json({ error: 'not_left', message: 'Student is not marked as left' })
+    }
+
+    // Determine which school year to return to
+    let targetYearId = returnSchoolYearId
+    if (!targetYearId) {
+      const activeYear = await SchoolYear.findOne({ active: true }).lean()
+      if (!activeYear) return res.status(400).json({ error: 'no_active_year' })
+      targetYearId = String(activeYear._id)
+    }
+
+    // Verify the target year exists
+    const targetYear = await SchoolYear.findById(targetYearId).lean()
+    if (!targetYear) return res.status(400).json({ error: 'invalid_school_year' })
+
+    // Restore student status
+    student.status = 'active'
+    student.returnedAt = new Date()
+    student.returnedSchoolYearId = targetYearId
+    student.returnedBy = adminId
+    // Keep leftAt, leftSchoolYearId, leftBy for historical record
+    await student.save()
+
+    // Create a new enrollment for the return year (without class assignment - they'll be in "En attente d'affectation")
+    const existingEnrollment = await Enrollment.findOne({
+      studentId: id,
+      schoolYearId: targetYearId
+    })
+
+    if (existingEnrollment) {
+      // Update existing enrollment
+      existingEnrollment.status = 'active'
+      existingEnrollment.promotionStatus = 'pending'
+      existingEnrollment.classId = undefined // Remove class assignment so they appear in unassigned
+      await existingEnrollment.save()
+    } else {
+      // Create new enrollment without class
+      await Enrollment.create({
+        studentId: id,
+        schoolYearId: targetYearId,
+        status: 'active',
+        promotionStatus: 'pending'
+        // No classId - student will appear in "En attente d'affectation"
+      })
+    }
+
+    await logAudit({
+      userId: adminId,
+      action: 'MARK_STUDENT_RETURNED',
+      details: { 
+        studentId: id, 
+        studentName: `${student.firstName} ${student.lastName}`,
+        returnSchoolYearId: targetYearId,
+        returnSchoolYearName: targetYear.name
+      },
+      req
+    })
+
+    res.json({ ok: true, student, returnedToYear: targetYear.name })
+  } catch (e: any) {
+    console.error('Mark returned error:', e)
+    res.status(500).json({ error: 'mark_returned_failed', message: e.message })
+  }
+})
+
+// Get all students who have left
+studentsRouter.get('/left/all', requireAuth(['ADMIN', 'SUBADMIN']), async (req, res) => {
+  try {
+    const students = await Student.find({ status: 'left' }).lean()
+    
+    // Get school year names for display
+    const yearIds = students.map(s => s.leftSchoolYearId).filter(Boolean)
+    const years = await SchoolYear.find({ _id: { $in: yearIds } }).lean()
+    const yearMap: Record<string, string> = {}
+    for (const y of years) yearMap[String(y._id)] = y.name
+
+    const enriched = students.map(s => ({
+      ...s,
+      leftSchoolYearName: s.leftSchoolYearId ? yearMap[s.leftSchoolYearId] : undefined
+    }))
+
+    res.json(enriched)
+  } catch (e: any) {
+    res.status(500).json({ error: 'fetch_failed', message: e.message })
+  }
+})
+
 async function fetchUnassignedStudents(schoolYearId: string) {
-  const yearEnrollments = await Enrollment.find({ schoolYearId }).lean()
+  // Only get enrollments that are not 'left'
+  const yearEnrollments = await Enrollment.find({ schoolYearId, status: { $ne: 'left' } }).lean()
   const assignedStudentIds = new Set(
     yearEnrollments.filter(e => e.classId).map(e => e.studentId)
   )
@@ -1042,14 +1299,16 @@ async function fetchUnassignedStudents(schoolYearId: string) {
     .filter(e => !e.classId)
     .map(e => e.studentId)
 
-  const taggedStudents = await Student.find({ schoolYearId }).lean()
+  // Exclude students who have left
+  const taggedStudents = await Student.find({ schoolYearId, status: { $ne: 'left' } }).lean()
   const validTaggedStudents = taggedStudents.filter(s => !assignedStudentIds.has(String(s._id)))
   const taggedIds = new Set(validTaggedStudents.map(s => String(s._id)))
   const missingIds = enrolledUnassignedIds.filter(id => !taggedIds.has(id))
 
   let extraStudents: any[] = []
   if (missingIds.length > 0) {
-    extraStudents = await Student.find({ _id: { $in: missingIds } }).lean()
+    // Also exclude left students from extra students
+    extraStudents = await Student.find({ _id: { $in: missingIds }, status: { $ne: 'left' } }).lean()
   }
 
   const unassigned = [...validTaggedStudents, ...extraStudents]
