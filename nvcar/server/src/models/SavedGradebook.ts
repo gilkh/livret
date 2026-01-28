@@ -6,7 +6,7 @@ export interface ISavedGradebookMeta {
     signaturePeriodId?: string
     schoolYearId?: string
     level?: string
-    snapshotReason?: 'promotion' | 'year_end' | 'manual' | 'sem1' | 'transfer' | 'exit'
+    snapshotReason?: 'promotion' | 'year_end' | 'manual' | 'sem1' | 'transfer' | 'exit' | 'left_school'
     archivedAt?: Date
 }
 
@@ -18,6 +18,7 @@ export interface ISavedGradebook extends Document {
     templateId: string
     data: any // Snapshot of all relevant data
     meta?: ISavedGradebookMeta // Versioning and archival metadata
+    reason?: string // Reason for the snapshot (e.g., 'left_school')
     createdAt: Date
 }
 
@@ -27,7 +28,7 @@ const SavedGradebookMetaSchema: Schema = new Schema({
     signaturePeriodId: { type: String },
     schoolYearId: { type: String },
     level: { type: String },
-    snapshotReason: { type: String, enum: ['promotion', 'year_end', 'manual', 'sem1', 'transfer', 'exit'] },
+    snapshotReason: { type: String, enum: ['promotion', 'year_end', 'manual', 'sem1', 'transfer', 'exit', 'left_school'] },
     archivedAt: { type: Date }
 }, { _id: false })
 
@@ -35,10 +36,11 @@ const SavedGradebookSchema: Schema = new Schema({
     studentId: { type: String, required: true, index: true },
     schoolYearId: { type: String, required: true, index: true },
     level: { type: String, required: true, index: true },
-    classId: { type: String, required: true },
-    templateId: { type: String, required: true },
+    classId: { type: String },
+    templateId: { type: String },
     data: { type: Schema.Types.Mixed, required: true },
     meta: { type: SavedGradebookMetaSchema },
+    reason: { type: String }, // Reason for the snapshot (e.g., 'left_school')
     createdAt: { type: Date, default: Date.now }
 })
 

@@ -19,8 +19,12 @@ import {
   UserX,
   Sparkles,
   Filter,
-  RefreshCw
+  RefreshCw,
+  X,
+  GraduationCap,
+  Languages
 } from 'lucide-react'
+import SearchableSelect from '../components/SearchableSelect'
 import './Users.css'
 
 type User = {
@@ -375,6 +379,8 @@ export default function Users() {
   const [outlookDisplayName, setOutlookDisplayName] = useState('')
   const [activeTab, setActiveTab] = useState<'local' | 'microsoft' | 'deleted'>('local')
   const [searchTerm, setSearchTerm] = useState('')
+  const [filterClass, setFilterClass] = useState<string>('')
+  const [filterLanguage, setFilterLanguage] = useState<string>('')
   const [toast, setToast] = useState<{ message: string, type: ToastType } | null>(null)
   const [confirmModal, setConfirmModal] = useState<{
     isOpen: boolean,
@@ -416,6 +422,33 @@ export default function Users() {
     }, {})
   }, [subAdminAssignments])
 
+  // Compute available classes for filter dropdown
+  const availableClasses = useMemo(() => {
+    const classSet = new Set<string>()
+    teacherAssignments.forEach(a => {
+      if (a.className) classSet.add(a.className)
+    })
+    return Array.from(classSet).sort()
+  }, [teacherAssignments])
+
+  // Compute available languages for filter dropdown
+  const availableLanguages = useMemo(() => {
+    const langSet = new Set<string>()
+    teacherAssignments.forEach(a => {
+      if (a.isProfPolyvalent) {
+        langSet.add('POLY')
+      } else if (a.languages && a.languages.length > 0) {
+        a.languages.forEach(lang => {
+          const normalized = lang.toLowerCase()
+          if (normalized.includes('arab')) langSet.add('AR')
+          else if (normalized.includes('anglais') || normalized.includes('english')) langSet.add('EN')
+          else langSet.add(lang.toUpperCase())
+        })
+      }
+    })
+    return Array.from(langSet).sort()
+  }, [teacherAssignments])
+
   const formatLanguage = (lang: string) => {
     const normalized = lang.toLowerCase()
     if (normalized.includes('arab')) return 'AR'
@@ -423,6 +456,23 @@ export default function Users() {
     if (normalized.includes('poly')) return 'POLY'
     return lang.toUpperCase()
   }
+
+  const formatLanguageLabel = (lang: string) => {
+    if (lang === 'AR') return '🇸🇦 Arabe'
+    if (lang === 'EN') return '🇬🇧 Anglais'
+    if (lang === 'POLY') return '📚 Polyvalent'
+    return lang
+  }
+
+  const classOptions = useMemo(
+    () => availableClasses.map(cls => ({ value: cls, label: cls })),
+    [availableClasses]
+  )
+
+  const languageOptions = useMemo(
+    () => availableLanguages.map(lang => ({ value: lang, label: formatLanguageLabel(lang) })),
+    [availableLanguages]
+  )
 
   const formatTeacherAssignment = (assignment: TeacherClassAssignment) => {
     const classLabel = assignment.className || assignment.classId
@@ -473,12 +523,42 @@ export default function Users() {
   const renderRoleSection = (role: 'ADMIN' | 'SUBADMIN' | 'TEACHER' | 'AEFE', userList: (User | OutlookUser)[], isOutlook: boolean) => {
     const term = searchTerm.trim().toLowerCase()
     const baseUsers = userList.filter(u => u.role === role)
-    const filteredUsers = term
+
+    // Apply text search filter
+    let filteredUsers = term
       ? baseUsers.filter(u => {
         const name = (u as User).displayName || (u as OutlookUser).displayName || ''
         return name.toLowerCase().includes(term) || u.email.toLowerCase().includes(term)
       })
       : baseUsers
+
+    // Apply class filter (only for teachers)
+    if (filterClass && role === 'TEACHER') {
+      filteredUsers = filteredUsers.filter(u => {
+        const assignments = teacherAssignmentsByTeacher[u._id] || []
+        return assignments.some(a => a.className === filterClass)
+      })
+    }
+
+    // Apply language filter (only for teachers)
+    if (filterLanguage && role === 'TEACHER') {
+      filteredUsers = filteredUsers.filter(u => {
+        const assignments = teacherAssignmentsByTeacher[u._id] || []
+        return assignments.some(a => {
+          if (filterLanguage === 'POLY' && a.isProfPolyvalent) return true
+          if (a.languages && a.languages.length > 0) {
+            return a.languages.some(lang => {
+              const normalized = lang.toLowerCase()
+              if (filterLanguage === 'AR' && normalized.includes('arab')) return true
+              if (filterLanguage === 'EN' && (normalized.includes('anglais') || normalized.includes('english'))) return true
+              return lang.toUpperCase() === filterLanguage
+            })
+          }
+          return false
+        })
+      })
+    }
+
     if (filteredUsers.length === 0) return null
 
     const roleStyle = getRoleColor(role)
@@ -842,6 +922,107 @@ export default function Users() {
             aria-label="Rechercher par nom ou email"
           />
         </div>
+
+        {/* Filters Section */}
+        {(availableClasses.length > 0 || availableLanguages.length > 0) && (
+          <div className={`filters-panel ${filterClass || filterLanguage ? 'has-active-filters' : ''}`}>
+            <div className="filters-panel-header">
+              <div className="filters-panel-title">
+                <Filter size={16} />
+                <span>Filtres enseignants</span>
+              </div>
+              <div className="filters-panel-actions">
+                {(filterClass || filterLanguage) && (
+                  <span className="filter-active-badge">
+                    {(filterClass ? 1 : 0) + (filterLanguage ? 1 : 0)} actif{(filterClass && filterLanguage) ? 's' : ''}
+                  </span>
+                )}
+                {(filterClass || filterLanguage) && (
+                  <button
+                    className="filter-reset-btn"
+                    onClick={() => {
+                      setFilterClass('')
+                      setFilterLanguage('')
+                    }}
+                    title="Réinitialiser tous les filtres"
+                  >
+                    <RefreshCw size={14} />
+                    Réinitialiser
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="filters-panel-body">
+              {availableClasses.length > 0 && (
+                <div className="filter-card">
+                  <div className="filter-card-header">
+                    <div className="filter-card-title">Classe</div>
+                  </div>
+                  <div className="filter-card-control">
+                    <div className="filter-control-icon class">
+                      <GraduationCap size={12} />
+                    </div>
+                    <SearchableSelect
+                      options={classOptions}
+                      value={filterClass}
+                      onChange={setFilterClass}
+                      placeholder="Toutes les classes"
+                      className="filter-searchable"
+                    />
+                  </div>
+                  {filterClass && (
+                    <div className="filter-chip">
+                      <GraduationCap size={12} />
+                      <span>{filterClass}</span>
+                      <button
+                        className="filter-chip-clear"
+                        onClick={() => setFilterClass('')}
+                        aria-label="Effacer le filtre de classe"
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {availableLanguages.length > 0 && (
+                <div className="filter-card">
+                  <div className="filter-card-header">
+                    <div className="filter-card-title">Langue</div>
+                  </div>
+                  <div className="filter-card-control">
+                    <div className="filter-control-icon lang">
+                      <Languages size={12} />
+                    </div>
+                    <SearchableSelect
+                      options={languageOptions}
+                      value={filterLanguage}
+                      onChange={setFilterLanguage}
+                      placeholder="Toutes les langues"
+                      className="filter-searchable"
+                    />
+                  </div>
+                  {filterLanguage && (
+                    <div className="filter-chip">
+                      <Languages size={12} />
+                      <span>{formatLanguageLabel(filterLanguage)}</span>
+                      <button
+                        className="filter-chip-clear"
+                        onClick={() => setFilterLanguage('')}
+                        aria-label="Effacer le filtre de langue"
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         <div className="users-stats">
           <span className="users-stat-chip" title="Comptes avec mot de passe local">
             <UsersIcon size={16} />
