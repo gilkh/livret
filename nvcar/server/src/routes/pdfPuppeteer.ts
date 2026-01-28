@@ -654,13 +654,14 @@ pdfPuppeteerRouter.get('/preview/:templateId/:studentId', requireAuth(['ADMIN', 
   try {
     const { templateId, studentId } = req.params
     const token = getTokenFromReq(req)
+    const empty = String(req.query?.empty || '').toLowerCase() === 'true' || String(req.query?.empty || '') === '1'
     const student = await Student.findById(studentId).lean()
     if (!student) return res.status(404).json({ error: 'student_not_found' })
     const template = await GradebookTemplate.findById(templateId).lean()
     if (!template) return res.status(404).json({ error: 'template_not_found' })
     const frontendUrl = resolveFrontendUrl(req)
 
-    const printUrl = `${frontendUrl}/print/preview/${templateId}/student/${studentId}?token=${token}`
+    const printUrl = `${frontendUrl}/print/preview/${templateId}/student/${studentId}?token=${token}${empty ? '&empty=true' : ''}`
 
     const safePrintUrl = String(printUrl || '').replace(/([?&])token=[^&]*/, '$1token=***')
     console.log('[PDF] Generating Preview PDF via shared function:', safePrintUrl)
@@ -682,6 +683,46 @@ pdfPuppeteerRouter.get('/preview/:templateId/:studentId', requireAuth(['ADMIN', 
   } catch (error: any) {
     console.error('[PDF] Preview PDF generation error:', error.message)
     console.error('[PDF] Preview stack:', error.stack)
+    if (page) {
+      try { await page.close() } catch { }
+    }
+    res.status(500).json({
+      error: 'pdf_generation_failed',
+      message: error.message,
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    })
+  }
+})
+
+pdfPuppeteerRouter.get('/preview-empty/:templateId', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), async (req, res) => {
+  let page: any = null
+  try {
+    const { templateId } = req.params
+    const token = getTokenFromReq(req)
+    const template = await GradebookTemplate.findById(templateId).lean()
+    if (!template) return res.status(404).json({ error: 'template_not_found' })
+    const frontendUrl = resolveFrontendUrl(req)
+
+    const printUrl = `${frontendUrl}/print/preview-empty/${templateId}?token=${token}&empty=true`
+    const safePrintUrl = String(printUrl || '').replace(/([?&])token=[^&]*/, '$1token=***')
+    console.log('[PDF] Generating Empty Preview PDF via shared function:', safePrintUrl)
+    const genStart = Date.now()
+    const pdfBuffer = await generatePdfBufferFromPrintUrl(printUrl, token, frontendUrl)
+    console.log(`[PDF TIMING] generatePdfBufferFromPrintUrl total ${Date.now() - genStart}ms for ${safePrintUrl}`)
+
+    if (!pdfBuffer || pdfBuffer.length === 0) {
+      throw new Error('Generated PDF buffer is empty')
+    }
+
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': buildContentDisposition(`template-${template.name || template._id}.pdf`),
+      'Content-Length': pdfBuffer.length.toString()
+    })
+    res.end(pdfBuffer)
+  } catch (error: any) {
+    console.error('[PDF] Empty Preview PDF generation error:', error.message)
+    console.error('[PDF] Empty Preview stack:', error.stack)
     if (page) {
       try { await page.close() } catch { }
     }

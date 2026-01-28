@@ -239,6 +239,7 @@ export default function App() {
         <Route path="/print/carnet/:assignmentId" element={<CarnetPrint />} />
         <Route path="/print/saved/:savedId" element={<CarnetPrint mode="saved" />} />
         <Route path="/print/preview/:templateId/student/:studentId" element={<CarnetPrint mode="preview" />} />
+        <Route path="/print/preview-empty/:templateId" element={<CarnetPrint mode="preview" />} />
         {/* PDF export progress page - no auth required, handles its own token */}
         <Route path="/export-progress" element={<PdfExportProgress />} />
         <Route

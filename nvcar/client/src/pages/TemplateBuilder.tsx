@@ -2997,6 +2997,30 @@ export default function TemplateBuilder() {
 
             <button
               className="btn secondary"
+              onClick={async () => {
+                try {
+                  if (!tpl._id) return
+                  const base = String(api.defaults.baseURL || '').replace(/\/$/, '')
+                  const pdfUrl = `${base}/pdf-v2/preview-empty/${tpl._id}`
+                  openPdfExport(pdfUrl, `${tpl.name || 'Template'} (vide)`, 'single', 1)
+                } catch (e) {
+                  setError('Échec de l\'export PDF')
+                }
+              }}
+              disabled={!tpl._id}
+              title={!tpl._id ? 'Enregistrez le template pour activer' : 'Exporter un modèle vide'}
+              style={{
+                fontSize: 13,
+                padding: '8px 14px',
+                opacity: (!tpl._id) ? 0.5 : 1,
+                cursor: (!tpl._id) ? 'not-allowed' : 'pointer'
+              }}
+            >
+              🧾 Exporter vide
+            </button>
+
+            <button
+              className="btn secondary"
               onClick={() => pptxInputRef.current?.click()}
               style={{ fontSize: 13, padding: '8px 14px' }}
             >

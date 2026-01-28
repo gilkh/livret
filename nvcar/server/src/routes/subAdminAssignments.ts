@@ -745,27 +745,7 @@ subAdminAssignmentsRouter.get('/teacher-progress', requireAuth(['SUBADMIN', 'AEF
         const teacherIds = [...new Set(teacherAssignments.map(ta => ta.teacherId))]
         const teachers = await User.find({ _id: { $in: teacherIds } }).lean()
         const outlookTeachers = await OutlookUser.find({ _id: { $in: teacherIds } }).lean()
-
-        const toTitleCase = (value: string) => value
-            .split(' ')
-            .filter(Boolean)
-            .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-            .join(' ')
-
-        const normalizeTeacherName = (teacher: any) => {
-            const displayName = String(teacher?.displayName || '').trim()
-            const email = String(teacher?.email || '').trim()
-            if (displayName && displayName.toLowerCase() !== email.toLowerCase()) return displayName
-            if (!email) return 'Unknown'
-
-            const localPart = email.split('@')[0] || ''
-            const cleaned = localPart.replace(/[._-]+/g, ' ').replace(/\s+/g, ' ').trim()
-            return cleaned ? toTitleCase(cleaned) : email
-        }
-
-        const teacherMap = new Map(
-            [...teachers, ...outlookTeachers].map((t: any) => [String(t._id), normalizeTeacherName(t)])
-        )
+        const teacherMap = new Map([...teachers, ...outlookTeachers].map((t: any) => [String(t._id), t]))
 
         // Find enrollments
         const enrollments = await Enrollment.find({
@@ -812,7 +792,7 @@ subAdminAssignmentsRouter.get('/teacher-progress', requireAuth(['SUBADMIN', 'AEF
             const clsId = String(cls._id)
             const clsTeachers = teacherAssignments
                 .filter(ta => ta.classId === clsId)
-                .map(ta => teacherMap.get(ta.teacherId) || 'Unknown')
+                .map(ta => teacherMap.get(ta.teacherId)?.displayName || teacherMap.get(ta.teacherId)?.email || 'Unknown')
 
             const clsEnrollments = enrollments.filter(e => e.classId === clsId)
             const clsStudentIds = new Set(clsEnrollments.map(e => e.studentId))
@@ -967,7 +947,7 @@ subAdminAssignmentsRouter.get('/teacher-progress', requireAuth(['SUBADMIN', 'AEF
                                             // Default/Polyvalent: include teachers who are explicitly polyvalent OR assigned to all languages (empty languages)
                                             return (ta as any).isProfPolyvalent || (langs.length === 0 && !(ta as any).isProfPolyvalent);
                                         })
-                                        .map((ta: any) => teacherMap.get(ta.teacherId) || 'Unknown');
+                                        .map((ta: any) => teacherMap.get(ta.teacherId)?.displayName || 'Unknown');
 
                                     categoryStats[lang] = { total: 0, filled: 0, name: lang, teachers: assignedTeachers }
                                 }

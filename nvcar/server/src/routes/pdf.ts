@@ -12,7 +12,7 @@ import { ClassModel } from '../models/Class'
 import { User } from '../models/User'
 import path from 'path'
 import fs from 'fs'
-import { formatDdMmYyyyColon, formatDdMonthYyyy } from '../utils/dateFormat'
+import { formatDdMmYyyyColon } from '../utils/dateFormat'
 import { populateSignatures } from '../services/signatureService'
 // eslint-disable-next-line
 const archiver = require('archiver')
@@ -36,9 +36,6 @@ const buildContentDisposition = (filename: string) => {
   const encoded = encodeURIComponent(String(filename || 'file')).replace(/[()']/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)
   return `attachment; filename="${safe}"; filename*=UTF-8''${encoded}`
 }
-
-// Helper function to normalize year string
-const normalizeYear = (y: any) => String(y || '').replace(/\s+/g, '').replace(/-/g, '/').trim()
 
 // Helper function to compute next school year name
 function computeNextSchoolYearName(year: string | undefined): string {
@@ -241,7 +238,7 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), asy
     const resolveText = (t: string) => t
       .replace(/\{student\.firstName\}/g, String(student.firstName))
       .replace(/\{student\.lastName\}/g, String(student.lastName))
-      .replace(/\{student\.dob\}/g, formatDdMonthYyyy(student.dateOfBirth))
+      .replace(/\{student\.dob\}/g, formatDdMmYyyyColon(student.dateOfBirth))
       .replace(/\{class\.name\}/g, classDoc ? String((classDoc as any).name) : '')
     const drawBlock = async (b: any, blockIdx: number = 0) => {
       if (b.type === 'text') {
@@ -451,7 +448,7 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), asy
         const lines: string[] = []
         if (fields.includes('name')) lines.push(`${student.firstName} ${student.lastName}`)
         if (fields.includes('class')) lines.push(`Classe: ${enrollment ? enrollment.classId : ''}`)
-        if (fields.includes('dob')) lines.push(`Naissance: ${formatDdMonthYyyy(student.dateOfBirth)}`)
+        if (fields.includes('dob')) lines.push(`Naissance: ${formatDdMmYyyyColon(student.dateOfBirth)}`)
         if (b.props?.color) doc.fillColor(b.props.color)
         doc.fontSize(b.props?.size || b.props?.fontSize || 12)
         const text = lines.join('\n')
@@ -650,7 +647,7 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), asy
           if (sLevel) return sLevel === normTargetLevel
 
           if (s?.schoolYearName) {
-            const promo = promotions.find((p: any) => normalizeYear(p?.year) === normalizeYear(s.schoolYearName))
+            const promo = promotions.find((p: any) => String(p?.year || '') === String(s.schoolYearName))
             const promoFrom = normalizeLevel(promo?.from || promo?.fromLevel)
             if (promoFrom && promoFrom === normTargetLevel) return true
           }
@@ -1069,7 +1066,7 @@ pdfRouter.get('/class/:classId/batch', requireAuth(['ADMIN', 'SUBADMIN']), async
           const resolveText = (t: string) => t
             .replace(/\{student\.firstName\}/g, String(s.firstName))
             .replace(/\{student\.lastName\}/g, String(s.lastName))
-            .replace(/\{student\.dob\}/g, formatDdMonthYyyy(s.dateOfBirth))
+            .replace(/\{student\.dob\}/g, formatDdMmYyyyColon(s.dateOfBirth))
             .replace(/\{class\.name\}/g, classDoc ? String((classDoc as any).name) : '')
           const drawBlock = async (b: any, blockIdx: number = 0) => {
             if (Array.isArray(b?.props?.levels) && b.props.levels.length > 0 && level && !b.props.levels.includes(level)) return
@@ -1165,7 +1162,7 @@ pdfRouter.get('/class/:classId/batch', requireAuth(['ADMIN', 'SUBADMIN']), async
               const lines: string[] = []
               if (fields.includes('name')) lines.push(`${s.firstName} ${s.lastName}`)
               if (fields.includes('class')) lines.push(`Classe: ${enrollments[0] ? enrollments[0].classId : ''}`)
-              if (fields.includes('dob')) lines.push(`Naissance: ${formatDdMonthYyyy(s.dateOfBirth)}`)
+              if (fields.includes('dob')) lines.push(`Naissance: ${formatDdMmYyyyColon(s.dateOfBirth)}`)
               if (b.props?.color) doc.fillColor(b.props.color)
               doc.fontSize(b.props?.size || b.props?.fontSize || 12)
               const text = lines.join('\n')
