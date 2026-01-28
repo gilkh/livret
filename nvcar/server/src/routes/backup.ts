@@ -245,22 +245,22 @@ backupRouter.get('/full', requireAuth(['ADMIN']), async (req, res) => {
     }
 
     // Create restore batch file
+    const dbNameForRestore = mongoose.connection?.db?.databaseName || process.env.MONGO_DB_NAME || 'nvcar'
     const restoreScript = `@echo off
-echo Restoring database 'nvcarn' from JSON files in this folder...
-echo.
+    echo Restoring database '${dbNameForRestore}' from JSON files in this folder...
+    echo.
 
-where mongoimport >nul 2>nul
-if %errorlevel% neq 0 (
-    echo Error: mongoimport not found in PATH.
-    echo Please install MongoDB Database Tools.
-    pause
-    exit /b
-)
+    where mongoimport >nul 2>nul
+    if %errorlevel% neq 0 (
+        echo Error: mongoimport not found in PATH.
+        echo Please install MongoDB Database Tools.
+        pause
+        exit /b
+    )
 
-for %%f in (*.json) do (
-    echo Importing %%~nf...
-    mongoimport --db nvcarn --collection %%~nf --file "%%f" --jsonArray --drop
-)
+    for %%f in (*.json) do (
+        echo Importing %%~nf...
+        mongoimport --db ${dbNameForRestore} --collection %%~nf --file "%%f" --jsonArray --drop
 
 echo.
 echo Restore completed!

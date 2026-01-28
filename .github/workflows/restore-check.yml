@@ -1,0 +1,21 @@
+name: Daily Restore Check
+
+on:
+  schedule:
+    - cron: '0 2 * * *' # daily at 02:00 UTC
+  workflow_dispatch:
+
+jobs:
+  restore-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      - name: Install server deps
+        working-directory: nvcar/server
+        run: npm ci
+      - name: Run restore check test
+        working-directory: nvcar/server
+        run: npm test -- src/__tests__/integration/backup_restore.test.ts --runInBand --detectOpenHandles

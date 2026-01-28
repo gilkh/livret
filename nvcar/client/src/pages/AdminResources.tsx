@@ -25,7 +25,10 @@ import {
   MoreVertical,
   School,
   Clock,
-  ArrowRight
+  ArrowRight,
+  UserMinus,
+  UserPlus,
+  Undo2
 } from 'lucide-react'
 
 type Year = { _id: string; name: string; startDate: string; endDate: string; active: boolean; activeSemester?: number }
@@ -42,8 +45,12 @@ type StudentDoc = {
   motherEmail?: string;
   studentEmail?: string;
   level?: string;
+  status?: string;
   promotion?: { from: string; to: string; date: string; year: string }
-  previousClassName?: string
+  previousClassName?: string;
+  leftAt?: string;
+  leftSchoolYearId?: string;
+  leftSchoolYearName?: string;
 }
 
 export default function AdminResources() {
@@ -85,6 +92,11 @@ export default function AdminResources() {
 
   // Search state
   const [studentSearch, setStudentSearch] = useState('')
+
+  // Left students state
+  const [leftStudents, setLeftStudents] = useState<StudentDoc[]>([])
+  const [showReturnModal, setShowReturnModal] = useState(false)
+  const [studentToReturn, setStudentToReturn] = useState<StudentDoc | null>(null)
 
   // Toast notification
   const [toast, setToast] = useState<{ message: string, type: ToastType } | null>(null)
@@ -132,7 +144,10 @@ export default function AdminResources() {
     const r = await api.get('/school-years')
     setYears(r.data.sort((a: Year, b: Year) => a.name.localeCompare(b.name)))
   }
-  useEffect(() => { loadYears() }, [])
+  useEffect(() => { 
+    loadYears()
+    loadLeftStudents()
+  }, [])
 
   const oldestYearId = useMemo(() => {
     if (years.length === 0) return ''
@@ -159,6 +174,58 @@ export default function AdminResources() {
   const loadUnassignedStudents = async (yearId: string) => {
     const r = await api.get(`/students/unassigned/${yearId}`)
     setUnassignedStudents(r.data)
+  }
+
+  const loadLeftStudents = async () => {
+    try {
+      const r = await api.get('/students/left/all')
+      setLeftStudents(r.data)
+    } catch (e) {
+      console.error('Failed to load left students:', e)
+    }
+  }
+
+  const markStudentAsLeaving = async (studentId: string) => {
+    if (!confirm('Êtes-vous sûr de vouloir marquer cet élève comme parti ? Son carnet sera archivé.')) return
+    try {
+      await api.post(`/students/${studentId}/mark-leaving`)
+      showToast('Élève marqué comme parti', 'success')
+      if (selectedYear) {
+        await loadUnassignedStudents(selectedYear._id)
+      }
+      await loadLeftStudents()
+    } catch (e: any) {
+      showToast(e.response?.data?.message || 'Erreur lors du marquage', 'error')
+    }
+  }
+
+  const undoStudentLeaving = async (studentId: string) => {
+    if (!confirm('Êtes-vous sûr de vouloir annuler le départ de cet élève ?')) return
+    try {
+      await api.post(`/students/${studentId}/undo-leaving`)
+      showToast('Départ annulé', 'success')
+      if (selectedYear) {
+        await loadUnassignedStudents(selectedYear._id)
+      }
+      await loadLeftStudents()
+    } catch (e: any) {
+      showToast(e.response?.data?.message || 'Erreur lors de l\'annulation', 'error')
+    }
+  }
+
+  const markStudentAsReturned = async (studentId: string, returnSchoolYearId: string) => {
+    try {
+      const r = await api.post(`/students/${studentId}/mark-returned`, { returnSchoolYearId })
+      showToast(`Élève réintégré pour l'année ${r.data.returnedToYear}`, 'success')
+      if (selectedYear) {
+        await loadUnassignedStudents(selectedYear._id)
+      }
+      await loadLeftStudents()
+      setShowReturnModal(false)
+      setStudentToReturn(null)
+    } catch (e: any) {
+      showToast(e.response?.data?.message || 'Erreur lors de la réintégration', 'error')
+    }
   }
 
   const selectYear = async (y: Year) => {
@@ -835,18 +902,27 @@ export default function AdminResources() {
                     {groupStudents.map(s => (
                       <div key={s._id} className="unassigned-item">
                         <span className="u-name">{s.firstName} {s.lastName}</span>
-                        <select
-                          className="u-select"
-                          onChange={(e) => {
-                            if (e.target.value) assignSection(s._id, s.level || 'MS', e.target.value)
-                          }}
-                          defaultValue=""
-                        >
-                          <option value="" disabled>Section...</option>
-                          {['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K'].map(l => (
-                            <option key={l} value={l}>{l}</option>
-                          ))}
-                        </select>
+                        <div className="u-actions">
+                          <select
+                            className="u-select"
+                            onChange={(e) => {
+                              if (e.target.value) assignSection(s._id, s.level || 'MS', e.target.value)
+                            }}
+                            defaultValue=""
+                          >
+                            <option value="" disabled>Section...</option>
+                            {['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K'].map(l => (
+                              <option key={l} value={l}>{l}</option>
+                            ))}
+                          </select>
+                          <button
+                            className="u-leave-btn"
+                            onClick={() => markStudentAsLeaving(s._id)}
+                            title="Marquer comme parti"
+                          >
+                            <UserMinus size={14} />
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -864,18 +940,27 @@ export default function AdminResources() {
                     {groupStudents.map(s => (
                       <div key={s._id} className="unassigned-item">
                         <span className="u-name">{s.firstName} {s.lastName}</span>
-                        <select
-                          className="u-select"
-                          onChange={(e) => {
-                            if (e.target.value) assignSection(s._id, s.level || 'MS', e.target.value)
-                          }}
-                          defaultValue=""
-                        >
-                          <option value="" disabled>Section...</option>
-                          {['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K'].map(l => (
-                            <option key={l} value={l}>{l}</option>
-                          ))}
-                        </select>
+                        <div className="u-actions">
+                          <select
+                            className="u-select"
+                            onChange={(e) => {
+                              if (e.target.value) assignSection(s._id, s.level || 'MS', e.target.value)
+                            }}
+                            defaultValue=""
+                          >
+                            <option value="" disabled>Section...</option>
+                            {['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K'].map(l => (
+                              <option key={l} value={l}>{l}</option>
+                            ))}
+                          </select>
+                          <button
+                            className="u-leave-btn"
+                            onClick={() => markStudentAsLeaving(s._id)}
+                            title="Marquer comme parti"
+                          >
+                            <UserMinus size={14} />
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -888,6 +973,53 @@ export default function AdminResources() {
               <p>Tous les élèves sont affectés pour cette année !</p>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Left Students Section */}
+      {leftStudents.length > 0 && (
+        <div className="unassigned-panel left-students-panel">
+          <div className="unassigned-header-row">
+            <div className="unassigned-title">
+              <UserMinus className="unassign-icon left-icon" size={24} />
+              <div>
+                <h3>Élèves partis</h3>
+                <p>{leftStudents.length} élève(s) ayant quitté l'école</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="left-students-grid">
+            {leftStudents.map(s => (
+              <div key={s._id} className="left-student-card">
+                <div className="left-student-info">
+                  <span className="left-student-name">{s.firstName} {s.lastName}</span>
+                  {s.leftSchoolYearName && (
+                    <span className="left-student-year">Parti en {s.leftSchoolYearName}</span>
+                  )}
+                </div>
+                <div className="left-student-actions">
+                  <button
+                    className="left-action-btn undo"
+                    onClick={() => undoStudentLeaving(s._id)}
+                    title="Annuler le départ"
+                  >
+                    <Undo2 size={14} />
+                  </button>
+                  <button
+                    className="left-action-btn return"
+                    onClick={() => {
+                      setStudentToReturn(s)
+                      setShowReturnModal(true)
+                    }}
+                    title="Réintégrer l'élève"
+                  >
+                    <UserPlus size={14} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -913,6 +1045,18 @@ export default function AdminResources() {
           }}
         />
       )}
+      
+      {/* Return Student Modal */}
+      <ReturnStudentModal
+        isOpen={showReturnModal}
+        onClose={() => {
+          setShowReturnModal(false)
+          setStudentToReturn(null)
+        }}
+        student={studentToReturn}
+        years={years}
+        onReturn={markStudentAsReturned}
+      />
     </div>
   )
 }
@@ -1201,6 +1345,87 @@ function BulkAssignModal({ isOpen, onClose, schoolYearId, onSuccess }: { isOpen:
             disabled={loading || !csv.trim()}
           >
             {loading ? 'Traitement...' : 'Lancer l\'affectation'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ReturnStudentModal({ 
+  isOpen, 
+  onClose, 
+  student, 
+  years, 
+  onReturn 
+}: { 
+  isOpen: boolean; 
+  onClose: () => void; 
+  student: StudentDoc | null;
+  years: Year[];
+  onReturn: (studentId: string, yearId: string) => void;
+}) {
+  const [selectedYearId, setSelectedYearId] = useState('')
+
+  useEffect(() => {
+    if (isOpen && years.length > 0) {
+      // Default to the active year or the most recent year
+      const activeYear = years.find(y => y.active)
+      setSelectedYearId(activeYear ? activeYear._id : years[years.length - 1]._id)
+    }
+  }, [isOpen, years])
+
+  if (!isOpen || !student) return null
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content return-modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <div className="modal-title">
+            <UserPlus size={20} className="modal-icon" />
+            <h3>Réintégrer un élève</h3>
+          </div>
+          <button className="modal-close" onClick={onClose}><X size={20} /></button>
+        </div>
+
+        <div className="modal-body">
+          <div className="return-student-info">
+            <p>Réintégrer <strong>{student.firstName} {student.lastName}</strong></p>
+            {student.leftSchoolYearName && (
+              <p className="return-left-info">Parti en {student.leftSchoolYearName}</p>
+            )}
+          </div>
+
+          <div className="return-year-select">
+            <label>Année scolaire de retour:</label>
+            <select 
+              value={selectedYearId} 
+              onChange={e => setSelectedYearId(e.target.value)}
+              className="clean-select"
+            >
+              {years.map(y => (
+                <option key={y._id} value={y._id}>
+                  {y.name} {y.active ? '(Active)' : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="return-info-note">
+            <AlertCircle size={14} />
+            <span>L'élève sera placé dans "En attente d'affectation" pour l'année sélectionnée.</span>
+          </div>
+        </div>
+
+        <div className="modal-footer">
+          <button className="modal-btn secondary" onClick={onClose}>Annuler</button>
+          <button
+            className="modal-btn primary"
+            onClick={() => onReturn(student._id, selectedYearId)}
+            disabled={!selectedYearId}
+          >
+            <UserPlus size={16} />
+            Réintégrer
           </button>
         </div>
       </div>
