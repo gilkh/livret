@@ -9,6 +9,7 @@ import { GradebookTemplate } from '../models/GradebookTemplate'
 import axios from 'axios'
 import { StudentSignature } from '../models/StudentSignature'
 import { ClassModel } from '../models/Class'
+import { SchoolYear } from '../models/SchoolYear'
 import { User } from '../models/User'
 import path from 'path'
 import fs from 'fs'
@@ -35,6 +36,18 @@ const buildContentDisposition = (filename: string) => {
   const safe = sanitizeFilename(filename)
   const encoded = encodeURIComponent(String(filename || 'file')).replace(/[()']/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)
   return `attachment; filename="${safe}"; filename*=UTF-8''${encoded}`
+}
+
+const normalizeYearForFilename = (yearName?: string) => String(yearName || '').replace(/[\/\\]/g, '-').trim()
+
+const buildStudentPdfFilename = (opts: { level?: string; firstName?: string; lastName?: string; yearName?: string }) => {
+  const level = String(opts.level || '').toUpperCase().trim()
+  const firstName = String(opts.firstName || '').trim()
+  const lastName = String(opts.lastName || '').trim()
+  const yearSafe = normalizeYearForFilename(opts.yearName)
+  const parts = [level, firstName, lastName, yearSafe].filter(Boolean)
+  const base = parts.join('-') || 'file'
+  return `${base}.pdf`
 }
 
 // Helper function to compute next school year name
@@ -166,7 +179,21 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), asy
   const statuses = await StudentCompetencyStatus.find({ studentId: id }).lean()
   const statusMap = new Map(statuses.map((s: any) => [s.competencyId, s]))
   res.setHeader('Content-Type', 'application/pdf')
-  res.setHeader('Content-Disposition', buildContentDisposition(`carnet-${student.lastName}.pdf`))
+  const activeYear = await SchoolYear.findOne({ active: true }).lean()
+  const activeYearId = activeYear?._id ? String(activeYear._id) : String(student.schoolYearId || '')
+  let yearName = String(activeYear?.name || '').trim()
+  if (!yearName && student.schoolYearId) {
+    const sy = await SchoolYear.findById(student.schoolYearId).lean()
+    yearName = String(sy?.name || '').trim()
+  }
+  let level = String(student.level || '').trim()
+  const enrollmentForLevel = enrollments.find(e => activeYearId && String(e.schoolYearId) === String(activeYearId)) || enrollments[0]
+  if (!level && enrollmentForLevel?.classId) {
+    const classDoc = await ClassModel.findById(enrollmentForLevel.classId).lean()
+    level = String((classDoc as any)?.level || '').trim()
+  }
+  const filename = buildStudentPdfFilename({ level, firstName: student.firstName, lastName: student.lastName, yearName })
+  res.setHeader('Content-Disposition', buildContentDisposition(filename))
   const doc = new PDFDocument({ size: 'A4', margin: 0 })
   doc.pipe(res)
   const renderDefault = async () => {
@@ -993,6 +1020,9 @@ pdfRouter.get('/class/:classId/batch', requireAuth(['ADMIN', 'SUBADMIN']), async
   const students = await Student.find({ _id: { $in: studentIds } }).lean()
   res.setHeader('Content-Type', 'application/zip')
   res.setHeader('Content-Disposition', buildContentDisposition(`reports-${classId}.zip`))
+  const classDoc = await ClassModel.findById(classId).lean()
+  const activeYear = await SchoolYear.findOne({ active: true }).lean()
+  const yearName = String(activeYear?.name || '').trim()
   const archive = archiver('zip')
   archive.pipe(res)
   for (const s of students as any[]) {
@@ -1001,7 +1031,14 @@ pdfRouter.get('/class/:classId/batch', requireAuth(['ADMIN', 'SUBADMIN']), async
     doc.on('data', (d) => chunks.push(d))
     doc.on('end', () => {
       const buf = Buffer.concat(chunks)
-      archive.append(buf, { name: `carnet-${s.lastName}-${s.firstName}.pdf` })
+      const level = String((classDoc as any)?.level || s.level || '').trim()
+      const pdfName = buildStudentPdfFilename({
+        level,
+        firstName: s.firstName,
+        lastName: s.lastName,
+        yearName
+      })
+      archive.append(buf, { name: pdfName })
     })
     const enrollments = await Enrollment.find({ studentId: String(s._id) }).lean()
     const statuses = await StudentCompetencyStatus.find({ studentId: String(s._id) }).lean()

@@ -4,6 +4,9 @@ import { GradebookTemplate } from '../models/GradebookTemplate'
 import { TemplateAssignment } from '../models/TemplateAssignment'
 import { TemplateSignature } from '../models/TemplateSignature'
 import { SavedGradebook } from '../models/SavedGradebook'
+import { Enrollment } from '../models/Enrollment'
+import { ClassModel } from '../models/Class'
+import { SchoolYear } from '../models/SchoolYear'
 import { requireAuth } from '../auth'
 import puppeteer, { Browser } from 'puppeteer'
 import archiver from 'archiver'
@@ -27,6 +30,37 @@ const buildContentDisposition = (filename: string) => {
   const safe = sanitizeFilename(filename)
   const encoded = encodeURIComponent(String(filename || 'file')).replace(/[()']/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)
   return `attachment; filename="${safe}"; filename*=UTF-8''${encoded}`
+}
+
+const normalizeYearForFilename = (yearName?: string) => String(yearName || '').replace(/[\/\\]/g, '-').trim()
+
+const buildStudentPdfFilename = (opts: { level?: string; firstName?: string; lastName?: string; yearName?: string }) => {
+  const level = String(opts.level || '').toUpperCase().trim()
+  const firstName = String(opts.firstName || '').trim()
+  const lastName = String(opts.lastName || '').trim()
+  const yearSafe = normalizeYearForFilename(opts.yearName)
+  const parts = [level, firstName, lastName, yearSafe].filter(Boolean)
+  const base = parts.join('-') || 'file'
+  return sanitizeFileName(`${base}.pdf`)
+}
+
+const getActiveSchoolYear = async () => {
+  try {
+    return await SchoolYear.findOne({ active: true }).lean()
+  } catch {
+    return null
+  }
+}
+
+const resolveStudentLevel = async (studentId: string, fallbackLevel?: string, schoolYearId?: string) => {
+  if (fallbackLevel) return fallbackLevel
+  if (!studentId) return ''
+  const enrollment = schoolYearId
+    ? await Enrollment.findOne({ studentId, schoolYearId, status: 'active' }).lean()
+    : await Enrollment.findOne({ studentId, status: 'active' }).lean()
+  if (!enrollment?.classId) return ''
+  const classDoc = await ClassModel.findById(enrollment.classId).lean()
+  return String((classDoc as any)?.level || '').trim()
 }
 
 // Singleton browser instance
@@ -481,10 +515,25 @@ pdfPuppeteerRouter.get('/student/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHE
       throw new Error('Generated PDF buffer is empty')
     }
 
+    const activeYear = await getActiveSchoolYear()
+    const activeYearId = activeYear?._id ? String(activeYear._id) : String(student.schoolYearId || '')
+    let yearName = String(activeYear?.name || '').trim()
+    if (!yearName && student.schoolYearId) {
+      const sy = await SchoolYear.findById(student.schoolYearId).lean()
+      yearName = String(sy?.name || '').trim()
+    }
+    const level = await resolveStudentLevel(String(student._id), String(student.level || ''), activeYearId)
+    const filename = buildStudentPdfFilename({
+      level,
+      firstName: student.firstName,
+      lastName: student.lastName,
+      yearName
+    })
+
     // Send PDF with proper headers to avoid corruption
     res.set({
       'Content-Type': 'application/pdf',
-      'Content-Disposition': buildContentDisposition(`carnet-${student.lastName}-${student.firstName}.pdf`),
+      'Content-Disposition': buildContentDisposition(filename),
       'Content-Length': pdfBuffer.length.toString()
     })
     res.end(pdfBuffer)
@@ -571,6 +620,10 @@ pdfPuppeteerRouter.post('/assignments/zip', requireAuth(['ADMIN', 'SUBADMIN', 'A
     const concurrency = Math.min(Math.max(1, Number(process.env.PDF_CONCURRENCY || '3')), assignmentIds.length)
     console.log(`[PDF ZIP] Generating ${assignmentIds.length} PDFs using concurrency=${concurrency}`)
 
+    const activeYear = await getActiveSchoolYear()
+    const activeYearId = activeYear?._id ? String(activeYear._id) : ''
+    const activeYearName = String(activeYear?.name || '').trim()
+
     let idx = 0
     const getNext = () => {
       const i = idx
@@ -595,8 +648,18 @@ pdfPuppeteerRouter.post('/assignments/zip', requireAuth(['ADMIN', 'SUBADMIN', 'A
 
           const studentLast = student?.lastName || 'Eleve'
           const studentFirst = student?.firstName || ''
-          const templateName = template?.name || 'Carnet'
-          const pdfName = sanitizeFileName(`${studentLast}-${studentFirst}-${templateName}.pdf`)
+          let yearName = activeYearName
+          if (!yearName && student?.schoolYearId) {
+            const sy = await SchoolYear.findById(student.schoolYearId).lean()
+            yearName = String(sy?.name || '').trim()
+          }
+          const level = await resolveStudentLevel(String(student?._id || ''), String(student?.level || ''), activeYearId || String(student?.schoolYearId || ''))
+          const pdfName = buildStudentPdfFilename({
+            level,
+            firstName: studentFirst,
+            lastName: studentLast,
+            yearName
+          })
 
           const printUrl = `${frontendUrl}/print/carnet/${assignment._id}?token=${token}${hideSignatures ? '&hideSignatures=true' : ''}`
           const safePrintUrl = String(printUrl || '').replace(/([?&])token=[^&]*/, '$1token=***')
@@ -674,9 +737,24 @@ pdfPuppeteerRouter.get('/preview/:templateId/:studentId', requireAuth(['ADMIN', 
       throw new Error('Generated PDF buffer is empty')
     }
 
+    const activeYear = await getActiveSchoolYear()
+    const activeYearId = activeYear?._id ? String(activeYear._id) : String(student.schoolYearId || '')
+    let yearName = String(activeYear?.name || '').trim()
+    if (!yearName && student.schoolYearId) {
+      const sy = await SchoolYear.findById(student.schoolYearId).lean()
+      yearName = String(sy?.name || '').trim()
+    }
+    const level = await resolveStudentLevel(String(student._id), String(student.level || ''), activeYearId)
+    const filename = buildStudentPdfFilename({
+      level,
+      firstName: student.firstName,
+      lastName: student.lastName,
+      yearName
+    })
+
     res.set({
       'Content-Type': 'application/pdf',
-      'Content-Disposition': buildContentDisposition(`carnet-${student.lastName}-${student.firstName}.pdf`),
+      'Content-Disposition': buildContentDisposition(filename),
       'Content-Length': pdfBuffer.length.toString()
     })
     res.end(pdfBuffer)
@@ -762,12 +840,21 @@ pdfPuppeteerRouter.get('/saved/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER'
       throw new Error('Generated PDF buffer is empty')
     }
 
-    // Use student name from saved data if available, otherwise generic name
-    const studentName = saved.data?.student ? `${saved.data.student.lastName}-${saved.data.student.firstName}` : 'carnet'
+    let firstName = String(saved.data?.student?.firstName || '').trim()
+    let lastName = String(saved.data?.student?.lastName || '').trim()
+    if (!firstName || !lastName) {
+      const student = await Student.findById(saved.studentId).lean()
+      firstName = firstName || String(student?.firstName || '').trim()
+      lastName = lastName || String(student?.lastName || '').trim()
+    }
+    const schoolYear = await SchoolYear.findById(saved.schoolYearId).lean()
+    const yearName = String(schoolYear?.name || '').trim()
+    const level = String(saved.level || saved.meta?.level || '').trim()
+    const filename = buildStudentPdfFilename({ level, firstName, lastName, yearName })
 
     res.set({
       'Content-Type': 'application/pdf',
-      'Content-Disposition': buildContentDisposition(`carnet-${studentName}.pdf`),
+      'Content-Disposition': buildContentDisposition(filename),
       'Content-Length': pdfBuffer.length.toString()
     })
     res.end(pdfBuffer)
