@@ -21,6 +21,7 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
     const [searchParams] = useSearchParams()
     const token = searchParams.get('token')
     const hideSignatures = searchParams.get('hideSignatures') === 'true'
+    const emptyExport = ['true', '1'].includes(String(searchParams.get('empty') || '').toLowerCase())
 
     const [template, setTemplate] = useState<Template | null>(null)
     const [student, setStudent] = useState<Student | null>(null)
@@ -376,6 +377,18 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
 
                         setTemplate(templateData)
                     }
+                } else if (mode === 'preview' && templateId && emptyExport && !studentId) {
+                    const tRes = await api.get(`/templates/${templateId}`)
+                    setTemplate(tRes.data)
+                    setStudent({
+                        _id: '',
+                        firstName: '',
+                        lastName: '',
+                        level: '',
+                        className: '',
+                        dateOfBirth: '',
+                        avatarUrl: ''
+                    })
                 } else if (mode === 'preview' && templateId && studentId) {
                     const sRes = await api.get(`/students/${studentId}`)
                     const s = sRes.data
@@ -525,14 +538,32 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                         {page.blocks.map((b, idx) => {
                             if (!b || !b.props) return null;
 
+                            if (emptyExport) {
+                                const emptyHidden = new Set([
+                                    'dynamic_text',
+                                    'student_info',
+                                    'student_photo',
+                                    'signature',
+                                    'signature_box',
+                                    'signature_date',
+                                    'promotion_info',
+                                    'teacher_text',
+                                    'language_toggle',
+                                    'language_toggle_v2',
+                                    'dropdown',
+                                    'dropdown_reference'
+                                ])
+                                if (emptyHidden.has(b.type)) return null
+                            }
+
                             // Get block's level
                             const blockLevel = getBlockLevel(b)
 
                             // Hide blocks whose level is higher than student's current level
-                            if (isBlockLevelHigherThanStudent(blockLevel)) return null
+                            if (!emptyExport && isBlockLevelHigherThanStudent(blockLevel)) return null
 
                             // Hide signature blocks if hideSignatures is true
-                            if (shouldHideSignatureBlock(b)) return null
+                            if (!emptyExport && shouldHideSignatureBlock(b)) return null
 
                             const blockId = typeof b?.props?.blockId === 'string' && b.props.blockId.trim() ? b.props.blockId.trim() : null
                             const key = buildVisibilityKey(template?._id, actualPageIndex, idx, blockId)
@@ -542,48 +573,50 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                             // Show the block if ANY applicable level would show it (with its signature)
                             let shouldShow = true
 
-                            if (blockLevel) {
-                                // Block has a level - use that level's settings
-                                const visibilitySetting = blockVisibility?.[blockLevel.toUpperCase()]?.pdf?.[key]
-                                const { hasSem1, hasSem2 } = getSignatureForLevel(blockLevel)
+                            if (!emptyExport) {
+                                if (blockLevel) {
+                                    // Block has a level - use that level's settings
+                                    const visibilitySetting = blockVisibility?.[blockLevel.toUpperCase()]?.pdf?.[key]
+                                    const { hasSem1, hasSem2 } = getSignatureForLevel(blockLevel)
 
-                                if (visibilitySetting) {
-                                    if (visibilitySetting === 'never') shouldShow = false
-                                    else if (visibilitySetting === 'after_sem1' && !hasSem1 && !hasSem2) shouldShow = false
-                                    else if (visibilitySetting === 'after_sem2' && !hasSem2) shouldShow = false
-                                }
-                            } else {
-                                // Block has NO level - check all levels at or below student's current level
-                                // Find settings for this block in any applicable level
-                                const studentLvl = (student?.level || 'PS').toUpperCase()
-                                const studentOrder = levelOrder[studentLvl] ?? 99
-                                const levelsToCheck = Object.keys(levelOrder).filter(lvl => levelOrder[lvl] <= studentOrder)
-
-                                let foundSetting = false
-                                let anyLevelWouldShow = false
-
-                                for (const lvl of levelsToCheck) {
-                                    const visibilitySetting = blockVisibility?.[lvl]?.pdf?.[key]
                                     if (visibilitySetting) {
-                                        foundSetting = true
-                                        const { hasSem1, hasSem2 } = getSignatureForLevel(lvl)
-
-                                        if (visibilitySetting === 'always') {
-                                            anyLevelWouldShow = true
-                                            break
-                                        } else if (visibilitySetting === 'after_sem1' && (hasSem1 || hasSem2)) {
-                                            anyLevelWouldShow = true
-                                            break
-                                        } else if (visibilitySetting === 'after_sem2' && hasSem2) {
-                                            anyLevelWouldShow = true
-                                            break
-                                        }
-                                        // 'never' doesn't set anyLevelWouldShow
+                                        if (visibilitySetting === 'never') shouldShow = false
+                                        else if (visibilitySetting === 'after_sem1' && !hasSem1 && !hasSem2) shouldShow = false
+                                        else if (visibilitySetting === 'after_sem2' && !hasSem2) shouldShow = false
                                     }
-                                }
+                                } else {
+                                    // Block has NO level - check all levels at or below student's current level
+                                    // Find settings for this block in any applicable level
+                                    const studentLvl = (student?.level || 'PS').toUpperCase()
+                                    const studentOrder = levelOrder[studentLvl] ?? 99
+                                    const levelsToCheck = Object.keys(levelOrder).filter(lvl => levelOrder[lvl] <= studentOrder)
 
-                                // If no settings found, default to visible; if found, use the result
-                                shouldShow = !foundSetting || anyLevelWouldShow
+                                    let foundSetting = false
+                                    let anyLevelWouldShow = false
+
+                                    for (const lvl of levelsToCheck) {
+                                        const visibilitySetting = blockVisibility?.[lvl]?.pdf?.[key]
+                                        if (visibilitySetting) {
+                                            foundSetting = true
+                                            const { hasSem1, hasSem2 } = getSignatureForLevel(lvl)
+
+                                            if (visibilitySetting === 'always') {
+                                                anyLevelWouldShow = true
+                                                break
+                                            } else if (visibilitySetting === 'after_sem1' && (hasSem1 || hasSem2)) {
+                                                anyLevelWouldShow = true
+                                                break
+                                            } else if (visibilitySetting === 'after_sem2' && hasSem2) {
+                                                anyLevelWouldShow = true
+                                                break
+                                            }
+                                            // 'never' doesn't set anyLevelWouldShow
+                                        }
+                                    }
+
+                                    // If no settings found, default to visible; if found, use the result
+                                    shouldShow = !foundSetting || anyLevelWouldShow
+                                }
                             }
 
                             if (!shouldShow) return null

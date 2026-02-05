@@ -6,7 +6,7 @@ const enrollmentSchema = new mongoose_1.Schema({
     studentId: { type: String, required: true },
     classId: { type: String }, // Optional for promoted students not yet assigned
     schoolYearId: { type: String, required: true },
-    status: { type: String, enum: ['active', 'promoted', 'archived'], default: 'active' },
+    status: { type: String, enum: ['active', 'promoted', 'archived', 'left'], default: 'active' },
     promotionStatus: { type: String, enum: ['promoted', 'retained', 'conditional', 'summer_school', 'left', 'pending'], default: 'pending' },
 });
 // Add indexes for performance

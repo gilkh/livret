@@ -441,3 +441,34 @@ exports.savedGradebooksRouter.get('/admin/all-students', (0, auth_1.requireAuth)
         res.status(500).json({ error: 'fetch_failed', message: e.message });
     }
 });
+// Debug: summarize saved gradebooks (counts by year + recent snapshots)
+exports.savedGradebooksRouter.get('/admin/debug-snapshots', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
+    try {
+        const [total, byYear, recent] = await Promise.all([
+            SavedGradebook_1.SavedGradebook.countDocuments({}),
+            SavedGradebook_1.SavedGradebook.aggregate([
+                { $group: { _id: '$schoolYearId', count: { $sum: 1 }, latest: { $max: '$createdAt' } } },
+                { $sort: { latest: -1 } }
+            ]),
+            SavedGradebook_1.SavedGradebook.find({})
+                .select('studentId schoolYearId level meta createdAt')
+                .sort({ createdAt: -1 })
+                .limit(20)
+                .lean()
+        ]);
+        const yearIds = byYear.map((y) => y._id).filter(Boolean);
+        const years = await SchoolYear_1.SchoolYear.find({ _id: { $in: yearIds } }).select('name').lean();
+        const yearMap = new Map(years.map(y => [String(y._id), y.name]));
+        const byYearWithNames = byYear.map((y) => ({
+            schoolYearId: y._id,
+            yearName: yearMap.get(String(y._id)) || 'unknown',
+            count: y.count,
+            latest: y.latest
+        }));
+        res.json({ total, byYear: byYearWithNames, recent });
+    }
+    catch (e) {
+        console.error('admin/debug-snapshots error:', e);
+        res.status(500).json({ error: 'debug_failed', message: e.message });
+    }
+});

@@ -145,7 +145,7 @@ exports.subAdminTemplatesRouter.post('/signature/upload', (0, auth_1.requireAuth
             details: { signatureUrl },
             req,
         });
-        res.json({ signatureUrl: `http://localhost:4000${signatureUrl}` });
+        res.json({ signatureUrl });
     }
     catch (e) {
         res.status(500).json({ error: 'upload_failed', message: e.message });
@@ -1138,6 +1138,7 @@ exports.subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', (0
                         const student = await Student_1.Student.findById(updatedAssignment.studentId).lean();
                         const statuses = await StudentCompetencyStatus_1.StudentCompetencyStatus.find({ studentId: updatedAssignment.studentId }).lean();
                         const signatures = await TemplateSignature_1.TemplateSignature.find({ templateAssignmentId }).lean();
+                        const sem1Signatures = signatures.filter((s) => s.type !== 'end_of_year');
                         // Get enrollment and class info
                         const activeSchoolYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
                         const schoolYearId = signatureSchoolYearId || (activeSchoolYear ? String(activeSchoolYear._id) : '');
@@ -1157,9 +1158,9 @@ exports.subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', (0
                             statuses,
                             assignment: updatedAssignment,
                             className,
-                            signatures,
-                            signature: signatures.find((s) => s.type === 'standard') || null,
-                            finalSignature: signatures.find((s) => s.type === 'end_of_year') || null,
+                            signatures: sem1Signatures,
+                            signature: sem1Signatures.find((s) => s.type === 'standard') || null,
+                            finalSignature: null,
                         };
                         await (0, rolloverService_1.createAssignmentSnapshot)(updatedAssignment, snapshotReason, {
                             schoolYearId,
@@ -1568,9 +1569,25 @@ exports.subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', (
                 OutlookUser_1.OutlookUser.find({ _id: { $in: teacherIds } }).lean()
             ])
             : [[], []];
+        const toTitleCase = (value) => value
+            .split(' ')
+            .filter(Boolean)
+            .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+            .join(' ');
+        const normalizeTeacherName = (teacher) => {
+            const displayName = String(teacher?.displayName || '').trim();
+            const email = String(teacher?.email || '').trim();
+            if (displayName && displayName.toLowerCase() !== email.toLowerCase())
+                return displayName;
+            if (!email)
+                return 'Unknown';
+            const localPart = email.split('@')[0] || '';
+            const cleaned = localPart.replace(/[._-]+/g, ' ').replace(/\s+/g, ' ').trim();
+            return cleaned ? toTitleCase(cleaned) : email;
+        };
         const teacherMap = new Map([...teachers, ...outlookTeachers].map((t) => [
             String(t._id),
-            String(t.displayName || t.email || 'Unknown')
+            normalizeTeacherName(t)
         ]));
         const getTeacherName = (teacherId) => teacherMap.get(String(teacherId)) || 'Unknown';
         const langMatch = (langs, needles) => {
