@@ -18,7 +18,8 @@ import ScrollPageDownButton from '../components/ScrollPageDownButton'
 
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
-type Template = { _id?: string; name: string; pages: Page[]; updatedAt?: string; signingPage?: number }
+type Template = { _id?: string; name: string; pages: Page[]; updatedAt?: string; signingPage?: number; suggestionsAllowedSubAdmins?: string[] }
+type SubAdminUser = { _id: string; displayName?: string; email: string; role: string; isOutlook?: boolean }
 type Year = { _id: string; name: string; active?: boolean }
 type ClassDoc = { _id: string; name: string; schoolYearId: string; level?: string }
 type StudentDoc = { _id: string; firstName: string; lastName: string; level?: string; nextLevel?: string; className?: string; dateOfBirth?: Date | string }
@@ -105,6 +106,7 @@ export default function TemplateBuilder() {
   const [years, setYears] = useState<Year[]>([])
   const [classes, setClasses] = useState<ClassDoc[]>([])
   const [students, setStudents] = useState<StudentDoc[]>([])
+  const [subAdmins, setSubAdmins] = useState<SubAdminUser[]>([])
   const [yearId, setYearId] = useState('')
   const [selectedPage, setSelectedPage] = useState(0)
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
@@ -1613,6 +1615,22 @@ export default function TemplateBuilder() {
     } catch { }
   }
 
+  const loadSubAdmins = async () => {
+    try {
+      const r = await api.get('/users')
+      const all = Array.isArray(r.data) ? r.data : []
+      const filtered = all.filter((u: any) => ['SUBADMIN', 'AEFE'].includes(String(u.role)))
+      const normalized: SubAdminUser[] = filtered.map((u: any) => ({
+        _id: String(u._id),
+        displayName: String(u.displayName || u.email),
+        email: String(u.email || ''),
+        role: String(u.role || ''),
+        isOutlook: Boolean(u.isOutlook)
+      }))
+      setSubAdmins(normalized)
+    } catch { }
+  }
+
 
   const handlePptxImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -1687,7 +1705,7 @@ export default function TemplateBuilder() {
     }
   }
 
-  useEffect(() => { refreshGallery(); loadTemplates(); loadYears() }, [])
+  useEffect(() => { refreshGallery(); loadTemplates(); loadYears(); loadSubAdmins() }, [])
   useEffect(() => { if (yearId) { loadClasses(yearId); setClassId(''); setStudents([]); setStudentId('') } }, [yearId])
   useEffect(() => { if (classId) { loadStudents(classId); setStudentId('') } }, [classId])
 
@@ -2782,6 +2800,36 @@ export default function TemplateBuilder() {
                 cursor: 'pointer'
               }}
             />
+          </div>
+          <div style={{ flex: '1 1 280px', minWidth: 260 }}>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#6c757d', marginBottom: 6 }}>
+              Sous-admins autorisés (suggestions)
+            </label>
+            <select
+              multiple
+              value={(tpl as any).suggestionsAllowedSubAdmins || []}
+              onChange={e => {
+                const values = Array.from(e.target.selectedOptions).map(o => o.value)
+                setTpl({ ...tpl, suggestionsAllowedSubAdmins: values })
+              }}
+              style={{
+                width: '100%',
+                padding: '10px 14px',
+                borderRadius: 8,
+                border: '2px solid #e9ecef',
+                fontSize: 14,
+                minHeight: 100
+              }}
+            >
+              {subAdmins.map(u => (
+                <option key={u._id} value={u._id}>
+                  {(u.displayName || u.email) + (u.isOutlook ? ' (MS)' : '')}
+                </option>
+              ))}
+            </select>
+            <div style={{ fontSize: 12, color: '#6c757d', marginTop: 6 }}>
+              Vide = tous les sous-admins
+            </div>
           </div>
         </div>
 

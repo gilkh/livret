@@ -48,6 +48,7 @@ const GradebookTemplate_1 = require("../models/GradebookTemplate");
 const axios_1 = __importDefault(require("axios"));
 const StudentSignature_1 = require("../models/StudentSignature");
 const Class_1 = require("../models/Class");
+const SchoolYear_1 = require("../models/SchoolYear");
 const User_1 = require("../models/User");
 const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
@@ -71,6 +72,16 @@ const buildContentDisposition = (filename) => {
     const safe = sanitizeFilename(filename);
     const encoded = encodeURIComponent(String(filename || 'file')).replace(/[()']/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
     return `attachment; filename="${safe}"; filename*=UTF-8''${encoded}`;
+};
+const normalizeYearForFilename = (yearName) => String(yearName || '').replace(/[\/\\]/g, '-').trim();
+const buildStudentPdfFilename = (opts) => {
+    const level = String(opts.level || '').toUpperCase().trim();
+    const firstName = String(opts.firstName || '').trim();
+    const lastName = String(opts.lastName || '').trim();
+    const yearSafe = normalizeYearForFilename(opts.yearName);
+    const parts = [level, firstName, lastName, yearSafe].filter(Boolean);
+    const base = parts.join('-') || 'file';
+    return `${base}.pdf`;
 };
 // Helper function to compute next school year name
 function computeNextSchoolYearName(year) {
@@ -218,7 +229,21 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
     const statuses = await StudentCompetencyStatus_1.StudentCompetencyStatus.find({ studentId: id }).lean();
     const statusMap = new Map(statuses.map((s) => [s.competencyId, s]));
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', buildContentDisposition(`carnet-${student.lastName}.pdf`));
+    const activeYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
+    const activeYearId = activeYear?._id ? String(activeYear._id) : String(student.schoolYearId || '');
+    let yearName = String(activeYear?.name || '').trim();
+    if (!yearName && student.schoolYearId) {
+        const sy = await SchoolYear_1.SchoolYear.findById(student.schoolYearId).lean();
+        yearName = String(sy?.name || '').trim();
+    }
+    let level = String(student.level || '').trim();
+    const enrollmentForLevel = enrollments.find(e => activeYearId && String(e.schoolYearId) === String(activeYearId)) || enrollments[0];
+    if (!level && enrollmentForLevel?.classId) {
+        const classDoc = await Class_1.ClassModel.findById(enrollmentForLevel.classId).lean();
+        level = String(classDoc?.level || '').trim();
+    }
+    const filename = buildStudentPdfFilename({ level, firstName: student.firstName, lastName: student.lastName, yearName });
+    res.setHeader('Content-Disposition', buildContentDisposition(filename));
     const doc = new pdfkit_1.default({ size: 'A4', margin: 0 });
     doc.pipe(res);
     const renderDefault = async () => {
@@ -1143,6 +1168,9 @@ exports.pdfRouter.get('/class/:classId/batch', (0, auth_1.requireAuth)(['ADMIN',
     const students = await Student_1.Student.find({ _id: { $in: studentIds } }).lean();
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', buildContentDisposition(`reports-${classId}.zip`));
+    const classDoc = await Class_1.ClassModel.findById(classId).lean();
+    const activeYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
+    const yearName = String(activeYear?.name || '').trim();
     const archive = archiver('zip');
     archive.pipe(res);
     for (const s of students) {
@@ -1151,7 +1179,14 @@ exports.pdfRouter.get('/class/:classId/batch', (0, auth_1.requireAuth)(['ADMIN',
         doc.on('data', (d) => chunks.push(d));
         doc.on('end', () => {
             const buf = Buffer.concat(chunks);
-            archive.append(buf, { name: `carnet-${s.lastName}-${s.firstName}.pdf` });
+            const level = String(classDoc?.level || s.level || '').trim();
+            const pdfName = buildStudentPdfFilename({
+                level,
+                firstName: s.firstName,
+                lastName: s.lastName,
+                yearName
+            });
+            archive.append(buf, { name: pdfName });
         });
         const enrollments = await Enrollment_1.Enrollment.find({ studentId: String(s._id) }).lean();
         const statuses = await StudentCompetencyStatus_1.StudentCompetencyStatus.find({ studentId: String(s._id) }).lean();

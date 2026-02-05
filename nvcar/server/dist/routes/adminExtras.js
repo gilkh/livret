@@ -27,8 +27,23 @@ const rolloverService_1 = require("../services/rolloverService");
 const StudentCompetencyStatus_1 = require("../models/StudentCompetencyStatus");
 const child_process_1 = require("child_process");
 const path_1 = __importDefault(require("path"));
+const fs_1 = require("fs");
 const promises_1 = __importDefault(require("fs/promises"));
+const multer_1 = __importDefault(require("multer"));
 exports.adminExtrasRouter = (0, express_1.Router)();
+const ensureDir = (p) => { if (!(0, fs_1.existsSync)(p))
+    (0, fs_1.mkdirSync)(p, { recursive: true }); };
+const psSignatureUploadDir = path_1.default.join(process.cwd(), 'public', 'uploads', 'ps-signatures');
+ensureDir(psSignatureUploadDir);
+const psSignatureStorage = multer_1.default.diskStorage({
+    destination: (_req, _file, cb) => cb(null, psSignatureUploadDir),
+    filename: (_req, file, cb) => {
+        const ext = path_1.default.extname(file.originalname).toLowerCase();
+        const base = path_1.default.basename(file.originalname, ext).replace(/[^a-z0-9_-]+/gi, '_');
+        cb(null, `${base}-${Date.now()}${ext}`);
+    },
+});
+const psSignatureUpload = (0, multer_1.default)({ storage: psSignatureStorage });
 // 1. Progress (All Classes)
 exports.adminExtrasRouter.get('/progress', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
     try {
@@ -840,6 +855,19 @@ exports.adminExtrasRouter.post('/ps-onboarding/assign-class', (0, auth_1.require
         res.status(500).json({ error: 'assign_failed', message: e.message });
     }
 });
+// PS Onboarding: Upload a custom signature image
+exports.adminExtrasRouter.post('/ps-onboarding/custom-signature/upload', (0, auth_1.requireAuth)(['ADMIN']), psSignatureUpload.single('file'), async (req, res) => {
+    try {
+        if (!req.file)
+            return res.status(400).json({ error: 'no_file' });
+        const signatureUrl = `/uploads/ps-signatures/${req.file.filename}`;
+        res.json({ signatureUrl });
+    }
+    catch (e) {
+        console.error('ps-onboarding/custom-signature/upload error:', e);
+        res.status(500).json({ error: 'upload_failed', message: e.message });
+    }
+});
 // PS Onboarding: Batch sign gradebooks
 exports.adminExtrasRouter.post('/ps-onboarding/batch-sign', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
     try {
@@ -847,7 +875,7 @@ exports.adminExtrasRouter.post('/ps-onboarding/batch-sign', (0, auth_1.requireAu
         const { scope, // 'student' | 'class' | 'all'
         studentIds = [], classId, signatureType, // 'sem1' | 'sem2' | 'both'
         signatureSource, // 'admin' | 'subadmin'
-        subadminId, schoolYearId, fromLevel, sem1SignedAt, // optional custom date for sem1
+        subadminId, customSignatureUrl, schoolYearId, fromLevel, sem1SignedAt, // optional custom date for sem1
         sem2SignedAt // optional custom date for sem2
          } = req.body;
         if (!schoolYearId)
@@ -859,6 +887,9 @@ exports.adminExtrasRouter.post('/ps-onboarding/batch-sign', (0, auth_1.requireAu
         if (signatureSource === 'subadmin' && !subadminId) {
             return res.status(400).json({ error: 'missing_subadmin_id' });
         }
+        if (signatureSource === 'custom' && !customSignatureUrl) {
+            return res.status(400).json({ error: 'missing_custom_signature_url' });
+        }
         // Get signer ID and signature URL
         const signerId = signatureSource === 'subadmin' ? subadminId : adminId;
         let signatureUrl;
@@ -867,6 +898,11 @@ exports.adminExtrasRouter.post('/ps-onboarding/batch-sign', (0, auth_1.requireAu
             const adminSig = await AdminSignature_1.AdminSignature.findOne({ isActive: true }).lean();
             signatureUrl = adminSig?.dataUrl;
             signatureData = adminSig?.dataUrl;
+        }
+        else if (signatureSource === 'custom') {
+            signatureUrl = String(customSignatureUrl);
+            const baseUrl = `${req.protocol}://${req.get('host')}`;
+            signatureData = await (0, signatureSnapshot_1.buildSignatureSnapshot)(signatureUrl, baseUrl);
         }
         else {
             // Get subadmin signature
@@ -966,6 +1002,39 @@ exports.adminExtrasRouter.post('/ps-onboarding/batch-sign', (0, auth_1.requireAu
                     });
                     signedSuccessfully = true;
                     results.success++;
+                    // Create SavedGradebook snapshot after S1 signing only
+                    // S2/promotion snapshot is created during the promotion step
+                    if (type === 'standard' && (signatureType === 'sem1' || signatureType === 'both')) {
+                        try {
+                            const snapshotReason = 'sem1';
+                            // Re-fetch assignment to get updated data with signatures
+                            const updatedAssignment = await TemplateAssignment_1.TemplateAssignment.findById(assignmentId).lean();
+                            if (updatedAssignment) {
+                                const statuses = await StudentCompetencyStatus_1.StudentCompetencyStatus.find({ studentId: assignment.studentId }).lean();
+                                const signatures = await TemplateSignature_1.TemplateSignature.find({ templateAssignmentId: assignmentId }).lean();
+                                const sem1Signatures = signatures.filter((s) => s.type !== 'end_of_year');
+                                const snapshotData = {
+                                    student: student,
+                                    enrollment: enrollment,
+                                    statuses: statuses,
+                                    assignment: updatedAssignment,
+                                    className: className,
+                                    signatures: sem1Signatures,
+                                    signature: sem1Signatures.find((s) => s.type === 'standard') || null,
+                                    finalSignature: null
+                                };
+                                await (0, rolloverService_1.createAssignmentSnapshot)(updatedAssignment, snapshotReason, {
+                                    schoolYearId,
+                                    level: level || 'Sans niveau',
+                                    classId: enrollment?.classId || undefined,
+                                    data: snapshotData
+                                });
+                            }
+                        }
+                        catch (snapshotError) {
+                            console.error('Failed to create snapshot for student', assignment.studentId, snapshotError);
+                        }
+                    }
                 }
                 catch (signError) {
                     const msg = String(signError?.message || '');
@@ -980,38 +1049,6 @@ exports.adminExtrasRouter.post('/ps-onboarding/batch-sign', (0, auth_1.requireAu
                             error: msg
                         });
                     }
-                }
-            }
-            // Create SavedGradebook snapshot after S1 signing only
-            // S2/promotion snapshot is created during the promotion step
-            if (signedSuccessfully && (signatureType === 'sem1' || signatureType === 'both')) {
-                try {
-                    const snapshotReason = 'sem1';
-                    // Re-fetch assignment to get updated data with signatures
-                    const updatedAssignment = await TemplateAssignment_1.TemplateAssignment.findById(assignmentId).lean();
-                    if (updatedAssignment) {
-                        const statuses = await StudentCompetencyStatus_1.StudentCompetencyStatus.find({ studentId: assignment.studentId }).lean();
-                        const signatures = await TemplateSignature_1.TemplateSignature.find({ templateAssignmentId: assignmentId }).lean();
-                        const snapshotData = {
-                            student: student,
-                            enrollment: enrollment,
-                            statuses: statuses,
-                            assignment: updatedAssignment,
-                            className: className,
-                            signatures: signatures,
-                            signature: signatures.find((s) => s.type === 'standard') || null,
-                            finalSignature: signatures.find((s) => s.type === 'end_of_year') || null,
-                        };
-                        await (0, rolloverService_1.createAssignmentSnapshot)(updatedAssignment, snapshotReason, {
-                            schoolYearId,
-                            level: level || 'Sans niveau',
-                            classId: enrollment?.classId || undefined,
-                            data: snapshotData
-                        });
-                    }
-                }
-                catch (snapshotError) {
-                    console.error('Failed to create snapshot for student', assignment.studentId, snapshotError);
                 }
             }
         }

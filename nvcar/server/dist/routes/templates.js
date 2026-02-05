@@ -16,12 +16,42 @@ const pptxImporter_1 = require("../utils/pptxImporter");
 const templateUtils_1 = require("../utils/templateUtils");
 const cache_1 = require("../utils/cache");
 const User_1 = require("../models/User");
+const OutlookUser_1 = require("../models/OutlookUser");
 const Setting_1 = require("../models/Setting");
 const fs_1 = __importDefault(require("fs"));
 exports.templatesRouter = (0, express_1.Router)();
 const upload = (0, multer_1.default)({ storage: multer_1.default.memoryStorage() });
+const normalizeAllowedSubAdmins = (value) => {
+    if (!Array.isArray(value))
+        return undefined;
+    return value.map((v) => String(v).trim()).filter((v) => v);
+};
+const validateAllowedSubAdmins = async (ids) => {
+    const unique = [...new Set(ids)];
+    if (unique.length === 0)
+        return unique;
+    const [users, outlookUsers] = await Promise.all([
+        User_1.User.find({ _id: { $in: unique }, role: { $in: ['SUBADMIN', 'AEFE'] } }).select('_id').lean(),
+        OutlookUser_1.OutlookUser.find({ _id: { $in: unique }, role: { $in: ['SUBADMIN', 'AEFE'] } }).select('_id').lean()
+    ]);
+    const found = new Set([...users, ...outlookUsers].map((u) => String(u._id)));
+    if (found.size !== unique.length)
+        return null;
+    return unique;
+};
 exports.templatesRouter.get('/', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', 'AEFE', 'TEACHER']), async (req, res) => {
     const list = await (0, cache_1.withCache)('templates-all', () => GradebookTemplate_1.GradebookTemplate.find({}).lean());
+    const role = req?.user?.role;
+    if (role === 'SUBADMIN' || role === 'AEFE') {
+        const userId = String(req?.user?.userId || '');
+        const filtered = list.filter((t) => {
+            const allowed = Array.isArray(t?.suggestionsAllowedSubAdmins) ? t.suggestionsAllowedSubAdmins.map((v) => String(v)) : [];
+            if (allowed.length === 0)
+                return true;
+            return allowed.includes(userId);
+        });
+        return res.json(filtered);
+    }
     res.json(list);
 });
 exports.templatesRouter.post('/import-pptx', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', 'TEACHER']), upload.single('file'), async (req, res) => {
@@ -143,10 +173,21 @@ exports.templatesRouter.post('/import-package', (0, auth_1.requireAuth)(['ADMIN'
 });
 exports.templatesRouter.post('/', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', 'TEACHER']), async (req, res) => {
     try {
-        const { name, pages, variables, watermark, permissions, status, exportPassword } = req.body || {};
+        const { name, pages, variables, watermark, permissions, status, exportPassword, suggestionsAllowedSubAdmins } = req.body || {};
         if (!name)
             return res.status(400).json({ error: 'missing_name' });
         const userId = req.user.actualUserId || req.user.userId;
+        const role = req.user?.role;
+        let normalizedAllowedSubAdmins;
+        if (role === 'ADMIN') {
+            const incoming = normalizeAllowedSubAdmins(suggestionsAllowedSubAdmins);
+            if (incoming !== undefined) {
+                const validated = await validateAllowedSubAdmins(incoming);
+                if (!validated)
+                    return res.status(400).json({ error: 'invalid_subadmins' });
+                normalizedAllowedSubAdmins = validated;
+            }
+        }
         const pagesWithBlockIds = (0, templateUtils_1.ensureStableBlockIds)(undefined, Array.isArray(pages) ? pages : []);
         const pagesWithRowIds = (0, templateUtils_1.ensureStableExpandedTableRowIds)(undefined, pagesWithBlockIds);
         const templateData = {
@@ -155,6 +196,7 @@ exports.templatesRouter.post('/', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', 
             variables: variables || {},
             watermark,
             permissions,
+            suggestionsAllowedSubAdmins: normalizedAllowedSubAdmins,
             status: status || 'draft',
             exportPassword,
             createdBy: userId,
@@ -407,6 +449,19 @@ exports.templatesRouter.patch('/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
         const { id } = req.params;
         const { _id, __v, createdBy, updatedAt, shareId, versions, comments, versionHistory, currentVersion, changeDescription, ...rest } = req.body || {};
         const userId = req.user.actualUserId || req.user.userId;
+        const role = req.user?.role;
+        if (role === 'ADMIN') {
+            const incoming = normalizeAllowedSubAdmins(rest.suggestionsAllowedSubAdmins);
+            if (incoming !== undefined) {
+                const validated = await validateAllowedSubAdmins(incoming);
+                if (!validated)
+                    return res.status(400).json({ error: 'invalid_subadmins' });
+                rest.suggestionsAllowedSubAdmins = validated;
+            }
+        }
+        else if (Object.prototype.hasOwnProperty.call(rest, 'suggestionsAllowedSubAdmins')) {
+            delete rest.suggestionsAllowedSubAdmins;
+        }
         // Get the current template
         const currentTemplate = await GradebookTemplate_1.GradebookTemplate.findById(id);
         if (!currentTemplate)

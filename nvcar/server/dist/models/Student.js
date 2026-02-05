@@ -19,6 +19,14 @@ const studentSchema = new mongoose_1.Schema({
     nextLevel: { type: String }, // Staging for next level
     schoolYearId: { type: String }, // Current school year association
     status: { type: String, enum: ['active', 'archived', 'left'], default: 'active' },
+    // Track when student left the school
+    leftAt: { type: Date },
+    leftSchoolYearId: { type: String }, // The school year when the student left
+    leftBy: { type: String }, // Admin who marked the student as left
+    // Track when student came back
+    returnedAt: { type: Date },
+    returnedSchoolYearId: { type: String }, // The school year when the student returned
+    returnedBy: { type: String }, // Admin who marked the student as returned
     promotions: [{
             schoolYearId: { type: String },
             date: { type: Date },

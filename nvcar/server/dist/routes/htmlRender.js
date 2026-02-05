@@ -254,7 +254,7 @@ function renderBlock(block, student, assignmentData) {
             const text = (props.text || '')
                 .replace(/\{student\.firstName\}/g, student.firstName)
                 .replace(/\{student\.lastName\}/g, student.lastName)
-                .replace(/\{student\.dob\}/g, new Date(student.dateOfBirth).toLocaleDateString());
+                .replace(/\{student\.dob\}/g, (0, dateFormat_1.formatDdMonthYyyy)(student.dateOfBirth));
             return `<div class="block" style="${style} color: ${props.color || '#000'}; font-size: ${props.fontSize || 12}px;">${text}</div>`;
         case 'image':
             return `<div class="block" style="${style}"><img src="${props.url}" style="width: ${props.width || 120}px; height: ${props.height || 120}px; border-radius: 8px;" /></div>`;

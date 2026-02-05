@@ -11,16 +11,42 @@ import { ensureStableBlockIds, ensureStableExpandedTableRowIds } from '../utils/
 import { withCache, clearCache } from '../utils/cache'
 
 import { User } from '../models/User'
+import { OutlookUser } from '../models/OutlookUser'
 import { Setting } from '../models/Setting'
 import fs from 'fs'
 
 export const templatesRouter = Router()
 const upload = multer({ storage: multer.memoryStorage() })
+const normalizeAllowedSubAdmins = (value: any) => {
+  if (!Array.isArray(value)) return undefined
+  return value.map((v: any) => String(v).trim()).filter((v: string) => v)
+}
+const validateAllowedSubAdmins = async (ids: string[]) => {
+  const unique = [...new Set(ids)]
+  if (unique.length === 0) return unique
+  const [users, outlookUsers] = await Promise.all([
+    User.find({ _id: { $in: unique }, role: { $in: ['SUBADMIN', 'AEFE'] } }).select('_id').lean(),
+    OutlookUser.find({ _id: { $in: unique }, role: { $in: ['SUBADMIN', 'AEFE'] } }).select('_id').lean()
+  ])
+  const found = new Set([...users, ...outlookUsers].map((u: any) => String(u._id)))
+  if (found.size !== unique.length) return null
+  return unique
+}
 
 templatesRouter.get('/', requireAuth(['ADMIN', 'SUBADMIN', 'AEFE', 'TEACHER']), async (req, res) => {
   const list = await withCache('templates-all', () =>
     GradebookTemplate.find({}).lean()
   )
+  const role = (req as any)?.user?.role
+  if (role === 'SUBADMIN' || role === 'AEFE') {
+    const userId = String((req as any)?.user?.userId || '')
+    const filtered = list.filter((t: any) => {
+      const allowed = Array.isArray(t?.suggestionsAllowedSubAdmins) ? t.suggestionsAllowedSubAdmins.map((v: any) => String(v)) : []
+      if (allowed.length === 0) return true
+      return allowed.includes(userId)
+    })
+    return res.json(filtered)
+  }
   res.json(list)
 })
 
@@ -155,9 +181,19 @@ templatesRouter.post('/import-package', requireAuth(['ADMIN', 'SUBADMIN']), uplo
 
 templatesRouter.post('/', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), async (req, res) => {
   try {
-    const { name, pages, variables, watermark, permissions, status, exportPassword } = req.body || {}
+    const { name, pages, variables, watermark, permissions, status, exportPassword, suggestionsAllowedSubAdmins } = req.body || {}
     if (!name) return res.status(400).json({ error: 'missing_name' })
     const userId = (req as any).user.actualUserId || (req as any).user.userId
+    const role = (req as any).user?.role
+    let normalizedAllowedSubAdmins: string[] | undefined
+    if (role === 'ADMIN') {
+      const incoming = normalizeAllowedSubAdmins(suggestionsAllowedSubAdmins)
+      if (incoming !== undefined) {
+        const validated = await validateAllowedSubAdmins(incoming)
+        if (!validated) return res.status(400).json({ error: 'invalid_subadmins' })
+        normalizedAllowedSubAdmins = validated
+      }
+    }
     const pagesWithBlockIds = ensureStableBlockIds(undefined, Array.isArray(pages) ? pages : [])
     const pagesWithRowIds = ensureStableExpandedTableRowIds(undefined, pagesWithBlockIds)
 
@@ -167,6 +203,7 @@ templatesRouter.post('/', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), async (
       variables: variables || {},
       watermark,
       permissions,
+      suggestionsAllowedSubAdmins: normalizedAllowedSubAdmins,
       status: status || 'draft',
       exportPassword,
       createdBy: userId,
@@ -441,6 +478,17 @@ templatesRouter.patch('/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), asy
     const { id } = req.params
     const { _id, __v, createdBy, updatedAt, shareId, versions, comments, versionHistory, currentVersion, changeDescription, ...rest } = req.body || {}
     const userId = (req as any).user.actualUserId || (req as any).user.userId
+    const role = (req as any).user?.role
+    if (role === 'ADMIN') {
+      const incoming = normalizeAllowedSubAdmins((rest as any).suggestionsAllowedSubAdmins)
+      if (incoming !== undefined) {
+        const validated = await validateAllowedSubAdmins(incoming)
+        if (!validated) return res.status(400).json({ error: 'invalid_subadmins' })
+        ; (rest as any).suggestionsAllowedSubAdmins = validated
+      }
+    } else if (Object.prototype.hasOwnProperty.call(rest, 'suggestionsAllowedSubAdmins')) {
+      delete (rest as any).suggestionsAllowedSubAdmins
+    }
 
     // Get the current template
     const currentTemplate = await GradebookTemplate.findById(id)

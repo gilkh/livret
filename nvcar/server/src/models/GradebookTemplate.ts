@@ -48,6 +48,7 @@ const templateSchema = new Schema({
   variables: { type: Schema.Types.Mixed, default: {} },
   watermark: { type: Schema.Types.Mixed },
   permissions: { type: Schema.Types.Mixed, default: { roles: ['ADMIN', 'SUBADMIN'] } },
+  suggestionsAllowedSubAdmins: { type: [String], default: [] },
   shareId: { type: String },
   versions: { type: [Schema.Types.Mixed], default: [] },
   comments: { type: [Schema.Types.Mixed], default: [] },

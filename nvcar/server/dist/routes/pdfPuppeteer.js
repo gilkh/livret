@@ -9,6 +9,9 @@ const Student_1 = require("../models/Student");
 const GradebookTemplate_1 = require("../models/GradebookTemplate");
 const TemplateAssignment_1 = require("../models/TemplateAssignment");
 const SavedGradebook_1 = require("../models/SavedGradebook");
+const Enrollment_1 = require("../models/Enrollment");
+const Class_1 = require("../models/Class");
+const SchoolYear_1 = require("../models/SchoolYear");
 const auth_1 = require("../auth");
 const puppeteer_1 = __importDefault(require("puppeteer"));
 const archiver_1 = __importDefault(require("archiver"));
@@ -29,6 +32,37 @@ const buildContentDisposition = (filename) => {
     const safe = sanitizeFilename(filename);
     const encoded = encodeURIComponent(String(filename || 'file')).replace(/[()']/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
     return `attachment; filename="${safe}"; filename*=UTF-8''${encoded}`;
+};
+const normalizeYearForFilename = (yearName) => String(yearName || '').replace(/[\/\\]/g, '-').trim();
+const buildStudentPdfFilename = (opts) => {
+    const level = String(opts.level || '').toUpperCase().trim();
+    const firstName = String(opts.firstName || '').trim();
+    const lastName = String(opts.lastName || '').trim();
+    const yearSafe = normalizeYearForFilename(opts.yearName);
+    const parts = [level, firstName, lastName, yearSafe].filter(Boolean);
+    const base = parts.join('-') || 'file';
+    return sanitizeFileName(`${base}.pdf`);
+};
+const getActiveSchoolYear = async () => {
+    try {
+        return await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
+    }
+    catch {
+        return null;
+    }
+};
+const resolveStudentLevel = async (studentId, fallbackLevel, schoolYearId) => {
+    if (fallbackLevel)
+        return fallbackLevel;
+    if (!studentId)
+        return '';
+    const enrollment = schoolYearId
+        ? await Enrollment_1.Enrollment.findOne({ studentId, schoolYearId, status: 'active' }).lean()
+        : await Enrollment_1.Enrollment.findOne({ studentId, status: 'active' }).lean();
+    if (!enrollment?.classId)
+        return '';
+    const classDoc = await Class_1.ClassModel.findById(enrollment.classId).lean();
+    return String(classDoc?.level || '').trim();
 };
 // Singleton browser instance
 let browserInstance = null;
@@ -440,10 +474,24 @@ exports.pdfPuppeteerRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN',
         if (!pdfBuffer || pdfBuffer.length === 0) {
             throw new Error('Generated PDF buffer is empty');
         }
+        const activeYear = await getActiveSchoolYear();
+        const activeYearId = activeYear?._id ? String(activeYear._id) : String(student.schoolYearId || '');
+        let yearName = String(activeYear?.name || '').trim();
+        if (!yearName && student.schoolYearId) {
+            const sy = await SchoolYear_1.SchoolYear.findById(student.schoolYearId).lean();
+            yearName = String(sy?.name || '').trim();
+        }
+        const level = await resolveStudentLevel(String(student._id), String(student.level || ''), activeYearId);
+        const filename = buildStudentPdfFilename({
+            level,
+            firstName: student.firstName,
+            lastName: student.lastName,
+            yearName
+        });
         // Send PDF with proper headers to avoid corruption
         res.set({
             'Content-Type': 'application/pdf',
-            'Content-Disposition': buildContentDisposition(`carnet-${student.lastName}-${student.firstName}.pdf`),
+            'Content-Disposition': buildContentDisposition(filename),
             'Content-Length': pdfBuffer.length.toString()
         });
         res.end(pdfBuffer);
@@ -521,6 +569,9 @@ exports.pdfPuppeteerRouter.post('/assignments/zip', (0, auth_1.requireAuth)(['AD
         // Parallelize generation with a small worker pool to reduce wall-clock
         const concurrency = Math.min(Math.max(1, Number(process.env.PDF_CONCURRENCY || '3')), assignmentIds.length);
         console.log(`[PDF ZIP] Generating ${assignmentIds.length} PDFs using concurrency=${concurrency}`);
+        const activeYear = await getActiveSchoolYear();
+        const activeYearId = activeYear?._id ? String(activeYear._id) : '';
+        const activeYearName = String(activeYear?.name || '').trim();
         let idx = 0;
         const getNext = () => {
             const i = idx;
@@ -545,8 +596,18 @@ exports.pdfPuppeteerRouter.post('/assignments/zip', (0, auth_1.requireAuth)(['AD
                     const template = await GradebookTemplate_1.GradebookTemplate.findById(assignment.templateId).lean();
                     const studentLast = student?.lastName || 'Eleve';
                     const studentFirst = student?.firstName || '';
-                    const templateName = template?.name || 'Carnet';
-                    const pdfName = sanitizeFileName(`${studentLast}-${studentFirst}-${templateName}.pdf`);
+                    let yearName = activeYearName;
+                    if (!yearName && student?.schoolYearId) {
+                        const sy = await SchoolYear_1.SchoolYear.findById(student.schoolYearId).lean();
+                        yearName = String(sy?.name || '').trim();
+                    }
+                    const level = await resolveStudentLevel(String(student?._id || ''), String(student?.level || ''), activeYearId || String(student?.schoolYearId || ''));
+                    const pdfName = buildStudentPdfFilename({
+                        level,
+                        firstName: studentFirst,
+                        lastName: studentLast,
+                        yearName
+                    });
                     const printUrl = `${frontendUrl}/print/carnet/${assignment._id}?token=${token}${hideSignatures ? '&hideSignatures=true' : ''}`;
                     const safePrintUrl = String(printUrl || '').replace(/([?&])token=[^&]*/, '$1token=***');
                     console.log(`[PDF ZIP] (worker ${workerIdx}) Generating PDF for assignment ${assignmentId} (${safePrintUrl})`);
@@ -611,6 +672,7 @@ exports.pdfPuppeteerRouter.get('/preview/:templateId/:studentId', (0, auth_1.req
     try {
         const { templateId, studentId } = req.params;
         const token = getTokenFromReq(req);
+        const empty = String(req.query?.empty || '').toLowerCase() === 'true' || String(req.query?.empty || '') === '1';
         const student = await Student_1.Student.findById(studentId).lean();
         if (!student)
             return res.status(404).json({ error: 'student_not_found' });
@@ -618,7 +680,7 @@ exports.pdfPuppeteerRouter.get('/preview/:templateId/:studentId', (0, auth_1.req
         if (!template)
             return res.status(404).json({ error: 'template_not_found' });
         const frontendUrl = resolveFrontendUrl(req);
-        const printUrl = `${frontendUrl}/print/preview/${templateId}/student/${studentId}?token=${token}`;
+        const printUrl = `${frontendUrl}/print/preview/${templateId}/student/${studentId}?token=${token}${empty ? '&empty=true' : ''}`;
         const safePrintUrl = String(printUrl || '').replace(/([?&])token=[^&]*/, '$1token=***');
         console.log('[PDF] Generating Preview PDF via shared function:', safePrintUrl);
         const genStart = Date.now();
@@ -628,9 +690,23 @@ exports.pdfPuppeteerRouter.get('/preview/:templateId/:studentId', (0, auth_1.req
         if (!pdfBuffer || pdfBuffer.length === 0) {
             throw new Error('Generated PDF buffer is empty');
         }
+        const activeYear = await getActiveSchoolYear();
+        const activeYearId = activeYear?._id ? String(activeYear._id) : String(student.schoolYearId || '');
+        let yearName = String(activeYear?.name || '').trim();
+        if (!yearName && student.schoolYearId) {
+            const sy = await SchoolYear_1.SchoolYear.findById(student.schoolYearId).lean();
+            yearName = String(sy?.name || '').trim();
+        }
+        const level = await resolveStudentLevel(String(student._id), String(student.level || ''), activeYearId);
+        const filename = buildStudentPdfFilename({
+            level,
+            firstName: student.firstName,
+            lastName: student.lastName,
+            yearName
+        });
         res.set({
             'Content-Type': 'application/pdf',
-            'Content-Disposition': buildContentDisposition(`carnet-${student.lastName}-${student.firstName}.pdf`),
+            'Content-Disposition': buildContentDisposition(filename),
             'Content-Length': pdfBuffer.length.toString()
         });
         res.end(pdfBuffer);
@@ -638,6 +714,47 @@ exports.pdfPuppeteerRouter.get('/preview/:templateId/:studentId', (0, auth_1.req
     catch (error) {
         console.error('[PDF] Preview PDF generation error:', error.message);
         console.error('[PDF] Preview stack:', error.stack);
+        if (page) {
+            try {
+                await page.close();
+            }
+            catch { }
+        }
+        res.status(500).json({
+            error: 'pdf_generation_failed',
+            message: error.message,
+            details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        });
+    }
+});
+exports.pdfPuppeteerRouter.get('/preview-empty/:templateId', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', 'TEACHER']), async (req, res) => {
+    let page = null;
+    try {
+        const { templateId } = req.params;
+        const token = getTokenFromReq(req);
+        const template = await GradebookTemplate_1.GradebookTemplate.findById(templateId).lean();
+        if (!template)
+            return res.status(404).json({ error: 'template_not_found' });
+        const frontendUrl = resolveFrontendUrl(req);
+        const printUrl = `${frontendUrl}/print/preview-empty/${templateId}?token=${token}&empty=true`;
+        const safePrintUrl = String(printUrl || '').replace(/([?&])token=[^&]*/, '$1token=***');
+        console.log('[PDF] Generating Empty Preview PDF via shared function:', safePrintUrl);
+        const genStart = Date.now();
+        const pdfBuffer = await generatePdfBufferFromPrintUrl(printUrl, token, frontendUrl);
+        console.log(`[PDF TIMING] generatePdfBufferFromPrintUrl total ${Date.now() - genStart}ms for ${safePrintUrl}`);
+        if (!pdfBuffer || pdfBuffer.length === 0) {
+            throw new Error('Generated PDF buffer is empty');
+        }
+        res.set({
+            'Content-Type': 'application/pdf',
+            'Content-Disposition': buildContentDisposition(`template-${template.name || template._id}.pdf`),
+            'Content-Length': pdfBuffer.length.toString()
+        });
+        res.end(pdfBuffer);
+    }
+    catch (error) {
+        console.error('[PDF] Empty Preview PDF generation error:', error.message);
+        console.error('[PDF] Empty Preview stack:', error.stack);
         if (page) {
             try {
                 await page.close();
@@ -673,11 +790,20 @@ exports.pdfPuppeteerRouter.get('/saved/:id', (0, auth_1.requireAuth)(['ADMIN', '
         if (!pdfBuffer || pdfBuffer.length === 0) {
             throw new Error('Generated PDF buffer is empty');
         }
-        // Use student name from saved data if available, otherwise generic name
-        const studentName = saved.data?.student ? `${saved.data.student.lastName}-${saved.data.student.firstName}` : 'carnet';
+        let firstName = String(saved.data?.student?.firstName || '').trim();
+        let lastName = String(saved.data?.student?.lastName || '').trim();
+        if (!firstName || !lastName) {
+            const student = await Student_1.Student.findById(saved.studentId).lean();
+            firstName = firstName || String(student?.firstName || '').trim();
+            lastName = lastName || String(student?.lastName || '').trim();
+        }
+        const schoolYear = await SchoolYear_1.SchoolYear.findById(saved.schoolYearId).lean();
+        const yearName = String(schoolYear?.name || '').trim();
+        const level = String(saved.level || saved.meta?.level || '').trim();
+        const filename = buildStudentPdfFilename({ level, firstName, lastName, yearName });
         res.set({
             'Content-Type': 'application/pdf',
-            'Content-Disposition': buildContentDisposition(`carnet-${studentName}.pdf`),
+            'Content-Disposition': buildContentDisposition(filename),
             'Content-Length': pdfBuffer.length.toString()
         });
         res.end(pdfBuffer);

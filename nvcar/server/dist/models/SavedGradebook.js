@@ -41,17 +41,18 @@ const SavedGradebookMetaSchema = new mongoose_1.Schema({
     signaturePeriodId: { type: String },
     schoolYearId: { type: String },
     level: { type: String },
-    snapshotReason: { type: String, enum: ['promotion', 'year_end', 'manual', 'sem1', 'transfer', 'exit'] },
+    snapshotReason: { type: String, enum: ['promotion', 'year_end', 'manual', 'sem1', 'transfer', 'exit', 'left_school'] },
     archivedAt: { type: Date }
 }, { _id: false });
 const SavedGradebookSchema = new mongoose_1.Schema({
     studentId: { type: String, required: true, index: true },
     schoolYearId: { type: String, required: true, index: true },
     level: { type: String, required: true, index: true },
-    classId: { type: String, required: true },
-    templateId: { type: String, required: true },
+    classId: { type: String },
+    templateId: { type: String },
     data: { type: mongoose_1.Schema.Types.Mixed, required: true },
     meta: { type: SavedGradebookMetaSchema },
+    reason: { type: String }, // Reason for the snapshot (e.g., 'left_school')
     createdAt: { type: Date, default: Date.now }
 });
 // Compound index for efficient snapshot lookup

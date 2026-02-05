@@ -47,6 +47,7 @@ const templateSchema = new mongoose_1.Schema({
     variables: { type: mongoose_1.Schema.Types.Mixed, default: {} },
     watermark: { type: mongoose_1.Schema.Types.Mixed },
     permissions: { type: mongoose_1.Schema.Types.Mixed, default: { roles: ['ADMIN', 'SUBADMIN'] } },
+    suggestionsAllowedSubAdmins: { type: [String], default: [] },
     shareId: { type: String },
     versions: { type: [mongoose_1.Schema.Types.Mixed], default: [] },
     comments: { type: [mongoose_1.Schema.Types.Mixed], default: [] },
