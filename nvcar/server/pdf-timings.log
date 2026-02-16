@@ -409,3 +409,12 @@
 2026-01-28T10:55:31.256Z https://127.0.0.1/print/carnet/69709b39005ffee0231c06d7?token=*** totalMs=4807 navMs=266 readyMs=846 pdfMs=3352 size=3423930 native=false
 2026-01-28T10:55:36.305Z https://127.0.0.1/print/carnet/69709b39005ffee0231c06d7?token=*** totalMs=4960 navMs=301 readyMs=827 pdfMs=3516 size=3423930 native=false
 2026-01-28T10:55:39.939Z https://127.0.0.1/print/carnet/69709b39005ffee0231c06d7?token=*** totalMs=8635 navMs=458 readyMs=4582 pdfMs=3244 size=3423930 native=false
+2026-02-16T07:19:23.668Z https://livret.champville.com/print/saved/6970b394efbb55777b8da922?token=*** totalMs=28082 navMs=1007 readyMs=1967 pdfMs=24018 size=3420733 native=false
+2026-02-16T07:19:47.636Z https://livret.champville.com/print/saved/6970b394efbb55777b8da922?token=*** totalMs=20372 navMs=872 readyMs=2351 pdfMs=16444 size=3420733 native=false
+2026-02-16T07:20:11.432Z https://livret.champville.com/print/saved/6970b394efbb55777b8da922?token=*** totalMs=23542 navMs=914 readyMs=2510 pdfMs=18031 size=3420733 native=false
+2026-02-16T07:20:27.676Z https://livret.champville.com/print/saved/6970b394efbb55777b8da922?token=*** totalMs=39808 navMs=3308 readyMs=10003 pdfMs=24218 size=3420733 native=false
+2026-02-16T07:20:42.718Z https://livret.champville.com/print/saved/6970b394efbb55777b8da922?token=*** totalMs=54933 navMs=3107 readyMs=10006 pdfMs=40146 size=3420733 native=false
+2026-02-16T07:20:52.874Z https://livret.champville.com/print/saved/6970b380efbb55777b8d9d07?token=*** totalMs=124233 navMs=1520 readyMs=10299 pdfMs=103936 size=3416750 native=false
+2026-02-16T07:21:15.425Z https://livret.champville.com/print/saved/6970b380efbb55777b8d9d07?token=*** totalMs=19507 navMs=808 readyMs=2158 pdfMs=16117 size=3416750 native=false
+2026-02-16T07:21:35.338Z https://livret.champville.com/print/saved/6970b380efbb55777b8d9d07?token=*** totalMs=19693 navMs=890 readyMs=2354 pdfMs=16001 size=3416750 native=false
+2026-02-16T07:21:50.086Z https://livret.champville.com/print/saved/6970b380efbb55777b8d9d07?token=*** totalMs=34548 navMs=1900 readyMs=10002 pdfMs=21320 size=3416750 native=false
