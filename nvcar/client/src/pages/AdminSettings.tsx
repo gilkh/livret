@@ -32,6 +32,42 @@ const Icons = {
 
 type SectionId = 'status' | 'monitoring' | 'errors' | 'year' | 'access' | 'device' | 'teacher' | 'smtp' | 'signature' | 'database' | 'maintenance' | 'sandbox' | 'notiftest'
 
+const StatusIndicator = ({ active, activeText = 'Activé', inactiveText = 'Désactivé' }: { active: boolean; activeText?: string; inactiveText?: string }) => (
+  <div className="status-indicator">
+    <span className={`status-dot ${active ? 'active' : 'inactive'}`} />
+    <span style={{ color: active ? 'var(--success)' : '#f87171' }}>{active ? activeText : inactiveText}</span>
+  </div>
+)
+
+const Toggle = ({ checked, onChange }: { checked: boolean; onChange: () => void }) => (
+  <label className="switch"><input type="checkbox" checked={checked} onChange={onChange} /><span className="slider" /></label>
+)
+
+const SectionCard = ({ id, children, collapsedSections, toggleSection, sectionRefs }: {
+  id: SectionId;
+  children: React.ReactNode;
+  collapsedSections: Set<SectionId>;
+  toggleSection: (id: SectionId) => void;
+  sectionRefs: React.MutableRefObject<Record<SectionId, HTMLDivElement | null>>;
+}) => {
+  const item = navItems.find(n => n.id === id)!
+  const Icon = Icons[item.icon]
+  const isCollapsed = collapsedSections.has(id)
+  return (
+    <div ref={el => sectionRefs.current[id] = el} className={`settings-section ${isCollapsed ? 'collapsed' : ''}`} id={id}>
+      <div className="section-header" onClick={() => toggleSection(id)}>
+        <div className="section-icon-wrapper" style={{ background: `${item.color}15`, color: item.color }}><Icon /></div>
+        <div className="section-title-wrapper">
+          <h2 className="section-title">{item.label}</h2>
+          <p className="section-description">{item.description}</p>
+        </div>
+        <div className="section-collapse-icon"><Icons.ChevronDown /></div>
+      </div>
+      {!isCollapsed && <div className="settings-section-content">{children}</div>}
+    </div>
+  )
+}
+
 interface NavItem {
   id: SectionId
   label: string
@@ -390,35 +426,7 @@ export default function AdminSettings() {
     </div>
   )
 
-  const StatusIndicator = ({ active, activeText = 'Activé', inactiveText = 'Désactivé' }: { active: boolean; activeText?: string; inactiveText?: string }) => (
-    <div className="status-indicator">
-      <span className={`status-dot ${active ? 'active' : 'inactive'}`} />
-      <span style={{ color: active ? 'var(--success)' : '#f87171' }}>{active ? activeText : inactiveText}</span>
-    </div>
-  )
-
-  const Toggle = ({ checked, onChange }: { checked: boolean; onChange: () => void }) => (
-    <label className="switch"><input type="checkbox" checked={checked} onChange={onChange} /><span className="slider" /></label>
-  )
-
-  const SectionCard = ({ id, children }: { id: SectionId; children: React.ReactNode }) => {
-    const item = navItems.find(n => n.id === id)!
-    const Icon = Icons[item.icon]
-    const isCollapsed = collapsedSections.has(id)
-    return (
-      <div ref={el => sectionRefs.current[id] = el} className={`settings-section ${isCollapsed ? 'collapsed' : ''}`} id={id}>
-        <div className="section-header" onClick={() => toggleSection(id)}>
-          <div className="section-icon-wrapper" style={{ background: `${item.color}15`, color: item.color }}><Icon /></div>
-          <div className="section-title-wrapper">
-            <h2 className="section-title">{item.label}</h2>
-            <p className="section-description">{item.description}</p>
-          </div>
-          <div className="section-collapse-icon"><Icons.ChevronDown /></div>
-        </div>
-        {!isCollapsed && <div className="settings-section-content">{children}</div>}
-      </div>
-    )
-  }
+  const sectionCardProps = { collapsedSections, toggleSection, sectionRefs }
 
   return (
     <div className="admin-settings">
@@ -459,7 +467,7 @@ export default function AdminSettings() {
 
         <div className="settings-grid">
           {/* Sandbox */}
-          <SectionCard id="sandbox">
+          <SectionCard id="sandbox" {...sectionCardProps}>
             <div className="setting-item">
               <div className="setting-info">
                 <h3>🧪 Ouvrir Simulation Lab</h3>
@@ -470,7 +478,7 @@ export default function AdminSettings() {
           </SectionCard>
 
           {/* System Status */}
-          <SectionCard id="status">
+          <SectionCard id="status" {...sectionCardProps}>
             <div className="status-cards">
               {[
                 { label: 'Frontend', value: 'En ligne', active: true, color: '#00b894' },
@@ -489,7 +497,7 @@ export default function AdminSettings() {
           </SectionCard>
 
           {/* Monitoring */}
-          <SectionCard id="monitoring">
+          <SectionCard id="monitoring" {...sectionCardProps}>
             <div className="setting-item">
               <div className="setting-info">
                 <h3>🔍 État de Surveillance</h3>
@@ -500,7 +508,7 @@ export default function AdminSettings() {
           </SectionCard>
 
           {/* Error Logs */}
-          <SectionCard id="errors">
+          <SectionCard id="errors" {...sectionCardProps}>
             <div className="setting-item">
               <div className="setting-info">
                 <h3>🧯 Erreurs utilisateurs ({errorLogs.filter(l => !l.resolved).length})</h3>
@@ -608,7 +616,7 @@ export default function AdminSettings() {
           </SectionCard>
 
           {/* School Year */}
-          <SectionCard id="year">
+          <SectionCard id="year" {...sectionCardProps}>
             <div className="setting-item">
               <div className="setting-info">
                 <h3>📅 Année active pour cette session</h3>
@@ -621,7 +629,7 @@ export default function AdminSettings() {
           </SectionCard>
 
           {/* Access */}
-          <SectionCard id="access">
+          <SectionCard id="access" {...sectionCardProps}>
             {[
               { label: 'Connexion Enseignants', desc: 'Autoriser les enseignants à accéder à leur espace', value: teacherLogin, key: 'login_enabled_teacher', setter: setTeacherLogin },
               { label: 'Connexion Préfets', desc: 'Autoriser les préfets à accéder au panneau de gestion', value: subAdminLogin, key: 'login_enabled_subadmin', setter: setSubAdminLogin },
@@ -638,7 +646,7 @@ export default function AdminSettings() {
           </SectionCard>
 
           {/* Device / Mobile Blocking */}
-          <SectionCard id="device">
+          <SectionCard id="device" {...sectionCardProps}>
             <div className="setting-item">
               <div className="setting-info">
                 <h3>📱 Bloquer les appareils mobiles</h3>
@@ -804,7 +812,7 @@ export default function AdminSettings() {
           </SectionCard>
 
           {/* Previous Year Dropdown Editability */}
-          <SectionCard id="teacher">
+          <SectionCard id="teacher" {...sectionCardProps}>
             <div className="setting-item">
               <div className="setting-info">
                 <h3>⚡ Notation rapide</h3>
@@ -848,7 +856,7 @@ export default function AdminSettings() {
           </SectionCard>
 
           {/* SMTP */}
-          <SectionCard id="smtp">
+          <SectionCard id="smtp" {...sectionCardProps}>
             <div className="settings-form-row">
               <div className="settings-form-group">
                 <label>Serveur SMTP</label>
@@ -902,7 +910,7 @@ export default function AdminSettings() {
           </SectionCard>
 
           {/* Signature Restrictions */}
-          <SectionCard id="signature">
+          <SectionCard id="signature" {...sectionCardProps}>
             <div className="setting-item">
               <div className="setting-info">
                 <h3>🔐 Activer les restrictions</h3>
@@ -932,7 +940,7 @@ export default function AdminSettings() {
           </SectionCard>
 
           {/* Database */}
-          <SectionCard id="database">
+          <SectionCard id="database" {...sectionCardProps}>
             <div className="setting-item">
               <div className="setting-info">
                 <h3>💾 Créer une sauvegarde</h3>
@@ -973,7 +981,7 @@ export default function AdminSettings() {
           </SectionCard>
 
           {/* Maintenance */}
-          <SectionCard id="maintenance">
+          <SectionCard id="maintenance" {...sectionCardProps}>
             <div className="setting-item">
               <div className="setting-info"><h3>⬇️ Sauvegarde complète</h3><p>Télécharger une archive ZIP contenant tout le code source et la base de données</p></div>
               <button type="button" className="settings-btn secondary" onClick={downloadBackup} disabled={backupLoading}>{backupLoading ? 'Création...' : '⬇️ Télécharger Backup Complet'}</button>
@@ -1015,7 +1023,7 @@ export default function AdminSettings() {
           </SectionCard>
 
           {/* Notification Test */}
-          <SectionCard id="notiftest">
+          <SectionCard id="notiftest" {...sectionCardProps}>
             <div className="setting-item">
               <div className="setting-info">
                 <h3>🔔 Tester la Notification de Session</h3>
