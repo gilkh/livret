@@ -19,9 +19,10 @@ interface TemplateReviewPreviewProps {
     signature: any
     finalSignature: any
     activeSemester?: number
+    minimalMode?: boolean
 }
 
-export default function TemplateReviewPreview({ template, student, assignment, signature, finalSignature, activeSemester: propActiveSemester }: TemplateReviewPreviewProps) {
+export default function TemplateReviewPreview({ template, student, assignment, signature, finalSignature, activeSemester: propActiveSemester, minimalMode = false }: TemplateReviewPreviewProps) {
     const { levels } = useLevels()
     const { activeYear } = useSchoolYear()
     const [selectedPage, setSelectedPage] = useState(0)
@@ -373,7 +374,7 @@ export default function TemplateReviewPreview({ template, student, assignment, s
 
     return (
         <div>
-            <div style={{ marginTop: 20, marginBottom: 16, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', padding: 16, background: '#f8fafc', borderRadius: 12, border: '1px solid #e2e8f0' }}>
+            {!minimalMode && <div style={{ marginTop: 20, marginBottom: 16, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', padding: 16, background: '#f8fafc', borderRadius: 12, border: '1px solid #e2e8f0' }}>
                 <button className="btn secondary" onClick={() => setContinuousScroll(!continuousScroll)} style={{
                     background: continuousScroll ? 'linear-gradient(135deg, #6c5ce7 0%, #5b4bc4 100%)' : '#f1f5f9',
                     color: continuousScroll ? 'white' : '#475569',
@@ -439,7 +440,7 @@ export default function TemplateReviewPreview({ template, student, assignment, s
                         Suivant →
                     </button>
                 </div>
-            </div>
+            </div>}
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 24, alignItems: 'center' }}>
                 {(continuousScroll ? template.pages : [template.pages[selectedPage]]).map((page, pageIdx) => {
@@ -451,7 +452,7 @@ export default function TemplateReviewPreview({ template, student, assignment, s
                             className="card page-canvas"
                             style={{ height: pageHeight, width: pageWidth, background: page.bgColor || '#fff', overflow: 'hidden', position: 'relative' }}
                         >
-                            {continuousScroll && <div style={{ position: 'absolute', top: -30, left: 0, color: '#888', fontSize: 14, fontWeight: 600 }}>Page {actualPageIndex + 1}</div>}
+                            {continuousScroll && !minimalMode && <div style={{ position: 'absolute', top: -30, left: 0, color: '#888', fontSize: 14, fontWeight: 600 }}>Page {actualPageIndex + 1}</div>}
                             <div className="page-margins" />
                             {page.blocks.map((b, idx) => {
                                 if (!b || !b.props) return null;

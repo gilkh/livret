@@ -106,6 +106,44 @@ suggestionsRouter.post('/', requireAuth(['SUBADMIN', 'AEFE']), async (req, res) 
     }
 })
 
+// Get my suggestions (SubAdmin / AEFE)
+suggestionsRouter.get('/mine', requireAuth(['SUBADMIN', 'AEFE']), async (req, res) => {
+    try {
+        const subAdminId = String((req as any).user.userId)
+        const { templateId, type } = req.query as any
+
+        const query: any = { subAdminId }
+        if (templateId) query.templateId = String(templateId)
+        if (type) query.type = String(type)
+
+        const suggestions = await TemplateChangeSuggestion.find(query)
+            .sort({ createdAt: -1 })
+            .lean()
+
+        res.json(suggestions)
+    } catch (e: any) {
+        res.status(500).json({ error: 'fetch_mine_failed', message: e.message })
+    }
+})
+
+// Delete my suggestion (SubAdmin / AEFE)
+suggestionsRouter.delete('/:id', requireAuth(['SUBADMIN', 'AEFE']), async (req, res) => {
+    try {
+        const subAdminId = String((req as any).user.userId)
+        const { id } = req.params
+
+        const deleted = await TemplateChangeSuggestion.findOneAndDelete({
+            _id: id,
+            subAdminId
+        }).lean()
+
+        if (!deleted) return res.status(404).json({ error: 'not_found' })
+        res.json({ ok: true })
+    } catch (e: any) {
+        res.status(500).json({ error: 'delete_failed', message: e.message })
+    }
+})
+
 // Get all suggestions (Admin)
 suggestionsRouter.get('/', requireAuth(['ADMIN']), async (req, res) => {
     try {

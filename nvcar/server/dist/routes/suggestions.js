@@ -90,6 +90,42 @@ exports.suggestionsRouter.post('/', (0, auth_1.requireAuth)(['SUBADMIN', 'AEFE']
         res.status(500).json({ error: 'create_failed', message: e.message });
     }
 });
+// Get my suggestions (SubAdmin / AEFE)
+exports.suggestionsRouter.get('/mine', (0, auth_1.requireAuth)(['SUBADMIN', 'AEFE']), async (req, res) => {
+    try {
+        const subAdminId = String(req.user.userId);
+        const { templateId, type } = req.query;
+        const query = { subAdminId };
+        if (templateId)
+            query.templateId = String(templateId);
+        if (type)
+            query.type = String(type);
+        const suggestions = await TemplateChangeSuggestion_1.TemplateChangeSuggestion.find(query)
+            .sort({ createdAt: -1 })
+            .lean();
+        res.json(suggestions);
+    }
+    catch (e) {
+        res.status(500).json({ error: 'fetch_mine_failed', message: e.message });
+    }
+});
+// Delete my suggestion (SubAdmin / AEFE)
+exports.suggestionsRouter.delete('/:id', (0, auth_1.requireAuth)(['SUBADMIN', 'AEFE']), async (req, res) => {
+    try {
+        const subAdminId = String(req.user.userId);
+        const { id } = req.params;
+        const deleted = await TemplateChangeSuggestion_1.TemplateChangeSuggestion.findOneAndDelete({
+            _id: id,
+            subAdminId
+        }).lean();
+        if (!deleted)
+            return res.status(404).json({ error: 'not_found' });
+        res.json({ ok: true });
+    }
+    catch (e) {
+        res.status(500).json({ error: 'delete_failed', message: e.message });
+    }
+});
 // Get all suggestions (Admin)
 exports.suggestionsRouter.get('/', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
     try {
