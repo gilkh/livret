@@ -703,6 +703,7 @@ import { computeSignaturePeriodId } from '../utils/readinessUtils'
 
 // Helper: Get next level based on order
 const normalizeLevel = (level?: string | null) => String(level || '').toUpperCase()
+const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 const getFromLevelConfig = (fromLevelRaw?: string) => {
     const normalized = normalizeLevel(fromLevelRaw || 'PS') || 'PS'
@@ -712,10 +713,40 @@ const getFromLevelConfig = (fromLevelRaw?: string) => {
 }
 
 const getNextLevelName = async (currentLevel: string): Promise<string | null> => {
-    const currentDoc = await Level.findOne({ name: currentLevel }).lean()
-    if (!currentDoc) return null
-    const nextDoc = await Level.findOne({ order: (currentDoc as any).order + 1 }).lean()
-    return nextDoc ? (nextDoc as any).name : null
+    const normalizedCurrent = normalizeLevel(currentLevel)
+
+    const fallbackNextByLevel: Record<string, string> = {
+        TPS: 'PS',
+        PS: 'MS',
+        MS: 'GS',
+        GS: 'EB1',
+        KG1: 'KG2',
+        KG2: 'KG3',
+        KG3: 'EB1'
+    }
+
+    const fallbackNext = fallbackNextByLevel[normalizedCurrent]
+
+    const currentDoc = await Level.findOne({
+        name: { $regex: new RegExp(`^${escapeRegex(normalizedCurrent)}$`, 'i') }
+    }).lean()
+
+    if (currentDoc && typeof (currentDoc as any).order === 'number') {
+        const nextDoc = await Level.findOne({ order: (currentDoc as any).order + 1 }).lean()
+        if (nextDoc?.name) return String((nextDoc as any).name)
+
+        const nextByHigherOrder = await Level.findOne({ order: { $gt: (currentDoc as any).order } }).sort({ order: 1 }).lean()
+        if (nextByHigherOrder?.name) return String((nextByHigherOrder as any).name)
+    }
+
+    if (fallbackNext) {
+        const fallbackDoc = await Level.findOne({
+            name: { $regex: new RegExp(`^${escapeRegex(fallbackNext)}$`, 'i') }
+        }).lean()
+        return fallbackDoc?.name ? String((fallbackDoc as any).name) : fallbackNext
+    }
+
+    return null
 }
 
 // PS Onboarding: Get PS students for the previous school year

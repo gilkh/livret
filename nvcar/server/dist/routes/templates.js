@@ -26,6 +26,85 @@ const normalizeAllowedSubAdmins = (value) => {
         return undefined;
     return value.map((v) => String(v).trim()).filter((v) => v);
 };
+const uploadsRootDir = path_1.default.resolve(process.cwd(), 'public', 'uploads');
+const publicRootDir = path_1.default.resolve(process.cwd(), 'public');
+const normalizeUploadsUrl = (raw) => {
+    const value = String(raw || '').trim().replace(/\\/g, '/');
+    if (!value)
+        return null;
+    const uploadsIdx = value.indexOf('/uploads/');
+    if (uploadsIdx < 0)
+        return null;
+    let normalized = value.slice(uploadsIdx);
+    const queryStart = normalized.search(/[?#]/);
+    if (queryStart >= 0)
+        normalized = normalized.slice(0, queryStart);
+    normalized = `/${normalized.replace(/^\/+/, '')}`;
+    if (!normalized.startsWith('/uploads/'))
+        return null;
+    const normalizedPath = path_1.default.posix.normalize(normalized.slice(1));
+    if (!normalizedPath.startsWith('uploads/'))
+        return null;
+    return `/${normalizedPath}`;
+};
+const collectTemplateUploadUrls = (value, urls) => {
+    if (value == null)
+        return;
+    if (typeof value === 'string') {
+        const normalized = normalizeUploadsUrl(value);
+        if (normalized)
+            urls.add(normalized);
+        return;
+    }
+    if (Array.isArray(value)) {
+        for (const item of value)
+            collectTemplateUploadUrls(item, urls);
+        return;
+    }
+    if (typeof value === 'object') {
+        for (const key of Object.keys(value))
+            collectTemplateUploadUrls(value[key], urls);
+    }
+};
+const normalizeTemplateUploadUrls = (value) => {
+    if (value == null)
+        return value;
+    if (typeof value === 'string') {
+        return normalizeUploadsUrl(value) || value;
+    }
+    if (Array.isArray(value)) {
+        return value.map(item => normalizeTemplateUploadUrls(item));
+    }
+    if (typeof value === 'object') {
+        const out = {};
+        for (const key of Object.keys(value)) {
+            out[key] = normalizeTemplateUploadUrls(value[key]);
+        }
+        return out;
+    }
+    return value;
+};
+const uploadUrlToAbsoluteFilePath = (url) => {
+    const normalizedUrl = normalizeUploadsUrl(url);
+    if (!normalizedUrl)
+        return null;
+    const relativeFromPublic = normalizedUrl.replace(/^\/+/, '');
+    const absolutePath = path_1.default.resolve(publicRootDir, relativeFromPublic);
+    if (absolutePath !== uploadsRootDir && !absolutePath.startsWith(uploadsRootDir + path_1.default.sep)) {
+        return null;
+    }
+    return absolutePath;
+};
+const zipEntryToUploadAbsolutePath = (entryName) => {
+    const normalizedEntry = path_1.default.posix.normalize(String(entryName || '').replace(/\\/g, '/'));
+    if (!normalizedEntry.startsWith('uploads/') || normalizedEntry.includes('..'))
+        return null;
+    const absolutePath = path_1.default.resolve(publicRootDir, normalizedEntry);
+    if (absolutePath !== uploadsRootDir && !absolutePath.startsWith(uploadsRootDir + path_1.default.sep)) {
+        return null;
+    }
+    return absolutePath;
+};
 const validateAllowedSubAdmins = async (ids) => {
     const unique = [...new Set(ids)];
     if (unique.length === 0)
@@ -95,9 +174,10 @@ exports.templatesRouter.post('/import-package', (0, auth_1.requireAuth)(['ADMIN'
         if (!req.file)
             return res.status(400).json({ error: 'missing_file' });
         let jsonContent = '';
+        let zip = null;
         // Check if zip
         if (req.file.mimetype === 'application/zip' || req.file.originalname.endsWith('.zip')) {
-            const zip = await jszip_1.default.loadAsync(req.file.buffer);
+            zip = await jszip_1.default.loadAsync(req.file.buffer);
             const file = zip.file('template.json');
             if (!file)
                 return res.status(400).json({ error: 'invalid_zip_no_template_json' });
@@ -109,9 +189,25 @@ exports.templatesRouter.post('/import-package', (0, auth_1.requireAuth)(['ADMIN'
         let templateData;
         try {
             templateData = JSON.parse(jsonContent);
+            templateData = normalizeTemplateUploadUrls(templateData);
         }
         catch (e) {
             return res.status(400).json({ error: 'invalid_json' });
+        }
+        // Restore bundled uploads from ZIP package so imported template stays visually identical.
+        if (zip) {
+            const zipEntries = Object.keys(zip.files);
+            for (const entryName of zipEntries) {
+                const entry = zip.files[entryName];
+                if (!entry || entry.dir)
+                    continue;
+                const targetPath = zipEntryToUploadAbsolutePath(entryName);
+                if (!targetPath)
+                    continue;
+                const content = await entry.async('nodebuffer');
+                fs_1.default.mkdirSync(path_1.default.dirname(targetPath), { recursive: true });
+                fs_1.default.writeFileSync(targetPath, content);
+            }
         }
         const userId = req.user.userId;
         // Remove system fields and extract visibility settings
@@ -269,6 +365,11 @@ exports.templatesRouter.get('/:id/export-package', (0, auth_1.requireAuth)(['ADM
             ...cleanTemplate,
             blockVisibilitySettings: Object.keys(blockVisibilitySettings).length > 0 ? blockVisibilitySettings : undefined
         };
+        // Collect every uploaded asset referenced by the template payload.
+        const referencedUploadUrls = new Set();
+        collectTemplateUploadUrls(exportData, referencedUploadUrls);
+        const includedAssets = [];
+        const missingAssets = [];
         // Create archive
         const archive = (0, archiver_1.default)('zip', { zlib: { level: 9 } });
         // Determine target directory: .../nvcar/temps
@@ -303,6 +404,22 @@ exports.templatesRouter.get('/:id/export-package', (0, auth_1.requireAuth)(['ADM
             archive.pipe(output);
             // Add template JSON with visibility settings
             archive.append(JSON.stringify(exportData, null, 2), { name: 'template.json' });
+            // Add all referenced uploaded files when they exist on disk.
+            for (const uploadUrl of Array.from(referencedUploadUrls).sort()) {
+                const sourcePath = uploadUrlToAbsoluteFilePath(uploadUrl);
+                const zipPath = uploadUrl.replace(/^\/+/, '');
+                if (!sourcePath || !fs_1.default.existsSync(sourcePath) || !fs_1.default.statSync(sourcePath).isFile()) {
+                    missingAssets.push(uploadUrl);
+                    continue;
+                }
+                archive.file(sourcePath, { name: zipPath });
+                includedAssets.push(uploadUrl);
+            }
+            archive.append(JSON.stringify({
+                includedAssets,
+                missingAssets,
+                exportedAt: new Date().toISOString()
+            }, null, 2), { name: 'assets-manifest.json' });
             // Add batch file
             const batContent = `@echo off
 set /p targetUrl="Enter the target server URL (default: https://localhost:4000): "
