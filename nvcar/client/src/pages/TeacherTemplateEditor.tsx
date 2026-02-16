@@ -507,6 +507,10 @@ export default function TeacherTemplateEditor() {
         return null
     }
 
+    const normalizeYear = (y: any) => String(y || '').replace(/\s+/g, '').replace(/-/g, '/').trim()
+
+    const levelOrder: Record<string, number> = { 'TPS': 0, 'PS': 1, 'MS': 2, 'GS': 3, 'EB1': 4, 'KG1': 1, 'KG2': 2, 'KG3': 3 }
+
     const computeNextSchoolYearName = (year: string | undefined) => {
         if (!year) return ''
         const m = year.match(/(\d{4})\s*([/\-])\s*(\d{4})/)
@@ -568,6 +572,38 @@ export default function TeacherTemplateEditor() {
             return t === 'end_of_year' || spid.endsWith('_end_of_year')
         })
     }, [savedSignatures])
+
+    const getSignatureForLevel = (targetLevel: string | null) => {
+        if (!targetLevel) return { hasSem1: hasSem1Signature, hasSem2: hasFinalSignature }
+
+        const normalizedTarget = targetLevel.toUpperCase()
+        const promotions = assignment?.data?.promotions || []
+
+        let hasSem1 = false
+        let hasSem2 = false
+
+        if ((student?.level || '').toUpperCase() === normalizedTarget) {
+            hasSem1 = hasSem1Signature
+            hasSem2 = hasFinalSignature
+        }
+
+        savedSignatures.forEach((sig: any) => {
+            if (sig.schoolYearName) {
+                const promo = promotions.find((p: any) => normalizeYear(p.year) === normalizeYear(sig.schoolYearName))
+                if (promo && promo.from?.toUpperCase() === normalizedTarget) {
+                    if (sig.type === 'standard' || !sig.type) hasSem1 = true
+                    if (sig.type === 'end_of_year') hasSem2 = true
+                }
+            }
+
+            if (sig.level?.toUpperCase() === normalizedTarget) {
+                if (sig.type === 'standard' || !sig.type) hasSem1 = true
+                if (sig.type === 'end_of_year') hasSem2 = true
+            }
+        })
+
+        return { hasSem1, hasSem2 }
+    }
 
     if (loading) return <div className="container"><div className="card"><div className="note">Chargement...</div></div></div>
     if (error && !template) return <div className="container"><div className="card"><div className="note" style={{ color: 'crimson' }}>{error}</div></div></div>
@@ -962,14 +998,54 @@ export default function TeacherTemplateEditor() {
                                         if (!b || !b.props) return null;
                                         const blockId = typeof b?.props?.blockId === 'string' && b.props.blockId.trim() ? b.props.blockId.trim() : null
                                         const key = buildVisibilityKey(template?._id, actualPageIndex, idx, blockId)
-                                        // Check visibility based on student's current level and admin settings
-                                        const studentLevel = (student?.level || 'PS').toUpperCase() as 'PS' | 'MS' | 'GS' | 'EB1'
-                                        const visibilitySetting = blockVisibility?.[studentLevel]?.teacher?.[key]
-                                        if (visibilitySetting) {
-                                            if (visibilitySetting === 'never') return null
-                                            if (visibilitySetting === 'after_sem1' && !hasSem1Signature && !hasFinalSignature) return null
-                                            if (visibilitySetting === 'after_sem2' && !hasFinalSignature) return null
+                                        const blockLevel = getBlockLevel(b)
+                                        const studentLevel = (student?.level || 'PS').toUpperCase()
+                                        const studentOrder = levelOrder[studentLevel] ?? 99
+
+                                        if (blockLevel) {
+                                            const blockOrder = levelOrder[blockLevel.toUpperCase()] ?? 99
+                                            if (blockOrder > studentOrder) return null
                                         }
+
+                                        let shouldShow = true
+
+                                        if (blockLevel) {
+                                            const visibilitySetting = blockVisibility?.[blockLevel.toUpperCase()]?.teacher?.[key]
+                                            const { hasSem1, hasSem2 } = getSignatureForLevel(blockLevel)
+
+                                            if (visibilitySetting) {
+                                                if (visibilitySetting === 'never') shouldShow = false
+                                                else if (visibilitySetting === 'after_sem1' && !hasSem1 && !hasSem2) shouldShow = false
+                                                else if (visibilitySetting === 'after_sem2' && !hasSem2) shouldShow = false
+                                            }
+                                        } else {
+                                            const levelsToCheck = Object.keys(levelOrder).filter(lvl => levelOrder[lvl] <= studentOrder)
+                                            let foundSetting = false
+                                            let anyLevelWouldShow = false
+
+                                            for (const lvl of levelsToCheck) {
+                                                const visibilitySetting = blockVisibility?.[lvl]?.teacher?.[key]
+                                                if (visibilitySetting) {
+                                                    foundSetting = true
+                                                    const { hasSem1, hasSem2 } = getSignatureForLevel(lvl)
+
+                                                    if (visibilitySetting === 'always') {
+                                                        anyLevelWouldShow = true
+                                                        break
+                                                    } else if (visibilitySetting === 'after_sem1' && (hasSem1 || hasSem2)) {
+                                                        anyLevelWouldShow = true
+                                                        break
+                                                    } else if (visibilitySetting === 'after_sem2' && hasSem2) {
+                                                        anyLevelWouldShow = true
+                                                        break
+                                                    }
+                                                }
+                                            }
+
+                                            shouldShow = !foundSetting || anyLevelWouldShow
+                                        }
+
+                                        if (!shouldShow) return null
                                         return (
                                             <div key={idx} style={{ position: 'absolute', left: b.props.x || 0, top: b.props.y || 0, zIndex: b.props.z ?? idx, padding: 6 }}>
                                                 {b.type === 'text' && (

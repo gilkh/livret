@@ -508,52 +508,52 @@ export default function TemplateReviewPreview({ template, student, assignment, s
                                                     const items = mergeToggleItems(baseItems, savedItems)
 
                                                     return items.map((it: any, i: number) => {
-                                                    // Check level - show if at or below student's current level
-                                                    const isAllowed = isLevelAtOrBelow(undefined, it.levels, student?.level);
+                                                        // Check level - show if at or below student's current level
+                                                        const isAllowed = isLevelAtOrBelow(undefined, it.levels, student?.level);
 
-                                                    const size = 40
-                                                    const getEmoji = (item: any) => {
-                                                        const e = item.emoji
-                                                        if (e && e.length >= 2) return e
-                                                        const c = (item.code || '').toLowerCase()
-                                                        if (c === 'lb' || c === 'ar') return '🇱🇧'
-                                                        if (c === 'fr') return '🇫🇷'
-                                                        if (c === 'en' || c === 'uk' || c === 'gb') return '🇬🇧'
-                                                        return '🏳️'
-                                                    }
-                                                    const emoji = getEmoji(it)
-                                                    const appleEmojiUrl = `https://emojicdn.elk.sh/${emoji}?style=apple`
-                                                    return (
-                                                        <div
-                                                            key={i}
-                                                            title={it.label}
-                                                            style={{
-                                                                width: size,
-                                                                height: size,
-                                                                minWidth: size,
-                                                                borderRadius: '50%',
-                                                                background: it.active ? '#fff' : 'rgba(255, 255, 255, 0.5)',
-                                                                border: it.active ? '2px solid #2563eb' : '0.25px solid #fff',
-                                                                display: 'flex',
-                                                                alignItems: 'center',
-                                                                justifyContent: 'center',
-                                                                cursor: 'default',
-                                                                boxShadow: it.active ? '0 0 0 2px rgba(37, 99, 235, 0.2)' : 'none',
-                                                                transform: it.active ? 'scale(1.1)' : 'scale(1)',
-                                                                opacity: isAllowed ? (it.active ? 1 : 0.9) : 0.5,
-                                                                filter: 'none'
-                                                            }}
-                                                        >
-                                                            {emoji ? (
-                                                                <img src={appleEmojiUrl} style={{ width: size * 0.9, height: size * 0.9, objectFit: 'contain' }} alt="" />
-                                                            ) : it.logo ? (
-                                                                <img src={it.logo} style={{ width: size * 0.9, height: size * 0.9, objectFit: 'contain' }} alt="" />
-                                                            ) : (
-                                                                <span style={{ fontSize: 20, lineHeight: 1 }}>{getEmoji(it)}</span>
-                                                            )}
-                                                        </div>
-                                                    )
-                                                })
+                                                        const size = 40
+                                                        const getEmoji = (item: any) => {
+                                                            const e = item.emoji
+                                                            if (e && e.length >= 2) return e
+                                                            const c = (item.code || '').toLowerCase()
+                                                            if (c === 'lb' || c === 'ar') return '🇱🇧'
+                                                            if (c === 'fr') return '🇫🇷'
+                                                            if (c === 'en' || c === 'uk' || c === 'gb') return '🇬🇧'
+                                                            return '🏳️'
+                                                        }
+                                                        const emoji = getEmoji(it)
+                                                        const appleEmojiUrl = `https://emojicdn.elk.sh/${emoji}?style=apple`
+                                                        return (
+                                                            <div
+                                                                key={i}
+                                                                title={it.label}
+                                                                style={{
+                                                                    width: size,
+                                                                    height: size,
+                                                                    minWidth: size,
+                                                                    borderRadius: '50%',
+                                                                    background: it.active ? '#fff' : 'rgba(255, 255, 255, 0.5)',
+                                                                    border: it.active ? '2px solid #2563eb' : '0.25px solid #fff',
+                                                                    display: 'flex',
+                                                                    alignItems: 'center',
+                                                                    justifyContent: 'center',
+                                                                    cursor: 'default',
+                                                                    boxShadow: it.active ? '0 0 0 2px rgba(37, 99, 235, 0.2)' : 'none',
+                                                                    transform: it.active ? 'scale(1.1)' : 'scale(1)',
+                                                                    opacity: isAllowed ? (it.active ? 1 : 0.9) : 0.5,
+                                                                    filter: 'none'
+                                                                }}
+                                                            >
+                                                                {emoji ? (
+                                                                    <img src={appleEmojiUrl} style={{ width: size * 0.9, height: size * 0.9, objectFit: 'contain' }} alt="" />
+                                                                ) : it.logo ? (
+                                                                    <img src={it.logo} style={{ width: size * 0.9, height: size * 0.9, objectFit: 'contain' }} alt="" />
+                                                                ) : (
+                                                                    <span style={{ fontSize: 20, lineHeight: 1 }}>{getEmoji(it)}</span>
+                                                                )}
+                                                            </div>
+                                                        )
+                                                    })
                                                 })()}
                                             </div>
                                         )}
@@ -590,29 +590,29 @@ export default function TemplateReviewPreview({ template, student, assignment, s
                                                     const items = mergeToggleItems(baseItems, savedItems)
 
                                                     return items.map((it: any, i: number) => {
-                                                    // Check level - show if at or below student's current level
-                                                    const isAllowed = isLevelAtOrBelow(undefined, it.levels, student?.level);
+                                                        // Check level - show if at or below student's current level
+                                                        const isAllowed = isLevelAtOrBelow(undefined, it.levels, student?.level);
 
-                                                    const r = b.props.radius || 40
-                                                    const size = r * 2
-                                                    return (
-                                                        <div
-                                                            key={i}
-                                                            style={{
-                                                                width: size,
-                                                                height: size,
-                                                                borderRadius: '50%',
-                                                                overflow: 'hidden',
-                                                                position: 'relative',
-                                                                cursor: 'default',
-                                                                boxShadow: it.active ? '0 0 0 3px #6c5ce7' : '0 0 0 1px #ddd',
-                                                                opacity: isAllowed ? (it.active ? 1 : 0.9) : 0.5
-                                                            }}
-                                                        >
-                                                            {it.logo ? <img src={it.logo} style={{ width: '100%', height: '100%', objectFit: 'cover', filter: it.active ? 'brightness(1.1)' : 'brightness(0.6)' }} alt="" /> : <div style={{ width: '100%', height: '100%', background: '#ddd' }} />}
-                                                        </div>
-                                                    )
-                                                })
+                                                        const r = b.props.radius || 40
+                                                        const size = r * 2
+                                                        return (
+                                                            <div
+                                                                key={i}
+                                                                style={{
+                                                                    width: size,
+                                                                    height: size,
+                                                                    borderRadius: '50%',
+                                                                    overflow: 'hidden',
+                                                                    position: 'relative',
+                                                                    cursor: 'default',
+                                                                    boxShadow: it.active ? '0 0 0 3px #6c5ce7' : '0 0 0 1px #ddd',
+                                                                    opacity: isAllowed ? (it.active ? 1 : 0.9) : 0.5
+                                                                }}
+                                                            >
+                                                                {it.logo ? <img src={it.logo} style={{ width: '100%', height: '100%', objectFit: 'cover', filter: it.active ? 'brightness(1.1)' : 'brightness(0.6)' }} alt="" /> : <div style={{ width: '100%', height: '100%', background: '#ddd' }} />}
+                                                            </div>
+                                                        )
+                                                    })
                                                 })()}
                                             </div>
                                         )}

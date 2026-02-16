@@ -32,6 +32,7 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
     const [error, setError] = useState('')
     const [activeYear, setActiveYear] = useState<any>(null)
     const [blockVisibility, setBlockVisibility] = useState<any>({})
+    const [snapshotReason, setSnapshotReason] = useState<string | null>(null)
     const { levels } = useLevels()
 
     const getNextLevel = (current: string) => {
@@ -107,13 +108,13 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                 const promo = promotions.find((p: any) => normalizeYear(p.year) === normalizeYear(sig.schoolYearName))
                 if (promo && promo.from?.toUpperCase() === normalizedTarget) {
                     if (sig.type === 'standard' || !sig.type) hasSem1 = true
-                    if (sig.type === 'end_of_year') hasSem2 = true
+                    if (sig.type === 'end_of_year' || String(sig?.signaturePeriodId || '').endsWith('_sem2') || String(sig?.signaturePeriodId || '').endsWith('_end_of_year')) hasSem2 = true
                 }
             }
             // Also check direct level match on signature
             if (sig.level?.toUpperCase() === normalizedTarget) {
                 if (sig.type === 'standard' || !sig.type) hasSem1 = true
-                if (sig.type === 'end_of_year') hasSem2 = true
+                if (sig.type === 'end_of_year' || String(sig?.signaturePeriodId || '').endsWith('_sem2') || String(sig?.signaturePeriodId || '').endsWith('_end_of_year')) hasSem2 = true
             }
         })
 
@@ -314,6 +315,7 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                     console.log('[CarnetPrint] Loading saved gradebook:', savedId)
                     const r = await api.get(`/saved-gradebooks/${savedId}`)
                     const savedData = r.data
+                    setSnapshotReason(savedData.meta?.snapshotReason || null)
 
                     setStudent({
                         ...savedData.data.student,
@@ -574,9 +576,15 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                             let shouldShow = true
 
                             if (!emptyExport) {
+                                let viewKey = 'pdf'
+                                if (mode === 'saved') {
+                                    if (snapshotReason === 'sem1') viewKey = 'archive_sem1'
+                                    else if (['promotion', 'year_end'].includes(snapshotReason || '')) viewKey = 'archive_final'
+                                }
+
                                 if (blockLevel) {
                                     // Block has a level - use that level's settings
-                                    const visibilitySetting = blockVisibility?.[blockLevel.toUpperCase()]?.pdf?.[key]
+                                    const visibilitySetting = blockVisibility?.[blockLevel.toUpperCase()]?.[viewKey]?.[key]
                                     const { hasSem1, hasSem2 } = getSignatureForLevel(blockLevel)
 
                                     if (visibilitySetting) {
@@ -595,7 +603,7 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                     let anyLevelWouldShow = false
 
                                     for (const lvl of levelsToCheck) {
-                                        const visibilitySetting = blockVisibility?.[lvl]?.pdf?.[key]
+                                        const visibilitySetting = blockVisibility?.[lvl]?.[viewKey]?.[key]
                                         if (visibilitySetting) {
                                             foundSetting = true
                                             const { hasSem1, hasSem2 } = getSignatureForLevel(lvl)
@@ -1009,59 +1017,19 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                     })()}
 
                                     {b.type === 'signature_box' && (() => {
-                                        const blockLevel = getBlockLevel(b)
-                                        const history = assignment?.data?.signatures || []
-                                        const promotions = assignment?.data?.promotions || []
+                                        const configuredLevel = String((b.props as any)?.level || getBlockLevel(b) || '').trim() || null
+                                        const semester = getSemesterNumber(b)
+                                        const found = pickSignatureForLevelAndSemester({ level: configuredLevel, semester })
+                                        if (!found) return null
 
-                                        // Check current signature
-                                        if (!blockLevel) {
-                                            if (signature) {
-                                                const src = signature.signatureData || signature.signatureUrl
-                                                return (
-                                                    <div style={{ width: b.props.width || 200, height: b.props.height || 80, border: 'none', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#999' }}>
-                                                        {src ? <img src={src} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé'}
-                                                    </div>
-                                                )
-                                            }
-                                        } else {
-                                            // Block has specific level
-                                            const sigLevel = (signature as any)?.level
-                                            if (signature && ((sigLevel && sigLevel === blockLevel) || (!sigLevel && student?.level === blockLevel))) {
-                                                const src = signature.signatureData || signature.signatureUrl
-                                                return (
-                                                    <div style={{ width: b.props.width || 200, height: b.props.height || 80, border: 'none', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#999' }}>
-                                                        {src ? <img src={src} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé'}
-                                                    </div>
-                                                )
-                                            }
-                                        }
+                                        const src = found.signatureData || found.signatureUrl
+                                        const label = semester === 2 ? '✓ Signé Fin Année' : '✓ Signé'
 
-                                        // Check history for matching signature
-                                        if (blockLevel) {
-                                            const matchingSig = history.find((sig: any) => {
-                                                if (b.props.period === 'end-year' && sig.type !== 'end_of_year') return false
-                                                if ((!b.props.period || b.props.period === 'mid-year') && (sig.type === 'end_of_year')) return false
-
-                                                if (sig.level && sig.level === blockLevel) return true
-
-                                                if (sig.schoolYearName) {
-                                                    const promo = promotions.find((p: any) => normalizeYear(p.year) === normalizeYear(sig.schoolYearName))
-                                                    if (promo && promo.from === blockLevel) return true
-                                                }
-                                                return false
-                                            })
-
-                                            if (matchingSig) {
-                                                const src = matchingSig.signatureData || matchingSig.signatureUrl
-                                                return (
-                                                    <div style={{ width: b.props.width || 200, height: b.props.height || 80, border: 'none', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#999' }}>
-                                                        {src ? <img src={src} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : `✓ Signé (${matchingSig.schoolYearName || 'Ancien'})`}
-                                                    </div>
-                                                )
-                                            }
-                                        }
-
-                                        return null
+                                        return (
+                                            <div style={{ width: b.props.width || 200, height: b.props.height || 80, border: 'none', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#999' }}>
+                                                {src ? <img src={src} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : label}
+                                            </div>
+                                        )
                                     })()}
 
                                     {b.type === 'dropdown' && (() => {
