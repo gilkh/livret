@@ -646,6 +646,7 @@ const auditLogger_1 = require("../utils/auditLogger");
 const readinessUtils_1 = require("../utils/readinessUtils");
 // Helper: Get next level based on order
 const normalizeLevel = (level) => String(level || '').toUpperCase();
+const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const getFromLevelConfig = (fromLevelRaw) => {
     const normalized = normalizeLevel(fromLevelRaw || 'PS') || 'PS';
     const classLevels = normalized === 'PS' ? ['PS', 'TPS'] : [normalized];
@@ -653,11 +654,35 @@ const getFromLevelConfig = (fromLevelRaw) => {
     return { fromLevel: normalized, classLevels, levelVariants };
 };
 const getNextLevelName = async (currentLevel) => {
-    const currentDoc = await Level_1.Level.findOne({ name: currentLevel }).lean();
-    if (!currentDoc)
-        return null;
-    const nextDoc = await Level_1.Level.findOne({ order: currentDoc.order + 1 }).lean();
-    return nextDoc ? nextDoc.name : null;
+    const normalizedCurrent = normalizeLevel(currentLevel);
+    const fallbackNextByLevel = {
+        TPS: 'PS',
+        PS: 'MS',
+        MS: 'GS',
+        GS: 'EB1',
+        KG1: 'KG2',
+        KG2: 'KG3',
+        KG3: 'EB1'
+    };
+    const fallbackNext = fallbackNextByLevel[normalizedCurrent];
+    const currentDoc = await Level_1.Level.findOne({
+        name: { $regex: new RegExp(`^${escapeRegex(normalizedCurrent)}$`, 'i') }
+    }).lean();
+    if (currentDoc && typeof currentDoc.order === 'number') {
+        const nextDoc = await Level_1.Level.findOne({ order: currentDoc.order + 1 }).lean();
+        if (nextDoc?.name)
+            return String(nextDoc.name);
+        const nextByHigherOrder = await Level_1.Level.findOne({ order: { $gt: currentDoc.order } }).sort({ order: 1 }).lean();
+        if (nextByHigherOrder?.name)
+            return String(nextByHigherOrder.name);
+    }
+    if (fallbackNext) {
+        const fallbackDoc = await Level_1.Level.findOne({
+            name: { $regex: new RegExp(`^${escapeRegex(fallbackNext)}$`, 'i') }
+        }).lean();
+        return fallbackDoc?.name ? String(fallbackDoc.name) : fallbackNext;
+    }
+    return null;
 };
 // PS Onboarding: Get PS students for the previous school year
 exports.adminExtrasRouter.get('/ps-onboarding/students', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
