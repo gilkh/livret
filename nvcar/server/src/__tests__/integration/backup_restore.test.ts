@@ -75,4 +75,59 @@ describe('backup & restore', () => {
     // Cleanup backup file
     try { fs.unlinkSync(backupPath) } catch (e) { }
   })
+
+  it('rejects invalid restore mode', async () => {
+    const admin = await User.create({ email: 'admin-invalid-mode', role: 'ADMIN', displayName: 'Admin Invalid', passwordHash: 'hash' })
+    const token = signToken({ userId: String(admin._id), role: 'ADMIN' })
+
+    const zip = new JSZip()
+    zip.file('Level.json', JSON.stringify([], null, 2))
+    const zipBuffer = await zip.generateAsync({ type: 'nodebuffer' })
+    const backupName = `invalid-mode-${Date.now()}.zip`
+    const backupPath = path.join(process.cwd(), 'backups', backupName)
+    fs.writeFileSync(backupPath, zipBuffer)
+
+    try {
+      const res = await request(app)
+        .post(`/backup/restore/${backupName}`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ mode: 'invalid-mode' })
+
+      expect(res.status).toBe(400)
+      expect(String(res.body.error || '')).toContain('Invalid restore mode')
+    } finally {
+      try { fs.unlinkSync(backupPath) } catch (e) { }
+    }
+  })
+
+  it('safe restore rolls back to original data when restore payload is invalid', async () => {
+    const admin = await User.create({ email: 'admin-safe-rollback', role: 'ADMIN', displayName: 'Admin Safe Rollback', passwordHash: 'hash' })
+    const token = signToken({ userId: String(admin._id), role: 'ADMIN' })
+
+    await Level.create({ name: 'SAFE_KEEP', order: 777 })
+    expect(await Level.countDocuments({ name: 'SAFE_KEEP' })).toBe(1)
+
+    const zip = new JSZip()
+    zip.file('User.json', JSON.stringify([{ email: 'broken-user-without-password', role: 'ADMIN', displayName: 'Broken User' }], null, 2))
+    const zipBuffer = await zip.generateAsync({ type: 'nodebuffer' })
+
+    const badBackupName = `bad-safe-restore-${Date.now()}.zip`
+    const badBackupPath = path.join(process.cwd(), 'backups', badBackupName)
+    fs.writeFileSync(badBackupPath, zipBuffer)
+
+    try {
+      const restoreRes = await request(app)
+        .post(`/backup/restore/${badBackupName}`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ mode: 'safe' })
+
+      expect(restoreRes.status).toBe(500)
+      expect(restoreRes.body.rollbackPerformed).toBe(true)
+
+      const kept = await Level.countDocuments({ name: 'SAFE_KEEP' })
+      expect(kept).toBe(1)
+    } finally {
+      try { fs.unlinkSync(badBackupPath) } catch (e) { }
+    }
+  })
 })

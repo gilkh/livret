@@ -37,6 +37,7 @@ import { adminExtrasRouter } from './routes/adminExtras'
 import { simulationsRouter } from './routes/simulations'
 import { templatePropagationRouter } from './routes/templatePropagation'
 import { errorLogsRouter } from './routes/errorLogs'
+import { integrityRouter } from './routes/integrity'
 import compression from 'compression'
 
 export const createApp = () => {
@@ -92,6 +93,7 @@ export const createApp = () => {
   app.use('/simulations', simulationsRouter)
   app.use('/template-propagation', templatePropagationRouter)
   app.use('/error-logs', errorLogsRouter)
+  app.use('/integrity', integrityRouter)
   app.use('/uploads', express.static(path.join(process.cwd(), 'public', 'uploads')))
 
   app.get('/health', (_, res) => res.json({ ok: true }))

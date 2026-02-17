@@ -11,6 +11,7 @@ const Enrollment_1 = require("../models/Enrollment");
 const SchoolYear_1 = require("../models/SchoolYear");
 const templateUtils_1 = require("../utils/templateUtils");
 const cache_1 = require("../utils/cache");
+const assignmentMetadata_1 = require("../utils/assignmentMetadata");
 exports.templatePropagationRouter = (0, express_1.Router)();
 /**
  * Get all assignments for a template, grouped by school year and class
@@ -193,13 +194,13 @@ exports.templatePropagationRouter.patch('/:templateId', (0, auth_1.requireAuth)(
                 const result = await TemplateAssignment_1.TemplateAssignment.updateMany({
                     templateId,
                     _id: { $in: propagateToAssignmentIds }
-                }, { $set: { templateVersion: updatedTemplate.currentVersion } });
+                }, { $set: (0, assignmentMetadata_1.normalizeAssignmentMetadataPatch)({ templateVersion: updatedTemplate.currentVersion }) }, (0, assignmentMetadata_1.assignmentUpdateOptions)());
                 propagatedCount = result.modifiedCount;
                 skippedCount = existingAssignments.length - propagatedCount;
             }
             else if (propagateToAssignmentIds === 'all') {
                 // Update all assignments
-                const result = await TemplateAssignment_1.TemplateAssignment.updateMany({ templateId }, { $set: { templateVersion: updatedTemplate.currentVersion } });
+                const result = await TemplateAssignment_1.TemplateAssignment.updateMany({ templateId }, { $set: (0, assignmentMetadata_1.normalizeAssignmentMetadataPatch)({ templateVersion: updatedTemplate.currentVersion }) }, (0, assignmentMetadata_1.assignmentUpdateOptions)());
                 propagatedCount = result.modifiedCount;
             }
             else if (propagateToAssignmentIds === 'none' || (Array.isArray(propagateToAssignmentIds) && propagateToAssignmentIds.length === 0)) {
@@ -208,7 +209,7 @@ exports.templatePropagationRouter.patch('/:templateId', (0, auth_1.requireAuth)(
             }
             else {
                 // Default: update all (backward compatibility)
-                const result = await TemplateAssignment_1.TemplateAssignment.updateMany({ templateId }, { $set: { templateVersion: updatedTemplate.currentVersion } });
+                const result = await TemplateAssignment_1.TemplateAssignment.updateMany({ templateId }, { $set: (0, assignmentMetadata_1.normalizeAssignmentMetadataPatch)({ templateVersion: updatedTemplate.currentVersion }) }, (0, assignmentMetadata_1.assignmentUpdateOptions)());
                 propagatedCount = result.modifiedCount;
             }
         }
@@ -258,7 +259,7 @@ exports.templatePropagationRouter.post('/:templateId/propagate', (0, auth_1.requ
         const result = await TemplateAssignment_1.TemplateAssignment.updateMany({
             templateId,
             _id: { $in: assignmentIds }
-        }, { $set: { templateVersion: version } });
+        }, { $set: (0, assignmentMetadata_1.normalizeAssignmentMetadataPatch)({ templateVersion: version }) }, (0, assignmentMetadata_1.assignmentUpdateOptions)());
         res.json({
             success: true,
             updatedCount: result.modifiedCount,
@@ -299,7 +300,7 @@ exports.templatePropagationRouter.post('/:templateId/rollback', (0, auth_1.requi
         const result = await TemplateAssignment_1.TemplateAssignment.updateMany({
             templateId,
             _id: { $in: assignmentIds }
-        }, { $set: { templateVersion: targetVersion } });
+        }, { $set: (0, assignmentMetadata_1.normalizeAssignmentMetadataPatch)({ templateVersion: targetVersion }) }, (0, assignmentMetadata_1.assignmentUpdateOptions)());
         res.json({
             success: true,
             rolledBackCount: result.modifiedCount,

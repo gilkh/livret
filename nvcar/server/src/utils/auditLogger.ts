@@ -45,6 +45,7 @@ type AuditAction =
     // System
     | 'CREATE_BACKUP'
     | 'RESTORE_BACKUP'
+    | 'RESTORE_DRILL'
     | 'EMPTY_DATABASE'
     | 'UPDATE_SCHOOL_YEAR'
     | 'UPDATE_SETTINGS'

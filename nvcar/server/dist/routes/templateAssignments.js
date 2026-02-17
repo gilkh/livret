@@ -14,6 +14,7 @@ const SchoolYear_1 = require("../models/SchoolYear");
 const signatureService_1 = require("../services/signatureService");
 const rolloverService_1 = require("../services/rolloverService");
 const transactionUtils_1 = require("../utils/transactionUtils");
+const assignmentMetadata_1 = require("../utils/assignmentMetadata");
 exports.templateAssignmentsRouter = (0, express_1.Router)();
 // Admin: Assign template to all students in a level
 exports.templateAssignmentsRouter.post('/bulk-level', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
@@ -156,10 +157,11 @@ exports.templateAssignmentsRouter.post('/bulk-level', (0, auth_1.requireAuth)(['
                 const fromYearId = String(existing.completionSchoolYearId || '');
                 const archiveUpdates = (0, rolloverService_1.archiveYearCompletions)(existing, fromYearId);
                 const rolloverUpdates = (0, rolloverService_1.getRolloverUpdate)(String(targetYearId), assignedBy);
+                const normalizedSet = (0, assignmentMetadata_1.normalizeAssignmentMetadataPatch)({ ...rolloverUpdates, ...archiveUpdates });
                 await TemplateAssignment_1.TemplateAssignment.updateOne({ _id: existing._id }, {
-                    $set: { ...rolloverUpdates, ...archiveUpdates },
+                    $set: normalizedSet,
                     $inc: { dataVersion: 1 }
-                }, { session });
+                }, (0, assignmentMetadata_1.assignmentUpdateOptions)({ session }));
             }
             return { count: ops.length, totalProcessed };
         });
@@ -301,7 +303,10 @@ exports.templateAssignmentsRouter.post('/', (0, auth_1.requireAuth)(['ADMIN']), 
                 delete setOnInsertSingle[key];
             });
         }
-        const assignment = await TemplateAssignment_1.TemplateAssignment.findOneAndUpdate({ templateId, studentId }, { $setOnInsert: setOnInsertSingle, $set: setFieldsSingle }, { upsert: true, new: true });
+        const assignment = await TemplateAssignment_1.TemplateAssignment.findOneAndUpdate({ templateId, studentId }, {
+            $setOnInsert: (0, assignmentMetadata_1.normalizeAssignmentMetadataPatch)(setOnInsertSingle),
+            $set: (0, assignmentMetadata_1.normalizeAssignmentMetadataPatch)(setFieldsSingle)
+        }, (0, assignmentMetadata_1.assignmentUpdateOptions)({ upsert: true, new: true, setDefaultsOnInsert: true }));
         res.json(await (0, signatureService_1.populateSignatures)(assignment));
     }
     catch (e) {
@@ -458,7 +463,7 @@ exports.templateAssignmentsRouter.patch('/:id/status', (0, auth_1.requireAuth)([
                 completedBy = null;
             }
         }
-        const updated = await TemplateAssignment_1.TemplateAssignment.findByIdAndUpdate(id, {
+        const updated = await TemplateAssignment_1.TemplateAssignment.findByIdAndUpdate(id, (0, assignmentMetadata_1.normalizeAssignmentMetadataPatch)({
             status: newStatus,
             teacherCompletions,
             isCompleted,
@@ -468,7 +473,8 @@ exports.templateAssignmentsRouter.patch('/:id/status', (0, auth_1.requireAuth)([
             completedAtSem1,
             isCompletedSem2,
             completedAtSem2
-        }, { new: true });
+        }), (0, assignmentMetadata_1.assignmentUpdateOptions)({ new: true }));
+        (0, assignmentMetadata_1.warnOnInvalidStatusTransition)(assignment.status, newStatus, 'templateAssignments.patchStatus');
         res.json(await (0, signatureService_1.populateSignatures)(updated));
     }
     catch (e) {

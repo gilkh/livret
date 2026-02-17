@@ -24,6 +24,7 @@ import { Enrollment } from '../models/Enrollment'
 import { TeacherClassAssignment } from '../models/TeacherClassAssignment'
 import { ClassModel } from '../models/Class'
 import { RoleScope } from '../models/RoleScope'
+import { assignmentUpdateOptions, normalizeAssignmentMetadataPatch, warnOnInvalidStatusTransition } from '../utils/assignmentMetadata'
 
 /**
  * Check if an error is a MongoDB duplicate key error (code 11000).
@@ -406,8 +407,10 @@ export const signTemplateAssignment = async ({
                         $inc: { dataVersion: 1 },
                         $set: { status: 'signed' }
                     },
-                    { new: true, session }
+                    assignmentUpdateOptions({ new: true, session })
                 )
+
+                warnOnInvalidStatusTransition((assignment as any).status, 'signed', 'signatureService.sign(transaction)')
 
                 await TemplateChangeLog.create([
                     {
@@ -470,8 +473,10 @@ export const signTemplateAssignment = async ({
                         $inc: { dataVersion: 1 },
                         $set: { status: 'signed' }
                     },
-                    { new: true }
+                    assignmentUpdateOptions({ new: true })
                 )
+
+                warnOnInvalidStatusTransition((assignment as any).status, 'signed', 'signatureService.sign(non-transaction)')
 
                 try {
                     await TemplateChangeLog.create({
@@ -605,12 +610,17 @@ export const unsignTemplateAssignment = async ({
                         // No need to pull from data.signatures as we don't store it there anymore
                         $inc: { dataVersion: 1 }
                     },
-                    { new: true, session }
+                    assignmentUpdateOptions({ new: true, session })
                 )
 
                 const remaining = await TemplateSignature.countDocuments({ templateAssignmentId }).session(session)
                 if (remaining === 0) {
-                    await TemplateAssignment.findByIdAndUpdate(templateAssignmentId, { status: 'completed', $inc: { dataVersion: 1 } }, { session })
+                    warnOnInvalidStatusTransition((assignment as any).status, 'completed', 'signatureService.unsign(transaction)')
+                    await TemplateAssignment.findByIdAndUpdate(
+                        templateAssignmentId,
+                        normalizeAssignmentMetadataPatch({ status: 'completed', $inc: { dataVersion: 1 } } as any),
+                        assignmentUpdateOptions({ session })
+                    )
                 }
 
                 try {
@@ -664,12 +674,17 @@ export const unsignTemplateAssignment = async ({
                     {
                         $inc: { dataVersion: 1 }
                     },
-                    { new: true }
+                    assignmentUpdateOptions({ new: true })
                 )
 
                 const remaining = await TemplateSignature.countDocuments({ templateAssignmentId })
                 if (remaining === 0) {
-                    await TemplateAssignment.findByIdAndUpdate(templateAssignmentId, { status: 'completed', $inc: { dataVersion: 1 } })
+                    warnOnInvalidStatusTransition((assignment as any).status, 'completed', 'signatureService.unsign(non-transaction)')
+                    await TemplateAssignment.findByIdAndUpdate(
+                        templateAssignmentId,
+                        normalizeAssignmentMetadataPatch({ status: 'completed', $inc: { dataVersion: 1 } } as any),
+                        assignmentUpdateOptions()
+                    )
                 }
 
                 try {

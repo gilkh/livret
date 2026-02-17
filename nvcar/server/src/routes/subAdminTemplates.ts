@@ -25,6 +25,7 @@ import mongoose from 'mongoose'
 import { checkAndAssignTemplates, mergeAssignmentDataIntoTemplate } from '../utils/templateUtils'
 import { withCache, clearCache } from '../utils/cache'
 import { createAssignmentSnapshot } from '../services/rolloverService'
+import { assignmentUpdateOptions, normalizeAssignmentMetadataPatch, warnOnInvalidStatusTransition } from '../utils/assignmentMetadata'
 import multer from 'multer'
 import path from 'path'
 import fs from 'fs'
@@ -847,7 +848,7 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote', require
                             $push: { 'data.promotions': promotionData },
                             $inc: { dataVersion: 1 }
                         },
-                        { new: true }
+                        assignmentUpdateOptions({ new: true })
                     )
                 } catch (err) {
                     // Attempt rollback of side effects
@@ -871,7 +872,7 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote', require
 
                         // Restore assignment data
                         try {
-                            await TemplateAssignment.findByIdAndUpdate(templateAssignmentId, { $set: { data: assignmentDataBefore } })
+                            await TemplateAssignment.findByIdAndUpdate(templateAssignmentId, { $set: { data: assignmentDataBefore } }, assignmentUpdateOptions())
                         } catch (e) { console.error('Rollback: failed to restore assignment data', e) }
                     } catch (e) {
                         console.error('Rollback attempt failed:', e)
@@ -931,7 +932,7 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote', require
                             $push: { 'data.promotions': promotionData },
                             $inc: { dataVersion: 1 }
                         },
-                        { new: true, session }
+                        assignmentUpdateOptions({ new: true, session })
                     )
 
                     await session.commitTransaction()
@@ -1221,13 +1222,10 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', requireAut
                     const student = await Student.findById(updatedAssignment.studentId).lean()
                     const statuses = await StudentCompetencyStatus.find({ studentId: updatedAssignment.studentId }).lean()
                     const signatures = await TemplateSignature.find({ templateAssignmentId }).lean()
-
+                    
                     // Get enrollment and class info
                     const activeSchoolYear = await SchoolYear.findOne({ active: true }).lean()
                     const schoolYearId = signatureSchoolYearId || (activeSchoolYear ? String(activeSchoolYear._id) : '')
-
-                    const snapshotSignatures = signatures
-
                     let enrollment: any = null
                     let className = ''
                     if (schoolYearId) {
@@ -1244,9 +1242,9 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', requireAut
                         statuses,
                         assignment: updatedAssignment,
                         className,
-                        signatures: snapshotSignatures,
-                        signature: snapshotSignatures.find((s: any) => s.type === 'standard') || null,
-                        finalSignature: snapshotSignatures.find((s: any) => s.type === 'end_of_year') || null,
+                        signatures,
+                        signature: signature || signatures.find((s: any) => s.type === 'standard') || null,
+                        finalSignature: null,
                     }
 
                     await createAssignmentSnapshot(
@@ -1661,13 +1659,8 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
 
         const teacherCompletions = (assignment as any).teacherCompletions || []
         const languageCompletions = (assignment as any).languageCompletions || []
-        const normalizedCurrentLevel = String(level || '').trim().toUpperCase()
         const languageCompletionMap: Record<string, any> = {}
         ;(Array.isArray(languageCompletions) ? languageCompletions : []).forEach((entry: any) => {
-            const entryLevel = String(entry?.level || '').trim().toUpperCase()
-            if (normalizedCurrentLevel) {
-                if (!entryLevel || entryLevel !== normalizedCurrentLevel) return
-            }
             const codeRaw = String(entry?.code || '').toLowerCase()
             const normalized = codeRaw === 'lb' || codeRaw === 'ar' ? 'ar' : (codeRaw === 'en' || codeRaw === 'uk' || codeRaw === 'gb') ? 'en' : codeRaw === 'fr' ? 'fr' : codeRaw
             if (!normalized) return
@@ -1745,7 +1738,17 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
                 if (semester === 1) return !!(entry.completedSem1 || entry.completed)
                 return !!entry.completedSem2
             }
-            return false
+
+            const uniqueIds = [...new Set(teacherIds)]
+            if (semester === 1) {
+                return uniqueIds.some(tid =>
+                    (teacherCompletions || []).some((tc: any) => String(tc.teacherId) === String(tid) && (tc.completedSem1 || tc.completed))
+                )
+            }
+
+            return uniqueIds.some(tid =>
+                (teacherCompletions || []).some((tc: any) => String(tc.teacherId) === String(tid) && tc.completedSem2)
+            )
         }
 
         const groupStatus = (ids: string[], langCode: string) => {
@@ -1766,20 +1769,6 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
             english: groupStatus(englishTeacherIds, 'en'),
             polyvalent: groupStatus(polyvalentTeacherIds, 'fr')
         }
-
-        const completionGroups = [teacherStatus.arabic, teacherStatus.english, teacherStatus.polyvalent]
-            .filter((group: any) => Array.isArray(group?.teachers) && group.teachers.length > 0)
-        const scopedIsCompletedSem1 = completionGroups.length > 0
-            ? completionGroups.every((group: any) => !!group.doneSem1)
-            : !!((assignment as any).isCompletedSem1 || (assignment as any).isCompleted)
-        const scopedIsCompletedSem2 = completionGroups.length > 0
-            ? completionGroups.every((group: any) => !!group.doneSem2)
-            : !!(assignment as any).isCompletedSem2
-
-        ;(assignment as any).isCompletedSem1 = scopedIsCompletedSem1
-        ;(assignment as any).isCompletedSem2 = scopedIsCompletedSem2
-        ;(assignment as any).isCompleted = scopedIsCompletedSem1
-        eligibleForSign = eligibleForSign && scopedIsCompletedSem1
 
         if (!assignment.data) assignment.data = {}
         assignment.data.signatures = mergedDataSignatures
@@ -1940,7 +1929,8 @@ subAdminTemplatesRouter.post('/templates/sign-class/:classId', requireAuth(['SUB
             }
 
             // Update assignment status
-            await TemplateAssignment.findByIdAndUpdate(assignment._id, { status: 'signed' })
+            warnOnInvalidStatusTransition((assignment as any).status, 'signed', 'subAdminTemplates.signClass')
+            await TemplateAssignment.findByIdAndUpdate(assignment._id, normalizeAssignmentMetadataPatch({ status: 'signed' }), assignmentUpdateOptions())
 
             // Log audit
             const template = await GradebookTemplate.findById(assignment.templateId).lean()
@@ -2029,12 +2019,12 @@ subAdminTemplatesRouter.post('/templates/:assignmentId/mark-done', requireAuth([
         // Update assignment
         const updated = await TemplateAssignment.findByIdAndUpdate(
             assignmentId,
-            {
+            normalizeAssignmentMetadataPatch({
                 isCompleted: true,
                 completedAt: new Date(),
                 completedBy: subAdminId,
-            },
-            { new: true }
+            }),
+            assignmentUpdateOptions({ new: true })
         )
 
         // Log audit
@@ -2082,12 +2072,12 @@ subAdminTemplatesRouter.post('/templates/:assignmentId/unmark-done', requireAuth
         // Update assignment
         const updated = await TemplateAssignment.findByIdAndUpdate(
             assignmentId,
-            {
+            normalizeAssignmentMetadataPatch({
                 isCompleted: false,
                 completedAt: null,
                 completedBy: null,
-            },
-            { new: true }
+            }),
+            assignmentUpdateOptions({ new: true })
         )
 
         // Log audit
@@ -2196,7 +2186,7 @@ subAdminTemplatesRouter.patch('/templates/:assignmentId/data', requireAuth(['SUB
                         [`data.${keyStable}`]: items
                     }
                 },
-                { new: true }
+                assignmentUpdateOptions({ new: true })
             )
 
             // Log audit
@@ -2241,8 +2231,10 @@ subAdminTemplatesRouter.patch('/templates/:assignmentId/data', requireAuth(['SUB
                     },
                     $inc: { dataVersion: 1 }
                 },
-                { new: true }
+                assignmentUpdateOptions({ new: true })
             )
+
+            warnOnInvalidStatusTransition((assignment as any).status, assignment.status === 'draft' ? 'in_progress' : assignment.status, 'subAdminTemplates.dataPatch')
 
             if (!updated) {
                 const current = await TemplateAssignment.findById(assignmentId).lean()
@@ -2408,7 +2400,8 @@ subAdminTemplatesRouter.post('/assign-student', requireAuth(['SUBADMIN', 'AEFE']
                 studentId,
                 status: { $in: ['draft', 'in_progress'] }
             },
-            { $set: { assignedTeachers: teacherIds } }
+            { $set: { assignedTeachers: teacherIds } },
+            assignmentUpdateOptions()
         )
 
         res.json({ success: true })

@@ -46,6 +46,7 @@ const TeacherClassAssignment_1 = require("../models/TeacherClassAssignment");
 const GradebookTemplate_1 = require("../models/GradebookTemplate");
 const SchoolYear_1 = require("../models/SchoolYear");
 const crypto_1 = require("crypto");
+const assignmentMetadata_1 = require("./assignmentMetadata");
 function getVersionedTemplate(template, templateVersion) {
     if (!templateVersion || templateVersion === template.currentVersion)
         return template;
@@ -324,7 +325,7 @@ async function checkAndAssignTemplates(studentId, level, schoolYearId, classId, 
                 }
                 // Always update teachers to the new class teachers
                 updates.assignedTeachers = teacherIds;
-                await TemplateAssignment_1.TemplateAssignment.updateOne({ _id: exists._id }, { $set: updates });
+                await TemplateAssignment_1.TemplateAssignment.updateOne({ _id: exists._id }, { $set: (0, assignmentMetadata_1.normalizeAssignmentMetadataPatch)(updates) }, (0, assignmentMetadata_1.assignmentUpdateOptions)());
             }
         }
     }

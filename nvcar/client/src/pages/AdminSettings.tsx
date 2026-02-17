@@ -92,6 +92,45 @@ interface ErrorLogEntry {
   resolvedAt?: string
 }
 
+interface IntegrityCheckSummary {
+  students: number
+  templates: number
+  assignments: number
+  signatures: number
+  savedGradebooks: number
+  totalIssues: number
+  criticalIssues: number
+  warnings: number
+}
+
+interface IntegrityCheckResult {
+  generatedAt: string
+  limit: number
+  summary: IntegrityCheckSummary
+  checks: Record<string, any[]>
+}
+
+interface RestoreDrillIssue {
+  severity: 'error' | 'warning'
+  code: string
+  message: string
+  modelName?: string
+  fileName?: string
+}
+
+interface RestoreDrillResult {
+  filename: string
+  executedAt: string
+  passed: boolean
+  filesScanned: number
+  modelCount: number
+  summary: {
+    errors: number
+    warnings: number
+  }
+  issues: RestoreDrillIssue[]
+}
+
 const navItems: NavItem[] = [
   { id: 'sandbox', label: 'Simulation Lab', icon: 'Grid', color: '#00b894', description: 'Environnement de test' },
   { id: 'status', label: 'État du Système', icon: 'Activity', color: '#00b894', description: 'Statut des services' },
@@ -137,6 +176,10 @@ export default function AdminSettings() {
   const [nextBackupTime, setNextBackupTime] = useState<Date | null>(null)
   const [systemStatus, setSystemStatus] = useState<{ backend: string; database: string; uptime: number } | null>(null)
   const [backups, setBackups] = useState<{ name: string, size: number, date: string }[]>([])
+  const [integrityLoading, setIntegrityLoading] = useState(false)
+  const [integrityResult, setIntegrityResult] = useState<IntegrityCheckResult | null>(null)
+  const [restoreDrillLoadingName, setRestoreDrillLoadingName] = useState<string | null>(null)
+  const [restoreDrillResult, setRestoreDrillResult] = useState<RestoreDrillResult | null>(null)
   const [emptyClickCount, setEmptyClickCount] = useState(0)
   const [testToast, setTestToast] = useState<{ message: string; type: 'info' | 'success' | 'error'; actionLabel?: string; onAction?: () => void } | null>(null)
   const [testExtending, setTestExtending] = useState(false)
@@ -317,10 +360,29 @@ export default function AdminSettings() {
   }
 
   const restoreBackup = async (filename: string) => {
-    if (!confirm(`Restaurer "${filename}" ? La BDD actuelle sera écrasée !`)) return
+    if (!confirm(`Restaurer "${filename}" ?`)) return
+    const useSafeMode = confirm('Mode de restauration sécurisé ?\n\nOK = sécurisé (rollback auto en cas d\'échec)\nAnnuler = destructif (écrasement direct)')
+    const mode = useSafeMode ? 'safe' : 'destructive'
+    if (mode === 'destructive' && !confirm('Vous avez choisi le mode destructif. La BDD actuelle peut être perdue en cas d\'échec. Continuer ?')) return
+
     setBackupLoading(true)
-    try { await api.post(`/backup/restore/${filename}`); showMsg('Restauration effectuée'); setTimeout(() => window.location.reload(), 2000) }
-    catch { showMsg('Erreur lors de la restauration', 'error') }
+    try {
+      const res = await api.post(`/backup/restore/${filename}`, { mode })
+      const rollback = Boolean(res?.data?.rollbackPerformed)
+      showMsg(rollback ? 'Restauration effectuée avec rollback de sécurité' : `Restauration effectuée (${mode})`)
+      setTimeout(() => window.location.reload(), 2000)
+    }
+    catch (err: any) {
+      const rollback = Boolean(err?.response?.data?.rollbackPerformed)
+      const rollbackFailed = Boolean(err?.response?.data?.rollbackFailed)
+      if (rollbackFailed) {
+        showMsg('Échec restauration + échec rollback: vérifier la BDD immédiatement', 'error')
+      } else if (rollback) {
+        showMsg('Échec restauration: données initiales restaurées (mode sécurisé)', 'error')
+      } else {
+        showMsg('Erreur lors de la restauration', 'error')
+      }
+    }
     finally { setBackupLoading(false) }
   }
 
@@ -368,6 +430,56 @@ export default function AdminSettings() {
       showMsg('Sauvegarde téléchargée')
     } catch { showMsg('Erreur', 'error') }
     finally { setBackupLoading(false) }
+  }
+
+  const runIntegrityCheck = async () => {
+    setIntegrityLoading(true)
+    try {
+      const res = await api.get('/integrity/gradebook-students?limit=200')
+      const payload = res?.data
+      const hasValidShape = payload && typeof payload === 'object' && payload.summary && payload.checks
+      if (!hasValidShape) {
+        console.error('Unexpected integrity payload:', payload)
+        setIntegrityResult(null)
+        showMsg('Réponse de contrôle invalide (voir logs serveur)', 'error')
+        return
+      }
+
+      setIntegrityResult(payload)
+      const totalIssues = Number(payload?.summary?.totalIssues || 0)
+      if (totalIssues > 0) showMsg(`Contrôle terminé: ${totalIssues} anomalies détectées`, 'error')
+      else showMsg('Contrôle terminé: aucune anomalie détectée')
+    } catch (err) {
+      console.error('Integrity check failed:', err)
+      showMsg('Erreur lors du contrôle d\'intégrité', 'error')
+    } finally {
+      setIntegrityLoading(false)
+    }
+  }
+
+  const runRestoreDrill = async (filename: string) => {
+    setRestoreDrillLoadingName(filename)
+    try {
+      const res = await api.post(`/backup/drill/${filename}`)
+      const payload = res?.data
+      const hasValidShape = payload && typeof payload === 'object' && typeof payload.passed === 'boolean' && payload.summary
+      if (!hasValidShape) {
+        console.error('Unexpected restore drill payload:', payload)
+        setRestoreDrillResult(null)
+        showMsg('Réponse drill invalide (voir logs serveur)', 'error')
+        return
+      }
+
+      setRestoreDrillResult(payload)
+      if (payload.passed) showMsg(`Drill OK: ${filename} est restaurable`)
+      else showMsg(`Drill en échec: ${payload.summary?.errors || 0} erreur(s) détectée(s)`, 'error')
+    } catch (err: any) {
+      console.error('Restore drill failed:', err)
+      setRestoreDrillResult(null)
+      showMsg('Erreur lors du drill de restauration', 'error')
+    } finally {
+      setRestoreDrillLoadingName(null)
+    }
   }
 
   // SMTP functions
@@ -427,6 +539,12 @@ export default function AdminSettings() {
   )
 
   const sectionCardProps = { collapsedSections, toggleSection, sectionRefs }
+  const integritySummary = integrityResult?.summary
+  const integrityRows = integrityResult
+    ? Object.entries(integrityResult.checks || {})
+      .flatMap(([checkName, entries]) => (entries || []).map((entry: any) => ({ checkName, entry })))
+      .slice(0, 80)
+    : []
 
   return (
     <div className="admin-settings">
@@ -948,6 +1066,138 @@ export default function AdminSettings() {
               </div>
               <button type="button" className="settings-btn primary" onClick={createBackup} disabled={backupLoading}>{backupLoading ? 'Création...' : '💾 Créer Sauvegarde'}</button>
             </div>
+            <div className="setting-item">
+              <div className="setting-info">
+                <h3>🩺 Vérifier l'intégrité des données</h3>
+                <p>Analyse étudiants + carnets (orphans, incohérences semestre/statut, doublons).</p>
+              </div>
+              <button type="button" className="settings-btn secondary" onClick={runIntegrityCheck} disabled={integrityLoading}>
+                {integrityLoading ? 'Analyse...' : '🩺 Lancer le contrôle'}
+              </button>
+            </div>
+
+            <div className="setting-item">
+              <div className="setting-info">
+                <h3>🧪 Drill de restauration (dry-run)</h3>
+                <p>Validation manuelle d'un backup sans écrire en base (fichiers attendus + JSON valide).</p>
+              </div>
+              <button
+                type="button"
+                className="settings-btn secondary"
+                onClick={() => backups[0] ? runRestoreDrill(backups[0].name) : showMsg('Aucune sauvegarde disponible', 'error')}
+                disabled={!backups[0] || !!restoreDrillLoadingName}
+              >
+                {restoreDrillLoadingName ? 'Drill en cours...' : '🧪 Tester le dernier backup'}
+              </button>
+            </div>
+
+            {integrityResult && integritySummary && (
+              <div className="backup-table-wrapper" style={{ marginBottom: '1rem' }}>
+                <table className="backup-table">
+                  <thead>
+                    <tr>
+                      <th>Dernier contrôle</th>
+                      <th style={{ textAlign: 'right' }}>Volumes</th>
+                      <th style={{ textAlign: 'right' }}>Résultat</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>
+                        <div className="backup-name">{new Date(integrityResult.generatedAt).toLocaleString()}</div>
+                        <div className="backup-filename">Limite par check: {integrityResult.limit}</div>
+                      </td>
+                      <td className="backup-size" style={{ textAlign: 'right' }}>
+                        S:{integritySummary.students} · T:{integritySummary.templates} · A:{integritySummary.assignments} · SG:{integritySummary.savedGradebooks}
+                      </td>
+                      <td className="backup-size" style={{ textAlign: 'right', color: integritySummary.totalIssues > 0 ? '#dc2626' : '#059669' }}>
+                        {integritySummary.totalIssues} issue(s) · {integritySummary.criticalIssues} critiques
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {integrityRows.length > 0 && (
+              <div className="backup-table-wrapper" style={{ marginBottom: '1rem' }}>
+                <table className="backup-table">
+                  <thead>
+                    <tr>
+                      <th>Catégorie</th>
+                      <th>Détail</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {integrityRows.map((row, idx) => (
+                      <tr key={`${row.checkName}-${idx}`}>
+                        <td><div className="backup-name">{row.checkName}</div></td>
+                        <td><div className="backup-filename">{JSON.stringify(row.entry)}</div></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {restoreDrillResult && (
+              <div className="backup-table-wrapper" style={{ marginBottom: '1rem' }}>
+                <table className="backup-table">
+                  <thead>
+                    <tr>
+                      <th>Dernier drill</th>
+                      <th style={{ textAlign: 'right' }}>Validation</th>
+                      <th style={{ textAlign: 'right' }}>Résultat</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>
+                        <div className="backup-name">{new Date(restoreDrillResult.executedAt).toLocaleString()}</div>
+                        <div className="backup-filename">{restoreDrillResult.filename}</div>
+                      </td>
+                      <td className="backup-size" style={{ textAlign: 'right' }}>
+                        {restoreDrillResult.filesScanned} fichier(s) JSON · {restoreDrillResult.modelCount} modèle(s)
+                      </td>
+                      <td className="backup-size" style={{ textAlign: 'right', color: restoreDrillResult.passed ? '#059669' : '#dc2626' }}>
+                        {restoreDrillResult.passed ? 'PASS' : `FAIL · ${restoreDrillResult.summary.errors} erreur(s)`}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {restoreDrillResult && Array.isArray(restoreDrillResult.issues) && restoreDrillResult.issues.length > 0 && (
+              <div className="backup-table-wrapper" style={{ marginBottom: '1rem' }}>
+                <table className="backup-table">
+                  <thead>
+                    <tr>
+                      <th>Sévérité</th>
+                      <th>Code</th>
+                      <th>Détail</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {restoreDrillResult.issues.slice(0, 60).map((issue, idx) => (
+                      <tr key={`${issue.code}-${idx}`}>
+                        <td style={{ color: issue.severity === 'error' ? '#dc2626' : '#d97706', fontWeight: 600 }}>{issue.severity}</td>
+                        <td><div className="backup-name">{issue.code}</div></td>
+                        <td>
+                          <div className="backup-filename">{issue.message}</div>
+                          {(issue.modelName || issue.fileName) && (
+                            <div className="backup-filename" style={{ marginTop: 4 }}>
+                              {issue.modelName ? `Model: ${issue.modelName}` : ''}{issue.modelName && issue.fileName ? ' · ' : ''}{issue.fileName ? `Fichier: ${issue.fileName}` : ''}
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
             {backups.length > 0 && (
               <div className="backup-table-wrapper">
                 <table className="backup-table">
@@ -960,6 +1210,9 @@ export default function AdminSettings() {
                         <td>
                           <div className="backup-actions">
                             <button type="button" className="settings-btn secondary" onClick={() => restoreBackup(b.name)} disabled={backupLoading}>Restaurer</button>
+                            <button type="button" className="settings-btn secondary" onClick={() => runRestoreDrill(b.name)} disabled={backupLoading || restoreDrillLoadingName === b.name}>
+                              {restoreDrillLoadingName === b.name ? 'Drill...' : 'Drill'}
+                            </button>
                             <button type="button" className="settings-btn danger" onClick={() => deleteBackup(b.name)} disabled={backupLoading}>🗑️</button>
                           </div>
                         </td>

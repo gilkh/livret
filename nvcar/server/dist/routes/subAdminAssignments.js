@@ -55,17 +55,9 @@ exports.subAdminAssignmentsRouter.get('/progress', (0, auth_1.requireAuth)(['SUB
         if (studentIds.length === 0) {
             return res.json([]);
         }
-        // Find assignments considered completed for active school year.
-        // Some legacy flows may set `status: 'completed'` or `teacherCompletions.completed` without setting `isCompleted`.
-        const completedAssignments = await TemplateAssignment_1.TemplateAssignment.find({
+        // Find assignments for active school year, then filter by level-scoped completion.
+        const yearAssignments = await TemplateAssignment_1.TemplateAssignment.find({
             studentId: { $in: studentIds },
-            $or: [
-                { isCompleted: true },
-                { isCompletedSem1: true },
-                { isCompletedSem2: true },
-                { status: 'completed' },
-                { 'teacherCompletions.completed': true }
-            ],
             $and: [
                 {
                     $or: [
@@ -75,6 +67,37 @@ exports.subAdminAssignmentsRouter.get('/progress', (0, auth_1.requireAuth)(['SUB
                 }
             ]
         }).lean();
+        const normalizeCode = (code) => {
+            const c = String(code || '').toLowerCase();
+            if (c === 'lb' || c === 'ar')
+                return 'ar';
+            if (c === 'en' || c === 'uk' || c === 'gb')
+                return 'en';
+            if (c === 'fr')
+                return 'fr';
+            return c;
+        };
+        const completedAssignments = yearAssignments.filter((assignment) => {
+            const enrollment = enrollments.find(e => e.studentId === assignment.studentId);
+            const cls = classes.find(c => String(c._id) === enrollment?.classId);
+            const currentLevel = String(cls?.level || '').trim().toUpperCase();
+            const languageCompletions = Array.isArray(assignment.languageCompletions) ? assignment.languageCompletions : [];
+            const scoped = languageCompletions.filter((entry) => {
+                const entryLevel = String(entry?.level || '').trim().toUpperCase();
+                if (!currentLevel)
+                    return false;
+                return !!entryLevel && entryLevel === currentLevel;
+            });
+            if (scoped.length > 0) {
+                return scoped.some((entry) => {
+                    const normalizedCode = normalizeCode(entry?.code);
+                    if (!normalizedCode)
+                        return false;
+                    return !!(entry?.completed || entry?.completedSem1 || entry?.completedSem2);
+                });
+            }
+            return !!(assignment.isCompleted || assignment.isCompletedSem1 || assignment.isCompletedSem2 || assignment.status === 'completed');
+        });
         const completedStudentIds = new Set(completedAssignments.map(a => a.studentId));
         // Filter students
         const students = await Student_1.Student.find({ _id: { $in: Array.from(completedStudentIds) } }).lean();
@@ -470,7 +493,21 @@ exports.subAdminAssignmentsRouter.get('/teacher-progress-detailed', (0, auth_1.r
                         return;
                     const assignmentData = assignment.data || {};
                     const level = cls.level ? cls.level.trim() : '';
-                    const teacherCompletions = assignment.teacherCompletions || [];
+                    const normalizedCurrentLevel = String(level || '').trim().toUpperCase();
+                    const languageCompletions = assignment.languageCompletions || [];
+                    const languageCompletionMap = {};
+                    (Array.isArray(languageCompletions) ? languageCompletions : []).forEach((entry) => {
+                        const entryLevel = String(entry?.level || '').trim().toUpperCase();
+                        if (normalizedCurrentLevel) {
+                            if (!entryLevel || entryLevel !== normalizedCurrentLevel)
+                                return;
+                        }
+                        const codeRaw = String(entry?.code || '').toLowerCase();
+                        const normalized = codeRaw === 'lb' || codeRaw === 'ar' ? 'ar' : (codeRaw === 'en' || codeRaw === 'uk' || codeRaw === 'gb') ? 'en' : codeRaw === 'fr' ? 'fr' : codeRaw;
+                        if (!normalized)
+                            return;
+                        languageCompletionMap[normalized] = { ...(entry || {}), code: normalized };
+                    });
                     template.pages.forEach((page, pageIdx) => {
                         (page.blocks || []).forEach((block, blockIdx) => {
                             let itemsToProcess = [];
@@ -520,31 +557,9 @@ exports.subAdminAssignmentsRouter.get('/teacher-progress-detailed', (0, auth_1.r
                                         const l = lang;
                                         const isArabic = code === 'ar' || code === 'lb' || l.includes('arabe') || l.includes('arabic') || l.includes('العربية');
                                         const isEnglish = code === 'en' || code === 'uk' || code === 'gb' || l.includes('anglais') || l.includes('english');
-                                        let responsibleTeachers = teacherAssignments
-                                            .filter((ta) => ta.classId === clsId)
-                                            .filter((ta) => {
-                                            const langs = (ta.languages || []).map((tl) => tl.toLowerCase());
-                                            if (isArabic) {
-                                                // Polyvalent teachers with empty languages are NOT responsible for Arabic
-                                                if (langs.length === 0)
-                                                    return !ta.isProfPolyvalent;
-                                                return langs.some((v) => v === 'ar' || v === 'lb' || v.includes('arabe') || v.includes('arabic') || v.includes('العربية'));
-                                            }
-                                            if (isEnglish) {
-                                                // Polyvalent teachers with empty languages are NOT responsible for English
-                                                if (langs.length === 0)
-                                                    return !ta.isProfPolyvalent;
-                                                return langs.some((v) => v === 'en' || v === 'uk' || v === 'gb' || v.includes('anglais') || v.includes('english'));
-                                            }
-                                            // Polyvalent: include teachers who are explicitly polyvalent OR assigned to all languages (empty languages)
-                                            return ta.isProfPolyvalent || (langs.length === 0 && !ta.isProfPolyvalent);
-                                        })
-                                            .map((ta) => String(ta.teacherId));
-                                        if (responsibleTeachers.length === 0) {
-                                            const assignedTeacherIds = (assignment.assignedTeachers || []).map((id) => String(id));
-                                            responsibleTeachers = assignedTeacherIds;
-                                        }
-                                        return responsibleTeachers.some((tid) => teacherCompletions.some((tc) => String(tc.teacherId) === String(tid) && (tc.completed || tc.completedSem1 || tc.completedSem2)));
+                                        const normalized = isArabic ? 'ar' : isEnglish ? 'en' : 'fr';
+                                        const lc = languageCompletionMap[normalized];
+                                        return !!(lc && (lc.completedSem1 || lc.completedSem2 || lc.completed));
                                     };
                                     const completed = isActive || isCategoryCompleted();
                                     if (code === 'ar' || code === 'lb' || lang.includes('arabe') || lang.includes('arabic') || lang.includes('العربية')) {
@@ -682,11 +697,16 @@ exports.subAdminAssignmentsRouter.get('/teacher-progress', (0, auth_1.requireAut
                 // Level was previously defined here but removed in previous refactor
                 // Restore it using class level
                 const level = cls.level;
+                const normalizedCurrentLevel = String(level || '').trim().toUpperCase();
                 // Determine completion status for categories based on teacher completion
-                const teacherCompletions = assignment.teacherCompletions || [];
                 const languageCompletions = assignment.languageCompletions || [];
                 const languageCompletionMap = {};
                 (Array.isArray(languageCompletions) ? languageCompletions : []).forEach((entry) => {
+                    const entryLevel = String(entry?.level || '').trim().toUpperCase();
+                    if (normalizedCurrentLevel) {
+                        if (!entryLevel || entryLevel !== normalizedCurrentLevel)
+                            return;
+                    }
                     const codeRaw = String(entry?.code || '').toLowerCase();
                     const normalized = codeRaw === 'lb' || codeRaw === 'ar' ? 'ar' : (codeRaw === 'en' || codeRaw === 'uk' || codeRaw === 'gb') ? 'en' : codeRaw === 'fr' ? 'fr' : codeRaw;
                     if (!normalized)
@@ -703,33 +723,7 @@ exports.subAdminAssignmentsRouter.get('/teacher-progress', (0, auth_1.requireAut
                     const lc = languageCompletionMap[normalized];
                     if (lc && (lc.completedSem1 || lc.completedSem2 || lc.completed))
                         return true;
-                    // Find teachers responsible for this category in this class
-                    let responsibleTeachers = teacherAssignments
-                        .filter((ta) => ta.classId === clsId)
-                        .filter((ta) => {
-                        const langs = (ta.languages || []).map((tl) => tl.toLowerCase());
-                        if (isArabic) {
-                            // Polyvalent teachers with empty languages are NOT responsible for Arabic
-                            if (langs.length === 0)
-                                return !ta.isProfPolyvalent;
-                            return langs.some((v) => v === 'ar' || v === 'lb' || v.includes('arabe') || v.includes('arabic') || v.includes('العربية'));
-                        }
-                        if (isEnglish) {
-                            // Polyvalent teachers with empty languages are NOT responsible for English
-                            if (langs.length === 0)
-                                return !ta.isProfPolyvalent;
-                            return langs.some((v) => v === 'en' || v === 'uk' || v === 'gb' || v.includes('anglais') || v.includes('english'));
-                        }
-                        // Polyvalent: include teachers who are explicitly polyvalent OR assigned to all languages (empty languages)
-                        return ta.isProfPolyvalent || (langs.length === 0 && !ta.isProfPolyvalent);
-                    })
-                        .map((ta) => String(ta.teacherId));
-                    // Fallback: if none found via class assignments, use assignment-level teachers
-                    if (responsibleTeachers.length === 0) {
-                        const assignedTeacherIds = (assignment.assignedTeachers || []).map((id) => String(id));
-                        responsibleTeachers = assignedTeacherIds;
-                    }
-                    return responsibleTeachers.some((tid) => teacherCompletions.some((tc) => String(tc.teacherId) === String(tid) && (tc.completed || tc.completedSem1 || tc.completedSem2)));
+                    return false;
                 };
                 template.pages.forEach((page, pageIdx) => {
                     (page.blocks || []).forEach((block, blockIdx) => {

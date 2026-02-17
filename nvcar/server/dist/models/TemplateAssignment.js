@@ -4,7 +4,7 @@ exports.TemplateAssignment = void 0;
 const mongoose_1 = require("mongoose");
 const templateAssignmentSchema = new mongoose_1.Schema({
     templateId: { type: String, required: true },
-    templateVersion: { type: Number, required: true, default: 1 },
+    templateVersion: { type: Number, required: true, default: 1, min: 1 },
     studentId: { type: String, required: true },
     completionSchoolYearId: { type: String },
     assignedTeachers: { type: [String], default: [] },
@@ -23,6 +23,7 @@ const templateAssignmentSchema = new mongoose_1.Schema({
     languageCompletions: {
         type: [{
                 code: String,
+                level: String,
                 completed: Boolean,
                 completedAt: Date,
                 completedSem1: Boolean,

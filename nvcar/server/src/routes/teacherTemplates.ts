@@ -13,6 +13,7 @@ import { StudentAcquiredSkill } from '../models/StudentAcquiredSkill'
 import { logAudit } from '../utils/auditLogger'
 import { getVersionedTemplate, mergeAssignmentDataIntoTemplate, buildBlocksById } from '../utils/templateUtils'
 import { withCache } from '../utils/cache'
+import { assignmentUpdateOptions, normalizeAssignmentMetadataPatch, warnOnInvalidStatusTransition } from '../utils/assignmentMetadata'
 
 export const teacherTemplatesRouter = Router()
 
@@ -684,8 +685,10 @@ teacherTemplatesRouter.patch('/template-assignments/:assignmentId/language-toggl
                 },
                 $inc: { dataVersion: 1 }
             },
-            { new: true }
+            assignmentUpdateOptions({ new: true })
         )
+
+        warnOnInvalidStatusTransition((assignment as any).status, assignment.status === 'draft' ? 'in_progress' : assignment.status, 'teacherTemplates.languageToggle')
 
         if (!updated) {
             // Conflict: return current assignment + dataVersion so client can fetch/merge
@@ -843,9 +846,13 @@ teacherTemplatesRouter.post('/templates/:assignmentId/mark-done', requireAuth(['
         // Update assignment
         const updated = await TemplateAssignment.findByIdAndUpdate(
             assignmentId,
-            updateData,
-            { new: true }
+            normalizeAssignmentMetadataPatch(updateData),
+            assignmentUpdateOptions({ new: true })
         )
+
+        if (updateData.status) {
+            warnOnInvalidStatusTransition((assignment as any).status, updateData.status, 'teacherTemplates.markDone')
+        }
 
         // Log audit
         const template = await GradebookTemplate.findById(assignment.templateId).lean()
@@ -991,9 +998,13 @@ teacherTemplatesRouter.post('/templates/:assignmentId/unmark-done', requireAuth(
         // Update assignment
         const updated = await TemplateAssignment.findByIdAndUpdate(
             assignmentId,
-            updateData,
-            { new: true }
+            normalizeAssignmentMetadataPatch(updateData),
+            assignmentUpdateOptions({ new: true })
         )
+
+        if (updateData.status) {
+            warnOnInvalidStatusTransition((assignment as any).status, updateData.status, 'teacherTemplates.unmarkDone')
+        }
 
         // Log audit
         const template = await GradebookTemplate.findById(assignment.templateId).lean()
@@ -1482,8 +1493,10 @@ teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data', require
                 $set: { data: { ...(assignment.data || {}), ...sanitizedPatch } },
                 status: assignment.status === 'draft' ? 'in_progress' : assignment.status,
             },
-            { new: true }
+            assignmentUpdateOptions({ new: true })
         )
+
+        warnOnInvalidStatusTransition((assignment as any).status, assignment.status === 'draft' ? 'in_progress' : assignment.status, 'teacherTemplates.dataPatch')
 
         // Sync promotion status to Enrollment if present
         if ((sanitizedPatch as any).promotions && Array.isArray((sanitizedPatch as any).promotions) && (sanitizedPatch as any).promotions.length > 0) {

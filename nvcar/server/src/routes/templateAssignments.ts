@@ -11,6 +11,7 @@ import { SchoolYear } from '../models/SchoolYear'
 import { populateSignatures } from '../services/signatureService'
 import { getRolloverUpdate, archiveYearCompletions } from '../services/rolloverService'
 import { withTransaction } from '../utils/transactionUtils'
+import { assignmentUpdateOptions, normalizeAssignmentMetadataPatch, warnOnInvalidStatusTransition } from '../utils/assignmentMetadata'
 
 export const templateAssignmentsRouter = Router()
 
@@ -168,14 +169,15 @@ templateAssignmentsRouter.post('/bulk-level', requireAuth(['ADMIN']), async (req
                 const fromYearId = String((existing as any).completionSchoolYearId || '')
                 const archiveUpdates = archiveYearCompletions(existing, fromYearId)
                 const rolloverUpdates = getRolloverUpdate(String(targetYearId), assignedBy)
+                const normalizedSet = normalizeAssignmentMetadataPatch({ ...rolloverUpdates, ...archiveUpdates })
 
                 await TemplateAssignment.updateOne(
                     { _id: existing._id },
                     {
-                        $set: { ...rolloverUpdates, ...archiveUpdates },
+                        $set: normalizedSet,
                         $inc: { dataVersion: 1 }
                     },
-                    { session }
+                    assignmentUpdateOptions({ session })
                 )
             }
 
@@ -339,8 +341,11 @@ templateAssignmentsRouter.post('/', requireAuth(['ADMIN']), async (req, res) => 
 
         const assignment = await TemplateAssignment.findOneAndUpdate(
             { templateId, studentId },
-            { $setOnInsert: setOnInsertSingle, $set: setFieldsSingle },
-            { upsert: true, new: true }
+            {
+                $setOnInsert: normalizeAssignmentMetadataPatch(setOnInsertSingle),
+                $set: normalizeAssignmentMetadataPatch(setFieldsSingle)
+            },
+            assignmentUpdateOptions({ upsert: true, new: true, setDefaultsOnInsert: true })
         )
 
         res.json(await populateSignatures(assignment))
@@ -522,7 +527,7 @@ templateAssignmentsRouter.patch('/:id/status', requireAuth(['ADMIN', 'SUBADMIN',
 
         const updated = await TemplateAssignment.findByIdAndUpdate(
             id,
-            {
+            normalizeAssignmentMetadataPatch({
                 status: newStatus,
                 teacherCompletions,
                 isCompleted,
@@ -532,9 +537,11 @@ templateAssignmentsRouter.patch('/:id/status', requireAuth(['ADMIN', 'SUBADMIN',
                 completedAtSem1,
                 isCompletedSem2,
                 completedAtSem2
-            },
-            { new: true }
+            }),
+            assignmentUpdateOptions({ new: true })
         )
+
+        warnOnInvalidStatusTransition((assignment as any).status, newStatus, 'templateAssignments.patchStatus')
 
         res.json(await populateSignatures(updated))
     } catch (e: any) {
