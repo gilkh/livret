@@ -182,7 +182,7 @@ savedGradebooksRouter.get('/student/:studentId', requireAuth(['ADMIN', 'SUBADMIN
         }
 
         const saved = await SavedGradebook.find({ studentId })
-            .select('_id schoolYearId level createdAt templateId')
+            .select('_id schoolYearId level createdAt templateId meta')
             .sort({ createdAt: -1 })
             .lean()
 
@@ -200,6 +200,7 @@ savedGradebooksRouter.get('/student/:studentId', requireAuth(['ADMIN', 'SUBADMIN
                 level: (s as any).level,
                 createdAt: (s as any).createdAt,
                 templateId: (s as any).templateId,
+                snapshotReason: (s as any)?.meta?.snapshotReason || 'unknown',
             }))
         )
     } catch (e: any) {
