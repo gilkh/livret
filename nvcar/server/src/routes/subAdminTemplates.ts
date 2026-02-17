@@ -1221,11 +1221,13 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', requireAut
                     const student = await Student.findById(updatedAssignment.studentId).lean()
                     const statuses = await StudentCompetencyStatus.find({ studentId: updatedAssignment.studentId }).lean()
                     const signatures = await TemplateSignature.find({ templateAssignmentId }).lean()
-                    const sem1Signatures = signatures.filter((s: any) => s.type !== 'end_of_year')
-                    
+
                     // Get enrollment and class info
                     const activeSchoolYear = await SchoolYear.findOne({ active: true }).lean()
                     const schoolYearId = signatureSchoolYearId || (activeSchoolYear ? String(activeSchoolYear._id) : '')
+
+                    const snapshotSignatures = signatures
+
                     let enrollment: any = null
                     let className = ''
                     if (schoolYearId) {
@@ -1242,9 +1244,9 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', requireAut
                         statuses,
                         assignment: updatedAssignment,
                         className,
-                        signatures: sem1Signatures,
-                        signature: sem1Signatures.find((s: any) => s.type === 'standard') || null,
-                        finalSignature: null,
+                        signatures: snapshotSignatures,
+                        signature: snapshotSignatures.find((s: any) => s.type === 'standard') || null,
+                        finalSignature: snapshotSignatures.find((s: any) => s.type === 'end_of_year') || null,
                     }
 
                     await createAssignmentSnapshot(

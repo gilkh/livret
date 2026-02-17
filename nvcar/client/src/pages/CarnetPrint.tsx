@@ -581,16 +581,41 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                     if (snapshotReason === 'sem1') viewKey = 'archive_sem1'
                                     else if (['promotion', 'year_end'].includes(snapshotReason || '')) viewKey = 'archive_final'
                                 }
+                                const isSem1SavedSnapshot = mode === 'saved' && snapshotReason === 'sem1'
+                                const allowsHistoricalSem2 = ['signature_box', 'signature_date', 'signature_block'].includes(b.type)
+                                const semesterRaw = (b.props as any)?.semester ?? (b.props as any)?.semestre
+                                const periodRaw = String((b.props as any)?.period || '')
+                                const isSem2AssignedBlock = semesterRaw === 2 || semesterRaw === '2' || periodRaw === 'end-year'
+                                const studentLevelUpper = String(student?.level || '').toUpperCase()
+                                const blockLevelUpper = String(blockLevel || '').toUpperCase()
+                                const isSameLevelBlock = !!blockLevelUpper && !!studentLevelUpper && blockLevelUpper === studentLevelUpper
+                                const resolveVisibilitySetting = (levelKey: string | null | undefined) => {
+                                    if (!levelKey) return undefined
+                                    const upper = String(levelKey).toUpperCase()
+                                    const byLevel = blockVisibility?.[upper]
+                                    if (!byLevel) return undefined
+                                    const direct = byLevel?.[viewKey]?.[key]
+                                    if (direct !== undefined) return direct
+                                    if (mode === 'saved' && viewKey !== 'pdf') {
+                                        const fallbackPdf = byLevel?.pdf?.[key]
+                                        if (fallbackPdf !== undefined) return fallbackPdf
+                                    }
+                                    return undefined
+                                }
 
                                 if (blockLevel) {
                                     // Block has a level - use that level's settings
-                                    const visibilitySetting = blockVisibility?.[blockLevel.toUpperCase()]?.[viewKey]?.[key]
+                                    let visibilitySetting = resolveVisibilitySetting(blockLevel)
+                                    if (visibilitySetting === undefined && isSem1SavedSnapshot && !allowsHistoricalSem2 && isSem2AssignedBlock && isSameLevelBlock) {
+                                        visibilitySetting = 'after_sem2'
+                                    }
                                     const { hasSem1, hasSem2 } = getSignatureForLevel(blockLevel)
+                                    const sem2Reached = (isSem1SavedSnapshot && !allowsHistoricalSem2) ? false : hasSem2
 
                                     if (visibilitySetting) {
                                         if (visibilitySetting === 'never') shouldShow = false
-                                        else if (visibilitySetting === 'after_sem1' && !hasSem1 && !hasSem2) shouldShow = false
-                                        else if (visibilitySetting === 'after_sem2' && !hasSem2) shouldShow = false
+                                        else if (visibilitySetting === 'after_sem1' && !hasSem1 && !sem2Reached) shouldShow = false
+                                        else if (visibilitySetting === 'after_sem2' && !sem2Reached) shouldShow = false
                                     }
                                 } else {
                                     // Block has NO level - check all levels at or below student's current level
@@ -603,18 +628,22 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                     let anyLevelWouldShow = false
 
                                     for (const lvl of levelsToCheck) {
-                                        const visibilitySetting = blockVisibility?.[lvl]?.[viewKey]?.[key]
+                                        let visibilitySetting = resolveVisibilitySetting(lvl)
+                                        if (visibilitySetting === undefined && isSem1SavedSnapshot && !allowsHistoricalSem2 && isSem2AssignedBlock && String(lvl).toUpperCase() === studentLevelUpper) {
+                                            visibilitySetting = 'after_sem2'
+                                        }
                                         if (visibilitySetting) {
                                             foundSetting = true
                                             const { hasSem1, hasSem2 } = getSignatureForLevel(lvl)
+                                            const sem2Reached = (isSem1SavedSnapshot && !allowsHistoricalSem2) ? false : hasSem2
 
                                             if (visibilitySetting === 'always') {
                                                 anyLevelWouldShow = true
                                                 break
-                                            } else if (visibilitySetting === 'after_sem1' && (hasSem1 || hasSem2)) {
+                                            } else if (visibilitySetting === 'after_sem1' && (hasSem1 || sem2Reached)) {
                                                 anyLevelWouldShow = true
                                                 break
-                                            } else if (visibilitySetting === 'after_sem2' && hasSem2) {
+                                            } else if (visibilitySetting === 'after_sem2' && sem2Reached) {
                                                 anyLevelWouldShow = true
                                                 break
                                             }

@@ -1037,16 +1037,16 @@ exports.adminExtrasRouter.post('/ps-onboarding/batch-sign', (0, auth_1.requireAu
                             if (updatedAssignment) {
                                 const statuses = await StudentCompetencyStatus_1.StudentCompetencyStatus.find({ studentId: assignment.studentId }).lean();
                                 const signatures = await TemplateSignature_1.TemplateSignature.find({ templateAssignmentId: assignmentId }).lean();
-                                const sem1Signatures = signatures.filter((s) => s.type !== 'end_of_year');
+                                const snapshotSignatures = signatures;
                                 const snapshotData = {
                                     student: student,
                                     enrollment: enrollment,
                                     statuses: statuses,
                                     assignment: updatedAssignment,
                                     className: className,
-                                    signatures: sem1Signatures,
-                                    signature: sem1Signatures.find((s) => s.type === 'standard') || null,
-                                    finalSignature: null
+                                    signatures: snapshotSignatures,
+                                    signature: snapshotSignatures.find((s) => s.type === 'standard') || null,
+                                    finalSignature: snapshotSignatures.find((s) => s.type === 'end_of_year') || null
                                 };
                                 await (0, rolloverService_1.createAssignmentSnapshot)(updatedAssignment, snapshotReason, {
                                     schoolYearId,

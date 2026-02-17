@@ -1138,10 +1138,10 @@ exports.subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', (0
                         const student = await Student_1.Student.findById(updatedAssignment.studentId).lean();
                         const statuses = await StudentCompetencyStatus_1.StudentCompetencyStatus.find({ studentId: updatedAssignment.studentId }).lean();
                         const signatures = await TemplateSignature_1.TemplateSignature.find({ templateAssignmentId }).lean();
-                        const sem1Signatures = signatures.filter((s) => s.type !== 'end_of_year');
                         // Get enrollment and class info
                         const activeSchoolYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
                         const schoolYearId = signatureSchoolYearId || (activeSchoolYear ? String(activeSchoolYear._id) : '');
+                        const snapshotSignatures = signatures;
                         let enrollment = null;
                         let className = '';
                         if (schoolYearId) {
@@ -1158,9 +1158,9 @@ exports.subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', (0
                             statuses,
                             assignment: updatedAssignment,
                             className,
-                            signatures: sem1Signatures,
-                            signature: sem1Signatures.find((s) => s.type === 'standard') || null,
-                            finalSignature: null,
+                            signatures: snapshotSignatures,
+                            signature: snapshotSignatures.find((s) => s.type === 'standard') || null,
+                            finalSignature: snapshotSignatures.find((s) => s.type === 'end_of_year') || null,
                         };
                         await (0, rolloverService_1.createAssignmentSnapshot)(updatedAssignment, snapshotReason, {
                             schoolYearId,

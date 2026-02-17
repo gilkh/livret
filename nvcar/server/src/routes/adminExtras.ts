@@ -1152,7 +1152,7 @@ adminExtrasRouter.post('/ps-onboarding/batch-sign', requireAuth(['ADMIN']), asyn
                             if (updatedAssignment) {
                                 const statuses = await StudentCompetencyStatus.find({ studentId: assignment.studentId }).lean()
                                 const signatures = await TemplateSignature.find({ templateAssignmentId: assignmentId }).lean()
-                                const sem1Signatures = signatures.filter((s: any) => s.type !== 'end_of_year')
+                                const snapshotSignatures = signatures
 
                                 const snapshotData = {
                                     student: student,
@@ -1160,9 +1160,9 @@ adminExtrasRouter.post('/ps-onboarding/batch-sign', requireAuth(['ADMIN']), asyn
                                     statuses: statuses,
                                     assignment: updatedAssignment,
                                     className: className,
-                                    signatures: sem1Signatures,
-                                    signature: sem1Signatures.find((s: any) => s.type === 'standard') || null,
-                                    finalSignature: null
+                                    signatures: snapshotSignatures,
+                                    signature: snapshotSignatures.find((s: any) => s.type === 'standard') || null,
+                                    finalSignature: snapshotSignatures.find((s: any) => s.type === 'end_of_year') || null
                                 }
 
                                 await createAssignmentSnapshot(
