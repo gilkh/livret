@@ -205,10 +205,8 @@ export default function AdminSettings() {
   const [errorLogsLoading, setErrorLogsLoading] = useState(false)
   const [errorLogFilter, setErrorLogFilter] = useState<'open' | 'resolved' | 'all'>('open')
 
-  // Previous year dropdown editability per level
-  const [dropdownEditablePS, setDropdownEditablePS] = useState(false)
-  const [dropdownEditableMS, setDropdownEditableMS] = useState(false)
-  const [dropdownEditableGS, setDropdownEditableGS] = useState(false)
+  // Previous year dropdown editability
+  const [dropdownEditablePreviousYear, setDropdownEditablePreviousYear] = useState(false)
 
   const showMsg = (text: string, type: 'success' | 'error' = 'success') => {
     setMsg(text)
@@ -263,10 +261,17 @@ export default function AdminSettings() {
       // Mobile blocking
       setMobileBlockEnabled(res.data.mobile_block_enabled === true)
       setMobileMinWidth(res.data.mobile_min_width || 1024)
-      // Previous year dropdown editability
-      setDropdownEditablePS(res.data.previous_year_dropdown_editable_PS === true)
-      setDropdownEditableMS(res.data.previous_year_dropdown_editable_MS === true)
-      setDropdownEditableGS(res.data.previous_year_dropdown_editable_GS === true)
+      // Previous year dropdown editability (single key with legacy fallback)
+      const hasUnifiedPreviousYearDropdownSetting = Object.prototype.hasOwnProperty.call(res.data || {}, 'previous_year_dropdown_editable')
+      setDropdownEditablePreviousYear(
+        hasUnifiedPreviousYearDropdownSetting
+          ? res.data.previous_year_dropdown_editable === true
+          : (
+            res.data.previous_year_dropdown_editable_PS === true ||
+            res.data.previous_year_dropdown_editable_MS === true ||
+            res.data.previous_year_dropdown_editable_GS === true
+          )
+      )
     } catch (err) { console.error(err) } finally { setLoading(false) }
   }
 
@@ -943,32 +948,12 @@ export default function AdminSettings() {
             </div>
             <div className="setting-item" style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid #e2e8f0' }}>
               <div className="setting-info">
-                <h3>🔓 Dropdowns PS - Année Précédente</h3>
-                <p>Permettre la modification des menus déroulants pour les données PS des années précédentes</p>
+                <h3>🔓 Dropdowns - Année Précédente</h3>
+                <p>Permettre la modification des menus déroulants des années précédentes (PS/MS/GS) lors de l’édition d’un carnet</p>
               </div>
               <div className="setting-actions">
-                <StatusIndicator active={dropdownEditablePS} />
-                <Toggle checked={dropdownEditablePS} onChange={() => toggleSetting('previous_year_dropdown_editable_PS', dropdownEditablePS, setDropdownEditablePS)} />
-              </div>
-            </div>
-            <div className="setting-item">
-              <div className="setting-info">
-                <h3>🔓 Dropdowns MS - Année Précédente</h3>
-                <p>Permettre la modification des menus déroulants pour les données MS des années précédentes</p>
-              </div>
-              <div className="setting-actions">
-                <StatusIndicator active={dropdownEditableMS} />
-                <Toggle checked={dropdownEditableMS} onChange={() => toggleSetting('previous_year_dropdown_editable_MS', dropdownEditableMS, setDropdownEditableMS)} />
-              </div>
-            </div>
-            <div className="setting-item">
-              <div className="setting-info">
-                <h3>🔓 Dropdowns GS - Année Précédente</h3>
-                <p>Permettre la modification des menus déroulants pour les données GS des années précédentes</p>
-              </div>
-              <div className="setting-actions">
-                <StatusIndicator active={dropdownEditableGS} />
-                <Toggle checked={dropdownEditableGS} onChange={() => toggleSetting('previous_year_dropdown_editable_GS', dropdownEditableGS, setDropdownEditableGS)} />
+                <StatusIndicator active={dropdownEditablePreviousYear} />
+                <Toggle checked={dropdownEditablePreviousYear} onChange={() => toggleSetting('previous_year_dropdown_editable', dropdownEditablePreviousYear, setDropdownEditablePreviousYear)} />
               </div>
             </div>
           </SectionCard>

@@ -53,6 +53,7 @@ export default function TeacherTemplateEditor() {
     const [isFitToScreen, setIsFitToScreen] = useState(false)
     const [quickGradingEnabled, setQuickGradingEnabled] = useState(true)
     const [blockVisibility, setBlockVisibility] = useState<any>({})
+    const [previousYearDropdownEditable, setPreviousYearDropdownEditable] = useState(false)
     const containerRef = useRef<HTMLDivElement | null>(null)
 
     const computeFitScale = () => {
@@ -115,6 +116,21 @@ export default function TeacherTemplateEditor() {
         // Dropdown must be EXCLUSIVELY for the student's current level
         // i.e., levels array should only contain the student's level
         return levelsUpper.length === 1 && levelsUpper[0] === studentLevelUpper
+    }
+
+    const hasOnlyOlderLevels = (itemLevels: string[] | undefined, studentLevel: string | undefined) => {
+        if (!studentLevel || !itemLevels || itemLevels.length === 0) return false
+
+        const levelOrderMap: Record<string, number> = {}
+        levels.forEach(l => { levelOrderMap[l.name.toUpperCase()] = l.order })
+
+        const studentOrder = levelOrderMap[studentLevel.toUpperCase()]
+        if (studentOrder === undefined) return false
+
+        return itemLevels.every(lvl => {
+            const itemOrder = levelOrderMap[String(lvl || '').toUpperCase()]
+            return itemOrder !== undefined && itemOrder < studentOrder
+        })
     }
 
     const visiblePages = useMemo(() => {
@@ -262,6 +278,16 @@ export default function TeacherTemplateEditor() {
                 if (settingsRes.data.block_visibility_settings !== undefined) {
                     setBlockVisibility(settingsRes.data.block_visibility_settings || {})
                 }
+                const hasUnifiedPreviousYearDropdownSetting = Object.prototype.hasOwnProperty.call(settingsRes.data || {}, 'previous_year_dropdown_editable')
+                setPreviousYearDropdownEditable(
+                    hasUnifiedPreviousYearDropdownSetting
+                        ? settingsRes.data.previous_year_dropdown_editable === true
+                        : (
+                            settingsRes.data.previous_year_dropdown_editable_PS === true ||
+                            settingsRes.data.previous_year_dropdown_editable_MS === true ||
+                            settingsRes.data.previous_year_dropdown_editable_GS === true
+                        )
+                )
             } catch (e: any) {
                 setError('Impossible de charger le carnet')
                 console.error(e)
@@ -1260,13 +1286,16 @@ export default function TeacherTemplateEditor() {
                                                 {b.type === 'competency_list' && <div style={{ color: b.props.color, fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden' }}>Liste des compétences</div>}
                                                 {b.type === 'signature' && <div style={{ fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden' }}>{(b.props.labels || []).join(' / ')}</div>}
                                                 {b.type === 'dropdown' && (() => {
-                                                    // Check if dropdown is allowed for current level
-                                                    // For dropdowns: ONLY allow editing if it's exclusively for the student's current level
-                                                    // (unlike language toggles which allow previous levels)
-                                                    const isLevelAllowed = isLevelExactMatch(b.props.levels, student?.level)
-                                                    // Check if dropdown is allowed for current semester (default to both semesters if not specified)
+                                                    const isLevelAllowed = previousYearDropdownEditable
+                                                        ? isLevelAtOrBelow(undefined, b.props.levels, student?.level)
+                                                        : isLevelExactMatch(b.props.levels, student?.level)
                                                     const dropdownSemesters = b.props.semesters || [1, 2]
-                                                    const isSemesterAllowed = dropdownSemesters.includes(activeSemester)
+                                                    const canBypassSemester = previousYearDropdownEditable && hasOnlyOlderLevels(b.props.levels, student?.level)
+                                                    const canEditSem1WhileActiveSem2 = previousYearDropdownEditable &&
+                                                        activeSemester === 2 &&
+                                                        dropdownSemesters.includes(1) &&
+                                                        !dropdownSemesters.includes(2)
+                                                    const isSemesterAllowed = canBypassSemester || canEditSem1WhileActiveSem2 || dropdownSemesters.includes(activeSemester)
                                                     const isDropdownAllowed = isLevelAllowed && isSemesterAllowed
                                                     const canEditDropdown = canEditActive && (isProfPolyvalent || allowedLanguages.length === 0) && isDropdownAllowed
 
