@@ -1661,8 +1661,13 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
 
         const teacherCompletions = (assignment as any).teacherCompletions || []
         const languageCompletions = (assignment as any).languageCompletions || []
+        const normalizedCurrentLevel = String(level || '').trim().toUpperCase()
         const languageCompletionMap: Record<string, any> = {}
         ;(Array.isArray(languageCompletions) ? languageCompletions : []).forEach((entry: any) => {
+            const entryLevel = String(entry?.level || '').trim().toUpperCase()
+            if (normalizedCurrentLevel) {
+                if (!entryLevel || entryLevel !== normalizedCurrentLevel) return
+            }
             const codeRaw = String(entry?.code || '').toLowerCase()
             const normalized = codeRaw === 'lb' || codeRaw === 'ar' ? 'ar' : (codeRaw === 'en' || codeRaw === 'uk' || codeRaw === 'gb') ? 'en' : codeRaw === 'fr' ? 'fr' : codeRaw
             if (!normalized) return
@@ -1740,17 +1745,7 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
                 if (semester === 1) return !!(entry.completedSem1 || entry.completed)
                 return !!entry.completedSem2
             }
-
-            const uniqueIds = [...new Set(teacherIds)]
-            if (semester === 1) {
-                return uniqueIds.some(tid =>
-                    (teacherCompletions || []).some((tc: any) => String(tc.teacherId) === String(tid) && (tc.completedSem1 || tc.completed))
-                )
-            }
-
-            return uniqueIds.some(tid =>
-                (teacherCompletions || []).some((tc: any) => String(tc.teacherId) === String(tid) && tc.completedSem2)
-            )
+            return false
         }
 
         const groupStatus = (ids: string[], langCode: string) => {
@@ -1771,6 +1766,20 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
             english: groupStatus(englishTeacherIds, 'en'),
             polyvalent: groupStatus(polyvalentTeacherIds, 'fr')
         }
+
+        const completionGroups = [teacherStatus.arabic, teacherStatus.english, teacherStatus.polyvalent]
+            .filter((group: any) => Array.isArray(group?.teachers) && group.teachers.length > 0)
+        const scopedIsCompletedSem1 = completionGroups.length > 0
+            ? completionGroups.every((group: any) => !!group.doneSem1)
+            : !!((assignment as any).isCompletedSem1 || (assignment as any).isCompleted)
+        const scopedIsCompletedSem2 = completionGroups.length > 0
+            ? completionGroups.every((group: any) => !!group.doneSem2)
+            : !!(assignment as any).isCompletedSem2
+
+        ;(assignment as any).isCompletedSem1 = scopedIsCompletedSem1
+        ;(assignment as any).isCompletedSem2 = scopedIsCompletedSem2
+        ;(assignment as any).isCompleted = scopedIsCompletedSem1
+        eligibleForSign = eligibleForSign && scopedIsCompletedSem1
 
         if (!assignment.data) assignment.data = {}
         assignment.data.signatures = mergedDataSignatures

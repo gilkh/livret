@@ -21,6 +21,7 @@ const templateAssignmentSchema = new Schema({
     languageCompletions: {
         type: [{
             code: String,
+            level: String,
             completed: Boolean,
             completedAt: Date,
             completedSem1: Boolean,

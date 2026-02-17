@@ -90,14 +90,30 @@ const getCompletionLanguagesForTeacher = (teacherClassAssignment: any | null | u
     return ['ar', 'en', 'fr']
 }
 
-const buildLanguageCompletionMap = (languageCompletions: any[]) => {
+const buildLanguageCompletionMap = (languageCompletions: any[], levelRaw?: any) => {
+    const targetLevel = normalizeLevel(levelRaw)
     const map: Record<string, any> = {}
     ;(Array.isArray(languageCompletions) ? languageCompletions : []).forEach((entry: any) => {
         const code = normalizeLanguageCode(entry?.code)
         if (!code) return
+        if (targetLevel) {
+            const entryLevel = normalizeLevel(entry?.level)
+            if (!entryLevel || entryLevel !== targetLevel) return
+        }
         map[code] = { ...(entry || {}), code }
     })
     return map
+}
+
+const findLanguageCompletionEntry = (languageCompletions: any[], codeRaw: any, levelRaw?: any) => {
+    const code = normalizeLanguageCode(codeRaw)
+    if (!code) return null
+    const targetLevel = normalizeLevel(levelRaw)
+    const list = Array.isArray(languageCompletions) ? languageCompletions : []
+    return list.find((lc: any) => (
+        normalizeLanguageCode(lc?.code) === code &&
+        normalizeLevel(lc?.level) === targetLevel
+    )) || null
 }
 
 const isLanguageCompletedForSemester = (languageCompletionMap: Record<string, any>, code: string, semester: number) => {
@@ -268,6 +284,8 @@ teacherTemplatesRouter.get('/students/:studentId/templates', requireAuth(['TEACH
         }).lean()
 
         const { enrollment } = await findEnrollmentForStudent(studentId)
+        const classDoc = enrollment?.classId ? await ClassModel.findById(enrollment.classId).lean() : null
+        const studentLevel = normalizeLevel((classDoc as any)?.level || '')
         const teacherClassAssignment = enrollment?.classId
             ? await TeacherClassAssignment.findOne({ teacherId, classId: enrollment.classId }).lean()
             : null
@@ -282,29 +300,7 @@ teacherTemplatesRouter.get('/students/:studentId/templates', requireAuth(['TEACH
         // Combine assignment data with template data
         const result = assignments.map(assignment => {
             const template = templates.find(t => t && String((t as any)._id) === assignment.templateId)
-            const myCompletion = (assignment as any).teacherCompletions?.find((tc: any) => tc.teacherId === teacherId)
-            const languageCompletionMap = buildLanguageCompletionMap((assignment as any).languageCompletions || [])
-
-            if (Object.keys(languageCompletionMap).length === 0 && myCompletion) {
-                if (myCompletion.completedSem1 || myCompletion.completed) {
-                    completionLanguages.forEach(code => {
-                        languageCompletionMap[code] = {
-                            code,
-                            completed: true,
-                            completedSem1: true
-                        }
-                    })
-                }
-                if (myCompletion.completedSem2) {
-                    completionLanguages.forEach(code => {
-                        const existing = languageCompletionMap[code] || { code }
-                        languageCompletionMap[code] = {
-                            ...existing,
-                            completedSem2: true
-                        }
-                    })
-                }
-            }
+            const languageCompletionMap = buildLanguageCompletionMap((assignment as any).languageCompletions || [], studentLevel)
 
             const isMyWorkCompletedSem1 = computeTeacherCompletionForSemester(languageCompletionMap, completionLanguages, 1)
             const isMyWorkCompletedSem2 = computeTeacherCompletionForSemester(languageCompletionMap, completionLanguages, 2)
@@ -513,29 +509,7 @@ teacherTemplatesRouter.get('/template-assignments/:assignmentId', requireAuth(['
         const completionLanguages = getCompletionLanguagesForTeacher(teacherClassAssignment)
 
         // Check my completion status
-        const myCompletion = (assignment as any).teacherCompletions?.find((tc: any) => tc.teacherId === teacherId)
-        const languageCompletionMap = buildLanguageCompletionMap((assignment as any).languageCompletions || [])
-
-        if (Object.keys(languageCompletionMap).length === 0 && myCompletion) {
-            if (myCompletion.completedSem1 || myCompletion.completed) {
-                completionLanguages.forEach(code => {
-                    languageCompletionMap[code] = {
-                        code,
-                        completed: true,
-                        completedSem1: true
-                    }
-                })
-            }
-            if (myCompletion.completedSem2) {
-                completionLanguages.forEach(code => {
-                    const existing = languageCompletionMap[code] || { code }
-                    languageCompletionMap[code] = {
-                        ...existing,
-                        completedSem2: true
-                    }
-                })
-            }
-        }
+        const languageCompletionMap = buildLanguageCompletionMap((assignment as any).languageCompletions || [], level)
 
         const isMyWorkCompletedSem1 = computeTeacherCompletionForSemester(languageCompletionMap, completionLanguages, 1)
         const isMyWorkCompletedSem2 = computeTeacherCompletionForSemester(languageCompletionMap, completionLanguages, 2)
@@ -651,29 +625,7 @@ teacherTemplatesRouter.patch('/template-assignments/:assignmentId/language-toggl
         const isProfPolyvalent = !!(teacherClassAssignment as any)?.isProfPolyvalent
         const completionLanguages = getCompletionLanguagesForTeacher(teacherClassAssignment)
         const activeSemester = (activeYear as any)?.activeSemester || 1
-        const myCompletion = (assignment as any).teacherCompletions?.find((tc: any) => tc.teacherId === teacherId)
-        const languageCompletionMap = buildLanguageCompletionMap((assignment as any).languageCompletions || [])
-
-        if (Object.keys(languageCompletionMap).length === 0 && myCompletion) {
-            if (myCompletion.completedSem1 || myCompletion.completed) {
-                completionLanguages.forEach(code => {
-                    languageCompletionMap[code] = {
-                        code,
-                        completed: true,
-                        completedSem1: true
-                    }
-                })
-            }
-            if (myCompletion.completedSem2) {
-                completionLanguages.forEach(code => {
-                    const existing = languageCompletionMap[code] || { code }
-                    languageCompletionMap[code] = {
-                        ...existing,
-                        completedSem2: true
-                    }
-                })
-            }
-        }
+        const languageCompletionMap = buildLanguageCompletionMap((assignment as any).languageCompletions || [], studentLevel)
 
         const sourceItems = Array.isArray(targetBlock?.props?.items) ? targetBlock.props.items : []
         const sanitizedItems = sourceItems.length > 0
@@ -785,6 +737,8 @@ teacherTemplatesRouter.post('/templates/:assignmentId/mark-done', requireAuth(['
         }
 
         const { enrollment } = await findEnrollmentForStudent(assignment.studentId)
+        const classDoc = enrollment?.classId ? await ClassModel.findById(enrollment.classId).lean() : null
+        const studentLevel = normalizeLevel((classDoc as any)?.level || '')
         const teacherClassAssignment = enrollment?.classId
             ? await TeacherClassAssignment.findOne({ teacherId, classId: enrollment.classId }).lean()
             : null
@@ -809,9 +763,9 @@ teacherTemplatesRouter.post('/templates/:assignmentId/mark-done', requireAuth(['
         filteredTargets.forEach(code => {
             const normalized = normalizeLanguageCode(code)
             if (!normalized) return
-            let entry = languageCompletions.find((lc: any) => normalizeLanguageCode(lc?.code) === normalized)
+            let entry = findLanguageCompletionEntry(languageCompletions, normalized, studentLevel)
             if (!entry) {
-                entry = { code: normalized }
+                entry = { code: normalized, level: studentLevel }
                 languageCompletions.push(entry)
             }
             if (targetSemester === 1) {
@@ -825,7 +779,7 @@ teacherTemplatesRouter.post('/templates/:assignmentId/mark-done', requireAuth(['
             }
         })
 
-        const languageCompletionMap = buildLanguageCompletionMap(languageCompletions)
+        const languageCompletionMap = buildLanguageCompletionMap(languageCompletions, studentLevel)
 
         let teacherCompletions = (assignment as any).teacherCompletions || []
 
@@ -939,6 +893,8 @@ teacherTemplatesRouter.post('/templates/:assignmentId/unmark-done', requireAuth(
         }
 
         const { enrollment } = await findEnrollmentForStudent(assignment.studentId)
+        const classDoc = enrollment?.classId ? await ClassModel.findById(enrollment.classId).lean() : null
+        const studentLevel = normalizeLevel((classDoc as any)?.level || '')
         const teacherClassAssignment = enrollment?.classId
             ? await TeacherClassAssignment.findOne({ teacherId, classId: enrollment.classId }).lean()
             : null
@@ -962,9 +918,9 @@ teacherTemplatesRouter.post('/templates/:assignmentId/unmark-done', requireAuth(
         filteredTargets.forEach(code => {
             const normalized = normalizeLanguageCode(code)
             if (!normalized) return
-            let entry = languageCompletions.find((lc: any) => normalizeLanguageCode(lc?.code) === normalized)
+            let entry = findLanguageCompletionEntry(languageCompletions, normalized, studentLevel)
             if (!entry) {
-                entry = { code: normalized }
+                entry = { code: normalized, level: studentLevel }
                 languageCompletions.push(entry)
             }
             if (targetSemester === 1) {
@@ -978,7 +934,7 @@ teacherTemplatesRouter.post('/templates/:assignmentId/unmark-done', requireAuth(
             }
         })
 
-        const languageCompletionMap = buildLanguageCompletionMap(languageCompletions)
+        const languageCompletionMap = buildLanguageCompletionMap(languageCompletions, studentLevel)
 
         let teacherCompletions = (assignment as any).teacherCompletions || []
 
@@ -1072,6 +1028,8 @@ teacherTemplatesRouter.get('/classes/:classId/assignments', requireAuth(['TEACHE
         const classAssignment = await TeacherClassAssignment.findOne({ teacherId, classId }).lean()
         if (!classAssignment) return res.status(403).json({ error: 'not_assigned_to_class' })
         const completionLanguages = getCompletionLanguagesForTeacher(classAssignment)
+        const classDoc = await ClassModel.findById(classId).lean()
+        const studentLevel = normalizeLevel((classDoc as any)?.level || '')
 
         // Get students in class
         const enrollments = await Enrollment.find({ classId }).lean()
@@ -1109,32 +1067,7 @@ teacherTemplatesRouter.get('/classes/:classId/assignments', requireAuth(['TEACHE
         const enriched = assignments.map(assignment => {
             const template = templateMap.get(assignment.templateId)
             const student = studentMap.get(assignment.studentId)
-
-            const myCompletion = (assignment as any).teacherCompletions?.find(
-                (tc: any) => tc.teacherId === teacherId
-            )
-            const languageCompletionMap = buildLanguageCompletionMap((assignment as any).languageCompletions || [])
-
-            if (Object.keys(languageCompletionMap).length === 0 && myCompletion) {
-                if (myCompletion.completedSem1 || myCompletion.completed) {
-                    completionLanguages.forEach(code => {
-                        languageCompletionMap[code] = {
-                            code,
-                            completed: true,
-                            completedSem1: true
-                        }
-                    })
-                }
-                if (myCompletion.completedSem2) {
-                    completionLanguages.forEach(code => {
-                        const existing = languageCompletionMap[code] || { code }
-                        languageCompletionMap[code] = {
-                            ...existing,
-                            completedSem2: true
-                        }
-                    })
-                }
-            }
+            const languageCompletionMap = buildLanguageCompletionMap((assignment as any).languageCompletions || [], studentLevel)
 
             const isMyWorkCompletedSem1 = computeTeacherCompletionForSemester(languageCompletionMap, completionLanguages, 1)
             const isMyWorkCompletedSem2 = computeTeacherCompletionForSemester(languageCompletionMap, completionLanguages, 2)
@@ -1167,6 +1100,8 @@ teacherTemplatesRouter.get('/classes/:classId/completion-stats', requireAuth(['T
         const classAssignment = await TeacherClassAssignment.findOne({ teacherId, classId }).lean()
         if (!classAssignment) return res.status(403).json({ error: 'not_assigned_to_class' })
         const completionLanguages = getCompletionLanguagesForTeacher(classAssignment)
+        const classDoc = await ClassModel.findById(classId).lean()
+        const studentLevel = normalizeLevel((classDoc as any)?.level || '')
 
         // Get students in class
         const enrollments = await Enrollment.find({ classId }).lean()
@@ -1198,31 +1133,7 @@ teacherTemplatesRouter.get('/classes/:classId/completion-stats', requireAuth(['T
         const templateStats = new Map<string, { templateId: string; templateName: string; total: number; completed: number }>()
 
         const isCompletedForSemester = (assignment: any) => {
-            const myCompletion = assignment.teacherCompletions?.find(
-                (tc: any) => tc.teacherId === teacherId
-            )
-            const languageCompletionMap = buildLanguageCompletionMap((assignment as any).languageCompletions || [])
-
-            if (Object.keys(languageCompletionMap).length === 0 && myCompletion) {
-                if (myCompletion.completedSem1 || myCompletion.completed) {
-                    completionLanguages.forEach((code: string) => {
-                        languageCompletionMap[code] = {
-                            code,
-                            completed: true,
-                            completedSem1: true
-                        }
-                    })
-                }
-                if (myCompletion.completedSem2) {
-                    completionLanguages.forEach((code: string) => {
-                        const existing = languageCompletionMap[code] || { code }
-                        languageCompletionMap[code] = {
-                            ...existing,
-                            completedSem2: true
-                        }
-                    })
-                }
-            }
+            const languageCompletionMap = buildLanguageCompletionMap((assignment as any).languageCompletions || [], studentLevel)
 
             return computeTeacherCompletionForSemester(languageCompletionMap, completionLanguages, semester)
         }
@@ -1318,29 +1229,7 @@ teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data', require
         const sanitizedPatch: any = {}
         const activeSemester = (activeYear as any)?.activeSemester || 1
         const completionLanguages = getCompletionLanguagesForTeacher(teacherClassAssignment)
-        const myCompletion = (assignment as any).teacherCompletions?.find((tc: any) => tc.teacherId === teacherId)
-        const languageCompletionMap = buildLanguageCompletionMap((assignment as any).languageCompletions || [])
-
-        if (Object.keys(languageCompletionMap).length === 0 && myCompletion) {
-            if (myCompletion.completedSem1 || myCompletion.completed) {
-                completionLanguages.forEach(code => {
-                    languageCompletionMap[code] = {
-                        code,
-                        completed: true,
-                        completedSem1: true
-                    }
-                })
-            }
-            if (myCompletion.completedSem2) {
-                completionLanguages.forEach(code => {
-                    const existing = languageCompletionMap[code] || { code }
-                    languageCompletionMap[code] = {
-                        ...existing,
-                        completedSem2: true
-                    }
-                })
-            }
-        }
+        const languageCompletionMap = buildLanguageCompletionMap((assignment as any).languageCompletions || [], studentLevel)
 
         const isActiveSemesterClosed = computeTeacherCompletionForSemester(languageCompletionMap, completionLanguages, activeSemester)
         if (isActiveSemesterClosed) {
