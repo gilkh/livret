@@ -960,10 +960,19 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                                                         gap: 8
                                                                     }}>
                                                                         {(() => {
+                                                                            const blockId = typeof b?.props?.blockId === 'string' && b.props.blockId.trim() ? b.props.blockId.trim() : null
+                                                                            const rowIds = Array.isArray(b?.props?.rowIds) ? b.props.rowIds : []
+                                                                            const rowId = typeof rowIds?.[ri] === 'string' && rowIds[ri].trim() ? rowIds[ri].trim() : null
+                                                                            const toggleKeyStable = blockId && rowId ? `table_${blockId}_row_${rowId}` : null
+                                                                            const toggleKeyLegacyPageAware = `table_${actualPageIndex}_${idx}_row_${ri}`
                                                                             const rowLangs = b.props.rowLanguages?.[ri] || expandedLanguages
                                                                             const toggleStyle = b.props.expandedToggleStyle || 'v2'
-                                                                            const toggleKey = `table_${idx}_row_${ri}`
-                                                                            const currentItems = assignment?.data?.[toggleKey] || rowLangs
+                                                                            const toggleKeyLegacy = `table_${idx}_row_${ri}`
+                                                                            const currentItems =
+                                                                                (toggleKeyStable ? assignment?.data?.[toggleKeyStable] : null) ||
+                                                                                assignment?.data?.[toggleKeyLegacyPageAware] ||
+                                                                                assignment?.data?.[toggleKeyLegacy] ||
+                                                                                rowLangs
                                                                             return currentItems.map((lang: any, li: number) => {
                                                                                 const size = Math.max(12, Math.min(expandedRowHeight - 12, 20))
                                                                                 const isActive = !!lang.active
