@@ -10,11 +10,9 @@ import { Enrollment } from '../models/Enrollment'
 import { ClassModel } from '../models/Class'
 import { SchoolYear } from '../models/SchoolYear'
 import { StudentAcquiredSkill } from '../models/StudentAcquiredSkill'
-import { Setting } from '../models/Setting'
 import { logAudit } from '../utils/auditLogger'
 import { getVersionedTemplate, mergeAssignmentDataIntoTemplate, buildBlocksById } from '../utils/templateUtils'
 import { withCache } from '../utils/cache'
-import { assignmentUpdateOptions, normalizeAssignmentMetadataPatch, warnOnInvalidStatusTransition } from '../utils/assignmentMetadata'
 
 export const teacherTemplatesRouter = Router()
 
@@ -42,14 +40,6 @@ const isLevelAtOrBelow = (itemLevelRaw: any, studentLevelRaw: any) => {
     }
 
     return itemOrder <= studentOrder
-}
-
-const isStrictlyBelowLevel = (itemLevelRaw: any, studentLevelRaw: any) => {
-    const itemLevel = normalizeLevel(itemLevelRaw)
-    const studentLevel = normalizeLevel(studentLevelRaw)
-    if (!itemLevel || !studentLevel) return false
-    if (itemLevel === studentLevel) return false
-    return isLevelAtOrBelow(itemLevel, studentLevel)
 }
 
 const getBlockLevel = (block: any) => {
@@ -153,30 +143,6 @@ const findEnrollmentForStudent = async (studentId: string) => {
         enrollment = await Enrollment.findOne({ studentId }).sort({ _id: -1 }).lean()
     }
     return { enrollment, activeYear }
-}
-
-const isPreviousYearDropdownEditableEnabled = async () => {
-    const settings = await Setting.find({
-        key: {
-            $in: [
-                'previous_year_dropdown_editable',
-                'previous_year_dropdown_editable_PS',
-                'previous_year_dropdown_editable_MS',
-                'previous_year_dropdown_editable_GS'
-            ]
-        }
-    }).lean()
-
-    const map: Record<string, any> = {}
-    settings.forEach((s: any) => { map[s.key] = s.value })
-
-    if (Object.prototype.hasOwnProperty.call(map, 'previous_year_dropdown_editable')) {
-        return map.previous_year_dropdown_editable === true
-    }
-
-    return map.previous_year_dropdown_editable_PS === true ||
-        map.previous_year_dropdown_editable_MS === true ||
-        map.previous_year_dropdown_editable_GS === true
 }
 
 /**
@@ -317,6 +283,15 @@ teacherTemplatesRouter.get('/students/:studentId/templates', requireAuth(['TEACH
             assignedTeachers: teacherId,
         }).lean()
 
+        const assignmentIds = assignments.map(a => String(a._id))
+        const changedAssignmentIds = assignmentIds.length
+            ? await TemplateChangeLog.distinct('templateAssignmentId', {
+                teacherId,
+                templateAssignmentId: { $in: assignmentIds },
+            })
+            : []
+        const changedAssignmentSet = new Set((changedAssignmentIds || []).map((id: any) => String(id)))
+
         const { enrollment } = await findEnrollmentForStudent(studentId)
         const classDoc = enrollment?.classId ? await ClassModel.findById(enrollment.classId).lean() : null
         const studentLevel = normalizeLevel((classDoc as any)?.level || '')
@@ -342,6 +317,7 @@ teacherTemplatesRouter.get('/students/:studentId/templates', requireAuth(['TEACH
             return {
                 ...assignment,
                 template,
+                hasChanges: changedAssignmentSet.has(String(assignment._id)),
                 isMyWorkCompleted: isMyWorkCompletedSem1,
                 isMyWorkCompletedSem1,
                 isMyWorkCompletedSem2
@@ -718,10 +694,8 @@ teacherTemplatesRouter.patch('/template-assignments/:assignmentId/language-toggl
                 },
                 $inc: { dataVersion: 1 }
             },
-            assignmentUpdateOptions({ new: true })
+            { new: true }
         )
-
-        warnOnInvalidStatusTransition((assignment as any).status, assignment.status === 'draft' ? 'in_progress' : assignment.status, 'teacherTemplates.languageToggle')
 
         if (!updated) {
             // Conflict: return current assignment + dataVersion so client can fetch/merge
@@ -879,13 +853,9 @@ teacherTemplatesRouter.post('/templates/:assignmentId/mark-done', requireAuth(['
         // Update assignment
         const updated = await TemplateAssignment.findByIdAndUpdate(
             assignmentId,
-            normalizeAssignmentMetadataPatch(updateData),
-            assignmentUpdateOptions({ new: true })
+            updateData,
+            { new: true }
         )
-
-        if (updateData.status) {
-            warnOnInvalidStatusTransition((assignment as any).status, updateData.status, 'teacherTemplates.markDone')
-        }
 
         // Log audit
         const template = await GradebookTemplate.findById(assignment.templateId).lean()
@@ -1031,13 +1001,9 @@ teacherTemplatesRouter.post('/templates/:assignmentId/unmark-done', requireAuth(
         // Update assignment
         const updated = await TemplateAssignment.findByIdAndUpdate(
             assignmentId,
-            normalizeAssignmentMetadataPatch(updateData),
-            assignmentUpdateOptions({ new: true })
+            updateData,
+            { new: true }
         )
-
-        if (updateData.status) {
-            warnOnInvalidStatusTransition((assignment as any).status, updateData.status, 'teacherTemplates.unmarkDone')
-        }
 
         // Log audit
         const template = await GradebookTemplate.findById(assignment.templateId).lean()
@@ -1085,6 +1051,15 @@ teacherTemplatesRouter.get('/classes/:classId/assignments', requireAuth(['TEACHE
             assignedTeachers: teacherId,
         }).select('-data').lean()
 
+        const assignmentIds = assignments.map(a => String(a._id))
+        const changedAssignmentIds = assignmentIds.length
+            ? await TemplateChangeLog.distinct('templateAssignmentId', {
+                teacherId,
+                templateAssignmentId: { $in: assignmentIds },
+            })
+            : []
+        const changedAssignmentSet = new Set((changedAssignmentIds || []).map((id: any) => String(id)))
+
         const templateIds = Array.from(
             new Set(assignments.map(a => a.templateId).filter(Boolean))
         )
@@ -1119,6 +1094,7 @@ teacherTemplatesRouter.get('/classes/:classId/assignments', requireAuth(['TEACHE
 
             return {
                 ...assignment,
+                hasChanges: changedAssignmentSet.has(String(assignment._id)),
                 isCompleted: isMyWorkCompleted,
                 isCompletedSem1: isMyWorkCompletedSem1,
                 isCompletedSem2: isMyWorkCompletedSem2,
@@ -1272,7 +1248,6 @@ teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data', require
         const versionedTemplate: any = getVersionedTemplate(template, (assignment as any).templateVersion)
         const sanitizedPatch: any = {}
         const activeSemester = (activeYear as any)?.activeSemester || 1
-        const previousYearDropdownEditable = await isPreviousYearDropdownEditableEnabled()
         const completionLanguages = getCompletionLanguagesForTeacher(teacherClassAssignment)
         const languageCompletionMap = buildLanguageCompletionMap((assignment as any).languageCompletions || [], studentLevel)
 
@@ -1486,27 +1461,11 @@ teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data', require
                 const dropdownBlock = dropdownBlocks.length === 1 ? dropdownBlocks[0] : null
                 if (dropdownBlock) {
                     const allowedLevels = Array.isArray(dropdownBlock?.props?.levels) ? dropdownBlock.props.levels.map((v: any) => normalizeLevel(v)) : []
-                    const isLevelAllowed = allowedLevels.length === 0 || (
-                        previousYearDropdownEditable
-                            ? (studentLevel ? allowedLevels.some((level: string) => isLevelAtOrBelow(level, studentLevel)) : false)
-                            : (studentLevel ? allowedLevels.includes(studentLevel) : false)
-                    )
-                    if (!isLevelAllowed) {
+                    if (allowedLevels.length > 0 && (!studentLevel || !allowedLevels.includes(studentLevel))) {
                         return res.status(403).json({ error: 'level_mismatch', details: { studentLevel, allowedLevels } })
                     }
                     const allowedSemesters = Array.isArray(dropdownBlock?.props?.semesters) ? dropdownBlock.props.semesters : []
-                    const canBypassSemester = previousYearDropdownEditable &&
-                        studentLevel &&
-                        allowedLevels.length > 0 &&
-                        allowedLevels.every((level: string) => isStrictlyBelowLevel(level, studentLevel))
-
-                    const canEditSem1WhileActiveSem2 = previousYearDropdownEditable &&
-                        activeSemester === 2 &&
-                        allowedSemesters.length > 0 &&
-                        allowedSemesters.includes(1) &&
-                        !allowedSemesters.includes(2)
-
-                    if (!canBypassSemester && !canEditSem1WhileActiveSem2 && allowedSemesters.length > 0 && !allowedSemesters.includes(activeSemester)) {
+                    if (allowedSemesters.length > 0 && !allowedSemesters.includes(activeSemester)) {
                         return res.status(403).json({ error: 'semester_mismatch', details: { activeSemester, allowedSemesters } })
                     }
                 }
@@ -1525,27 +1484,11 @@ teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data', require
             const variableBlock = variableNameBlocks.length === 1 ? variableNameBlocks[0] : null
             if (variableBlock) {
                 const allowedLevels = Array.isArray(variableBlock?.props?.levels) ? variableBlock.props.levels.map((v: any) => normalizeLevel(v)) : []
-                const isLevelAllowed = allowedLevels.length === 0 || (
-                    previousYearDropdownEditable
-                        ? (studentLevel ? allowedLevels.some((level: string) => isLevelAtOrBelow(level, studentLevel)) : false)
-                        : (studentLevel ? allowedLevels.includes(studentLevel) : false)
-                )
-                if (!isLevelAllowed) {
+                if (allowedLevels.length > 0 && (!studentLevel || !allowedLevels.includes(studentLevel))) {
                     return res.status(403).json({ error: 'level_mismatch', details: { studentLevel, allowedLevels } })
                 }
                 const allowedSemesters = Array.isArray(variableBlock?.props?.semesters) ? variableBlock.props.semesters : []
-                const canBypassSemester = previousYearDropdownEditable &&
-                    studentLevel &&
-                    allowedLevels.length > 0 &&
-                    allowedLevels.every((level: string) => isStrictlyBelowLevel(level, studentLevel))
-
-                const canEditSem1WhileActiveSem2 = previousYearDropdownEditable &&
-                    activeSemester === 2 &&
-                    allowedSemesters.length > 0 &&
-                    allowedSemesters.includes(1) &&
-                    !allowedSemesters.includes(2)
-
-                if (!canBypassSemester && !canEditSem1WhileActiveSem2 && allowedSemesters.length > 0 && !allowedSemesters.includes(activeSemester)) {
+                if (allowedSemesters.length > 0 && !allowedSemesters.includes(activeSemester)) {
                     return res.status(403).json({ error: 'semester_mismatch', details: { activeSemester, allowedSemesters } })
                 }
             }
@@ -1559,10 +1502,8 @@ teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data', require
                 $set: { data: { ...(assignment.data || {}), ...sanitizedPatch } },
                 status: assignment.status === 'draft' ? 'in_progress' : assignment.status,
             },
-            assignmentUpdateOptions({ new: true })
+            { new: true }
         )
-
-        warnOnInvalidStatusTransition((assignment as any).status, assignment.status === 'draft' ? 'in_progress' : assignment.status, 'teacherTemplates.dataPatch')
 
         // Sync promotion status to Enrollment if present
         if ((sanitizedPatch as any).promotions && Array.isArray((sanitizedPatch as any).promotions) && (sanitizedPatch as any).promotions.length > 0) {

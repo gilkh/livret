@@ -8,6 +8,7 @@ type TemplateAssignment = {
     templateId: string
     studentId: string
     status: string
+    hasChanges?: boolean
     isCompleted?: boolean
     completedAt?: Date
     completedBy?: string
@@ -150,6 +151,23 @@ export default function TeacherStudentTemplates() {
                                                 a.status === 'signed' ? '✔️ Signé' : a.status
                                 }</span>
                             </div>
+                            {a.hasChanges && (
+                                <div style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 6,
+                                    marginTop: 6,
+                                    padding: '4px 10px',
+                                    borderRadius: 999,
+                                    fontSize: 12,
+                                    fontWeight: 600,
+                                    color: '#b45309',
+                                    background: '#fffbeb',
+                                    border: '1px solid #fde68a'
+                                }}>
+                                    📝 Modifié
+                                </div>
+                            )}
                             {a.isCompleted && a.completedAt && (
                                 <div className="note" style={{ fontSize: 12, marginTop: 6, color: '#10b981', fontWeight: 500 }}>
                                     📅 Marqué terminé le {new Date(a.completedAt).toLocaleDateString('fr-FR')}

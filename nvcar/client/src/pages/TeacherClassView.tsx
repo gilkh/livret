@@ -7,6 +7,7 @@ type Student = { _id: string; firstName: string; lastName: string; dateOfBirth: 
 type Assignment = {
     _id: string
     studentId: string
+    hasChanges?: boolean
     isCompleted?: boolean
     isCompletedSem1?: boolean
     isCompletedSem2?: boolean
@@ -389,126 +390,145 @@ export default function TeacherClassView() {
                                 {studentAssignments.length > 0 && (
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
                                         {studentAssignments.map(a => (
-                                            <div key={a._id} style={{ display: 'flex', gap: 6 }}>
-                                                {quickGradingEnabled && (
+                                            <div key={a._id} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                                {a.hasChanges && (
+                                                    <div style={{
+                                                        display: 'inline-flex',
+                                                        alignItems: 'center',
+                                                        gap: 6,
+                                                        alignSelf: 'flex-start',
+                                                        padding: '3px 8px',
+                                                        borderRadius: 999,
+                                                        fontSize: 11,
+                                                        fontWeight: 600,
+                                                        color: '#b45309',
+                                                        background: '#fffbeb',
+                                                        border: '1px solid #fde68a'
+                                                    }}>
+                                                        📝 Modifié
+                                                    </div>
+                                                )}
+                                                <div style={{ display: 'flex', gap: 6 }}>
+                                                    {quickGradingEnabled && (
+                                                        <Link
+                                                            to={`/teacher/templates/${a._id}/quick`}
+                                                            style={{ textDecoration: 'none', flex: 1 }}
+                                                        >
+                                                            <div
+                                                                style={{
+                                                                    padding: '8px 12px',
+                                                                    background: isAssignmentCompletedForActiveSemester(a) ? '#ecfdf5' : 'white',
+                                                                    border: `1px solid ${isAssignmentCompletedForActiveSemester(a) ? '#10b981' : '#e2e8f0'}`,
+                                                                    borderRadius: 6,
+                                                                    fontSize: 13,
+                                                                    color: '#334155',
+                                                                    display: 'flex',
+                                                                    alignItems: 'center',
+                                                                    justifyContent: 'space-between',
+                                                                    transition: 'all 0.2s ease'
+                                                                }}
+                                                                onMouseEnter={(e) => {
+                                                                    e.currentTarget.style.borderColor = '#6c5ce7';
+                                                                    e.currentTarget.style.transform = 'translateX(2px)';
+                                                                }}
+                                                                onMouseLeave={(e) => {
+                                                                    e.currentTarget.style.borderColor = isAssignmentCompletedForActiveSemester(a) ? '#10b981' : '#e2e8f0';
+                                                                    e.currentTarget.style.transform = 'translateX(0)';
+                                                                }}
+                                                            >
+                                                                <span style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>⚡ Notation rapide</span>
+                                                                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                                    <div style={{ display: 'flex', gap: 2 }}>
+                                                                        <span style={{
+                                                                            fontSize: 10,
+                                                                            padding: '2px 4px',
+                                                                            borderRadius: 4,
+                                                                            background: a.isCompletedSem1 ? '#10b981' : '#f1f5f9',
+                                                                            color: a.isCompletedSem1 ? 'white' : '#94a3b8',
+                                                                            fontWeight: 600
+                                                                        }}>S1</span>
+                                                                        <span style={{
+                                                                            fontSize: 10,
+                                                                            padding: '2px 4px',
+                                                                            borderRadius: 4,
+                                                                            background: a.isCompletedSem2 ? '#10b981' : '#f1f5f9',
+                                                                            color: a.isCompletedSem2 ? 'white' : '#94a3b8',
+                                                                            fontWeight: 600
+                                                                        }}>S2</span>
+                                                                    </div>
+                                                                    {isAssignmentCompletedForActiveSemester(a) ? (
+                                                                        <span style={{ color: '#10b981' }}>✓</span>
+                                                                    ) : (
+                                                                        <span style={{ color: '#6c5ce7' }}>→</span>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                        </Link>
+                                                    )}
                                                     <Link
-                                                        to={`/teacher/templates/${a._id}/quick`}
-                                                        style={{ textDecoration: 'none', flex: 1 }}
+                                                        to={`/teacher/templates/${a._id}/edit`}
+                                                        style={{ textDecoration: 'none', flex: quickGradingEnabled ? undefined : 1 }}
+                                                        title="Vue complète du carnet"
                                                     >
                                                         <div
                                                             style={{
-                                                                padding: '8px 12px',
-                                                                background: isAssignmentCompletedForActiveSemester(a) ? '#ecfdf5' : 'white',
-                                                                border: `1px solid ${isAssignmentCompletedForActiveSemester(a) ? '#10b981' : '#e2e8f0'}`,
+                                                                padding: quickGradingEnabled ? '8px 10px' : '8px 12px',
+                                                                background: quickGradingEnabled ? '#f1f5f9' : (isAssignmentCompletedForActiveSemester(a) ? '#ecfdf5' : 'white'),
+                                                                border: `1px solid ${quickGradingEnabled ? '#e2e8f0' : (isAssignmentCompletedForActiveSemester(a) ? '#10b981' : '#e2e8f0')}`,
                                                                 borderRadius: 6,
                                                                 fontSize: 13,
-                                                                color: '#334155',
+                                                                color: quickGradingEnabled ? '#64748b' : '#334155',
                                                                 display: 'flex',
                                                                 alignItems: 'center',
-                                                                justifyContent: 'space-between',
-                                                                transition: 'all 0.2s ease'
+                                                                justifyContent: quickGradingEnabled ? 'center' : 'space-between',
+                                                                transition: 'all 0.2s ease',
+                                                                height: '100%',
+                                                                gap: 8
                                                             }}
                                                             onMouseEnter={(e) => {
+                                                                e.currentTarget.style.background = '#e0e7ff';
+                                                                e.currentTarget.style.color = '#4338ca';
                                                                 e.currentTarget.style.borderColor = '#6c5ce7';
-                                                                e.currentTarget.style.transform = 'translateX(2px)';
                                                             }}
                                                             onMouseLeave={(e) => {
-                                                                e.currentTarget.style.borderColor = isAssignmentCompletedForActiveSemester(a) ? '#10b981' : '#e2e8f0';
-                                                                e.currentTarget.style.transform = 'translateX(0)';
+                                                                e.currentTarget.style.background = quickGradingEnabled ? '#f1f5f9' : (isAssignmentCompletedForActiveSemester(a) ? '#ecfdf5' : 'white');
+                                                                e.currentTarget.style.color = quickGradingEnabled ? '#64748b' : '#334155';
+                                                                e.currentTarget.style.borderColor = quickGradingEnabled ? '#e2e8f0' : (isAssignmentCompletedForActiveSemester(a) ? '#10b981' : '#e2e8f0');
                                                             }}
                                                         >
-                                                            <span style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>⚡ Notation rapide</span>
-                                                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                                <div style={{ display: 'flex', gap: 2 }}>
-                                                                    <span style={{
-                                                                        fontSize: 10,
-                                                                        padding: '2px 4px',
-                                                                        borderRadius: 4,
-                                                                        background: a.isCompletedSem1 ? '#10b981' : '#f1f5f9',
-                                                                        color: a.isCompletedSem1 ? 'white' : '#94a3b8',
-                                                                        fontWeight: 600
-                                                                    }}>S1</span>
-                                                                    <span style={{
-                                                                        fontSize: 10,
-                                                                        padding: '2px 4px',
-                                                                        borderRadius: 4,
-                                                                        background: a.isCompletedSem2 ? '#10b981' : '#f1f5f9',
-                                                                        color: a.isCompletedSem2 ? 'white' : '#94a3b8',
-                                                                        fontWeight: 600
-                                                                    }}>S2</span>
+                                                            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                                📄 {!quickGradingEnabled && <span style={{ fontWeight: 500 }}>Ouvrir le carnet</span>}
+                                                            </span>
+                                                            {!quickGradingEnabled && (
+                                                                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                                    <div style={{ display: 'flex', gap: 2 }}>
+                                                                        <span style={{
+                                                                            fontSize: 10,
+                                                                            padding: '2px 4px',
+                                                                            borderRadius: 4,
+                                                                            background: a.isCompletedSem1 ? '#10b981' : '#f1f5f9',
+                                                                            color: a.isCompletedSem1 ? 'white' : '#94a3b8',
+                                                                            fontWeight: 600
+                                                                        }}>S1</span>
+                                                                        <span style={{
+                                                                            fontSize: 10,
+                                                                            padding: '2px 4px',
+                                                                            borderRadius: 4,
+                                                                            background: a.isCompletedSem2 ? '#10b981' : '#f1f5f9',
+                                                                            color: a.isCompletedSem2 ? 'white' : '#94a3b8',
+                                                                            fontWeight: 600
+                                                                        }}>S2</span>
+                                                                    </div>
+                                                                    {isAssignmentCompletedForActiveSemester(a) ? (
+                                                                        <span style={{ color: '#10b981' }}>✓</span>
+                                                                    ) : (
+                                                                        <span style={{ color: '#6c5ce7' }}>→</span>
+                                                                    )}
                                                                 </div>
-                                                                {isAssignmentCompletedForActiveSemester(a) ? (
-                                                                    <span style={{ color: '#10b981' }}>✓</span>
-                                                                ) : (
-                                                                    <span style={{ color: '#6c5ce7' }}>→</span>
-                                                                )}
-                                                            </div>
+                                                            )}
                                                         </div>
                                                     </Link>
-                                                )}
-                                                <Link
-                                                    to={`/teacher/templates/${a._id}/edit`}
-                                                    style={{ textDecoration: 'none', flex: quickGradingEnabled ? undefined : 1 }}
-                                                    title="Vue complète du carnet"
-                                                >
-                                                    <div
-                                                        style={{
-                                                            padding: quickGradingEnabled ? '8px 10px' : '8px 12px',
-                                                            background: quickGradingEnabled ? '#f1f5f9' : (isAssignmentCompletedForActiveSemester(a) ? '#ecfdf5' : 'white'),
-                                                            border: `1px solid ${quickGradingEnabled ? '#e2e8f0' : (isAssignmentCompletedForActiveSemester(a) ? '#10b981' : '#e2e8f0')}`,
-                                                            borderRadius: 6,
-                                                            fontSize: 13,
-                                                            color: quickGradingEnabled ? '#64748b' : '#334155',
-                                                            display: 'flex',
-                                                            alignItems: 'center',
-                                                            justifyContent: quickGradingEnabled ? 'center' : 'space-between',
-                                                            transition: 'all 0.2s ease',
-                                                            height: '100%',
-                                                            gap: 8
-                                                        }}
-                                                        onMouseEnter={(e) => {
-                                                            e.currentTarget.style.background = '#e0e7ff';
-                                                            e.currentTarget.style.color = '#4338ca';
-                                                            e.currentTarget.style.borderColor = '#6c5ce7';
-                                                        }}
-                                                        onMouseLeave={(e) => {
-                                                            e.currentTarget.style.background = quickGradingEnabled ? '#f1f5f9' : (isAssignmentCompletedForActiveSemester(a) ? '#ecfdf5' : 'white');
-                                                            e.currentTarget.style.color = quickGradingEnabled ? '#64748b' : '#334155';
-                                                            e.currentTarget.style.borderColor = quickGradingEnabled ? '#e2e8f0' : (isAssignmentCompletedForActiveSemester(a) ? '#10b981' : '#e2e8f0');
-                                                        }}
-                                                    >
-                                                        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                            📄 {!quickGradingEnabled && <span style={{ fontWeight: 500 }}>Ouvrir le carnet</span>}
-                                                        </span>
-                                                        {!quickGradingEnabled && (
-                                                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                                <div style={{ display: 'flex', gap: 2 }}>
-                                                                    <span style={{
-                                                                        fontSize: 10,
-                                                                        padding: '2px 4px',
-                                                                        borderRadius: 4,
-                                                                        background: a.isCompletedSem1 ? '#10b981' : '#f1f5f9',
-                                                                        color: a.isCompletedSem1 ? 'white' : '#94a3b8',
-                                                                        fontWeight: 600
-                                                                    }}>S1</span>
-                                                                    <span style={{
-                                                                        fontSize: 10,
-                                                                        padding: '2px 4px',
-                                                                        borderRadius: 4,
-                                                                        background: a.isCompletedSem2 ? '#10b981' : '#f1f5f9',
-                                                                        color: a.isCompletedSem2 ? 'white' : '#94a3b8',
-                                                                        fontWeight: 600
-                                                                    }}>S2</span>
-                                                                </div>
-                                                                {isAssignmentCompletedForActiveSemester(a) ? (
-                                                                    <span style={{ color: '#10b981' }}>✓</span>
-                                                                ) : (
-                                                                    <span style={{ color: '#6c5ce7' }}>→</span>
-                                                                )}
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                </Link>
+                                                </div>
                                             </div>
                                         ))}
                                     </div>
