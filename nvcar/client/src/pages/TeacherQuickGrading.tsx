@@ -72,6 +72,7 @@ export default function TeacherQuickGrading() {
     const [isMyWorkCompletedSem1, setIsMyWorkCompletedSem1] = useState(false)
     const [isMyWorkCompletedSem2, setIsMyWorkCompletedSem2] = useState(false)
     const [activeSemester, setActiveSemester] = useState<number>(1)
+    const [previousYearDropdownEditable, setPreviousYearDropdownEditable] = useState(false)
     const [search, setSearch] = useState('')
 
     const { activeYear } = useSchoolYear()
@@ -114,6 +115,21 @@ export default function TeacherQuickGrading() {
 
         // No level restrictions, allow
         return true
+    }, [levels])
+
+    const hasOnlyOlderLevels = useCallback((itemLevels: string[] | undefined, studentLevel: string) => {
+        if (!studentLevel || !itemLevels || itemLevels.length === 0) return false
+
+        const levelOrderMap: Record<string, number> = {}
+        levels.forEach(l => { levelOrderMap[l.name.toUpperCase()] = l.order })
+
+        const studentOrder = levelOrderMap[studentLevel.toUpperCase()]
+        if (studentOrder === undefined) return false
+
+        return itemLevels.every(lvl => {
+            const itemOrder = levelOrderMap[String(lvl || '').toUpperCase()]
+            return itemOrder !== undefined && itemOrder < studentOrder
+        })
     }, [levels])
 
     // Extract text rows from template
@@ -301,17 +317,16 @@ export default function TeacherQuickGrading() {
                     const dropdownSemesters = block.props.semesters || [1, 2]
                     const dropdownLevels: string[] = block.props.levels || []
 
-                    // For dropdowns: ONLY show if it's exclusively for the student's current level
-                    // (not shared with other levels like language toggles)
-                    // This means: levels must be empty (no restriction) OR contain ONLY the student's current level
                     if (dropdownLevels.length > 0 && studentLevel) {
-                        const studentLevelUpper = studentLevel.toUpperCase()
-                        const levelsUpper = dropdownLevels.map((l: string) => l.toUpperCase())
-
-                        // Dropdown must be EXCLUSIVELY for the student's current level
-                        // i.e., levels array should only contain the student's level
-                        const isExclusivelyForCurrentLevel = levelsUpper.length === 1 && levelsUpper[0] === studentLevelUpper
-                        if (!isExclusivelyForCurrentLevel) return
+                        if (!previousYearDropdownEditable) {
+                            const studentLevelUpper = studentLevel.toUpperCase()
+                            const levelsUpper = dropdownLevels.map((l: string) => l.toUpperCase())
+                            const isExclusivelyForCurrentLevel = levelsUpper.length === 1 && levelsUpper[0] === studentLevelUpper
+                            if (!isExclusivelyForCurrentLevel) return
+                        } else {
+                            const isAllowedPreviousYear = isLevelAtOrBelow(undefined, dropdownLevels, studentLevel)
+                            if (!isAllowedPreviousYear) return
+                        }
                     }
 
                     const blockId = typeof block?.props?.blockId === 'string' && block.props.blockId.trim() ? block.props.blockId.trim() : null
@@ -337,7 +352,7 @@ export default function TeacherQuickGrading() {
         })
 
         return { rows, drops }
-    }, [])
+    }, [isLevelAtOrBelow, previousYearDropdownEditable])
 
 
     // Load data
@@ -345,7 +360,11 @@ export default function TeacherQuickGrading() {
         const loadData = async () => {
             try {
                 setLoading(true)
-                const r = await api.get(`/teacher/template-assignments/${assignmentId}`)
+                const [assignmentRes, settingsRes] = await Promise.all([
+                    api.get(`/teacher/template-assignments/${assignmentId}`),
+                    api.get('/settings/public').catch(() => ({ data: {} }))
+                ])
+                const r = assignmentRes
 
                 setStudent(r.data.student)
                 setAssignment(r.data.assignment)
@@ -357,6 +376,16 @@ export default function TeacherQuickGrading() {
                 setIsMyWorkCompletedSem1(r.data.isMyWorkCompletedSem1 || false)
                 setIsMyWorkCompletedSem2(r.data.isMyWorkCompletedSem2 || false)
                 setActiveSemester(r.data.activeSemester || 1)
+                const hasUnifiedPreviousYearDropdownSetting = Object.prototype.hasOwnProperty.call(settingsRes.data || {}, 'previous_year_dropdown_editable')
+                setPreviousYearDropdownEditable(
+                    hasUnifiedPreviousYearDropdownSetting
+                        ? settingsRes.data.previous_year_dropdown_editable === true
+                        : (
+                            settingsRes.data.previous_year_dropdown_editable_PS === true ||
+                            settingsRes.data.previous_year_dropdown_editable_MS === true ||
+                            settingsRes.data.previous_year_dropdown_editable_GS === true
+                        )
+                )
 
                 const { rows, drops } = extractTextRows(
                     r.data.template,
@@ -754,30 +783,33 @@ export default function TeacherQuickGrading() {
         return result
     }, [textRows, search])
 
-    // Filtered dropdowns by semester AND exact current level only
-    // Teachers can only edit dropdowns for the student's EXACT current level (not previous levels)
-    // Unlike language toggles, dropdowns are restricted to the current level only
+    // Filter dropdowns by semester/level with admin override for previous-year dropdown editing
     const filteredDropdowns = useMemo(() => {
         const studentLevel = student?.level || ''
         const studentLevelUpper = studentLevel.toUpperCase()
 
         return dropdowns.filter(d => {
-            // Must match active semester
-            if (!d.semesters.includes(activeSemester)) return false
+            const canBypassSemester = previousYearDropdownEditable && hasOnlyOlderLevels(d.levels, studentLevel)
+            const canEditSem1WhileActiveSem2 = previousYearDropdownEditable &&
+                activeSemester === 2 &&
+                d.semesters.includes(1) &&
+                !d.semesters.includes(2)
+            if (!canBypassSemester && !canEditSem1WhileActiveSem2 && !d.semesters.includes(activeSemester)) return false
 
             // For dropdowns with level restrictions:
-            // Only show if the dropdown is EXCLUSIVELY for the student's current level
-            // (dropdowns with levels: ['PS', 'MS'] will NOT show for an MS student)
             if (d.levels && d.levels.length > 0 && studentLevel) {
                 const levelsUpper = d.levels.map((l: string) => l.toUpperCase())
-                // Dropdown must be exclusively for the student's level (only 1 level that matches)
-                return levelsUpper.length === 1 && levelsUpper[0] === studentLevelUpper
+                if (!previousYearDropdownEditable) {
+                    return levelsUpper.length === 1 && levelsUpper[0] === studentLevelUpper
+                }
+
+                return d.levels.some((lvl: string) => isLevelAtOrBelow(lvl, undefined, studentLevel))
             }
 
             // Dropdowns without level restrictions are always shown
             return true
         })
-    }, [dropdowns, activeSemester, student?.level])
+    }, [dropdowns, activeSemester, student?.level, previousYearDropdownEditable, isLevelAtOrBelow, hasOnlyOlderLevels])
 
     if (loading) {
         return (

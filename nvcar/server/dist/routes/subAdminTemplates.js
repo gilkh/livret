@@ -31,6 +31,7 @@ const mongoose_1 = __importDefault(require("mongoose"));
 const templateUtils_1 = require("../utils/templateUtils");
 const cache_1 = require("../utils/cache");
 const rolloverService_1 = require("../services/rolloverService");
+const assignmentMetadata_1 = require("../utils/assignmentMetadata");
 const multer_1 = __importDefault(require("multer"));
 const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
@@ -754,7 +755,7 @@ exports.subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote',
                     await TemplateAssignment_1.TemplateAssignment.findByIdAndUpdate(templateAssignmentId, {
                         $push: { 'data.promotions': promotionData },
                         $inc: { dataVersion: 1 }
-                    }, { new: true });
+                    }, (0, assignmentMetadata_1.assignmentUpdateOptions)({ new: true }));
                 }
                 catch (err) {
                     // Attempt rollback of side effects
@@ -792,7 +793,7 @@ exports.subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote',
                         }
                         // Restore assignment data
                         try {
-                            await TemplateAssignment_1.TemplateAssignment.findByIdAndUpdate(templateAssignmentId, { $set: { data: assignmentDataBefore } });
+                            await TemplateAssignment_1.TemplateAssignment.findByIdAndUpdate(templateAssignmentId, { $set: { data: assignmentDataBefore } }, (0, assignmentMetadata_1.assignmentUpdateOptions)());
                         }
                         catch (e) {
                             console.error('Rollback: failed to restore assignment data', e);
@@ -845,7 +846,7 @@ exports.subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote',
                     await TemplateAssignment_1.TemplateAssignment.findByIdAndUpdate(templateAssignmentId, {
                         $push: { 'data.promotions': promotionData },
                         $inc: { dataVersion: 1 }
-                    }, { new: true, session });
+                    }, (0, assignmentMetadata_1.assignmentUpdateOptions)({ new: true, session }));
                     await session.commitTransaction();
                 }
                 catch (e) {
@@ -1138,7 +1139,6 @@ exports.subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', (0
                         const student = await Student_1.Student.findById(updatedAssignment.studentId).lean();
                         const statuses = await StudentCompetencyStatus_1.StudentCompetencyStatus.find({ studentId: updatedAssignment.studentId }).lean();
                         const signatures = await TemplateSignature_1.TemplateSignature.find({ templateAssignmentId }).lean();
-                        const sem1Signatures = signatures.filter((s) => s.type !== 'end_of_year');
                         // Get enrollment and class info
                         const activeSchoolYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
                         const schoolYearId = signatureSchoolYearId || (activeSchoolYear ? String(activeSchoolYear._id) : '');
@@ -1158,8 +1158,8 @@ exports.subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', (0
                             statuses,
                             assignment: updatedAssignment,
                             className,
-                            signatures: sem1Signatures,
-                            signature: sem1Signatures.find((s) => s.type === 'standard') || null,
+                            signatures,
+                            signature: signature || signatures.find((s) => s.type === 'standard') || null,
                             finalSignature: null,
                         };
                         await (0, rolloverService_1.createAssignmentSnapshot)(updatedAssignment, snapshotReason, {
@@ -1785,7 +1785,8 @@ exports.subAdminTemplatesRouter.post('/templates/sign-class/:classId', (0, auth_
                 throw err;
             }
             // Update assignment status
-            await TemplateAssignment_1.TemplateAssignment.findByIdAndUpdate(assignment._id, { status: 'signed' });
+            (0, assignmentMetadata_1.warnOnInvalidStatusTransition)(assignment.status, 'signed', 'subAdminTemplates.signClass');
+            await TemplateAssignment_1.TemplateAssignment.findByIdAndUpdate(assignment._id, (0, assignmentMetadata_1.normalizeAssignmentMetadataPatch)({ status: 'signed' }), (0, assignmentMetadata_1.assignmentUpdateOptions)());
             // Log audit
             const template = await GradebookTemplate_1.GradebookTemplate.findById(assignment.templateId).lean();
             const student = await Student_1.Student.findById(assignment.studentId).lean();
@@ -1860,11 +1861,11 @@ exports.subAdminTemplatesRouter.post('/templates/:assignmentId/mark-done', (0, a
             return res.status(403).json({ error: 'not_authorized' });
         }
         // Update assignment
-        const updated = await TemplateAssignment_1.TemplateAssignment.findByIdAndUpdate(assignmentId, {
+        const updated = await TemplateAssignment_1.TemplateAssignment.findByIdAndUpdate(assignmentId, (0, assignmentMetadata_1.normalizeAssignmentMetadataPatch)({
             isCompleted: true,
             completedAt: new Date(),
             completedBy: subAdminId,
-        }, { new: true });
+        }), (0, assignmentMetadata_1.assignmentUpdateOptions)({ new: true }));
         // Log audit
         const template = await GradebookTemplate_1.GradebookTemplate.findById(assignment.templateId).lean();
         const student = await Student_1.Student.findById(assignment.studentId).lean();
@@ -1904,11 +1905,11 @@ exports.subAdminTemplatesRouter.post('/templates/:assignmentId/unmark-done', (0,
             return res.status(403).json({ error: 'not_authorized' });
         }
         // Update assignment
-        const updated = await TemplateAssignment_1.TemplateAssignment.findByIdAndUpdate(assignmentId, {
+        const updated = await TemplateAssignment_1.TemplateAssignment.findByIdAndUpdate(assignmentId, (0, assignmentMetadata_1.normalizeAssignmentMetadataPatch)({
             isCompleted: false,
             completedAt: null,
             completedBy: null,
-        }, { new: true });
+        }), (0, assignmentMetadata_1.assignmentUpdateOptions)({ new: true }));
         // Log audit
         const template = await GradebookTemplate_1.GradebookTemplate.findById(assignment.templateId).lean();
         const student = await Student_1.Student.findById(assignment.studentId).lean();
@@ -2003,7 +2004,7 @@ exports.subAdminTemplatesRouter.patch('/templates/:assignmentId/data', (0, auth_
                 $set: {
                     [`data.${keyStable}`]: items
                 }
-            }, { new: true });
+            }, (0, assignmentMetadata_1.assignmentUpdateOptions)({ new: true }));
             // Log audit
             await (0, auditLogger_1.logAudit)({
                 userId: subAdminId,
@@ -2040,7 +2041,8 @@ exports.subAdminTemplatesRouter.patch('/templates/:assignmentId/data', (0, auth_
                     status: assignment.status === 'draft' ? 'in_progress' : assignment.status
                 },
                 $inc: { dataVersion: 1 }
-            }, { new: true });
+            }, (0, assignmentMetadata_1.assignmentUpdateOptions)({ new: true }));
+            (0, assignmentMetadata_1.warnOnInvalidStatusTransition)(assignment.status, assignment.status === 'draft' ? 'in_progress' : assignment.status, 'subAdminTemplates.dataPatch');
             if (!updated) {
                 const current = await TemplateAssignment_1.TemplateAssignment.findById(assignmentId).lean();
                 return res.status(409).json({ error: 'conflict', message: 'data_version_mismatch', current });
@@ -2183,7 +2185,7 @@ exports.subAdminTemplatesRouter.post('/assign-student', (0, auth_1.requireAuth)(
         await TemplateAssignment_1.TemplateAssignment.updateMany({
             studentId,
             status: { $in: ['draft', 'in_progress'] }
-        }, { $set: { assignedTeachers: teacherIds } });
+        }, { $set: { assignedTeachers: teacherIds } }, (0, assignmentMetadata_1.assignmentUpdateOptions)());
         res.json({ success: true });
     }
     catch (e) {

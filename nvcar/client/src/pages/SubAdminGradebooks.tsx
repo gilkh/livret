@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import api from '../api'
-import TemplateReviewPreview from '../components/TemplateReviewPreview'
+import { GradebookRenderer } from '../components/GradebookRenderer'
 import SearchableSelect from '../components/SearchableSelect'
 import ScrollToTopButton from '../components/ScrollToTopButton'
 import { openPdfExport, buildSavedGradebookPdfUrl } from '../utils/pdfExport'
@@ -27,6 +27,7 @@ export default function SubAdminGradebooks() {
     const [savedGradebook, setSavedGradebook] = useState<any>(null)
     const [savedTemplate, setSavedTemplate] = useState<any>(null)
     const [loadingSaved, setLoadingSaved] = useState(false)
+    const [blockVisibilitySettings, setBlockVisibilitySettings] = useState<any>({})
 
     const loadSavedGradebook = async (savedGradebookId: string) => {
         setLoadingSaved(true)
@@ -69,6 +70,12 @@ export default function SubAdminGradebooks() {
     }
 
     // --- Effects for Saved View ---
+    useEffect(() => {
+        api.get('/settings/public')
+            .then(r => setBlockVisibilitySettings(r.data?.block_visibility_settings || {}))
+            .catch(() => setBlockVisibilitySettings({}))
+    }, [])
+
     useEffect(() => {
         if (mode === 'saved') {
             api.get('/saved-gradebooks/years').then(r => setSavedYears(r.data))
@@ -287,7 +294,7 @@ export default function SubAdminGradebooks() {
                         </button>
                     </div>
                     <div className="renderer-wrapper">
-                        <TemplateReviewPreview
+                        <GradebookRenderer
                             template={savedTemplate}
                             student={savedGradebook.data.student}
                             assignment={savedGradebook.data.assignment}
@@ -297,6 +304,12 @@ export default function SubAdminGradebooks() {
                             finalSignature={savedGradebook.data.signatures?.find((s: any) => s.type === 'end_of_year') ||
                                 savedGradebook.data.assignment?.data?.signatures?.find((s: any) => s.type === 'end_of_year') ||
                                 savedGradebook.data.finalSignature}
+                            blockVisibilitySettings={blockVisibilitySettings}
+                            viewType={savedGradebook?.meta?.snapshotReason === 'sem1'
+                                ? 'archive_sem1'
+                                : (['promotion', 'year_end'].includes(String(savedGradebook?.meta?.snapshotReason || ''))
+                                    ? 'archive_final'
+                                    : 'pdf')}
                         />
                     </div>
                 </div>

@@ -50,6 +50,7 @@ const User_1 = require("../models/User");
 const bcrypt = __importStar(require("bcryptjs"));
 const Level_1 = require("../models/Level");
 const auditLogger_1 = require("../utils/auditLogger");
+const ErrorLog_1 = require("../models/ErrorLog");
 exports.backupRouter = (0, express_1.Router)();
 const BACKUP_DIR = path_1.default.join(process.cwd(), 'backups');
 if (!fs_1.default.existsSync(BACKUP_DIR)) {
@@ -61,6 +62,127 @@ const clearDatabase = async () => {
         const Model = mongoose_1.default.model(modelName);
         await Model.deleteMany({});
     }
+};
+const readBackupPayload = async (zipContents, modelNames) => {
+    const payload = new Map();
+    for (const modelName of modelNames) {
+        const file = zipContents.file(`${modelName}.json`);
+        if (!file) {
+            payload.set(modelName, []);
+            continue;
+        }
+        const content = await file.async('string');
+        const docs = JSON.parse(content);
+        if (!Array.isArray(docs)) {
+            throw new Error(`Invalid backup format for ${modelName}: expected JSON array`);
+        }
+        payload.set(modelName, docs);
+    }
+    return payload;
+};
+const readCurrentDatabasePayload = async (modelNames) => {
+    const payload = new Map();
+    for (const modelName of modelNames) {
+        const Model = mongoose_1.default.model(modelName);
+        const docs = await Model.find({}).lean();
+        payload.set(modelName, docs);
+    }
+    return payload;
+};
+const applyPayloadDestructive = async (payload, modelNames) => {
+    await clearDatabase();
+    for (const modelName of modelNames) {
+        const docs = payload.get(modelName) || [];
+        if (docs.length > 0) {
+            const Model = mongoose_1.default.model(modelName);
+            await Model.insertMany(docs);
+        }
+    }
+};
+const getRestoreMode = (req) => {
+    const rawMode = String(req?.body?.mode || req?.body?.restoreMode || req?.query?.mode || 'destructive').toLowerCase();
+    if (rawMode === 'destructive' || rawMode === 'safe')
+        return rawMode;
+    return null;
+};
+const createBackupAlert = async (req, message, details, status = 500) => {
+    const userInfo = req?.user || {};
+    const userId = String(userInfo.userId || userInfo.actualUserId || 'system');
+    const role = String(userInfo.role || userInfo.actualRole || 'ADMIN');
+    await ErrorLog_1.ErrorLog.create({
+        userId,
+        role,
+        actualUserId: userInfo.actualUserId,
+        actualRole: userInfo.actualRole,
+        displayName: userInfo.displayName,
+        email: userInfo.email,
+        source: 'restore-drill',
+        method: 'POST',
+        url: '/backup/drill/:filename',
+        status,
+        message,
+        details,
+    });
+};
+const runRestoreDrill = async (filePath, modelNames) => {
+    const issues = [];
+    const fileContent = fs_1.default.readFileSync(filePath);
+    const jszip = new jszip_1.default();
+    const zipContents = await jszip.loadAsync(fileContent);
+    const jsonEntries = Object.keys(zipContents.files).filter(name => name.toLowerCase().endsWith('.json'));
+    if (jsonEntries.length === 0) {
+        issues.push({
+            severity: 'error',
+            code: 'no_json_files',
+            message: 'Backup archive contains no JSON collection files.',
+        });
+    }
+    for (const modelName of modelNames) {
+        const fileName = `${modelName}.json`;
+        const modelFile = zipContents.file(fileName);
+        if (!modelFile) {
+            issues.push({
+                severity: 'error',
+                code: 'missing_model_file',
+                message: `Missing backup payload for model ${modelName}.`,
+                modelName,
+                fileName,
+            });
+            continue;
+        }
+        try {
+            const content = await modelFile.async('string');
+            const parsed = JSON.parse(content);
+            if (!Array.isArray(parsed)) {
+                issues.push({
+                    severity: 'error',
+                    code: 'invalid_model_payload',
+                    message: `Expected array payload for model ${modelName}.`,
+                    modelName,
+                    fileName,
+                });
+            }
+        }
+        catch (error) {
+            issues.push({
+                severity: 'error',
+                code: 'invalid_json',
+                message: `Invalid JSON for model ${modelName}: ${error?.message || 'Unknown parse error'}`,
+                modelName,
+                fileName,
+            });
+        }
+    }
+    return {
+        filesScanned: jsonEntries.length,
+        modelCount: modelNames.length,
+        issues,
+        passed: issues.length === 0,
+        summary: {
+            errors: issues.filter(issue => issue.severity === 'error').length,
+            warnings: issues.filter(issue => issue.severity === 'warning').length,
+        }
+    };
 };
 // List available backups
 exports.backupRouter.get('/list', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
@@ -134,26 +256,41 @@ exports.backupRouter.post('/create', (0, auth_1.requireAuth)(['ADMIN']), async (
 exports.backupRouter.post('/restore/:filename', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
     const { filename } = req.params;
     const filePath = path_1.default.join(BACKUP_DIR, filename);
+    const mode = getRestoreMode(req);
     if (!fs_1.default.existsSync(filePath)) {
         return res.status(404).json({ error: 'Backup not found' });
+    }
+    if (!mode) {
+        return res.status(400).json({ error: 'Invalid restore mode. Use destructive or safe.' });
     }
     try {
         const fileContent = fs_1.default.readFileSync(filePath);
         const jszip = new jszip_1.default();
         const zipContents = await jszip.loadAsync(fileContent);
-        // Clear current DB
-        await clearDatabase();
-        // Restore data
         const models = mongoose_1.default.modelNames();
-        for (const modelName of models) {
-            const file = zipContents.file(`${modelName}.json`);
-            if (file) {
-                const content = await file.async('string');
-                const docs = JSON.parse(content);
-                if (docs.length > 0) {
-                    const Model = mongoose_1.default.model(modelName);
-                    await Model.insertMany(docs);
+        const backupPayload = await readBackupPayload(zipContents, models);
+        let rollbackPerformed = false;
+        if (mode === 'destructive') {
+            await applyPayloadDestructive(backupPayload, models);
+        }
+        else {
+            const preRestorePayload = await readCurrentDatabasePayload(models);
+            try {
+                await applyPayloadDestructive(backupPayload, models);
+            }
+            catch (restoreError) {
+                try {
+                    await applyPayloadDestructive(preRestorePayload, models);
+                    rollbackPerformed = true;
                 }
+                catch (rollbackError) {
+                    const combinedError = new Error(`Safe restore failed and rollback failed: restore=${restoreError?.message || restoreError}; rollback=${rollbackError?.message || rollbackError}`);
+                    combinedError.rollbackFailed = true;
+                    throw combinedError;
+                }
+                const wrappedError = new Error(`Safe restore failed. Original data was restored. Cause: ${restoreError?.message || restoreError}`);
+                wrappedError.rollbackPerformed = true;
+                throw wrappedError;
             }
         }
         // Log the restore
@@ -163,15 +300,72 @@ exports.backupRouter.post('/restore/:filename', (0, auth_1.requireAuth)(['ADMIN'
             action: 'RESTORE_BACKUP',
             details: {
                 filename,
-                modelsRestored: models.length
+                modelsRestored: models.length,
+                mode,
+                rollbackPerformed
             },
             req
         });
-        res.json({ success: true });
+        res.json({ success: true, mode, rollbackPerformed });
     }
     catch (e) {
         console.error('Restore error:', e);
-        res.status(500).json({ error: 'Restore failed' });
+        const rollbackPerformed = Boolean(e?.rollbackPerformed);
+        const rollbackFailed = Boolean(e?.rollbackFailed);
+        res.status(500).json({
+            error: 'Restore failed',
+            message: e?.message || 'Unknown restore error',
+            rollbackPerformed,
+            rollbackFailed
+        });
+    }
+});
+exports.backupRouter.post('/drill/:filename', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
+    const { filename } = req.params;
+    const filePath = path_1.default.join(BACKUP_DIR, filename);
+    if (!fs_1.default.existsSync(filePath)) {
+        return res.status(404).json({ error: 'Backup not found' });
+    }
+    try {
+        const models = mongoose_1.default.modelNames();
+        const drillResult = await runRestoreDrill(filePath, models);
+        const adminId = req.user?.userId;
+        await (0, auditLogger_1.logAudit)({
+            userId: adminId,
+            action: 'RESTORE_DRILL',
+            details: {
+                filename,
+                passed: drillResult.passed,
+                errors: drillResult.summary.errors,
+                warnings: drillResult.summary.warnings,
+            },
+            req
+        });
+        if (!drillResult.passed) {
+            await createBackupAlert(req, `Restore drill failed for backup ${filename}`, {
+                filename,
+                summary: drillResult.summary,
+                firstIssues: drillResult.issues.slice(0, 10),
+            }, 422);
+        }
+        res.json({
+            filename,
+            executedAt: new Date().toISOString(),
+            ...drillResult,
+        });
+    }
+    catch (error) {
+        console.error('Restore drill failed:', error);
+        try {
+            await createBackupAlert(req, `Restore drill execution failed for backup ${filename}`, {
+                filename,
+                error: error?.message || 'Unexpected restore drill error',
+            });
+        }
+        catch (logError) {
+            console.error('Restore drill alert failed:', logError);
+        }
+        res.status(500).json({ error: 'restore_drill_failed', message: error?.message || 'Unexpected restore drill error' });
     }
 });
 // Empty database
@@ -272,6 +466,7 @@ exports.backupRouter.get('/full', (0, auth_1.requireAuth)(['ADMIN']), async (req
     for %%f in (*.json) do (
         echo Importing %%~nf...
         mongoimport --db ${dbNameForRestore} --collection %%~nf --file "%%f" --jsonArray --drop
+    )
 
 echo.
 echo Restore completed!

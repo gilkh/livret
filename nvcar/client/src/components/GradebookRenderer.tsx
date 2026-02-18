@@ -24,7 +24,7 @@ interface GradebookRendererProps {
     visiblePages?: number[]
     activeSchoolYearName?: string
     blockVisibilitySettings?: any
-    viewType?: 'subadmin' | 'pdf' | 'teacher'
+    viewType?: 'subadmin' | 'pdf' | 'teacher' | 'archive_sem1' | 'archive_final'
 }
 
 export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, student, assignment, signature, finalSignature, visiblePages, activeSchoolYearName, blockVisibilitySettings, viewType = 'pdf' }) => {

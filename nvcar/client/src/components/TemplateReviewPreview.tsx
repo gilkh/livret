@@ -19,9 +19,10 @@ interface TemplateReviewPreviewProps {
     signature: any
     finalSignature: any
     activeSemester?: number
+    minimalMode?: boolean
 }
 
-export default function TemplateReviewPreview({ template, student, assignment, signature, finalSignature, activeSemester: propActiveSemester }: TemplateReviewPreviewProps) {
+export default function TemplateReviewPreview({ template, student, assignment, signature, finalSignature, activeSemester: propActiveSemester, minimalMode = false }: TemplateReviewPreviewProps) {
     const { levels } = useLevels()
     const { activeYear } = useSchoolYear()
     const [selectedPage, setSelectedPage] = useState(0)
@@ -373,7 +374,7 @@ export default function TemplateReviewPreview({ template, student, assignment, s
 
     return (
         <div>
-            <div style={{ marginTop: 20, marginBottom: 16, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', padding: 16, background: '#f8fafc', borderRadius: 12, border: '1px solid #e2e8f0' }}>
+            {!minimalMode && <div style={{ marginTop: 20, marginBottom: 16, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', padding: 16, background: '#f8fafc', borderRadius: 12, border: '1px solid #e2e8f0' }}>
                 <button className="btn secondary" onClick={() => setContinuousScroll(!continuousScroll)} style={{
                     background: continuousScroll ? 'linear-gradient(135deg, #6c5ce7 0%, #5b4bc4 100%)' : '#f1f5f9',
                     color: continuousScroll ? 'white' : '#475569',
@@ -439,7 +440,7 @@ export default function TemplateReviewPreview({ template, student, assignment, s
                         Suivant →
                     </button>
                 </div>
-            </div>
+            </div>}
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 24, alignItems: 'center' }}>
                 {(continuousScroll ? template.pages : [template.pages[selectedPage]]).map((page, pageIdx) => {
@@ -451,7 +452,7 @@ export default function TemplateReviewPreview({ template, student, assignment, s
                             className="card page-canvas"
                             style={{ height: pageHeight, width: pageWidth, background: page.bgColor || '#fff', overflow: 'hidden', position: 'relative' }}
                         >
-                            {continuousScroll && <div style={{ position: 'absolute', top: -30, left: 0, color: '#888', fontSize: 14, fontWeight: 600 }}>Page {actualPageIndex + 1}</div>}
+                            {continuousScroll && !minimalMode && <div style={{ position: 'absolute', top: -30, left: 0, color: '#888', fontSize: 14, fontWeight: 600 }}>Page {actualPageIndex + 1}</div>}
                             <div className="page-margins" />
                             {page.blocks.map((b, idx) => {
                                 if (!b || !b.props) return null;
@@ -507,52 +508,52 @@ export default function TemplateReviewPreview({ template, student, assignment, s
                                                     const items = mergeToggleItems(baseItems, savedItems)
 
                                                     return items.map((it: any, i: number) => {
-                                                    // Check level - show if at or below student's current level
-                                                    const isAllowed = isLevelAtOrBelow(undefined, it.levels, student?.level);
+                                                        // Check level - show if at or below student's current level
+                                                        const isAllowed = isLevelAtOrBelow(undefined, it.levels, student?.level);
 
-                                                    const size = 40
-                                                    const getEmoji = (item: any) => {
-                                                        const e = item.emoji
-                                                        if (e && e.length >= 2) return e
-                                                        const c = (item.code || '').toLowerCase()
-                                                        if (c === 'lb' || c === 'ar') return '🇱🇧'
-                                                        if (c === 'fr') return '🇫🇷'
-                                                        if (c === 'en' || c === 'uk' || c === 'gb') return '🇬🇧'
-                                                        return '🏳️'
-                                                    }
-                                                    const emoji = getEmoji(it)
-                                                    const appleEmojiUrl = `https://emojicdn.elk.sh/${emoji}?style=apple`
-                                                    return (
-                                                        <div
-                                                            key={i}
-                                                            title={it.label}
-                                                            style={{
-                                                                width: size,
-                                                                height: size,
-                                                                minWidth: size,
-                                                                borderRadius: '50%',
-                                                                background: it.active ? '#fff' : 'rgba(255, 255, 255, 0.5)',
-                                                                border: it.active ? '2px solid #2563eb' : '0.25px solid #fff',
-                                                                display: 'flex',
-                                                                alignItems: 'center',
-                                                                justifyContent: 'center',
-                                                                cursor: 'default',
-                                                                boxShadow: it.active ? '0 0 0 2px rgba(37, 99, 235, 0.2)' : 'none',
-                                                                transform: it.active ? 'scale(1.1)' : 'scale(1)',
-                                                                opacity: isAllowed ? (it.active ? 1 : 0.9) : 0.5,
-                                                                filter: 'none'
-                                                            }}
-                                                        >
-                                                            {emoji ? (
-                                                                <img src={appleEmojiUrl} style={{ width: size * 0.9, height: size * 0.9, objectFit: 'contain' }} alt="" />
-                                                            ) : it.logo ? (
-                                                                <img src={it.logo} style={{ width: size * 0.9, height: size * 0.9, objectFit: 'contain' }} alt="" />
-                                                            ) : (
-                                                                <span style={{ fontSize: 20, lineHeight: 1 }}>{getEmoji(it)}</span>
-                                                            )}
-                                                        </div>
-                                                    )
-                                                })
+                                                        const size = 40
+                                                        const getEmoji = (item: any) => {
+                                                            const e = item.emoji
+                                                            if (e && e.length >= 2) return e
+                                                            const c = (item.code || '').toLowerCase()
+                                                            if (c === 'lb' || c === 'ar') return '🇱🇧'
+                                                            if (c === 'fr') return '🇫🇷'
+                                                            if (c === 'en' || c === 'uk' || c === 'gb') return '🇬🇧'
+                                                            return '🏳️'
+                                                        }
+                                                        const emoji = getEmoji(it)
+                                                        const appleEmojiUrl = `https://emojicdn.elk.sh/${emoji}?style=apple`
+                                                        return (
+                                                            <div
+                                                                key={i}
+                                                                title={it.label}
+                                                                style={{
+                                                                    width: size,
+                                                                    height: size,
+                                                                    minWidth: size,
+                                                                    borderRadius: '50%',
+                                                                    background: it.active ? '#fff' : 'rgba(255, 255, 255, 0.5)',
+                                                                    border: it.active ? '2px solid #2563eb' : '0.25px solid #fff',
+                                                                    display: 'flex',
+                                                                    alignItems: 'center',
+                                                                    justifyContent: 'center',
+                                                                    cursor: 'default',
+                                                                    boxShadow: it.active ? '0 0 0 2px rgba(37, 99, 235, 0.2)' : 'none',
+                                                                    transform: it.active ? 'scale(1.1)' : 'scale(1)',
+                                                                    opacity: isAllowed ? (it.active ? 1 : 0.9) : 0.5,
+                                                                    filter: 'none'
+                                                                }}
+                                                            >
+                                                                {emoji ? (
+                                                                    <img src={appleEmojiUrl} style={{ width: size * 0.9, height: size * 0.9, objectFit: 'contain' }} alt="" />
+                                                                ) : it.logo ? (
+                                                                    <img src={it.logo} style={{ width: size * 0.9, height: size * 0.9, objectFit: 'contain' }} alt="" />
+                                                                ) : (
+                                                                    <span style={{ fontSize: 20, lineHeight: 1 }}>{getEmoji(it)}</span>
+                                                                )}
+                                                            </div>
+                                                        )
+                                                    })
                                                 })()}
                                             </div>
                                         )}
@@ -589,29 +590,29 @@ export default function TemplateReviewPreview({ template, student, assignment, s
                                                     const items = mergeToggleItems(baseItems, savedItems)
 
                                                     return items.map((it: any, i: number) => {
-                                                    // Check level - show if at or below student's current level
-                                                    const isAllowed = isLevelAtOrBelow(undefined, it.levels, student?.level);
+                                                        // Check level - show if at or below student's current level
+                                                        const isAllowed = isLevelAtOrBelow(undefined, it.levels, student?.level);
 
-                                                    const r = b.props.radius || 40
-                                                    const size = r * 2
-                                                    return (
-                                                        <div
-                                                            key={i}
-                                                            style={{
-                                                                width: size,
-                                                                height: size,
-                                                                borderRadius: '50%',
-                                                                overflow: 'hidden',
-                                                                position: 'relative',
-                                                                cursor: 'default',
-                                                                boxShadow: it.active ? '0 0 0 3px #6c5ce7' : '0 0 0 1px #ddd',
-                                                                opacity: isAllowed ? (it.active ? 1 : 0.9) : 0.5
-                                                            }}
-                                                        >
-                                                            {it.logo ? <img src={it.logo} style={{ width: '100%', height: '100%', objectFit: 'cover', filter: it.active ? 'brightness(1.1)' : 'brightness(0.6)' }} alt="" /> : <div style={{ width: '100%', height: '100%', background: '#ddd' }} />}
-                                                        </div>
-                                                    )
-                                                })
+                                                        const r = b.props.radius || 40
+                                                        const size = r * 2
+                                                        return (
+                                                            <div
+                                                                key={i}
+                                                                style={{
+                                                                    width: size,
+                                                                    height: size,
+                                                                    borderRadius: '50%',
+                                                                    overflow: 'hidden',
+                                                                    position: 'relative',
+                                                                    cursor: 'default',
+                                                                    boxShadow: it.active ? '0 0 0 3px #6c5ce7' : '0 0 0 1px #ddd',
+                                                                    opacity: isAllowed ? (it.active ? 1 : 0.9) : 0.5
+                                                                }}
+                                                            >
+                                                                {it.logo ? <img src={it.logo} style={{ width: '100%', height: '100%', objectFit: 'cover', filter: it.active ? 'brightness(1.1)' : 'brightness(0.6)' }} alt="" /> : <div style={{ width: '100%', height: '100%', background: '#ddd' }} />}
+                                                            </div>
+                                                        )
+                                                    })
                                                 })()}
                                             </div>
                                         )}

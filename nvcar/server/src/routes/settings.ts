@@ -59,7 +59,7 @@ settingsRouter.get('/status', requireAuth(['ADMIN']), async (req, res) => {
 
 settingsRouter.get('/public', async (req, res) => {
   const settings = await Setting.find({
-    key: { $in: ['login_enabled_microsoft', 'school_name', 'nav_permissions', 'teacher_quick_grading_enabled', 'mobile_block_enabled', 'mobile_min_width', 'block_visibility', 'block_visibility_instances', 'block_visibility_settings'] }
+    key: { $in: ['login_enabled_microsoft', 'school_name', 'nav_permissions', 'teacher_quick_grading_enabled', 'mobile_block_enabled', 'mobile_min_width', 'block_visibility', 'block_visibility_instances', 'block_visibility_settings', 'previous_year_dropdown_editable', 'previous_year_dropdown_editable_PS', 'previous_year_dropdown_editable_MS', 'previous_year_dropdown_editable_GS'] }
   }).lean()
 
   const settingsMap: Record<string, any> = {}
@@ -77,6 +77,13 @@ settingsRouter.get('/public', async (req, res) => {
   if (settingsMap.block_visibility === undefined) settingsMap.block_visibility = {}
   if (settingsMap.block_visibility_instances === undefined) settingsMap.block_visibility_instances = {}
   if (settingsMap.block_visibility_settings === undefined) settingsMap.block_visibility_settings = {}
+  if (settingsMap.previous_year_dropdown_editable === undefined) {
+    settingsMap.previous_year_dropdown_editable = (
+      settingsMap.previous_year_dropdown_editable_PS === true ||
+      settingsMap.previous_year_dropdown_editable_MS === true ||
+      settingsMap.previous_year_dropdown_editable_GS === true
+    )
+  }
 
   res.json(settingsMap)
 })

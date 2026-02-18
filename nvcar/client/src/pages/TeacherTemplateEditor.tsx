@@ -53,6 +53,7 @@ export default function TeacherTemplateEditor() {
     const [isFitToScreen, setIsFitToScreen] = useState(false)
     const [quickGradingEnabled, setQuickGradingEnabled] = useState(true)
     const [blockVisibility, setBlockVisibility] = useState<any>({})
+    const [previousYearDropdownEditable, setPreviousYearDropdownEditable] = useState(false)
     const containerRef = useRef<HTMLDivElement | null>(null)
 
     const computeFitScale = () => {
@@ -115,6 +116,21 @@ export default function TeacherTemplateEditor() {
         // Dropdown must be EXCLUSIVELY for the student's current level
         // i.e., levels array should only contain the student's level
         return levelsUpper.length === 1 && levelsUpper[0] === studentLevelUpper
+    }
+
+    const hasOnlyOlderLevels = (itemLevels: string[] | undefined, studentLevel: string | undefined) => {
+        if (!studentLevel || !itemLevels || itemLevels.length === 0) return false
+
+        const levelOrderMap: Record<string, number> = {}
+        levels.forEach(l => { levelOrderMap[l.name.toUpperCase()] = l.order })
+
+        const studentOrder = levelOrderMap[studentLevel.toUpperCase()]
+        if (studentOrder === undefined) return false
+
+        return itemLevels.every(lvl => {
+            const itemOrder = levelOrderMap[String(lvl || '').toUpperCase()]
+            return itemOrder !== undefined && itemOrder < studentOrder
+        })
     }
 
     const visiblePages = useMemo(() => {
@@ -262,6 +278,16 @@ export default function TeacherTemplateEditor() {
                 if (settingsRes.data.block_visibility_settings !== undefined) {
                     setBlockVisibility(settingsRes.data.block_visibility_settings || {})
                 }
+                const hasUnifiedPreviousYearDropdownSetting = Object.prototype.hasOwnProperty.call(settingsRes.data || {}, 'previous_year_dropdown_editable')
+                setPreviousYearDropdownEditable(
+                    hasUnifiedPreviousYearDropdownSetting
+                        ? settingsRes.data.previous_year_dropdown_editable === true
+                        : (
+                            settingsRes.data.previous_year_dropdown_editable_PS === true ||
+                            settingsRes.data.previous_year_dropdown_editable_MS === true ||
+                            settingsRes.data.previous_year_dropdown_editable_GS === true
+                        )
+                )
             } catch (e: any) {
                 setError('Impossible de charger le carnet')
                 console.error(e)
@@ -507,6 +533,10 @@ export default function TeacherTemplateEditor() {
         return null
     }
 
+    const normalizeYear = (y: any) => String(y || '').replace(/\s+/g, '').replace(/-/g, '/').trim()
+
+    const levelOrder: Record<string, number> = { 'TPS': 0, 'PS': 1, 'MS': 2, 'GS': 3, 'EB1': 4, 'KG1': 1, 'KG2': 2, 'KG3': 3 }
+
     const computeNextSchoolYearName = (year: string | undefined) => {
         if (!year) return ''
         const m = year.match(/(\d{4})\s*([/\-])\s*(\d{4})/)
@@ -568,6 +598,38 @@ export default function TeacherTemplateEditor() {
             return t === 'end_of_year' || spid.endsWith('_end_of_year')
         })
     }, [savedSignatures])
+
+    const getSignatureForLevel = (targetLevel: string | null) => {
+        if (!targetLevel) return { hasSem1: hasSem1Signature, hasSem2: hasFinalSignature }
+
+        const normalizedTarget = targetLevel.toUpperCase()
+        const promotions = assignment?.data?.promotions || []
+
+        let hasSem1 = false
+        let hasSem2 = false
+
+        if ((student?.level || '').toUpperCase() === normalizedTarget) {
+            hasSem1 = hasSem1Signature
+            hasSem2 = hasFinalSignature
+        }
+
+        savedSignatures.forEach((sig: any) => {
+            if (sig.schoolYearName) {
+                const promo = promotions.find((p: any) => normalizeYear(p.year) === normalizeYear(sig.schoolYearName))
+                if (promo && promo.from?.toUpperCase() === normalizedTarget) {
+                    if (sig.type === 'standard' || !sig.type) hasSem1 = true
+                    if (sig.type === 'end_of_year') hasSem2 = true
+                }
+            }
+
+            if (sig.level?.toUpperCase() === normalizedTarget) {
+                if (sig.type === 'standard' || !sig.type) hasSem1 = true
+                if (sig.type === 'end_of_year') hasSem2 = true
+            }
+        })
+
+        return { hasSem1, hasSem2 }
+    }
 
     if (loading) return <div className="container"><div className="card"><div className="note">Chargement...</div></div></div>
     if (error && !template) return <div className="container"><div className="card"><div className="note" style={{ color: 'crimson' }}>{error}</div></div></div>
@@ -962,14 +1024,54 @@ export default function TeacherTemplateEditor() {
                                         if (!b || !b.props) return null;
                                         const blockId = typeof b?.props?.blockId === 'string' && b.props.blockId.trim() ? b.props.blockId.trim() : null
                                         const key = buildVisibilityKey(template?._id, actualPageIndex, idx, blockId)
-                                        // Check visibility based on student's current level and admin settings
-                                        const studentLevel = (student?.level || 'PS').toUpperCase() as 'PS' | 'MS' | 'GS' | 'EB1'
-                                        const visibilitySetting = blockVisibility?.[studentLevel]?.teacher?.[key]
-                                        if (visibilitySetting) {
-                                            if (visibilitySetting === 'never') return null
-                                            if (visibilitySetting === 'after_sem1' && !hasSem1Signature && !hasFinalSignature) return null
-                                            if (visibilitySetting === 'after_sem2' && !hasFinalSignature) return null
+                                        const blockLevel = getBlockLevel(b)
+                                        const studentLevel = (student?.level || 'PS').toUpperCase()
+                                        const studentOrder = levelOrder[studentLevel] ?? 99
+
+                                        if (blockLevel) {
+                                            const blockOrder = levelOrder[blockLevel.toUpperCase()] ?? 99
+                                            if (blockOrder > studentOrder) return null
                                         }
+
+                                        let shouldShow = true
+
+                                        if (blockLevel) {
+                                            const visibilitySetting = blockVisibility?.[blockLevel.toUpperCase()]?.teacher?.[key]
+                                            const { hasSem1, hasSem2 } = getSignatureForLevel(blockLevel)
+
+                                            if (visibilitySetting) {
+                                                if (visibilitySetting === 'never') shouldShow = false
+                                                else if (visibilitySetting === 'after_sem1' && !hasSem1 && !hasSem2) shouldShow = false
+                                                else if (visibilitySetting === 'after_sem2' && !hasSem2) shouldShow = false
+                                            }
+                                        } else {
+                                            const levelsToCheck = Object.keys(levelOrder).filter(lvl => levelOrder[lvl] <= studentOrder)
+                                            let foundSetting = false
+                                            let anyLevelWouldShow = false
+
+                                            for (const lvl of levelsToCheck) {
+                                                const visibilitySetting = blockVisibility?.[lvl]?.teacher?.[key]
+                                                if (visibilitySetting) {
+                                                    foundSetting = true
+                                                    const { hasSem1, hasSem2 } = getSignatureForLevel(lvl)
+
+                                                    if (visibilitySetting === 'always') {
+                                                        anyLevelWouldShow = true
+                                                        break
+                                                    } else if (visibilitySetting === 'after_sem1' && (hasSem1 || hasSem2)) {
+                                                        anyLevelWouldShow = true
+                                                        break
+                                                    } else if (visibilitySetting === 'after_sem2' && hasSem2) {
+                                                        anyLevelWouldShow = true
+                                                        break
+                                                    }
+                                                }
+                                            }
+
+                                            shouldShow = !foundSetting || anyLevelWouldShow
+                                        }
+
+                                        if (!shouldShow) return null
                                         return (
                                             <div key={idx} style={{ position: 'absolute', left: b.props.x || 0, top: b.props.y || 0, zIndex: b.props.z ?? idx, padding: 6 }}>
                                                 {b.type === 'text' && (
@@ -1184,13 +1286,16 @@ export default function TeacherTemplateEditor() {
                                                 {b.type === 'competency_list' && <div style={{ color: b.props.color, fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden' }}>Liste des compétences</div>}
                                                 {b.type === 'signature' && <div style={{ fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden' }}>{(b.props.labels || []).join(' / ')}</div>}
                                                 {b.type === 'dropdown' && (() => {
-                                                    // Check if dropdown is allowed for current level
-                                                    // For dropdowns: ONLY allow editing if it's exclusively for the student's current level
-                                                    // (unlike language toggles which allow previous levels)
-                                                    const isLevelAllowed = isLevelExactMatch(b.props.levels, student?.level)
-                                                    // Check if dropdown is allowed for current semester (default to both semesters if not specified)
+                                                    const isLevelAllowed = previousYearDropdownEditable
+                                                        ? isLevelAtOrBelow(undefined, b.props.levels, student?.level)
+                                                        : isLevelExactMatch(b.props.levels, student?.level)
                                                     const dropdownSemesters = b.props.semesters || [1, 2]
-                                                    const isSemesterAllowed = dropdownSemesters.includes(activeSemester)
+                                                    const canBypassSemester = previousYearDropdownEditable && hasOnlyOlderLevels(b.props.levels, student?.level)
+                                                    const canEditSem1WhileActiveSem2 = previousYearDropdownEditable &&
+                                                        activeSemester === 2 &&
+                                                        dropdownSemesters.includes(1) &&
+                                                        !dropdownSemesters.includes(2)
+                                                    const isSemesterAllowed = canBypassSemester || canEditSem1WhileActiveSem2 || dropdownSemesters.includes(activeSemester)
                                                     const isDropdownAllowed = isLevelAllowed && isSemesterAllowed
                                                     const canEditDropdown = canEditActive && (isProfPolyvalent || allowedLanguages.length === 0) && isDropdownAllowed
 

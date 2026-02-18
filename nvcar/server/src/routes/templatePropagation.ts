@@ -8,6 +8,7 @@ import { Enrollment } from '../models/Enrollment'
 import { SchoolYear } from '../models/SchoolYear'
 import { ensureStableBlockIds, ensureStableExpandedTableRowIds } from '../utils/templateUtils'
 import { clearCache } from '../utils/cache'
+import { assignmentUpdateOptions, normalizeAssignmentMetadataPatch } from '../utils/assignmentMetadata'
 
 export const templatePropagationRouter = Router()
 
@@ -250,7 +251,8 @@ templatePropagationRouter.patch('/:templateId', requireAuth(['ADMIN']), async (r
                         templateId,
                         _id: { $in: propagateToAssignmentIds }
                     },
-                    { $set: { templateVersion: updatedTemplate.currentVersion } }
+                    { $set: normalizeAssignmentMetadataPatch({ templateVersion: updatedTemplate.currentVersion }) },
+                    assignmentUpdateOptions()
                 )
                 propagatedCount = result.modifiedCount
                 skippedCount = existingAssignments.length - propagatedCount
@@ -258,7 +260,8 @@ templatePropagationRouter.patch('/:templateId', requireAuth(['ADMIN']), async (r
                 // Update all assignments
                 const result = await TemplateAssignment.updateMany(
                     { templateId },
-                    { $set: { templateVersion: updatedTemplate.currentVersion } }
+                    { $set: normalizeAssignmentMetadataPatch({ templateVersion: updatedTemplate.currentVersion }) },
+                    assignmentUpdateOptions()
                 )
                 propagatedCount = result.modifiedCount
             } else if (propagateToAssignmentIds === 'none' || (Array.isArray(propagateToAssignmentIds) && propagateToAssignmentIds.length === 0)) {
@@ -268,7 +271,8 @@ templatePropagationRouter.patch('/:templateId', requireAuth(['ADMIN']), async (r
                 // Default: update all (backward compatibility)
                 const result = await TemplateAssignment.updateMany(
                     { templateId },
-                    { $set: { templateVersion: updatedTemplate.currentVersion } }
+                    { $set: normalizeAssignmentMetadataPatch({ templateVersion: updatedTemplate.currentVersion }) },
+                    assignmentUpdateOptions()
                 )
                 propagatedCount = result.modifiedCount
             }
@@ -328,7 +332,8 @@ templatePropagationRouter.post('/:templateId/propagate', requireAuth(['ADMIN']),
                 templateId,
                 _id: { $in: assignmentIds }
             },
-            { $set: { templateVersion: version } }
+            { $set: normalizeAssignmentMetadataPatch({ templateVersion: version }) },
+            assignmentUpdateOptions()
         )
 
         res.json({
@@ -378,7 +383,8 @@ templatePropagationRouter.post('/:templateId/rollback', requireAuth(['ADMIN']), 
                 templateId,
                 _id: { $in: assignmentIds }
             },
-            { $set: { templateVersion: targetVersion } }
+            { $set: normalizeAssignmentMetadataPatch({ templateVersion: targetVersion }) },
+            assignmentUpdateOptions()
         )
 
         res.json({

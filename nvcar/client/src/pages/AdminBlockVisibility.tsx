@@ -4,7 +4,7 @@ import Toast, { ToastType } from '../components/Toast'
 import { Shield, FileText, Users, Eye, ChevronDown, Filter } from 'lucide-react'
 import './AdminBlockVisibility.css'
 
-type ViewKey = 'subadmin' | 'pdf' | 'teacher'
+type ViewKey = 'subadmin' | 'pdf' | 'teacher' | 'archive_sem1' | 'archive_final'
 type StudentLevel = 'PS' | 'MS' | 'GS' | 'EB1'
 type VisibilityOption = 'always' | 'after_sem1' | 'after_sem2' | 'never'
 type BlockType = 'dynamic_text' | 'promotion_info' | 'signature_box' | 'final_signature_box' | 'signature_date' | 'signature'
@@ -61,7 +61,9 @@ const VISIBILITY_OPTIONS: { value: VisibilityOption; label: string; shortLabel: 
 const VIEW_LABELS: Record<ViewKey, { label: string; icon: React.ReactNode }> = {
   subadmin: { label: 'Sous-admin', icon: <Shield size={14} /> },
   pdf: { label: 'PDF', icon: <FileText size={14} /> },
-  teacher: { label: 'Enseignant', icon: <Users size={14} /> }
+  teacher: { label: 'Enseignant', icon: <Users size={14} /> },
+  archive_sem1: { label: 'Archive (Sem 1)', icon: <FileText size={14} /> },
+  archive_final: { label: 'Archive (Final)', icon: <FileText size={14} /> }
 }
 
 export default function AdminBlockVisibility() {
@@ -390,7 +392,7 @@ export default function AdminBlockVisibility() {
 
           {/* Bulk actions */}
           <div className="bulk-actions">
-            {(['subadmin', 'pdf', 'teacher'] as ViewKey[]).map(v => (
+            {(['subadmin', 'pdf', 'teacher', 'archive_sem1', 'archive_final'] as ViewKey[]).map(v => (
               <div key={v} className="bulk-action-group">
                 <span className="bulk-label">{VIEW_LABELS[v].icon} {VIEW_LABELS[v].label}:</span>
                 {VISIBILITY_OPTIONS.map(opt => (
@@ -430,7 +432,7 @@ export default function AdminBlockVisibility() {
                             <th>Bloc</th>
                             <th>Semestre</th>
                             <th>Page</th>
-                            {(['subadmin', 'pdf', 'teacher'] as ViewKey[]).map(v => (
+                            {(['subadmin', 'pdf', 'teacher', 'archive_sem1', 'archive_final'] as ViewKey[]).map(v => (
                               <th key={v} className="view-header">
                                 {VIEW_LABELS[v].icon} {VIEW_LABELS[v].label}
                               </th>
@@ -456,7 +458,7 @@ export default function AdminBlockVisibility() {
                                 )}
                               </td>
                               <td className="page-cell">{item.pageIndex + 1}</td>
-                              {(['subadmin', 'pdf', 'teacher'] as ViewKey[]).map(v => (
+                              {(['subadmin', 'pdf', 'teacher', 'archive_sem1', 'archive_final'] as ViewKey[]).map(v => (
                                 <td key={`${item.key}-${v}`} className="visibility-cell">
                                   <select
                                     className={`visibility-select ${getVisibility(selectedLevel, v, item.key, item)}`}

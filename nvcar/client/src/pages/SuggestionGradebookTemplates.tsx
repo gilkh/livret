@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import api from '../api'
 import Modal from '../components/Modal'
 import Toast, { ToastType } from '../components/Toast'
+import TemplateReviewPreview from '../components/TemplateReviewPreview'
 
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
@@ -14,8 +15,56 @@ type Template = {
     currentVersion?: number
 }
 
+type SuggestionItem = {
+    _id: string
+    templateId?: string
+    pageIndex?: number
+    blockIndex?: number
+    blockId?: string
+    originalText?: string
+    suggestedText?: string
+    status?: 'pending' | 'approved' | 'rejected'
+    createdAt?: string
+}
+
 const pageWidth = 800
 const pageHeight = 1120
+
+const extractSuggestionText = (block: Block) => {
+    const props = block?.props || {}
+
+    if (block.type === 'text' || block.type === 'dynamic_text') {
+        if (Array.isArray(props.runs) && props.runs.length > 0) {
+            return props.runs.map((r: any) => String(r?.text || '')).join('')
+        }
+        return String(props.text ?? props.content ?? '')
+    }
+
+    if (block.type === 'dropdown' || block.type === 'dropdown_reference') {
+        const options = Array.isArray(props.options) ? props.options : []
+        return options.map((o: any) => String(o ?? '')).join('\n')
+    }
+
+    if (block.type === 'image') {
+        return String(props.url || '')
+    }
+
+    if (block.type === 'language_toggle' || block.type === 'language_toggle_v2') {
+        const items = Array.isArray(props.items) ? props.items : []
+        return items.map((it: any) => String(it?.label || it?.code || it || '')).join(' | ')
+    }
+
+    if (block.type === 'table') {
+        const rows = Array.isArray(props.rows) ? props.rows : props.data || []
+        return JSON.stringify(rows, null, 2)
+    }
+
+    if (['student_info', 'category_title', 'competency_list', 'promotion_info', 'signature', 'signature_box'].includes(block.type)) {
+        return String(props.content || props.label || props.title || props.category || '')
+    }
+
+    return JSON.stringify(props || {}, null, 2)
+}
 
 export default function SuggestionGradebookTemplates() {
     const location = useLocation()
@@ -43,6 +92,48 @@ export default function SuggestionGradebookTemplates() {
         isOpen: boolean
     } | null>(null)
     const [suggestionText, setSuggestionText] = useState('')
+    const [mySuggestions, setMySuggestions] = useState<SuggestionItem[]>([])
+    const [loadingMySuggestions, setLoadingMySuggestions] = useState(false)
+    const [deletingSuggestionId, setDeletingSuggestionId] = useState('')
+    const [hoveredBlock, setHoveredBlock] = useState<{
+        pageIndex: number
+        left: number
+        top: number
+        width: number
+        height: number
+        z: number
+    } | null>(null)
+
+    const getSuggestionKey = (pageIndex: number, blockIndex: number, blockId?: string) => {
+        const bid = String(blockId || '').trim()
+        if (bid) return `id:${bid}`
+        return `idx:${pageIndex}:${blockIndex}`
+    }
+
+    const existingSuggestionKeys = useMemo(() => {
+        const keys = new Set<string>()
+        mySuggestions.forEach(s => {
+            const pi = typeof s.pageIndex === 'number' ? s.pageIndex : -1
+            const bi = typeof s.blockIndex === 'number' ? s.blockIndex : -1
+            keys.add(getSuggestionKey(pi, bi, s.blockId))
+        })
+        return keys
+    }, [mySuggestions])
+
+    const previewStudent = useMemo(() => ({
+        _id: 'preview-student',
+        firstName: '',
+        lastName: '',
+        level: '',
+        className: '',
+        dateOfBirth: ''
+    }), [])
+
+    const previewAssignment = useMemo(() => ({
+        _id: 'preview-assignment',
+        status: 'draft',
+        data: {}
+    }), [])
 
     useEffect(() => {
         const load = async () => {
@@ -63,10 +154,36 @@ export default function SuggestionGradebookTemplates() {
         load()
     }, [])
 
+    useEffect(() => {
+        const loadMine = async () => {
+            if (!selectedTemplateId) {
+                setMySuggestions([])
+                return
+            }
+            try {
+                setLoadingMySuggestions(true)
+                const r = await api.get('/suggestions/mine', {
+                    params: {
+                        templateId: selectedTemplateId,
+                        type: 'template_edit'
+                    }
+                })
+                setMySuggestions(Array.isArray(r.data) ? r.data : [])
+            } catch (e) {
+                console.error(e)
+                setMySuggestions([])
+            } finally {
+                setLoadingMySuggestions(false)
+            }
+        }
+
+        loadMine()
+    }, [selectedTemplateId])
+
     const submitSuggestion = async () => {
         if (!suggestionModal || !selectedTemplate) return
         try {
-            await api.post('/suggestions', {
+            const created = await api.post('/suggestions', {
                 type: 'template_edit',
                 templateId: selectedTemplate._id,
                 templateVersion: selectedTemplate.currentVersion,
@@ -76,12 +193,29 @@ export default function SuggestionGradebookTemplates() {
                 originalText: suggestionModal.originalText,
                 suggestedText: suggestionText
             })
+            if (created?.data?._id) {
+                setMySuggestions(prev => [created.data, ...prev])
+            }
             showToast('Suggestion envoyée !', 'success')
             setSuggestionModal(null)
             setSuggestionText('')
         } catch (e: any) {
             showToast('Erreur lors de l\'envoi', 'error')
             console.error(e)
+        }
+    }
+
+    const deleteSuggestion = async (id: string) => {
+        try {
+            setDeletingSuggestionId(id)
+            await api.delete(`/suggestions/${id}`)
+            setMySuggestions(prev => prev.filter(s => String(s._id) !== String(id)))
+            showToast('Suggestion supprimée', 'success')
+        } catch (e: any) {
+            showToast('Impossible de supprimer la suggestion', 'error')
+            console.error(e)
+        } finally {
+            setDeletingSuggestionId('')
         }
     }
 
@@ -101,8 +235,8 @@ export default function SuggestionGradebookTemplates() {
                 }
             >
                 <div style={{ marginBottom: 12 }}>
-                    <label style={{ display: 'block', marginBottom: 4, fontSize: 12, color: '#666' }}>Texte original</label>
-                    <div style={{ padding: 8, background: '#f1f5f9', borderRadius: 4, fontSize: 14, whiteSpace: 'pre-wrap' }}>
+                    <label style={{ display: 'block', marginBottom: 4, fontSize: 12, color: '#666' }}>Contenu original</label>
+                    <div style={{ padding: 8, background: '#f1f5f9', borderRadius: 4, fontSize: 14, whiteSpace: 'pre-wrap', maxHeight: 220, overflow: 'auto' }}>
                         {suggestionModal?.originalText}
                     </div>
                 </div>
@@ -138,18 +272,14 @@ export default function SuggestionGradebookTemplates() {
                                 marginBottom: 16,
                                 transition: 'all 0.2s'
                             }}
-                            onMouseEnter={e => {
-                                e.currentTarget.style.background = '#e2e8f0'
-                            }}
-                            onMouseLeave={e => {
-                                e.currentTarget.style.background = '#f1f5f9'
-                            }}
+                            onMouseEnter={e => { e.currentTarget.style.background = '#e2e8f0' }}
+                            onMouseLeave={e => { e.currentTarget.style.background = '#f1f5f9' }}
                         >
                             ← Retour aux demandes
                         </button>
                         <h2 className="title" style={{ fontSize: 28, marginBottom: 6, color: '#1e293b' }}>Modifications des Carnets</h2>
                         <div className="note" style={{ fontSize: 14, color: '#64748b' }}>
-                            {isAefeUser ? 'RPP / Direction' : 'Sous-admin'} — suggérez des modifications sur les carnets (templates).
+                            {isAefeUser ? 'RPP / Direction' : 'Sous-admin'} — vue carnet identique au rendu élève (sans données élève), cliquez sur ✎ pour suggérer.
                         </div>
                     </div>
                 </div>
@@ -179,369 +309,145 @@ export default function SuggestionGradebookTemplates() {
                         <div style={{ marginBottom: 12, padding: 12, borderRadius: 10, border: '1px solid #e2e8f0', background: '#f8fafc' }}>
                             <div style={{ fontWeight: 700, color: '#0f172a' }}>{selectedTemplate.name}</div>
                             <div style={{ fontSize: 12, color: '#64748b' }}>
-                                Cliquez sur ✎ pour proposer une modification de texte/options.
+                                Cliquez sur ✎ sur un bloc pour proposer une modification ciblée.
                             </div>
+                        </div>
+
+                        <div style={{ marginBottom: 16, padding: 12, borderRadius: 10, border: '1px solid #e2e8f0', background: '#fff' }}>
+                            <div style={{ fontWeight: 700, color: '#0f172a', marginBottom: 8 }}>Mes suggestions envoyées</div>
+                            {loadingMySuggestions ? (
+                                <div className="note">Chargement...</div>
+                            ) : mySuggestions.length === 0 ? (
+                                <div className="note">Aucune suggestion envoyée pour ce template.</div>
+                            ) : (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 220, overflowY: 'auto' }}>
+                                    {mySuggestions.map(s => (
+                                        <div key={s._id} style={{ border: '1px solid #e2e8f0', borderRadius: 8, padding: 10, background: '#f8fafc' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+                                                <div style={{ fontSize: 12, color: '#475569' }}>
+                                                    Bloc p.{(typeof s.pageIndex === 'number' ? s.pageIndex + 1 : '?')} / b.{(typeof s.blockIndex === 'number' ? s.blockIndex + 1 : '?')} • {s.status || 'pending'}
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    className="btn secondary"
+                                                    onClick={() => deleteSuggestion(String(s._id))}
+                                                    disabled={deletingSuggestionId === String(s._id)}
+                                                    style={{ padding: '4px 10px', fontSize: 12 }}
+                                                >
+                                                    {deletingSuggestionId === String(s._id) ? 'Suppression...' : 'Supprimer'}
+                                                </button>
+                                            </div>
+                                            <div style={{ marginTop: 6, fontSize: 13, color: '#334155', whiteSpace: 'pre-wrap' }}>
+                                                {String(s.suggestedText || '')}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
                         </div>
 
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 24, alignItems: 'center' }}>
                             {selectedTemplate.pages
-                                .filter(p => !p.excludeFromPdf)
-                                .map((page, pageIndex) => (
-                                    <div
-                                        key={pageIndex}
-                                        className="card page-canvas"
-                                        style={{
-                                            height: pageHeight,
-                                            width: pageWidth,
-                                            background: page.bgColor || '#fff',
-                                            overflow: 'hidden',
-                                            position: 'relative'
-                                        }}
-                                    >
-                                        {page.blocks.map((b, blockIndex) => {
-                                            if (!b || !b.props) return null
+                                .map((page, originalPageIdx) => ({ page, originalPageIdx }))
+                                .filter(({ page }) => !page.excludeFromPdf)
+                                .map(({ page, originalPageIdx }) => (
+                                    <div key={originalPageIdx} style={{ position: 'relative', width: pageWidth }}>
+                                        <TemplateReviewPreview
+                                            template={{ ...(selectedTemplate as any), pages: [page] }}
+                                            student={previewStudent as any}
+                                            assignment={previewAssignment as any}
+                                            signature={null}
+                                            finalSignature={null}
+                                            minimalMode
+                                        />
+                                        <div
+                                            style={{
+                                                position: 'absolute',
+                                                left: 0,
+                                                top: 0,
+                                                width: pageWidth,
+                                                height: pageHeight,
+                                                pointerEvents: 'none'
+                                            }}
+                                        >
+                                            {hoveredBlock && hoveredBlock.pageIndex === originalPageIdx && (
+                                                <div
+                                                    style={{
+                                                        position: 'absolute',
+                                                        left: hoveredBlock.left,
+                                                        top: hoveredBlock.top,
+                                                        width: hoveredBlock.width,
+                                                        height: hoveredBlock.height,
+                                                        border: '2px solid #f59e0b',
+                                                        borderRadius: 6,
+                                                        boxSizing: 'border-box',
+                                                        zIndex: hoveredBlock.z + 900,
+                                                        pointerEvents: 'none'
+                                                    }}
+                                                />
+                                            )}
+                                            {page.blocks.map((b, blockIndex) => {
+                                                if (!b || !b.props) return null
+                                                const left = Number(b.props.x || 0)
+                                                const top = Number(b.props.y || 0)
+                                                const width = Number(b.props.width || 120)
+                                                const height = Number(b.props.height || 40)
+                                                const z = Number(b.props.z ?? blockIndex)
+                                                const blockId = typeof b.props.blockId === 'string' && b.props.blockId.trim() ? b.props.blockId.trim() : undefined
+                                                const suggestionKey = getSuggestionKey(originalPageIdx, blockIndex, blockId)
+                                                const hasSuggestion = existingSuggestionKeys.has(suggestionKey)
 
-                                            const blockId = typeof b.props.blockId === 'string' && b.props.blockId.trim() ? b.props.blockId.trim() : undefined
-
-                                            const openSuggest = (originalText: string) => {
-                                                setSuggestionModal({
-                                                    pageIndex,
-                                                    blockIndex,
-                                                    blockId,
-                                                    originalText,
-                                                    isOpen: true
-                                                })
-                                                setSuggestionText('')
-                                            }
-
-                                            if (b.type === 'text' || b.type === 'dynamic_text') {
-                                                const display = (() => {
-                                                    if (Array.isArray(b.props?.runs) && b.props.runs.length) {
-                                                        return (b.props.runs as any[]).map(r => String(r?.text || '')).join('')
-                                                    }
-                                                    return b.props?.text ?? b.props?.content ?? ''
-                                                })()
                                                 return (
-                                                    <div key={blockIndex} style={{ position: 'absolute', left: b.props.x || 0, top: b.props.y || 0, zIndex: b.props.z ?? blockIndex, padding: 6 }}>
-                                                        <div style={{ position: 'relative' }}>
-                                                            <div style={{ color: b.props.color, fontSize: b.props.fontSize, whiteSpace: 'pre-wrap' }}>{display}</div>
-                                                            <div
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation()
-                                                                    openSuggest(String(display || ''))
-                                                                }}
-                                                                style={{
-                                                                    position: 'absolute',
-                                                                    top: -10,
-                                                                    right: -10,
-                                                                    background: '#f59e0b',
-                                                                    color: 'white',
-                                                                    borderRadius: '50%',
-                                                                    width: 20,
-                                                                    height: 20,
-                                                                    display: 'flex',
-                                                                    alignItems: 'center',
-                                                                    justifyContent: 'center',
-                                                                    cursor: 'pointer',
-                                                                    fontSize: 12,
-                                                                    boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
-                                                                }}
-                                                                title="Suggérer une modification"
-                                                            >
-                                                                ✎
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                )
-                                            }
-
-                                            if (b.type === 'dropdown' || b.type === 'dropdown_reference') {
-                                                const options = Array.isArray(b.props.options) ? b.props.options : []
-                                                return (
-                                                    <div key={blockIndex} style={{ position: 'absolute', left: b.props.x || 0, top: b.props.y || 0, zIndex: b.props.z ?? blockIndex, padding: 6 }}>
-                                                        <div style={{ width: b.props.width || 200, position: 'relative' }}>
-                                                            <div style={{ fontSize: 10, fontWeight: 'bold', color: '#6c5ce7', marginBottom: 2 }}>Dropdown #{b.props.dropdownNumber || '?'}</div>
-                                                            {b.props.label && <div style={{ fontSize: 10, color: '#666', marginBottom: 2 }}>{b.props.label}</div>}
-                                                            <div
-                                                                style={{
-                                                                    width: '100%',
-                                                                    minHeight: b.props.height || 32,
-                                                                    fontSize: b.props.fontSize || 12,
-                                                                    color: b.props.color || '#333',
-                                                                    padding: '4px 8px',
-                                                                    borderRadius: 4,
-                                                                    border: '1px solid #ccc',
-                                                                    background: '#f9f9f9',
-                                                                    cursor: 'default',
-                                                                    whiteSpace: 'pre-wrap'
-                                                                }}
-                                                            >
-                                                                Sélectionner...
-                                                            </div>
-                                                            <div
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation()
-                                                                    openSuggest(options.join('\n'))
-                                                                }}
-                                                                style={{
-                                                                    position: 'absolute',
-                                                                    top: -10,
-                                                                    right: -10,
-                                                                    background: '#f59e0b',
-                                                                    color: 'white',
-                                                                    borderRadius: '50%',
-                                                                    width: 20,
-                                                                    height: 20,
-                                                                    display: 'flex',
-                                                                    alignItems: 'center',
-                                                                    justifyContent: 'center',
-                                                                    cursor: 'pointer',
-                                                                    fontSize: 12,
-                                                                    boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
-                                                                }}
-                                                                title="Suggérer une modification des options"
-                                                            >
-                                                                ✎
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                )
-                                            }
-
-                                            if (b.type === 'image' && b.props?.url) {
-                                                return (
-                                                    <div key={blockIndex} style={{ position: 'absolute', left: b.props.x || 0, top: b.props.y || 0, zIndex: b.props.z ?? blockIndex, padding: 6 }}>
-                                                        <div style={{ position: 'relative', width: b.props.width || 160, height: b.props.height || 'auto', background: '#fafafa', border: '1px solid #eee', padding: 6 }}>
-                                                            <img src={b.props.url} alt={b.props.alt || 'image'} style={{ maxWidth: '100%', maxHeight: '100%', display: 'block' }} />
-                                                            <div
-                                                                onClick={(e) => { e.stopPropagation(); openSuggest(String(b.props.url || '')) }}
-                                                                style={{
-                                                                    position: 'absolute',
-                                                                    top: -10,
-                                                                    right: -10,
-                                                                    background: '#f59e0b',
-                                                                    color: 'white',
-                                                                    borderRadius: '50%',
-                                                                    width: 20,
-                                                                    height: 20,
-                                                                    display: 'flex',
-                                                                    alignItems: 'center',
-                                                                    justifyContent: 'center',
-                                                                    cursor: 'pointer',
-                                                                    fontSize: 12,
-                                                                    boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
-                                                                }}
-                                                                title="Suggérer une modification (URL)"
-                                                            >
-                                                                ✎
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                )
-                                            }
-
-                                            if (['rect', 'circle', 'line', 'arrow', 'qr'].includes(b.type)) {
-                                                // Simple visual placeholder for shapes/qr
-                                                return (
-                                                    <div key={blockIndex} style={{ position: 'absolute', left: b.props.x || 0, top: b.props.y || 0, zIndex: b.props.z ?? blockIndex, padding: 6 }}>
-                                                        <div style={{ width: b.props.width || 80, height: b.props.height || 40, background: '#fff', border: '1px dashed #cbd5e1', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', fontSize: 12 }}>
-                                                            {b.type.toUpperCase()}
-                                                        </div>
-                                                        <div
-                                                            onClick={(e) => { e.stopPropagation(); openSuggest(JSON.stringify(b.props || {})) }}
-                                                            style={{
-                                                                position: 'absolute',
-                                                                top: -10,
-                                                                right: -10,
-                                                                background: '#f59e0b',
-                                                                color: 'white',
-                                                                borderRadius: '50%',
-                                                                width: 20,
-                                                                height: 20,
-                                                                display: 'flex',
-                                                                alignItems: 'center',
-                                                                justifyContent: 'center',
-                                                                cursor: 'pointer',
-                                                                fontSize: 12,
-                                                                boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
-                                                            }}
-                                                            title="Suggérer une modification"
-                                                        >
-                                                            ✎
-                                                        </div>
-                                                    </div>
-                                                )
-                                            }
-
-                                            if (b.type === 'table') {
-                                                const rows = Array.isArray(b.props.rows) ? b.props.rows : b.props.data || []
-                                                return (
-                                                    <div key={blockIndex} style={{ position: 'absolute', left: b.props.x || 0, top: b.props.y || 0, zIndex: b.props.z ?? blockIndex, padding: 6 }}>
-                                                        <div style={{ background: '#fff', border: '1px solid #eee', padding: 6, maxWidth: 420, overflow: 'auto' }}>
-                                                            <table style={{ borderCollapse: 'collapse', width: '100%' }}>
-                                                                <tbody>
-                                                                    {rows.map((r: any, i: number) => (
-                                                                        <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                                                            {Array.isArray(r) ? r.map((c: any, j: number) => <td key={j} style={{ padding: 6, fontSize: 12 }}>{String(c)}</td>) : <td style={{ padding: 6 }}>{String(r)}</td>}
-                                                                        </tr>
-                                                                    ))}
-                                                                </tbody>
-                                                            </table>
-                                                            <div
-                                                                onClick={(e) => { e.stopPropagation(); openSuggest(JSON.stringify(b.props || {})) }}
-                                                                style={{
-                                                                    position: 'absolute',
-                                                                    top: -10,
-                                                                    right: -10,
-                                                                    background: '#f59e0b',
-                                                                    color: 'white',
-                                                                    borderRadius: '50%',
-                                                                    width: 20,
-                                                                    height: 20,
-                                                                    display: 'flex',
-                                                                    alignItems: 'center',
-                                                                    justifyContent: 'center',
-                                                                    cursor: 'pointer',
-                                                                    fontSize: 12,
-                                                                    boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
-                                                                }}
-                                                                title="Suggérer une modification"
-                                                            >
-                                                                ✎
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                )
-                                            }
-
-                                            if (b.type === 'student_info' || b.type === 'category_title' || b.type === 'competency_list' || b.type === 'promotion_info') {
-                                                const title = b.props?.title || b.props?.label || b.props?.category || b.type
-                                                return (
-                                                    <div key={blockIndex} style={{ position: 'absolute', left: b.props.x || 0, top: b.props.y || 0, zIndex: b.props.z ?? blockIndex, padding: 6 }}>
-                                                        <div style={{ fontWeight: 700, color: '#0f172a' }}>{title}</div>
-                                                        <div
-                                                            onClick={(e) => { e.stopPropagation(); openSuggest(String(b.props?.content || title || '')) }}
-                                                            style={{
-                                                                position: 'absolute',
-                                                                top: -10,
-                                                                right: -10,
-                                                                background: '#f59e0b',
-                                                                color: 'white',
-                                                                borderRadius: '50%',
-                                                                width: 20,
-                                                                height: 20,
-                                                                display: 'flex',
-                                                                alignItems: 'center',
-                                                                justifyContent: 'center',
-                                                                cursor: 'pointer',
-                                                                fontSize: 12,
-                                                                boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
-                                                            }}
-                                                            title="Suggérer une modification"
-                                                        >
-                                                            ✎
-                                                        </div>
-                                                    </div>
-                                                )
-                                            }
-
-                                            if (b.type === 'signature' || b.type === 'signature_box') {
-                                                return (
-                                                    <div key={blockIndex} style={{ position: 'absolute', left: b.props.x || 0, top: b.props.y || 0, zIndex: b.props.z ?? blockIndex, padding: 6 }}>
-                                                        <div style={{ width: b.props.width || 180, height: b.props.height || 60, border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8' }}>{b.props?.label || 'Signature'}</div>
-                                                        <div
-                                                            onClick={(e) => { e.stopPropagation(); openSuggest(String(b.props?.label || '')) }}
-                                                            style={{
-                                                                position: 'absolute',
-                                                                top: -10,
-                                                                right: -10,
-                                                                background: '#f59e0b',
-                                                                color: 'white',
-                                                                borderRadius: '50%',
-                                                                width: 20,
-                                                                height: 20,
-                                                                display: 'flex',
-                                                                alignItems: 'center',
-                                                                justifyContent: 'center',
-                                                                cursor: 'pointer',
-                                                                fontSize: 12,
-                                                                boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
-                                                            }}
-                                                            title="Suggérer une modification"
-                                                        >
-                                                            ✎
-                                                        </div>
-                                                    </div>
-                                                )
-                                            }
-
-                                            if (b.type === 'language_toggle' || b.type === 'language_toggle_v2') {
-                                                const items = Array.isArray(b.props.items) ? b.props.items : []
-                                                return (
-                                                    <div key={blockIndex} style={{ position: 'absolute', left: b.props.x || 0, top: b.props.y || 0, zIndex: b.props.z ?? blockIndex, padding: 6 }}>
-                                                        <div style={{ display: 'flex', gap: 6 }}>
-                                                            {items.map((it: any, ii: number) => (
-                                                                <div key={ii} style={{ padding: '6px 10px', background: '#f1f5f9', borderRadius: 8, fontSize: 12 }}>{it.label || it}</div>
-                                                            ))}
-                                                        </div>
-                                                        <div
-                                                            onClick={(e) => { e.stopPropagation(); openSuggest(JSON.stringify(b.props || {})) }}
-                                                            style={{
-                                                                position: 'absolute',
-                                                                top: -10,
-                                                                right: -10,
-                                                                background: '#f59e0b',
-                                                                color: 'white',
-                                                                borderRadius: '50%',
-                                                                width: 20,
-                                                                height: 20,
-                                                                display: 'flex',
-                                                                alignItems: 'center',
-                                                                justifyContent: 'center',
-                                                                cursor: 'pointer',
-                                                                fontSize: 12,
-                                                                boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
-                                                            }}
-                                                            title="Suggérer une modification"
-                                                        >
-                                                            ✎
-                                                        </div>
-                                                    </div>
-                                                )
-                                            }
-
-                                            // Render a minimal JSON fallback for unknown block types so admins see content and can suggest changes
-                                            return (
-                                                <div key={blockIndex} style={{ position: 'absolute', left: b.props.x || 0, top: b.props.y || 0, zIndex: b.props.z ?? blockIndex, padding: 6 }}>
-                                                    <div style={{ background: '#fff', border: '1px solid #eee', padding: 8, maxWidth: 420, fontSize: 12, color: '#334155' }}>
-                                                        <div style={{ fontWeight: 700, marginBottom: 6 }}>{b.type}</div>
-                                                        <pre style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{JSON.stringify(b.props || {}, null, 2)}</pre>
-                                                    </div>
-                                                    <div
-                                                        onClick={(e) => { e.stopPropagation(); openSuggest(JSON.stringify(b.props || {})) }}
+                                                    <button
+                                                        key={`${originalPageIdx}-${blockIndex}`}
+                                                        type="button"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation()
+                                                            setSuggestionModal({
+                                                                pageIndex: originalPageIdx,
+                                                                blockIndex,
+                                                                blockId,
+                                                                originalText: extractSuggestionText(b),
+                                                                isOpen: true
+                                                            })
+                                                            setSuggestionText('')
+                                                        }}
+                                                        onMouseEnter={() => {
+                                                            setHoveredBlock({
+                                                                pageIndex: originalPageIdx,
+                                                                left,
+                                                                top,
+                                                                width: Math.max(width, 40),
+                                                                height: Math.max(height, 28),
+                                                                z
+                                                            })
+                                                        }}
+                                                        onMouseLeave={() => setHoveredBlock(null)}
                                                         style={{
                                                             position: 'absolute',
-                                                            top: -10,
-                                                            right: -10,
-                                                            background: '#f59e0b',
-                                                            color: 'white',
+                                                            left: Math.max(0, left + width - 10),
+                                                            top: Math.max(0, top - 10),
+                                                            width: 22,
+                                                            height: 22,
                                                             borderRadius: '50%',
-                                                            width: 20,
-                                                            height: 20,
+                                                            border: 'none',
+                                                            background: hasSuggestion ? '#0ea5e9' : '#f59e0b',
+                                                            color: '#fff',
+                                                            fontSize: 12,
+                                                            cursor: 'pointer',
                                                             display: 'flex',
                                                             alignItems: 'center',
                                                             justifyContent: 'center',
-                                                            cursor: 'pointer',
-                                                            fontSize: 12,
-                                                            boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                                                            boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+                                                            zIndex: z + 1000,
+                                                            pointerEvents: 'auto'
                                                         }}
-                                                        title="Suggérer une modification"
                                                     >
                                                         ✎
-                                                    </div>
-                                                </div>
-                                            )
-                                        })}
+                                                    </button>
+                                                )
+                                            })}
+                                        </div>
                                     </div>
                                 ))}
                         </div>

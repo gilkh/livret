@@ -32,6 +32,7 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
     const [error, setError] = useState('')
     const [activeYear, setActiveYear] = useState<any>(null)
     const [blockVisibility, setBlockVisibility] = useState<any>({})
+    const [snapshotReason, setSnapshotReason] = useState<string | null>(null)
     const { levels } = useLevels()
 
     const getNextLevel = (current: string) => {
@@ -107,13 +108,13 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                 const promo = promotions.find((p: any) => normalizeYear(p.year) === normalizeYear(sig.schoolYearName))
                 if (promo && promo.from?.toUpperCase() === normalizedTarget) {
                     if (sig.type === 'standard' || !sig.type) hasSem1 = true
-                    if (sig.type === 'end_of_year') hasSem2 = true
+                    if (sig.type === 'end_of_year' || String(sig?.signaturePeriodId || '').endsWith('_sem2') || String(sig?.signaturePeriodId || '').endsWith('_end_of_year')) hasSem2 = true
                 }
             }
             // Also check direct level match on signature
             if (sig.level?.toUpperCase() === normalizedTarget) {
                 if (sig.type === 'standard' || !sig.type) hasSem1 = true
-                if (sig.type === 'end_of_year') hasSem2 = true
+                if (sig.type === 'end_of_year' || String(sig?.signaturePeriodId || '').endsWith('_sem2') || String(sig?.signaturePeriodId || '').endsWith('_end_of_year')) hasSem2 = true
             }
         })
 
@@ -314,6 +315,7 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                     console.log('[CarnetPrint] Loading saved gradebook:', savedId)
                     const r = await api.get(`/saved-gradebooks/${savedId}`)
                     const savedData = r.data
+                    setSnapshotReason(savedData.meta?.snapshotReason || null)
 
                     setStudent({
                         ...savedData.data.student,
@@ -574,15 +576,46 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                             let shouldShow = true
 
                             if (!emptyExport) {
+                                let viewKey = 'pdf'
+                                if (mode === 'saved') {
+                                    if (snapshotReason === 'sem1') viewKey = 'archive_sem1'
+                                    else if (['promotion', 'year_end'].includes(snapshotReason || '')) viewKey = 'archive_final'
+                                }
+                                const isSem1SavedSnapshot = mode === 'saved' && snapshotReason === 'sem1'
+                                const allowsHistoricalSem2 = ['signature_box', 'signature_date', 'signature_block'].includes(b.type)
+                                const semesterRaw = (b.props as any)?.semester ?? (b.props as any)?.semestre
+                                const periodRaw = String((b.props as any)?.period || '')
+                                const isSem2AssignedBlock = semesterRaw === 2 || semesterRaw === '2' || periodRaw === 'end-year'
+                                const studentLevelUpper = String(student?.level || '').toUpperCase()
+                                const blockLevelUpper = String(blockLevel || '').toUpperCase()
+                                const isSameLevelBlock = !!blockLevelUpper && !!studentLevelUpper && blockLevelUpper === studentLevelUpper
+                                const resolveVisibilitySetting = (levelKey: string | null | undefined) => {
+                                    if (!levelKey) return undefined
+                                    const upper = String(levelKey).toUpperCase()
+                                    const byLevel = blockVisibility?.[upper]
+                                    if (!byLevel) return undefined
+                                    const direct = byLevel?.[viewKey]?.[key]
+                                    if (direct !== undefined) return direct
+                                    if (mode === 'saved' && viewKey !== 'pdf') {
+                                        const fallbackPdf = byLevel?.pdf?.[key]
+                                        if (fallbackPdf !== undefined) return fallbackPdf
+                                    }
+                                    return undefined
+                                }
+
                                 if (blockLevel) {
                                     // Block has a level - use that level's settings
-                                    const visibilitySetting = blockVisibility?.[blockLevel.toUpperCase()]?.pdf?.[key]
+                                    let visibilitySetting = resolveVisibilitySetting(blockLevel)
+                                    if (visibilitySetting === undefined && isSem1SavedSnapshot && !allowsHistoricalSem2 && isSem2AssignedBlock && isSameLevelBlock) {
+                                        visibilitySetting = 'after_sem2'
+                                    }
                                     const { hasSem1, hasSem2 } = getSignatureForLevel(blockLevel)
+                                    const sem2Reached = (isSem1SavedSnapshot && !allowsHistoricalSem2) ? false : hasSem2
 
                                     if (visibilitySetting) {
                                         if (visibilitySetting === 'never') shouldShow = false
-                                        else if (visibilitySetting === 'after_sem1' && !hasSem1 && !hasSem2) shouldShow = false
-                                        else if (visibilitySetting === 'after_sem2' && !hasSem2) shouldShow = false
+                                        else if (visibilitySetting === 'after_sem1' && !hasSem1 && !sem2Reached) shouldShow = false
+                                        else if (visibilitySetting === 'after_sem2' && !sem2Reached) shouldShow = false
                                     }
                                 } else {
                                     // Block has NO level - check all levels at or below student's current level
@@ -595,18 +628,22 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                     let anyLevelWouldShow = false
 
                                     for (const lvl of levelsToCheck) {
-                                        const visibilitySetting = blockVisibility?.[lvl]?.pdf?.[key]
+                                        let visibilitySetting = resolveVisibilitySetting(lvl)
+                                        if (visibilitySetting === undefined && isSem1SavedSnapshot && !allowsHistoricalSem2 && isSem2AssignedBlock && String(lvl).toUpperCase() === studentLevelUpper) {
+                                            visibilitySetting = 'after_sem2'
+                                        }
                                         if (visibilitySetting) {
                                             foundSetting = true
                                             const { hasSem1, hasSem2 } = getSignatureForLevel(lvl)
+                                            const sem2Reached = (isSem1SavedSnapshot && !allowsHistoricalSem2) ? false : hasSem2
 
                                             if (visibilitySetting === 'always') {
                                                 anyLevelWouldShow = true
                                                 break
-                                            } else if (visibilitySetting === 'after_sem1' && (hasSem1 || hasSem2)) {
+                                            } else if (visibilitySetting === 'after_sem1' && (hasSem1 || sem2Reached)) {
                                                 anyLevelWouldShow = true
                                                 break
-                                            } else if (visibilitySetting === 'after_sem2' && hasSem2) {
+                                            } else if (visibilitySetting === 'after_sem2' && sem2Reached) {
                                                 anyLevelWouldShow = true
                                                 break
                                             }
@@ -923,10 +960,19 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                                                         gap: 8
                                                                     }}>
                                                                         {(() => {
+                                                                            const blockId = typeof b?.props?.blockId === 'string' && b.props.blockId.trim() ? b.props.blockId.trim() : null
+                                                                            const rowIds = Array.isArray(b?.props?.rowIds) ? b.props.rowIds : []
+                                                                            const rowId = typeof rowIds?.[ri] === 'string' && rowIds[ri].trim() ? rowIds[ri].trim() : null
+                                                                            const toggleKeyStable = blockId && rowId ? `table_${blockId}_row_${rowId}` : null
+                                                                            const toggleKeyLegacyPageAware = `table_${actualPageIndex}_${idx}_row_${ri}`
                                                                             const rowLangs = b.props.rowLanguages?.[ri] || expandedLanguages
                                                                             const toggleStyle = b.props.expandedToggleStyle || 'v2'
-                                                                            const toggleKey = `table_${idx}_row_${ri}`
-                                                                            const currentItems = assignment?.data?.[toggleKey] || rowLangs
+                                                                            const toggleKeyLegacy = `table_${idx}_row_${ri}`
+                                                                            const currentItems =
+                                                                                (toggleKeyStable ? assignment?.data?.[toggleKeyStable] : null) ||
+                                                                                assignment?.data?.[toggleKeyLegacyPageAware] ||
+                                                                                assignment?.data?.[toggleKeyLegacy] ||
+                                                                                rowLangs
                                                                             return currentItems.map((lang: any, li: number) => {
                                                                                 const size = Math.max(12, Math.min(expandedRowHeight - 12, 20))
                                                                                 const isActive = !!lang.active
@@ -1009,59 +1055,19 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                     })()}
 
                                     {b.type === 'signature_box' && (() => {
-                                        const blockLevel = getBlockLevel(b)
-                                        const history = assignment?.data?.signatures || []
-                                        const promotions = assignment?.data?.promotions || []
+                                        const configuredLevel = String((b.props as any)?.level || getBlockLevel(b) || '').trim() || null
+                                        const semester = getSemesterNumber(b)
+                                        const found = pickSignatureForLevelAndSemester({ level: configuredLevel, semester })
+                                        if (!found) return null
 
-                                        // Check current signature
-                                        if (!blockLevel) {
-                                            if (signature) {
-                                                const src = signature.signatureData || signature.signatureUrl
-                                                return (
-                                                    <div style={{ width: b.props.width || 200, height: b.props.height || 80, border: 'none', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#999' }}>
-                                                        {src ? <img src={src} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé'}
-                                                    </div>
-                                                )
-                                            }
-                                        } else {
-                                            // Block has specific level
-                                            const sigLevel = (signature as any)?.level
-                                            if (signature && ((sigLevel && sigLevel === blockLevel) || (!sigLevel && student?.level === blockLevel))) {
-                                                const src = signature.signatureData || signature.signatureUrl
-                                                return (
-                                                    <div style={{ width: b.props.width || 200, height: b.props.height || 80, border: 'none', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#999' }}>
-                                                        {src ? <img src={src} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : '✓ Signé'}
-                                                    </div>
-                                                )
-                                            }
-                                        }
+                                        const src = found.signatureData || found.signatureUrl
+                                        const label = semester === 2 ? '✓ Signé Fin Année' : '✓ Signé'
 
-                                        // Check history for matching signature
-                                        if (blockLevel) {
-                                            const matchingSig = history.find((sig: any) => {
-                                                if (b.props.period === 'end-year' && sig.type !== 'end_of_year') return false
-                                                if ((!b.props.period || b.props.period === 'mid-year') && (sig.type === 'end_of_year')) return false
-
-                                                if (sig.level && sig.level === blockLevel) return true
-
-                                                if (sig.schoolYearName) {
-                                                    const promo = promotions.find((p: any) => normalizeYear(p.year) === normalizeYear(sig.schoolYearName))
-                                                    if (promo && promo.from === blockLevel) return true
-                                                }
-                                                return false
-                                            })
-
-                                            if (matchingSig) {
-                                                const src = matchingSig.signatureData || matchingSig.signatureUrl
-                                                return (
-                                                    <div style={{ width: b.props.width || 200, height: b.props.height || 80, border: 'none', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#999' }}>
-                                                        {src ? <img src={src} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : `✓ Signé (${matchingSig.schoolYearName || 'Ancien'})`}
-                                                    </div>
-                                                )
-                                            }
-                                        }
-
-                                        return null
+                                        return (
+                                            <div style={{ width: b.props.width || 200, height: b.props.height || 80, border: 'none', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#999' }}>
+                                                {src ? <img src={src} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : label}
+                                            </div>
+                                        )
                                     })()}
 
                                     {b.type === 'dropdown' && (() => {

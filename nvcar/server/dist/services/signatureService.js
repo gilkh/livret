@@ -23,6 +23,7 @@ const Enrollment_1 = require("../models/Enrollment");
 const TeacherClassAssignment_1 = require("../models/TeacherClassAssignment");
 const Class_1 = require("../models/Class");
 const RoleScope_1 = require("../models/RoleScope");
+const assignmentMetadata_1 = require("../utils/assignmentMetadata");
 /**
  * Check if an error is a MongoDB duplicate key error (code 11000).
  * This happens when the unique compound index prevents duplicate signatures.
@@ -349,7 +350,8 @@ const signTemplateAssignment = async ({ templateAssignmentId, signerId, type = '
                 const updatedAssignment = await TemplateAssignment_1.TemplateAssignment.findByIdAndUpdate(templateAssignmentId, {
                     $inc: { dataVersion: 1 },
                     $set: { status: 'signed' }
-                }, { new: true, session });
+                }, (0, assignmentMetadata_1.assignmentUpdateOptions)({ new: true, session }));
+                (0, assignmentMetadata_1.warnOnInvalidStatusTransition)(assignment.status, 'signed', 'signatureService.sign(transaction)');
                 await TemplateChangeLog_1.TemplateChangeLog.create([
                     {
                         templateAssignmentId,
@@ -414,7 +416,8 @@ const signTemplateAssignment = async ({ templateAssignmentId, signerId, type = '
                 const updatedAssignment = await TemplateAssignment_1.TemplateAssignment.findByIdAndUpdate(templateAssignmentId, {
                     $inc: { dataVersion: 1 },
                     $set: { status: 'signed' }
-                }, { new: true });
+                }, (0, assignmentMetadata_1.assignmentUpdateOptions)({ new: true }));
+                (0, assignmentMetadata_1.warnOnInvalidStatusTransition)(assignment.status, 'signed', 'signatureService.sign(non-transaction)');
                 try {
                     await TemplateChangeLog_1.TemplateChangeLog.create({
                         templateAssignmentId,
@@ -531,10 +534,11 @@ const unsignTemplateAssignment = async ({ templateAssignmentId, signerId, type, 
                 const updatedAssignment = await TemplateAssignment_1.TemplateAssignment.findByIdAndUpdate(templateAssignmentId, {
                     // No need to pull from data.signatures as we don't store it there anymore
                     $inc: { dataVersion: 1 }
-                }, { new: true, session });
+                }, (0, assignmentMetadata_1.assignmentUpdateOptions)({ new: true, session }));
                 const remaining = await TemplateSignature_1.TemplateSignature.countDocuments({ templateAssignmentId }).session(session);
                 if (remaining === 0) {
-                    await TemplateAssignment_1.TemplateAssignment.findByIdAndUpdate(templateAssignmentId, { status: 'completed', $inc: { dataVersion: 1 } }, { session });
+                    (0, assignmentMetadata_1.warnOnInvalidStatusTransition)(assignment.status, 'completed', 'signatureService.unsign(transaction)');
+                    await TemplateAssignment_1.TemplateAssignment.findByIdAndUpdate(templateAssignmentId, (0, assignmentMetadata_1.normalizeAssignmentMetadataPatch)({ status: 'completed', $inc: { dataVersion: 1 } }), (0, assignmentMetadata_1.assignmentUpdateOptions)({ session }));
                 }
                 try {
                     await TemplateChangeLog_1.TemplateChangeLog.create([{
@@ -589,10 +593,11 @@ const unsignTemplateAssignment = async ({ templateAssignmentId, signerId, type, 
                 }
                 const updatedAssignment = await TemplateAssignment_1.TemplateAssignment.findByIdAndUpdate(templateAssignmentId, {
                     $inc: { dataVersion: 1 }
-                }, { new: true });
+                }, (0, assignmentMetadata_1.assignmentUpdateOptions)({ new: true }));
                 const remaining = await TemplateSignature_1.TemplateSignature.countDocuments({ templateAssignmentId });
                 if (remaining === 0) {
-                    await TemplateAssignment_1.TemplateAssignment.findByIdAndUpdate(templateAssignmentId, { status: 'completed', $inc: { dataVersion: 1 } });
+                    (0, assignmentMetadata_1.warnOnInvalidStatusTransition)(assignment.status, 'completed', 'signatureService.unsign(non-transaction)');
+                    await TemplateAssignment_1.TemplateAssignment.findByIdAndUpdate(templateAssignmentId, (0, assignmentMetadata_1.normalizeAssignmentMetadataPatch)({ status: 'completed', $inc: { dataVersion: 1 } }), (0, assignmentMetadata_1.assignmentUpdateOptions)());
                 }
                 try {
                     await TemplateChangeLog_1.TemplateChangeLog.create({

@@ -107,6 +107,7 @@ export default function TemplateBuilder() {
   const [classes, setClasses] = useState<ClassDoc[]>([])
   const [students, setStudents] = useState<StudentDoc[]>([])
   const [subAdmins, setSubAdmins] = useState<SubAdminUser[]>([])
+  const [subAdminSearch, setSubAdminSearch] = useState('')
   const [yearId, setYearId] = useState('')
   const [selectedPage, setSelectedPage] = useState(0)
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
@@ -151,6 +152,29 @@ export default function TemplateBuilder() {
 
   const tplJson = useMemo(() => JSON.stringify(tpl), [tpl])
   const isDirty = viewMode === 'edit' && lastAutoSaveRef.current !== '' && tplJson !== lastAutoSaveRef.current
+  const selectedSuggestionSubAdmins = useMemo(() => {
+    const raw = (tpl as any).suggestionsAllowedSubAdmins
+    return Array.isArray(raw) ? raw.map((v: any) => String(v)) : []
+  }, [(tpl as any).suggestionsAllowedSubAdmins])
+  const selectedSuggestionSubAdminsSet = useMemo(() => new Set(selectedSuggestionSubAdmins), [selectedSuggestionSubAdmins])
+  const filteredSubAdmins = useMemo(() => {
+    const q = subAdminSearch.trim().toLowerCase()
+    const base = [...subAdmins].sort((a, b) => {
+      const aSelected = selectedSuggestionSubAdminsSet.has(a._id) ? 1 : 0
+      const bSelected = selectedSuggestionSubAdminsSet.has(b._id) ? 1 : 0
+      if (aSelected !== bSelected) return bSelected - aSelected
+      const aName = String(a.displayName || a.email || '').toLowerCase()
+      const bName = String(b.displayName || b.email || '').toLowerCase()
+      return aName.localeCompare(bName)
+    })
+    if (!q) return base
+    return base.filter(u => {
+      const name = String(u.displayName || '').toLowerCase()
+      const email = String(u.email || '').toLowerCase()
+      const role = String(u.role || '').toLowerCase()
+      return name.includes(q) || email.includes(q) || role.includes(q)
+    })
+  }, [subAdmins, subAdminSearch, selectedSuggestionSubAdminsSet])
 
   useEffect(() => {
     if (viewMode !== 'edit') return
@@ -2805,30 +2829,107 @@ export default function TemplateBuilder() {
             <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#6c757d', marginBottom: 6 }}>
               Sous-admins autorisés (suggestions)
             </label>
-            <select
-              multiple
-              value={(tpl as any).suggestionsAllowedSubAdmins || []}
-              onChange={e => {
-                const values = Array.from(e.target.selectedOptions).map(o => o.value)
-                setTpl({ ...tpl, suggestionsAllowedSubAdmins: values })
-              }}
+            <input
+              type="text"
+              value={subAdminSearch}
+              onChange={e => setSubAdminSearch(e.target.value)}
+              placeholder="Rechercher par nom ou email..."
               style={{
                 width: '100%',
-                padding: '10px 14px',
+                padding: '8px 10px',
                 borderRadius: 8,
                 border: '2px solid #e9ecef',
                 fontSize: 14,
-                minHeight: 100
+                marginBottom: 8
+              }}
+            />
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+              <button
+                type="button"
+                className="btn secondary"
+                style={{ padding: '6px 10px', fontSize: 12 }}
+                onClick={() => setTpl({ ...tpl, suggestionsAllowedSubAdmins: subAdmins.map(u => u._id) })}
+              >
+                Tout sélectionner
+              </button>
+              <button
+                type="button"
+                className="btn secondary"
+                style={{ padding: '6px 10px', fontSize: 12 }}
+                onClick={() => setTpl({ ...tpl, suggestionsAllowedSubAdmins: [] })}
+              >
+                Vider
+              </button>
+              <button
+                type="button"
+                className="btn secondary"
+                style={{ padding: '6px 10px', fontSize: 12 }}
+                onClick={() => {
+                  const merged = Array.from(new Set([
+                    ...selectedSuggestionSubAdmins,
+                    ...filteredSubAdmins.map(u => u._id)
+                  ]))
+                  setTpl({ ...tpl, suggestionsAllowedSubAdmins: merged })
+                }}
+              >
+                Sélectionner filtrés
+              </button>
+            </div>
+            <div
+              style={{
+                width: '100%',
+                borderRadius: 8,
+                border: '2px solid #e9ecef',
+                background: '#fff',
+                minHeight: 120,
+                maxHeight: 220,
+                overflowY: 'auto',
+                padding: 6
               }}
             >
-              {subAdmins.map(u => (
-                <option key={u._id} value={u._id}>
-                  {(u.displayName || u.email) + (u.isOutlook ? ' (MS)' : '')}
-                </option>
-              ))}
-            </select>
+              {filteredSubAdmins.length === 0 ? (
+                <div style={{ padding: 8, fontSize: 13, color: '#6c757d' }}>Aucun sous-admin trouvé</div>
+              ) : filteredSubAdmins.map(u => {
+                const checked = selectedSuggestionSubAdminsSet.has(u._id)
+                return (
+                  <label
+                    key={u._id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      padding: '7px 8px',
+                      borderRadius: 6,
+                      background: checked ? '#f1f8ff' : 'transparent',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={e => {
+                        if (e.target.checked) {
+                          setTpl({
+                            ...tpl,
+                            suggestionsAllowedSubAdmins: [...selectedSuggestionSubAdmins, u._id]
+                          })
+                        } else {
+                          setTpl({
+                            ...tpl,
+                            suggestionsAllowedSubAdmins: selectedSuggestionSubAdmins.filter(id => id !== u._id)
+                          })
+                        }
+                      }}
+                    />
+                    <span style={{ fontSize: 13 }}>
+                      {(u.displayName || u.email) + (u.isOutlook ? ' (MS)' : '')}
+                    </span>
+                  </label>
+                )
+              })}
+            </div>
             <div style={{ fontSize: 12, color: '#6c757d', marginTop: 6 }}>
-              Vide = tous les sous-admins
+              {selectedSuggestionSubAdmins.length} sélectionné(s) • vide = tous les sous-admins
             </div>
           </div>
         </div>

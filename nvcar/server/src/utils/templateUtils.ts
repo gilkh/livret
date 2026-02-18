@@ -5,6 +5,7 @@ import { TeacherClassAssignment } from '../models/TeacherClassAssignment'
 import { GradebookTemplate } from '../models/GradebookTemplate'
 import { SchoolYear } from '../models/SchoolYear'
 import { randomUUID } from 'crypto'
+import { assignmentUpdateOptions, normalizeAssignmentMetadataPatch } from './assignmentMetadata'
 
 export function getVersionedTemplate(template: any, templateVersion: any) {
   if (!templateVersion || templateVersion === template.currentVersion) return template
@@ -313,7 +314,11 @@ export async function checkAndAssignTemplates(studentId: string, level: string, 
         // Always update teachers to the new class teachers
         updates.assignedTeachers = teacherIds
 
-        await TemplateAssignment.updateOne({ _id: exists._id }, { $set: updates })
+        await TemplateAssignment.updateOne(
+          { _id: exists._id },
+          { $set: normalizeAssignmentMetadataPatch(updates) },
+          assignmentUpdateOptions()
+        )
       }
     }
   } catch (err) {

@@ -10,7 +10,7 @@ import Modal from '../components/Modal'
 import Toast, { ToastType } from '../components/Toast'
 import ScrollToTopButton from '../components/ScrollToTopButton'
 import ScrollPageDownButton from '../components/ScrollPageDownButton'
-import { openPdfExport, buildStudentPdfUrl } from '../utils/pdfExport'
+import { openPdfExport, buildStudentPdfUrl, buildSavedGradebookPdfUrl } from '../utils/pdfExport'
 import { formatDdMonthYyyy, formatDdMmYyyyColon } from '../utils/dateFormat'
 
 type Block = { type: string; props: any }
@@ -727,7 +727,40 @@ export default function SubAdminTemplateReview() {
         if (template && student) {
             try {
                 const base = (api.defaults.baseURL || '').replace(/\/$/, '')
-                const pdfUrl = buildStudentPdfUrl(base, student._id, template._id || '')
+                let pdfUrl = buildStudentPdfUrl(base, student._id, template._id || '')
+
+                try {
+                    const savedRes = await api.get(`/saved-gradebooks/student/${student._id}`)
+                    const savedList = Array.isArray(savedRes.data) ? savedRes.data : []
+
+                    const activeYearId = String((activeYear as any)?._id || '')
+                    const templateId = String(template._id || '')
+                    const sem1Reasons = new Set(['sem1', 'manual'])
+                    const sem2Reasons = new Set(['year_end', 'promotion', 'exit'])
+
+                    const useSem2Snapshot = activeSemester === 2 && !!finalSignature
+                    const preferredReasons = useSem2Snapshot ? sem2Reasons : sem1Reasons
+
+                    const inScope = savedList
+                        .filter((s: any) => !activeYearId || String(s?.schoolYearId || '') === activeYearId)
+                        .filter((s: any) => !templateId || !s?.templateId || String(s.templateId) === templateId)
+
+                    const byPreferredReason = inScope
+                        .filter((s: any) => preferredReasons.has(String(s?.snapshotReason || '')))
+                        .sort((a: any, b: any) => new Date(b?.createdAt || 0).getTime() - new Date(a?.createdAt || 0).getTime())
+
+                    const bySem1Reason = inScope
+                        .filter((s: any) => sem1Reasons.has(String(s?.snapshotReason || '')))
+                        .sort((a: any, b: any) => new Date(b?.createdAt || 0).getTime() - new Date(a?.createdAt || 0).getTime())
+
+                    const selectedSaved = byPreferredReason[0] || bySem1Reason[0]
+                    if (selectedSaved?._id) {
+                        pdfUrl = buildSavedGradebookPdfUrl(base, String(selectedSaved._id))
+                    }
+                } catch (snapshotErr) {
+                    console.warn('Saved snapshot export fallback to live assignment export', snapshotErr)
+                }
+
                 const studentFullName = `${student.firstName} ${student.lastName}`
                 openPdfExport(pdfUrl, studentFullName, 'single', 1)
             } catch (e: any) {

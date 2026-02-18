@@ -25,6 +25,7 @@ import mongoose from 'mongoose'
 import { checkAndAssignTemplates, mergeAssignmentDataIntoTemplate } from '../utils/templateUtils'
 import { withCache, clearCache } from '../utils/cache'
 import { createAssignmentSnapshot } from '../services/rolloverService'
+import { assignmentUpdateOptions, normalizeAssignmentMetadataPatch, warnOnInvalidStatusTransition } from '../utils/assignmentMetadata'
 import multer from 'multer'
 import path from 'path'
 import fs from 'fs'
@@ -847,7 +848,7 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote', require
                             $push: { 'data.promotions': promotionData },
                             $inc: { dataVersion: 1 }
                         },
-                        { new: true }
+                        assignmentUpdateOptions({ new: true })
                     )
                 } catch (err) {
                     // Attempt rollback of side effects
@@ -871,7 +872,7 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote', require
 
                         // Restore assignment data
                         try {
-                            await TemplateAssignment.findByIdAndUpdate(templateAssignmentId, { $set: { data: assignmentDataBefore } })
+                            await TemplateAssignment.findByIdAndUpdate(templateAssignmentId, { $set: { data: assignmentDataBefore } }, assignmentUpdateOptions())
                         } catch (e) { console.error('Rollback: failed to restore assignment data', e) }
                     } catch (e) {
                         console.error('Rollback attempt failed:', e)
@@ -931,7 +932,7 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/promote', require
                             $push: { 'data.promotions': promotionData },
                             $inc: { dataVersion: 1 }
                         },
-                        { new: true, session }
+                        assignmentUpdateOptions({ new: true, session })
                     )
 
                     await session.commitTransaction()
@@ -1221,7 +1222,6 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', requireAut
                     const student = await Student.findById(updatedAssignment.studentId).lean()
                     const statuses = await StudentCompetencyStatus.find({ studentId: updatedAssignment.studentId }).lean()
                     const signatures = await TemplateSignature.find({ templateAssignmentId }).lean()
-                    const sem1Signatures = signatures.filter((s: any) => s.type !== 'end_of_year')
                     
                     // Get enrollment and class info
                     const activeSchoolYear = await SchoolYear.findOne({ active: true }).lean()
@@ -1242,8 +1242,8 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', requireAut
                         statuses,
                         assignment: updatedAssignment,
                         className,
-                        signatures: sem1Signatures,
-                        signature: sem1Signatures.find((s: any) => s.type === 'standard') || null,
+                        signatures,
+                        signature: signature || signatures.find((s: any) => s.type === 'standard') || null,
                         finalSignature: null,
                     }
 
@@ -1929,7 +1929,8 @@ subAdminTemplatesRouter.post('/templates/sign-class/:classId', requireAuth(['SUB
             }
 
             // Update assignment status
-            await TemplateAssignment.findByIdAndUpdate(assignment._id, { status: 'signed' })
+            warnOnInvalidStatusTransition((assignment as any).status, 'signed', 'subAdminTemplates.signClass')
+            await TemplateAssignment.findByIdAndUpdate(assignment._id, normalizeAssignmentMetadataPatch({ status: 'signed' }), assignmentUpdateOptions())
 
             // Log audit
             const template = await GradebookTemplate.findById(assignment.templateId).lean()
@@ -2018,12 +2019,12 @@ subAdminTemplatesRouter.post('/templates/:assignmentId/mark-done', requireAuth([
         // Update assignment
         const updated = await TemplateAssignment.findByIdAndUpdate(
             assignmentId,
-            {
+            normalizeAssignmentMetadataPatch({
                 isCompleted: true,
                 completedAt: new Date(),
                 completedBy: subAdminId,
-            },
-            { new: true }
+            }),
+            assignmentUpdateOptions({ new: true })
         )
 
         // Log audit
@@ -2071,12 +2072,12 @@ subAdminTemplatesRouter.post('/templates/:assignmentId/unmark-done', requireAuth
         // Update assignment
         const updated = await TemplateAssignment.findByIdAndUpdate(
             assignmentId,
-            {
+            normalizeAssignmentMetadataPatch({
                 isCompleted: false,
                 completedAt: null,
                 completedBy: null,
-            },
-            { new: true }
+            }),
+            assignmentUpdateOptions({ new: true })
         )
 
         // Log audit
@@ -2185,7 +2186,7 @@ subAdminTemplatesRouter.patch('/templates/:assignmentId/data', requireAuth(['SUB
                         [`data.${keyStable}`]: items
                     }
                 },
-                { new: true }
+                assignmentUpdateOptions({ new: true })
             )
 
             // Log audit
@@ -2230,8 +2231,10 @@ subAdminTemplatesRouter.patch('/templates/:assignmentId/data', requireAuth(['SUB
                     },
                     $inc: { dataVersion: 1 }
                 },
-                { new: true }
+                assignmentUpdateOptions({ new: true })
             )
+
+            warnOnInvalidStatusTransition((assignment as any).status, assignment.status === 'draft' ? 'in_progress' : assignment.status, 'subAdminTemplates.dataPatch')
 
             if (!updated) {
                 const current = await TemplateAssignment.findById(assignmentId).lean()
@@ -2397,7 +2400,8 @@ subAdminTemplatesRouter.post('/assign-student', requireAuth(['SUBADMIN', 'AEFE']
                 studentId,
                 status: { $in: ['draft', 'in_progress'] }
             },
-            { $set: { assignedTeachers: teacherIds } }
+            { $set: { assignedTeachers: teacherIds } },
+            assignmentUpdateOptions()
         )
 
         res.json({ success: true })
