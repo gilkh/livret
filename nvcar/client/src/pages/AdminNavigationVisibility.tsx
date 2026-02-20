@@ -128,6 +128,7 @@ export default function AdminNavigationVisibility() {
     { key: 'dashboard', label: 'Tableau de bord', icon: <LayoutDashboard size={18} /> },
     { key: 'progress', label: 'Progression', icon: <TrendingUp size={18} /> },
     { key: 'teacher-progress', label: 'Suivi Enseignants', icon: <UserCheck size={18} /> },
+    { key: 'my-teachers', label: 'Mes Enseignants', icon: <Users size={18} /> },
     { key: 'gradebooks', label: 'Carnet', icon: <BookOpen size={18} /> },
     { key: 'eleves', label: 'Élèves', icon: <GraduationCap size={18} /> },
     { key: 'signature', label: 'Ma signature', icon: <PenTool size={18} /> }
@@ -137,6 +138,7 @@ export default function AdminNavigationVisibility() {
     { key: 'dashboard', label: 'Tableau de bord', icon: <LayoutDashboard size={18} /> },
     { key: 'progress', label: 'Progression', icon: <TrendingUp size={18} /> },
     { key: 'teacher-progress', label: 'Suivi Enseignants', icon: <UserCheck size={18} /> },
+    { key: 'my-teachers', label: 'Mes Enseignants', icon: <Users size={18} /> },
     { key: 'gradebooks', label: 'Carnet', icon: <BookOpen size={18} /> }
   ]
 

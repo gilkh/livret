@@ -25,6 +25,7 @@ import SubAdminSignature from './pages/SubAdminSignature'
 import SubAdminStudents from './pages/SubAdminStudents'
 import SubAdminProgress from './pages/SubAdminProgress'
 import SubAdminTeacherProgress from './pages/SubAdminTeacherProgress'
+import SubAdminMyTeachers from './pages/SubAdminMyTeachers'
 import SubAdminGradebooks from './pages/SubAdminGradebooks'
 import AdminAssignments from './pages/AdminAssignments'
 import AdminAssignmentList from './pages/AdminAssignmentList'
@@ -491,6 +492,14 @@ export default function App() {
           }
         />
         <Route
+          path="/subadmin/my-teachers"
+          element={
+            <RequireAuth>
+              <SubAdminMyTeachers />
+            </RequireAuth>
+          }
+        />
+        <Route
           path="/subadmin/gradebooks"
           element={
             <RequireAuth>
@@ -559,6 +568,14 @@ export default function App() {
           element={
             <RequireAuth>
               <SubAdminTeacherProgress />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/aefe/my-teachers"
+          element={
+            <RequireAuth>
+              <SubAdminMyTeachers />
             </RequireAuth>
           }
         />

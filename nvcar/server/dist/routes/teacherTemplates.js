@@ -16,7 +16,6 @@ const StudentAcquiredSkill_1 = require("../models/StudentAcquiredSkill");
 const auditLogger_1 = require("../utils/auditLogger");
 const templateUtils_1 = require("../utils/templateUtils");
 const cache_1 = require("../utils/cache");
-const assignmentMetadata_1 = require("../utils/assignmentMetadata");
 exports.teacherTemplatesRouter = (0, express_1.Router)();
 const normalizeLevel = (v) => String(v || '').trim().toUpperCase();
 // For maternelle, allow teachers to edit toggles for previous levels.
@@ -274,6 +273,14 @@ exports.teacherTemplatesRouter.get('/students/:studentId/templates', (0, auth_1.
             studentId,
             assignedTeachers: teacherId,
         }).lean();
+        const assignmentIds = assignments.map(a => String(a._id));
+        const changedAssignmentIds = assignmentIds.length
+            ? await TemplateChangeLog_1.TemplateChangeLog.distinct('templateAssignmentId', {
+                teacherId,
+                templateAssignmentId: { $in: assignmentIds },
+            })
+            : [];
+        const changedAssignmentSet = new Set((changedAssignmentIds || []).map((id) => String(id)));
         const { enrollment } = await findEnrollmentForStudent(studentId);
         const classDoc = enrollment?.classId ? await Class_1.ClassModel.findById(enrollment.classId).lean() : null;
         const studentLevel = normalizeLevel(classDoc?.level || '');
@@ -293,6 +300,7 @@ exports.teacherTemplatesRouter.get('/students/:studentId/templates', (0, auth_1.
             return {
                 ...assignment,
                 template,
+                hasChanges: changedAssignmentSet.has(String(assignment._id)),
                 isMyWorkCompleted: isMyWorkCompletedSem1,
                 isMyWorkCompletedSem1,
                 isMyWorkCompletedSem2
@@ -605,8 +613,7 @@ exports.teacherTemplatesRouter.patch('/template-assignments/:assignmentId/langua
                 status: assignment.status === 'draft' ? 'in_progress' : assignment.status
             },
             $inc: { dataVersion: 1 }
-        }, (0, assignmentMetadata_1.assignmentUpdateOptions)({ new: true }));
-        (0, assignmentMetadata_1.warnOnInvalidStatusTransition)(assignment.status, assignment.status === 'draft' ? 'in_progress' : assignment.status, 'teacherTemplates.languageToggle');
+        }, { new: true });
         if (!updated) {
             // Conflict: return current assignment + dataVersion so client can fetch/merge
             const current = await TemplateAssignment_1.TemplateAssignment.findById(assignmentId).lean();
@@ -739,10 +746,7 @@ exports.teacherTemplatesRouter.post('/templates/:assignmentId/mark-done', (0, au
             // Don't change main status for Sem2 yet, unless we want a new status
         }
         // Update assignment
-        const updated = await TemplateAssignment_1.TemplateAssignment.findByIdAndUpdate(assignmentId, (0, assignmentMetadata_1.normalizeAssignmentMetadataPatch)(updateData), (0, assignmentMetadata_1.assignmentUpdateOptions)({ new: true }));
-        if (updateData.status) {
-            (0, assignmentMetadata_1.warnOnInvalidStatusTransition)(assignment.status, updateData.status, 'teacherTemplates.markDone');
-        }
+        const updated = await TemplateAssignment_1.TemplateAssignment.findByIdAndUpdate(assignmentId, updateData, { new: true });
         // Log audit
         const template = await GradebookTemplate_1.GradebookTemplate.findById(assignment.templateId).lean();
         const student = await Student_1.Student.findById(assignment.studentId).lean();
@@ -863,10 +867,7 @@ exports.teacherTemplatesRouter.post('/templates/:assignmentId/unmark-done', (0, 
             updateData.completedAtSem2 = allCompletedSem ? now : null;
         }
         // Update assignment
-        const updated = await TemplateAssignment_1.TemplateAssignment.findByIdAndUpdate(assignmentId, (0, assignmentMetadata_1.normalizeAssignmentMetadataPatch)(updateData), (0, assignmentMetadata_1.assignmentUpdateOptions)({ new: true }));
-        if (updateData.status) {
-            (0, assignmentMetadata_1.warnOnInvalidStatusTransition)(assignment.status, updateData.status, 'teacherTemplates.unmarkDone');
-        }
+        const updated = await TemplateAssignment_1.TemplateAssignment.findByIdAndUpdate(assignmentId, updateData, { new: true });
         // Log audit
         const template = await GradebookTemplate_1.GradebookTemplate.findById(assignment.templateId).lean();
         const student = await Student_1.Student.findById(assignment.studentId).lean();
@@ -909,6 +910,14 @@ exports.teacherTemplatesRouter.get('/classes/:classId/assignments', (0, auth_1.r
             studentId: { $in: studentIds },
             assignedTeachers: teacherId,
         }).select('-data').lean();
+        const assignmentIds = assignments.map(a => String(a._id));
+        const changedAssignmentIds = assignmentIds.length
+            ? await TemplateChangeLog_1.TemplateChangeLog.distinct('templateAssignmentId', {
+                teacherId,
+                templateAssignmentId: { $in: assignmentIds },
+            })
+            : [];
+        const changedAssignmentSet = new Set((changedAssignmentIds || []).map((id) => String(id)));
         const templateIds = Array.from(new Set(assignments.map(a => a.templateId).filter(Boolean)));
         const [templates, students] = await Promise.all([
             templateIds.length
@@ -935,6 +944,7 @@ exports.teacherTemplatesRouter.get('/classes/:classId/assignments', (0, auth_1.r
             const isMyWorkCompleted = isMyWorkCompletedSem1;
             return {
                 ...assignment,
+                hasChanges: changedAssignmentSet.has(String(assignment._id)),
                 isCompleted: isMyWorkCompleted,
                 isCompletedSem1: isMyWorkCompletedSem1,
                 isCompletedSem2: isMyWorkCompletedSem2,
@@ -1285,8 +1295,7 @@ exports.teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data',
         const updated = await TemplateAssignment_1.TemplateAssignment.findByIdAndUpdate(assignmentId, {
             $set: { data: { ...(assignment.data || {}), ...sanitizedPatch } },
             status: assignment.status === 'draft' ? 'in_progress' : assignment.status,
-        }, (0, assignmentMetadata_1.assignmentUpdateOptions)({ new: true }));
-        (0, assignmentMetadata_1.warnOnInvalidStatusTransition)(assignment.status, assignment.status === 'draft' ? 'in_progress' : assignment.status, 'teacherTemplates.dataPatch');
+        }, { new: true });
         // Sync promotion status to Enrollment if present
         if (sanitizedPatch.promotions && Array.isArray(sanitizedPatch.promotions) && sanitizedPatch.promotions.length > 0) {
             const lastPromo = sanitizedPatch.promotions[sanitizedPatch.promotions.length - 1];

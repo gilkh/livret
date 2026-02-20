@@ -168,7 +168,7 @@ exports.savedGradebooksRouter.get('/student/:studentId', (0, auth_1.requireAuth)
                 return res.status(403).json({ error: 'not_authorized' });
         }
         const saved = await SavedGradebook_1.SavedGradebook.find({ studentId })
-            .select('_id schoolYearId level createdAt templateId')
+            .select('_id schoolYearId level createdAt templateId meta')
             .sort({ createdAt: -1 })
             .lean();
         const yearIds = [...new Set(saved.map(s => String(s.schoolYearId)).filter(Boolean))];
@@ -183,6 +183,7 @@ exports.savedGradebooksRouter.get('/student/:studentId', (0, auth_1.requireAuth)
             level: s.level,
             createdAt: s.createdAt,
             templateId: s.templateId,
+            snapshotReason: s?.meta?.snapshotReason || 'unknown',
         })));
     }
     catch (e) {

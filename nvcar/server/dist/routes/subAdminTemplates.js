@@ -2109,11 +2109,10 @@ exports.subAdminTemplatesRouter.get('/students', (0, auth_1.requireAuth)(['SUBAD
         }).lean();
         const enrolledStudentIds = enrollments.map(e => e.studentId);
         const enrollmentMap = new Map(enrollments.map(e => [e.studentId, e]));
-        // Get students by level OR by enrollment
-        const studentsByLevel = await Student_1.Student.find({ level: { $in: levels } }).lean();
+        // Get students by enrollment only (do not include unassigned students by level)
         const studentsByEnrollment = await Student_1.Student.find({ _id: { $in: enrolledStudentIds } }).lean();
         // Merge and deduplicate
-        const allStudents = [...studentsByLevel, ...studentsByEnrollment];
+        const allStudents = [...studentsByEnrollment];
         const uniqueStudents = Array.from(new Map(allStudents.map(s => [String(s._id), s])).values());
         // Attach class info
         const result = uniqueStudents.map(s => {

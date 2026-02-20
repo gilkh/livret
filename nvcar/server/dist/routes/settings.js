@@ -58,7 +58,7 @@ exports.settingsRouter.get('/status', (0, auth_1.requireAuth)(['ADMIN']), async 
 });
 exports.settingsRouter.get('/public', async (req, res) => {
     const settings = await Setting_1.Setting.find({
-        key: { $in: ['login_enabled_microsoft', 'school_name', 'nav_permissions', 'teacher_quick_grading_enabled', 'mobile_block_enabled', 'mobile_min_width', 'block_visibility', 'block_visibility_instances', 'block_visibility_settings'] }
+        key: { $in: ['login_enabled_microsoft', 'school_name', 'nav_permissions', 'teacher_quick_grading_enabled', 'mobile_block_enabled', 'mobile_min_width', 'block_visibility', 'block_visibility_instances', 'block_visibility_settings', 'previous_year_dropdown_editable', 'previous_year_dropdown_editable_PS', 'previous_year_dropdown_editable_MS', 'previous_year_dropdown_editable_GS'] }
     }).lean();
     const settingsMap = {};
     settings.forEach(s => {
@@ -83,6 +83,11 @@ exports.settingsRouter.get('/public', async (req, res) => {
         settingsMap.block_visibility_instances = {};
     if (settingsMap.block_visibility_settings === undefined)
         settingsMap.block_visibility_settings = {};
+    if (settingsMap.previous_year_dropdown_editable === undefined) {
+        settingsMap.previous_year_dropdown_editable = (settingsMap.previous_year_dropdown_editable_PS === true ||
+            settingsMap.previous_year_dropdown_editable_MS === true ||
+            settingsMap.previous_year_dropdown_editable_GS === true);
+    }
     res.json(settingsMap);
 });
 exports.settingsRouter.get('/', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {

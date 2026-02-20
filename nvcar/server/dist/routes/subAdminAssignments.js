@@ -846,3 +846,76 @@ exports.subAdminAssignmentsRouter.get('/teacher-progress', (0, auth_1.requireAut
         res.status(500).json({ error: 'Failed to fetch teacher progress' });
     }
 });
+// SubAdmin: Get list of teachers for assigned levels
+exports.subAdminAssignmentsRouter.get('/my-teachers', (0, auth_1.requireAuth)(['SUBADMIN', 'AEFE']), async (req, res) => {
+    try {
+        const subAdminId = req.user.userId;
+        const { schoolYearId } = req.query;
+        // Get assigned levels
+        const scope = await RoleScope_1.RoleScope.findOne({ userId: subAdminId }).lean();
+        if (!scope || !scope.levels || scope.levels.length === 0) {
+            return res.json([]);
+        }
+        const levels = scope.levels;
+        // Get school year
+        let activeYear;
+        if (schoolYearId && typeof schoolYearId === 'string') {
+            activeYear = await SchoolYear_1.SchoolYear.findById(schoolYearId).lean();
+        }
+        if (!activeYear) {
+            activeYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
+        }
+        if (!activeYear) {
+            return res.status(400).json({ error: 'no_active_year' });
+        }
+        // Find classes
+        const classes = await Class_1.ClassModel.find({
+            level: { $in: levels },
+            schoolYearId: String(activeYear._id)
+        }).lean();
+        if (classes.length === 0)
+            return res.json([]);
+        const classIds = classes.map(c => String(c._id));
+        const classMap = new Map(classes.map(c => [String(c._id), c]));
+        // Find teachers for these classes
+        const teacherAssignments = await TeacherClassAssignment_1.TeacherClassAssignment.find({
+            classId: { $in: classIds },
+            schoolYearId: String(activeYear._id)
+        }).lean();
+        const teacherIds = [...new Set(teacherAssignments.map(ta => ta.teacherId))];
+        const teachers = await User_1.User.find({ _id: { $in: teacherIds } }).lean();
+        const outlookTeachers = await OutlookUser_1.OutlookUser.find({ _id: { $in: teacherIds } }).lean();
+        const teacherMap = new Map([...teachers, ...outlookTeachers].map((t) => [String(t._id), t]));
+        // Group by teacher
+        const result = [];
+        for (const teacherId of teacherIds) {
+            const teacherInfo = teacherMap.get(teacherId);
+            if (!teacherInfo)
+                continue;
+            const assignmentsForTeacher = teacherAssignments.filter(ta => ta.teacherId === teacherId);
+            const teacherClasses = assignmentsForTeacher.map(ta => {
+                const cls = classMap.get(ta.classId);
+                return {
+                    classId: ta.classId,
+                    className: cls ? cls.name : 'Unknown',
+                    level: cls ? cls.level : 'Unknown',
+                    isProfPolyvalent: ta.isProfPolyvalent,
+                    languages: ta.languages || []
+                };
+            });
+            result.push({
+                teacherId,
+                displayName: teacherInfo.displayName || teacherInfo.email || 'Unknown',
+                email: teacherInfo.email,
+                classes: teacherClasses
+            });
+        }
+        // Sort by display name
+        result.sort((a, b) => a.displayName.localeCompare(b.displayName));
+        res.json(result);
+    }
+    catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Failed to fetch teachers' });
+    }
+});
