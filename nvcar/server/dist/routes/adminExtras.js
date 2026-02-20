@@ -327,8 +327,32 @@ exports.adminExtrasRouter.get('/progress', (0, auth_1.requireAuth)(['ADMIN']), a
 exports.adminExtrasRouter.get('/online-users', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
     try {
         const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-        const users = await User_1.User.find({ lastActive: { $gte: fiveMinutesAgo } }).select('displayName role lastActive email').lean();
-        res.json(users);
+        const [users, outlookUsers] = await Promise.all([
+            User_1.User.find({ lastActive: { $gte: fiveMinutesAgo } })
+                .select('displayName role lastActive email')
+                .lean(),
+            OutlookUser_1.OutlookUser.find({ lastLogin: { $gte: fiveMinutesAgo } })
+                .select('displayName role lastLogin email')
+                .lean(),
+        ]);
+        const normalizedOutlookUsers = outlookUsers.map((u) => ({
+            _id: u._id,
+            displayName: u.displayName || u.email || 'Utilisateur Microsoft',
+            email: u.email,
+            role: u.role,
+            lastActive: u.lastLogin,
+        }));
+        const normalizedUsers = users.map((u) => ({
+            _id: u._id,
+            displayName: u.displayName || u.email || 'Utilisateur',
+            email: u.email,
+            role: u.role,
+            lastActive: u.lastActive,
+        }));
+        const allOnlineUsers = [...normalizedUsers, ...normalizedOutlookUsers]
+            .filter(u => !!u.lastActive)
+            .sort((a, b) => new Date(b.lastActive).getTime() - new Date(a.lastActive).getTime());
+        res.json(allOnlineUsers);
     }
     catch (e) {
         res.status(500).json({ error: 'failed' });
