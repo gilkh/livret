@@ -642,3 +642,15 @@
 2026-02-17T22:26:11.440Z https://127.0.0.1/print/carnet/6994d38f909da64631cea006?token=*** totalMs=4392 navMs=201 readyMs=893 pdfMs=2996 size=3422540 native=false
 2026-02-17T22:26:16.790Z https://127.0.0.1/print/carnet/6994d38f909da64631cea006?token=*** totalMs=5265 navMs=286 readyMs=1238 pdfMs=3303 size=3422540 native=false
 2026-02-17T22:26:19.790Z https://127.0.0.1/print/carnet/6994d38f909da64631cea006?token=*** totalMs=8295 navMs=617 readyMs=1241 pdfMs=5876 size=3422540 native=false
+2026-02-18T11:12:15.926Z https://livret.champville.com/print/preview/69955d148e07f416331e86fd/student/69955c6c8e07f416331e8273?token=*** totalMs=23927 navMs=1411 readyMs=2326 pdfMs=17711 size=3409592 native=false
+2026-02-18T11:12:37.856Z https://livret.champville.com/print/preview/69955d148e07f416331e86fd/student/69955c6c8e07f416331e8273?token=*** totalMs=18225 navMs=783 readyMs=2065 pdfMs=14975 size=3409592 native=false
+2026-02-18T11:12:58.580Z https://livret.champville.com/print/preview/69955d148e07f416331e86fd/student/69955c6c8e07f416331e8273?token=*** totalMs=20372 navMs=912 readyMs=2152 pdfMs=16465 size=3409592 native=false
+2026-02-18T11:13:14.099Z https://livret.champville.com/print/preview/69955d148e07f416331e86fd/student/69955c6c8e07f416331e8273?token=*** totalMs=36032 navMs=1936 readyMs=10003 pdfMs=23178 size=3409592 native=false
+2026-02-18T11:16:31.441Z https://livret.champville.com/print/preview/69955d148e07f416331e86fd/student/69955c6b8e07f416331e824c?token=*** totalMs=19466 navMs=889 readyMs=2185 pdfMs=15973 size=3410123 native=false
+2026-02-18T11:16:53.364Z https://livret.champville.com/print/preview/69955d148e07f416331e86fd/student/69955c6b8e07f416331e824c?token=*** totalMs=18778 navMs=725 readyMs=2089 pdfMs=15539 size=3410123 native=false
+2026-02-18T11:17:13.262Z https://livret.champville.com/print/preview/69955d148e07f416331e86fd/student/69955c6b8e07f416331e824c?token=*** totalMs=19580 navMs=749 readyMs=2178 pdfMs=16242 size=3410123 native=false
+2026-02-18T11:18:23.500Z https://livret.champville.com/print/preview/69955d148e07f416331e86fd/student/69955c6b8e07f416331e824c?token=*** totalMs=19456 navMs=821 readyMs=2554 pdfMs=15534 size=3410123 native=false
+2026-02-18T11:18:45.351Z https://livret.champville.com/print/preview/69955d148e07f416331e86fd/student/69955c6b8e07f416331e824c?token=*** totalMs=18706 navMs=761 readyMs=2174 pdfMs=15369 size=3410123 native=false
+2026-02-18T11:19:07.919Z https://livret.champville.com/print/preview/69955d148e07f416331e86fd/student/69955c6b8e07f416331e824c?token=*** totalMs=22180 navMs=902 readyMs=2642 pdfMs=17225 size=3515878 native=false
+2026-02-18T11:19:24.334Z https://livret.champville.com/print/preview/69955d148e07f416331e86fd/student/69955c6b8e07f416331e824c?token=*** totalMs=38695 navMs=2569 readyMs=10002 pdfMs=23563 size=3410123 native=false
+2026-02-18T11:19:39.202Z https://livret.champville.com/print/preview/69955d148e07f416331e86fd/student/69955c6b8e07f416331e824c?token=*** totalMs=53662 navMs=2570 readyMs=2595 pdfMs=47303 size=3410123 native=false
