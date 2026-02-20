@@ -9,16 +9,28 @@ type OnlineUser = {
     lastActive: string
 }
 
+type CurrentAlert = {
+    _id?: string
+    message: string
+    type?: 'warning' | 'success'
+    expiresAt?: string
+}
+
 export default function AdminOnlineUsers() {
     const [users, setUsers] = useState<OnlineUser[]>([])
+    const [currentAlert, setCurrentAlert] = useState<CurrentAlert | null>(null)
     const [alertMsg, setAlertMsg] = useState('')
     const [duration, setDuration] = useState('')
     const [loading, setLoading] = useState(true)
 
     const loadUsers = async () => {
         try {
-            const res = await api.get('/admin-extras/online-users')
-            setUsers(res.data)
+            const [usersRes, alertRes] = await Promise.all([
+                api.get('/admin-extras/online-users'),
+                api.get('/admin-extras/alert'),
+            ])
+            setUsers(usersRes.data)
+            setCurrentAlert(alertRes.data || null)
         } catch (e) {
             console.error(e)
         } finally {
@@ -42,6 +54,7 @@ export default function AdminOnlineUsers() {
             })
             setAlertMsg('')
             setDuration('')
+            loadUsers()
             alert('Alerte envoyée')
         } catch (e) {
             alert('Erreur')
@@ -52,7 +65,8 @@ export default function AdminOnlineUsers() {
         if (!confirm('Arrêter l\'alerte en cours ?')) return
         try {
             await api.post('/admin-extras/alert/stop')
-            alert('Alerte arrêtée')
+            loadUsers()
+            alert('Alerte arrêtée. Un message vert de maintenance annulée a été envoyé.')
         } catch (e) {
             alert('Erreur')
         }
@@ -147,6 +161,30 @@ export default function AdminOnlineUsers() {
                     <div className="card">
                         <h3>Envoyer une Alerte</h3>
                         <p className="note">Affiche un message bloquant sur l'écran de tous les utilisateurs.</p>
+
+                        {currentAlert && (
+                            <div style={{
+                                marginBottom: 12,
+                                padding: 12,
+                                borderRadius: 8,
+                                border: currentAlert.type === 'success' ? '1px solid #86efac' : '1px solid #fdba74',
+                                background: currentAlert.type === 'success' ? '#f0fdf4' : '#fff7ed',
+                            }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+                                    <div style={{ flex: 1 }}>
+                                        <div style={{ fontWeight: 700, color: currentAlert.type === 'success' ? '#166534' : '#9a3412' }}>
+                                            {currentAlert.type === 'success' ? 'Notice active (verte)' : 'Alerte en cours'}
+                                        </div>
+                                        <div style={{ fontSize: 13, color: currentAlert.type === 'success' ? '#166534' : '#7c2d12' }}>
+                                            {currentAlert.message}
+                                        </div>
+                                    </div>
+                                    <button className="btn secondary" onClick={stopAlert} style={{ borderColor: '#dc2626', color: '#dc2626', whiteSpace: 'nowrap' }}>
+                                        Arrêter
+                                    </button>
+                                </div>
+                            </div>
+                        )}
                         <textarea 
                             value={alertMsg}
                             onChange={e => setAlertMsg(e.target.value)}

@@ -24,6 +24,7 @@ import path from 'path'
 import { existsSync, mkdirSync } from 'fs'
 import fs from 'fs/promises'
 import multer from 'multer'
+import { emitSystemAlertUpdate } from '../socket'
 
 export const adminExtrasRouter = Router()
 
@@ -400,18 +401,27 @@ adminExtrasRouter.get('/online-users', requireAuth(['ADMIN']), async (req, res) 
 // 3. Alerts
 adminExtrasRouter.post('/alert', requireAuth(['ADMIN']), async (req, res) => {
     try {
-        const { message, duration } = req.body
+        const { message, duration, type } = req.body
         await SystemAlert.updateMany({}, { active: false }) // Deactivate old alerts
         if (message) {
             const alertData: any = {
                 message,
+                type: type === 'success' ? 'success' : 'warning',
                 createdBy: (req as any).user.userId,
                 active: true
             }
             if (duration && !isNaN(Number(duration))) {
                 alertData.expiresAt = new Date(Date.now() + Number(duration) * 60 * 1000)
             }
-            await SystemAlert.create(alertData)
+            const createdAlert = await SystemAlert.create(alertData)
+            emitSystemAlertUpdate({
+                _id: String((createdAlert as any)._id),
+                message: createdAlert.message,
+                type: (createdAlert as any).type === 'success' ? 'success' : 'warning',
+                expiresAt: createdAlert.expiresAt ? new Date(createdAlert.expiresAt).toISOString() : undefined,
+            })
+        } else {
+            emitSystemAlertUpdate(null)
         }
         res.json({ success: true })
     } catch (e) {
@@ -421,7 +431,25 @@ adminExtrasRouter.post('/alert', requireAuth(['ADMIN']), async (req, res) => {
 
 adminExtrasRouter.post('/alert/stop', requireAuth(['ADMIN']), async (req, res) => {
     try {
+        const { duration } = req.body || {}
         await SystemAlert.updateMany({ active: true }, { active: false })
+
+        const cancelDurationMinutes = !isNaN(Number(duration)) && Number(duration) > 0 ? Number(duration) : 5
+        const cancelNotice = await SystemAlert.create({
+            message: 'La maintenance a été annulée. Le système reste pleinement opérationnel, sauf communication d’un nouvel avis.',
+            type: 'success',
+            createdBy: (req as any).user.userId,
+            active: true,
+            expiresAt: new Date(Date.now() + cancelDurationMinutes * 60 * 1000),
+        })
+
+        emitSystemAlertUpdate({
+            _id: String((cancelNotice as any)._id),
+            message: cancelNotice.message,
+            type: 'success',
+            expiresAt: cancelNotice.expiresAt ? new Date(cancelNotice.expiresAt).toISOString() : undefined,
+        })
+
         res.json({ success: true })
     } catch (e) {
         res.status(500).json({ error: 'failed' })

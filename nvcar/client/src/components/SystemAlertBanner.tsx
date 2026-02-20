@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import api from '../api'
+import { useSocket } from '../context/SocketContext'
 
 export default function SystemAlertBanner() {
-    const [alert, setAlert] = useState<{ _id?: string; message: string; expiresAt?: string } | null>(null)
+    const socket = useSocket()
+    const [alert, setAlert] = useState<{ _id?: string; message: string; type?: 'warning' | 'success'; expiresAt?: string } | null>(null)
     const [dismissedAlertKey, setDismissedAlertKey] = useState<string | null>(() => sessionStorage.getItem('dismissed_system_alert_key'))
     const [now, setNow] = useState<number>(Date.now())
 
-    const getAlertKey = (value: { _id?: string; message: string } | null) => {
+    const getAlertKey = (value: { _id?: string; message: string; type?: 'warning' | 'success' } | null) => {
         if (!value) return null
         return value._id || value.message
     }
@@ -19,10 +21,15 @@ export default function SystemAlertBanner() {
     }
 
     useEffect(() => {
-        const token = localStorage.getItem('token')
-        if (!token) return
-
         const checkAlert = async () => {
+            const token = sessionStorage.getItem('token') || localStorage.getItem('token')
+            if (!token) {
+                setAlert(null)
+                setDismissedAlertKey(null)
+                sessionStorage.removeItem('dismissed_system_alert_key')
+                return
+            }
+
             try {
                 const res = await api.get('/admin-extras/alert')
                 if (res.data && res.data.message) {
@@ -37,11 +44,48 @@ export default function SystemAlertBanner() {
             }
         }
 
-        // Check immediately and then every 30s
+        // Check immediately, then poll frequently, and refresh on tab focus/visibility.
         checkAlert()
-        const interval = setInterval(checkAlert, 30000)
-        return () => clearInterval(interval)
+        const interval = setInterval(checkAlert, 5000)
+
+        const onFocus = () => { checkAlert() }
+        const onVisibility = () => {
+            if (document.visibilityState === 'visible') checkAlert()
+        }
+        const onStorage = (e: StorageEvent) => {
+            if (!e.key || e.key === 'token') checkAlert()
+        }
+
+        window.addEventListener('focus', onFocus)
+        document.addEventListener('visibilitychange', onVisibility)
+        window.addEventListener('storage', onStorage)
+
+        return () => {
+            clearInterval(interval)
+            window.removeEventListener('focus', onFocus)
+            document.removeEventListener('visibilitychange', onVisibility)
+            window.removeEventListener('storage', onStorage)
+        }
     }, [])
+
+    useEffect(() => {
+        if (!socket) return
+
+        const onAlertUpdated = (payload: { _id?: string; message: string; expiresAt?: string } | null) => {
+            if (payload && payload.message) {
+                setAlert(payload)
+                return
+            }
+            setAlert(null)
+            setDismissedAlertKey(null)
+            sessionStorage.removeItem('dismissed_system_alert_key')
+        }
+
+        socket.on('system-alert-updated', onAlertUpdated)
+        return () => {
+            socket.off('system-alert-updated', onAlertUpdated)
+        }
+    }, [socket])
 
     useEffect(() => {
         const id = setInterval(() => setNow(Date.now()), 1000)
@@ -50,6 +94,7 @@ export default function SystemAlertBanner() {
 
     const alertKey = getAlertKey(alert)
     const dismissed = !!alertKey && dismissedAlertKey === alertKey
+    const alertType = alert?.type === 'success' ? 'success' : 'warning'
 
     const remainingMs = useMemo(() => {
         if (!alert?.expiresAt) return null
@@ -75,6 +120,32 @@ export default function SystemAlertBanner() {
         const minutes = Math.floor(totalSeconds / 60)
         const seconds = totalSeconds % 60
         return `${minutes}:${String(seconds).padStart(2, '0')}`
+    }
+
+    if (alertType === 'success') {
+        return (
+            <div style={{
+                position: 'fixed',
+                top: 16,
+                right: 16,
+                zIndex: 9998,
+                width: 420,
+                maxWidth: 'calc(100vw - 32px)',
+                background: '#f0fdf4',
+                border: '1px solid #86efac',
+                boxShadow: '0 10px 25px rgba(0,0,0,0.12)',
+                borderRadius: 12,
+                padding: 14,
+            }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <strong style={{ color: '#166534' }}>✅ Maintenance annulée</strong>
+                    <span style={{ fontSize: 12, color: '#166534', fontWeight: 600 }}>
+                        {formatRemaining(remainingMs)}
+                    </span>
+                </div>
+                <div style={{ color: '#166534', fontSize: 14, lineHeight: 1.4 }}>{alert.message}</div>
+            </div>
+        )
     }
 
     if (dismissed) {

@@ -1,6 +1,13 @@
 import { Server, Socket } from 'socket.io'
 import { Server as HttpServer } from 'http'
 
+let ioInstance: Server | null = null
+
+export const emitSystemAlertUpdate = (payload: { _id?: string; message: string; type?: 'warning' | 'success'; expiresAt?: string } | null) => {
+  if (!ioInstance) return
+  ioInstance.emit('system-alert-updated', payload)
+}
+
 export const initSocket = (httpServer: HttpServer) => {
   const io = new Server(httpServer, {
     cors: {
@@ -9,6 +16,8 @@ export const initSocket = (httpServer: HttpServer) => {
       credentials: true
     }
   })
+
+  ioInstance = io
 
   io.on('connection', (socket: Socket) => {
     console.log('Client connected:', socket.id)

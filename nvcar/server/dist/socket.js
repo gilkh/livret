@@ -1,7 +1,14 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.initSocket = void 0;
+exports.initSocket = exports.emitSystemAlertUpdate = void 0;
 const socket_io_1 = require("socket.io");
+let ioInstance = null;
+const emitSystemAlertUpdate = (payload) => {
+    if (!ioInstance)
+        return;
+    ioInstance.emit('system-alert-updated', payload);
+};
+exports.emitSystemAlertUpdate = emitSystemAlertUpdate;
 const initSocket = (httpServer) => {
     const io = new socket_io_1.Server(httpServer, {
         cors: {
@@ -10,6 +17,7 @@ const initSocket = (httpServer) => {
             credentials: true
         }
     });
+    ioInstance = io;
     io.on('connection', (socket) => {
         console.log('Client connected:', socket.id);
         socket.on('join-template', (templateId) => {

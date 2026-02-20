@@ -30,6 +30,7 @@ const path_1 = __importDefault(require("path"));
 const fs_1 = require("fs");
 const promises_1 = __importDefault(require("fs/promises"));
 const multer_1 = __importDefault(require("multer"));
+const socket_1 = require("../socket");
 exports.adminExtrasRouter = (0, express_1.Router)();
 const ensureDir = (p) => { if (!(0, fs_1.existsSync)(p))
     (0, fs_1.mkdirSync)(p, { recursive: true }); };
@@ -361,18 +362,28 @@ exports.adminExtrasRouter.get('/online-users', (0, auth_1.requireAuth)(['ADMIN']
 // 3. Alerts
 exports.adminExtrasRouter.post('/alert', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
     try {
-        const { message, duration } = req.body;
+        const { message, duration, type } = req.body;
         await SystemAlert_1.SystemAlert.updateMany({}, { active: false }); // Deactivate old alerts
         if (message) {
             const alertData = {
                 message,
+                type: type === 'success' ? 'success' : 'warning',
                 createdBy: req.user.userId,
                 active: true
             };
             if (duration && !isNaN(Number(duration))) {
                 alertData.expiresAt = new Date(Date.now() + Number(duration) * 60 * 1000);
             }
-            await SystemAlert_1.SystemAlert.create(alertData);
+            const createdAlert = await SystemAlert_1.SystemAlert.create(alertData);
+            (0, socket_1.emitSystemAlertUpdate)({
+                _id: String(createdAlert._id),
+                message: createdAlert.message,
+                type: createdAlert.type === 'success' ? 'success' : 'warning',
+                expiresAt: createdAlert.expiresAt ? new Date(createdAlert.expiresAt).toISOString() : undefined,
+            });
+        }
+        else {
+            (0, socket_1.emitSystemAlertUpdate)(null);
         }
         res.json({ success: true });
     }
@@ -382,7 +393,22 @@ exports.adminExtrasRouter.post('/alert', (0, auth_1.requireAuth)(['ADMIN']), asy
 });
 exports.adminExtrasRouter.post('/alert/stop', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
     try {
+        const { duration } = req.body || {};
         await SystemAlert_1.SystemAlert.updateMany({ active: true }, { active: false });
+        const cancelDurationMinutes = !isNaN(Number(duration)) && Number(duration) > 0 ? Number(duration) : 5;
+        const cancelNotice = await SystemAlert_1.SystemAlert.create({
+            message: 'Maintenance cancelled. The system will remain working. If a new notice is required, it will be shared.',
+            type: 'success',
+            createdBy: req.user.userId,
+            active: true,
+            expiresAt: new Date(Date.now() + cancelDurationMinutes * 60 * 1000),
+        });
+        (0, socket_1.emitSystemAlertUpdate)({
+            _id: String(cancelNotice._id),
+            message: cancelNotice.message,
+            type: 'success',
+            expiresAt: cancelNotice.expiresAt ? new Date(cancelNotice.expiresAt).toISOString() : undefined,
+        });
         res.json({ success: true });
     }
     catch (e) {
