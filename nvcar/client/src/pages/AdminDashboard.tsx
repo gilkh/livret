@@ -111,6 +111,14 @@ export default function AdminDashboard() {
               </div>
             </DashboardCard>
             <DashboardCard
+              title="Couverture Assignations"
+              description="État des classes par niveau."
+              icon={School}
+              to="/admin/class-teacher-coverage"
+              color="#f0f9ff"
+              iconColor="#0369a1"
+            />
+            <DashboardCard
               title="Passage Élèves"
               description="Promotions annuelles."
               icon={GraduationCap}

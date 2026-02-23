@@ -1,0 +1,176 @@
+.admin-class-teacher-coverage {
+  padding: 24px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.coverage-header {
+  margin-bottom: 20px;
+}
+
+.coverage-title {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 1.85rem;
+  color: #1f2937;
+}
+
+.coverage-subtitle {
+  margin-top: 10px;
+  color: #6b7280;
+}
+
+.coverage-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.coverage-stat-card {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.coverage-stat-label {
+  color: #6b7280;
+  font-size: 0.9rem;
+}
+
+.coverage-stat-value {
+  color: #111827;
+  font-size: 1.6rem;
+  line-height: 1;
+}
+
+.coverage-stat-value.positive {
+  color: #047857;
+}
+
+.coverage-stat-value.negative {
+  color: #b91c1c;
+}
+
+.coverage-feedback {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  color: #4b5563;
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+
+.coverage-feedback.error {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+
+.coverage-levels {
+  display: grid;
+  gap: 14px;
+}
+
+.coverage-level-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.coverage-level-header {
+  padding: 14px 16px;
+  border-bottom: 1px solid #f1f5f9;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.coverage-level-header h2 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: #111827;
+}
+
+.coverage-level-header span {
+  color: #6b7280;
+  font-size: 0.9rem;
+}
+
+.coverage-table-wrap {
+  overflow-x: auto;
+}
+
+.coverage-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.coverage-table th,
+.coverage-table td {
+  text-align: left;
+  padding: 11px 16px;
+  border-bottom: 1px solid #f3f4f6;
+  vertical-align: middle;
+}
+
+.coverage-table th {
+  font-size: 0.84rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #6b7280;
+}
+
+.coverage-table tr:last-child td {
+  border-bottom: none;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+
+.status-pill.assigned {
+  background: #ecfdf3;
+  color: #047857;
+}
+
+.status-pill.unassigned {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.teacher-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #374151;
+  font-weight: 600;
+}
+
+.teacher-breakdown-cell {
+  min-width: 170px;
+}
+
+.teacher-breakdown-count {
+  font-weight: 700;
+  color: #111827;
+  margin-bottom: 4px;
+}
+
+.teacher-breakdown-names {
+  color: #4b5563;
+  font-size: 0.9rem;
+  line-height: 1.35;
+}

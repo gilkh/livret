@@ -52,6 +52,7 @@ import AdminSkillAnalytics from './pages/AdminSkillAnalytics'
 import SubAdminSemesterRequest from './pages/SubAdminSemesterRequest'
 import SuggestionGradebookTemplates from './pages/SuggestionGradebookTemplates'
 import AdminMonitoring from './pages/AdminMonitoring'
+import AdminClassTeacherCoverage from './pages/AdminClassTeacherCoverage'
 import SystemAlertBanner from './components/SystemAlertBanner'
 import SimulationLab from './pages/SimulationLab'
 import Toast, { ToastType } from './components/Toast'
@@ -704,6 +705,14 @@ export default function App() {
           element={
             <RequireAuth>
               <AdminMonitoring />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/admin/class-teacher-coverage"
+          element={
+            <RequireAuth>
+              <AdminClassTeacherCoverage />
             </RequireAuth>
           }
         />
