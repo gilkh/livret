@@ -158,6 +158,19 @@ export default function SubAdminDashboard() {
         openBatchPdfExport(base, assignmentIds, group, `Carnets - ${group}`)
     }
 
+    const getClassAssignmentIds = (level: string, className: string): string[] => {
+        const templates = groupedAllTemplates[level]?.[className] || []
+        return Array.from(new Set(templates.map(t => t._id).filter(Boolean)))
+    }
+
+    const downloadClassZip = (level: string, className: string) => {
+        const assignmentIds = getClassAssignmentIds(level, className)
+        if (assignmentIds.length === 0) return
+
+        const base = (api.defaults.baseURL || '').replace(/\/$/, '')
+        openBatchPdfExport(base, assignmentIds, `${level}-${className}`, `Carnets - ${className}`)
+    }
+
     // Calculate statistics
     const totalStudents = pending.length
     const sem1SignedCount = pending.filter(isSem1Signed).length
@@ -823,6 +836,8 @@ export default function SubAdminDashboard() {
                                             const sem1SignedInClass = templates.filter(isSem1Signed).length
                                             const sem2SignedInClass = templates.filter(isSem2Signed).length
                                             const totalCount = templates.length
+                                            const classAssignmentIds = getClassAssignmentIds(level, className)
+                                            const canExportClass = classAssignmentIds.length > 0
 
                                             return (
                                                 <div key={className} style={{ border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden' }}>
@@ -846,6 +861,33 @@ export default function SubAdminDashboard() {
                                                             <span style={{ color: '#334155', fontWeight: 600 }}>S1</span> {sem1SignedInClass}/{totalCount}
                                                             <span style={{ color: '#94a3b8', margin: '0 8px' }}>•</span>
                                                             <span style={{ color: '#334155', fontWeight: 600 }}>S2</span> {sem2SignedInClass}/{totalCount}
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation()
+                                                                    downloadClassZip(level, className)
+                                                                }}
+                                                                disabled={!canExportClass}
+                                                                className="btn"
+                                                                style={{
+                                                                    marginLeft: 12,
+                                                                    padding: '8px 10px',
+                                                                    fontSize: 12,
+                                                                    fontWeight: 600,
+                                                                    background: '#0f172a',
+                                                                    color: 'white',
+                                                                    borderRadius: 8,
+                                                                    border: '1px solid #0f172a',
+                                                                    opacity: canExportClass ? 1 : 0.55,
+                                                                    cursor: canExportClass ? 'pointer' : 'not-allowed',
+                                                                    display: 'inline-flex',
+                                                                    alignItems: 'center',
+                                                                    gap: 6
+                                                                }}
+                                                                title="Exporter tous les carnets de cette classe"
+                                                            >
+                                                                <Download size={14} />
+                                                                Exporter ({classAssignmentIds.length})
+                                                            </button>
                                                         </div>
                                                     </div>
 
