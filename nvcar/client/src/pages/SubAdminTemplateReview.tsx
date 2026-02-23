@@ -361,20 +361,20 @@ export default function SubAdminTemplateReview() {
     // Find signature for a specific level
     const getSignatureForLevel = (targetLevel: string | null) => {
         if (!targetLevel) return { hasSem1: !!signature, hasSem2: !!finalSignature }
-        
+
         const normalizedTarget = targetLevel.toUpperCase()
         const history = assignment?.data?.signatures || []
         const promotions = assignment?.data?.promotions || []
-        
+
         let hasSem1 = false
         let hasSem2 = false
-        
+
         // Check if current student level matches and use current signatures
         if (student?.level?.toUpperCase() === normalizedTarget) {
             hasSem1 = !!signature
             hasSem2 = !!finalSignature
         }
-        
+
         // Check historical signatures
         history.forEach((sig: any) => {
             if (sig.schoolYearName) {
@@ -390,7 +390,7 @@ export default function SubAdminTemplateReview() {
                 if (sig.type === 'end_of_year') hasSem2 = true
             }
         })
-        
+
         return { hasSem1, hasSem2 }
     }
 
@@ -570,7 +570,7 @@ export default function SubAdminTemplateReview() {
     const checkBlockVisibilityFromSettings = (blockKey: string): boolean => {
         const studentLevel = (student?.level || 'PS').toUpperCase() as 'PS' | 'MS' | 'GS' | 'EB1'
         const visibilitySetting = blockVisibility?.[studentLevel]?.subadmin?.[blockKey]
-        
+
         if (visibilitySetting) {
             if (visibilitySetting === 'never') return false
             if (visibilitySetting === 'after_sem1' && !signature && !finalSignature) return false
@@ -1364,26 +1364,36 @@ export default function SubAdminTemplateReview() {
                                     <div className="page-margins" />
                                     {page.blocks.map((b, idx) => {
                                         if (!b || !b.props) return null;
-                                        
+
                                         // Get block's level
                                         const blockLevel = getBlockLevel(b)
-                                        
+
                                         // Hide blocks whose level is higher than student's current level
                                         if (isBlockLevelHigherThanStudent(blockLevel)) return null
-                                        
+
                                         const blockId = typeof b?.props?.blockId === 'string' && b.props.blockId.trim() ? b.props.blockId.trim() : null
                                         const key = buildVisibilityKey(template?._id, actualPageIndex, idx, blockId)
-                                        
+
                                         // For blocks WITH a level: use that level's settings and signatures
                                         // For blocks WITHOUT a level: check all levels at or below student's level
                                         // Show the block if ANY applicable level would show it (with its signature)
                                         let shouldShow = true
-                                        
+
+                                        const semesterRaw = (b.props as any)?.semester ?? (b.props as any)?.semestre
+                                        const periodRaw = String((b.props as any)?.period || '')
+                                        const isSem2AssignedBlock = semesterRaw === 2 || semesterRaw === '2' || periodRaw === 'end-year'
+                                        const allowsHistoricalSem2 = ['signature_box', 'signature_date', 'signature_block'].includes(b.type)
+                                        const studentLevelUpper = String(student?.level || '').toUpperCase()
+
                                         if (blockLevel) {
                                             // Block has a level - use that level's settings
-                                            const visibilitySetting = blockVisibility?.[blockLevel.toUpperCase()]?.subadmin?.[key]
+                                            let visibilitySetting = blockVisibility?.[blockLevel.toUpperCase()]?.subadmin?.[key]
+                                            const isSameLevelBlock = blockLevel.toUpperCase() === studentLevelUpper
+                                            if (visibilitySetting === undefined && activeSemester === 1 && !allowsHistoricalSem2 && isSem2AssignedBlock && isSameLevelBlock) {
+                                                visibilitySetting = 'after_sem2'
+                                            }
                                             const { hasSem1, hasSem2 } = getSignatureForLevel(blockLevel)
-                                            
+
                                             if (visibilitySetting) {
                                                 if (visibilitySetting === 'never') shouldShow = false
                                                 else if (visibilitySetting === 'after_sem1' && !hasSem1 && !hasSem2) shouldShow = false
@@ -1394,16 +1404,19 @@ export default function SubAdminTemplateReview() {
                                             const studentLvl = (student?.level || 'PS').toUpperCase()
                                             const studentOrder = levelOrder[studentLvl] ?? 99
                                             const levelsToCheck = Object.keys(levelOrder).filter(lvl => levelOrder[lvl] <= studentOrder)
-                                            
+
                                             let foundSetting = false
                                             let anyLevelWouldShow = false
-                                            
+
                                             for (const lvl of levelsToCheck) {
-                                                const visibilitySetting = blockVisibility?.[lvl]?.subadmin?.[key]
+                                                let visibilitySetting = blockVisibility?.[lvl]?.subadmin?.[key]
+                                                if (visibilitySetting === undefined && activeSemester === 1 && !allowsHistoricalSem2 && isSem2AssignedBlock && String(lvl).toUpperCase() === studentLevelUpper) {
+                                                    visibilitySetting = 'after_sem2'
+                                                }
                                                 if (visibilitySetting) {
                                                     foundSetting = true
                                                     const { hasSem1, hasSem2 } = getSignatureForLevel(lvl)
-                                                    
+
                                                     if (visibilitySetting === 'always') {
                                                         anyLevelWouldShow = true
                                                         break
@@ -1416,10 +1429,10 @@ export default function SubAdminTemplateReview() {
                                                     }
                                                 }
                                             }
-                                            
+
                                             shouldShow = !foundSetting || anyLevelWouldShow
                                         }
-                                        
+
                                         if (!shouldShow) return null
                                         return (
                                             <div key={idx} style={{ position: 'absolute', left: b.props.x || 0, top: b.props.y || 0, zIndex: b.props.z ?? idx, padding: 6 }}>

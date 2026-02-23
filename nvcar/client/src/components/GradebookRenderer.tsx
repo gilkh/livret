@@ -330,13 +330,23 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
         const blockId = typeof b?.props?.blockId === 'string' && b.props.blockId.trim() ? b.props.blockId.trim() : null
         const key = buildVisibilityKey(template?._id, pageIdx, blockIdx, blockId)
 
-        // For blocks WITH a level: use that level's settings and signatures
-        // For blocks WITHOUT a level: check all levels at or below student's level
-        // Show the block if ANY applicable level would show it (with its signature)
+        const isArchiveSem1 = viewType === 'archive_sem1'
+        const isLiveSem1 = viewType !== 'archive_sem1' && viewType !== 'archive_final' && activeYear?.activeSemester === 1
+        const shouldHideSem2 = isArchiveSem1 || isLiveSem1
+
+        const semesterRaw = (b.props as any)?.semester ?? (b.props as any)?.semestre
+        const periodRaw = String((b.props as any)?.period || '')
+        const isSem2AssignedBlock = semesterRaw === 2 || semesterRaw === '2' || periodRaw === 'end-year'
+        const allowsHistoricalSem2 = ['signature_box', 'signature_date', 'signature_block'].includes(b.type)
+        const studentLevelUpper = String(student?.level || '').toUpperCase()
 
         if (blockLevel) {
             // Block has a level - use that level's settings
-            const visibilitySetting = blockVisibilitySettings?.[blockLevel.toUpperCase()]?.[viewType]?.[key]
+            let visibilitySetting = blockVisibilitySettings?.[blockLevel.toUpperCase()]?.[viewType]?.[key]
+            const isSameLevelBlock = blockLevel.toUpperCase() === studentLevelUpper
+            if (visibilitySetting === undefined && shouldHideSem2 && !allowsHistoricalSem2 && isSem2AssignedBlock && isSameLevelBlock) {
+                visibilitySetting = 'after_sem2'
+            }
             const { hasSem1, hasSem2 } = getSignatureForLevel(blockLevel)
 
             if (visibilitySetting) {
@@ -356,7 +366,10 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
             let anyLevelWouldShow = false
 
             for (const lvl of levelsToCheck) {
-                const visibilitySetting = blockVisibilitySettings?.[lvl]?.[viewType]?.[key]
+                let visibilitySetting = blockVisibilitySettings?.[lvl]?.[viewType]?.[key]
+                if (visibilitySetting === undefined && shouldHideSem2 && !allowsHistoricalSem2 && isSem2AssignedBlock && String(lvl).toUpperCase() === studentLevelUpper) {
+                    visibilitySetting = 'after_sem2'
+                }
                 if (visibilitySetting) {
                     foundSetting = true
                     const { hasSem1, hasSem2 } = getSignatureForLevel(lvl)

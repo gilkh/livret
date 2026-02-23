@@ -33,6 +33,7 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
     const [activeYear, setActiveYear] = useState<any>(null)
     const [blockVisibility, setBlockVisibility] = useState<any>({})
     const [snapshotReason, setSnapshotReason] = useState<string | null>(null)
+    const [activeSemester, setActiveSemester] = useState<number>(1)
     const { levels } = useLevels()
 
     const getNextLevel = (current: string) => {
@@ -427,6 +428,7 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                     const studentData = r.data.student
                     setStudent(studentData)
                     setAssignment(assignmentData)
+                    setActiveSemester(r.data.activeSemester || 1)
                     if (!isTeacher) {
                         setSignature(r.data.signature)
                         setFinalSignature(r.data.finalSignature || null)
@@ -581,7 +583,11 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                     if (snapshotReason === 'sem1') viewKey = 'archive_sem1'
                                     else if (['promotion', 'year_end'].includes(snapshotReason || '')) viewKey = 'archive_final'
                                 }
-                                const isSem1SavedSnapshot = mode === 'saved' && snapshotReason === 'sem1'
+
+                                const isSem1SavedSnapshot = mode === 'saved' && (snapshotReason === 'sem1' || snapshotReason === 'manual')
+                                const isLiveSem1 = mode !== 'saved' && activeSemester === 1
+                                const shouldHideSem2 = isSem1SavedSnapshot || isLiveSem1
+
                                 const allowsHistoricalSem2 = ['signature_box', 'signature_date', 'signature_block'].includes(b.type)
                                 const semesterRaw = (b.props as any)?.semester ?? (b.props as any)?.semestre
                                 const periodRaw = String((b.props as any)?.period || '')
@@ -606,11 +612,11 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                 if (blockLevel) {
                                     // Block has a level - use that level's settings
                                     let visibilitySetting = resolveVisibilitySetting(blockLevel)
-                                    if (visibilitySetting === undefined && isSem1SavedSnapshot && !allowsHistoricalSem2 && isSem2AssignedBlock && isSameLevelBlock) {
+                                    if (visibilitySetting === undefined && shouldHideSem2 && !allowsHistoricalSem2 && isSem2AssignedBlock && isSameLevelBlock) {
                                         visibilitySetting = 'after_sem2'
                                     }
                                     const { hasSem1, hasSem2 } = getSignatureForLevel(blockLevel)
-                                    const sem2Reached = (isSem1SavedSnapshot && !allowsHistoricalSem2) ? false : hasSem2
+                                    const sem2Reached = (shouldHideSem2 && !allowsHistoricalSem2) ? false : hasSem2
 
                                     if (visibilitySetting) {
                                         if (visibilitySetting === 'never') shouldShow = false
@@ -629,13 +635,13 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
 
                                     for (const lvl of levelsToCheck) {
                                         let visibilitySetting = resolveVisibilitySetting(lvl)
-                                        if (visibilitySetting === undefined && isSem1SavedSnapshot && !allowsHistoricalSem2 && isSem2AssignedBlock && String(lvl).toUpperCase() === studentLevelUpper) {
+                                        if (visibilitySetting === undefined && shouldHideSem2 && !allowsHistoricalSem2 && isSem2AssignedBlock && String(lvl).toUpperCase() === studentLevelUpper) {
                                             visibilitySetting = 'after_sem2'
                                         }
                                         if (visibilitySetting) {
                                             foundSetting = true
                                             const { hasSem1, hasSem2 } = getSignatureForLevel(lvl)
-                                            const sem2Reached = (isSem1SavedSnapshot && !allowsHistoricalSem2) ? false : hasSem2
+                                            const sem2Reached = (shouldHideSem2 && !allowsHistoricalSem2) ? false : hasSem2
 
                                             if (visibilitySetting === 'always') {
                                                 anyLevelWouldShow = true
