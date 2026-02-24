@@ -507,72 +507,108 @@ export default function SubAdminProgress() {
             {/* Content - Grid View */}
             {!loading && !error && filteredStudents.length > 0 && viewMode === 'grid' && (
                 <div className="progress-grid-view">
-                    {filteredStudents.map(student => {
-                        const safeLevelsData = Array.isArray(student.levelsData) ? student.levelsData : []
-                        const primaryLevel = safeLevelsData.find(l => l.level === student.currentLevel) || safeLevelsData[0]
-
-                        return (
-                            <div key={student._id} className="progress-student-card">
-                                <div className="progress-student-card-header">
-                                    <div className="progress-student-card-avatar">
-                                        {getInitials(student.firstName, student.lastName)}
+                    {sortedLevels.map(level => (
+                        <div key={level} className="progress-level-section">
+                            <div className="progress-level-header" style={{ cursor: 'default' }}>
+                                <div className="progress-level-header-left">
+                                    <span className="progress-level-badge">{level}</span>
+                                    <div className="progress-level-info">
+                                        <span className="progress-level-student-count">
+                                            {Object.values(grouped[level]).flat().length} élèves
+                                        </span>
                                     </div>
-                                    <div className="progress-student-card-info">
-                                        <div className="progress-student-card-name">
-                                            {student.firstName} {student.lastName}
-                                        </div>
-                                        <div className="progress-student-card-meta">
-                                            <span className="progress-student-card-level-badge">
-                                                {student.currentLevel}
-                                            </span>
-                                            <span>•</span>
-                                            <span>{student.className}</span>
-                                        </div>
-                                    </div>
-                                    {primaryLevel && (
-                                        <ProgressRing percentage={primaryLevel.percentage} size={48} />
-                                    )}
                                 </div>
-                                <div className="progress-student-card-body">
-                                    {primaryLevel && (
-                                        <>
-                                            <div className="progress-student-card-overall">
-                                                <span className="progress-student-card-overall-label">
-                                                    Progression globale
-                                                </span>
-                                                <div className="progress-student-card-overall-value">
-                                                    <span className="progress-fraction">
-                                                        {primaryLevel.activeCount}/{primaryLevel.totalAvailable}
-                                                    </span>
-                                                    <span className={`progress-percentage-badge ${getProgressClass(primaryLevel.percentage)}`}>
-                                                        {primaryLevel.percentage}%
+                            </div>
+
+                            <div className="progress-level-content">
+                                {Object.keys(grouped[level]).sort().map(className => {
+                                    const classStudents = grouped[level][className]
+
+                                    return (
+                                        <div key={`${level}-${className}`} className="progress-class-section">
+                                            <div className="progress-class-header" style={{ cursor: 'default' }}>
+                                                <div className="progress-class-header-left">
+                                                    <span className="progress-class-badge">{className}</span>
+                                                    <span className="progress-class-count">
+                                                        {classStudents.length} élèves
                                                     </span>
                                                 </div>
                                             </div>
-                                            <div className="progress-student-card-categories">
-                                                {(Array.isArray(primaryLevel.byCategory) ? primaryLevel.byCategory : []).map((cat: CategoryProgress) => (
-                                                    <div key={cat.name} className="progress-student-card-category">
-                                                        <span className="progress-student-card-category-name">{cat.name}</span>
-                                                        <div className="progress-student-card-category-bar">
-                                                            <div
-                                                                className={`progress-student-card-category-bar-fill ${getProgressClass(cat.percentage)}`}
-                                                                style={{ width: `${cat.percentage}%` }}
-                                                            />
+
+                                            <div className="progress-class-grid-cards">
+                                                {classStudents.map(student => {
+                                                    const safeLevelsData = Array.isArray(student.levelsData) ? student.levelsData : []
+                                                    const primaryLevel = safeLevelsData.find(l => l.level === student.currentLevel) || safeLevelsData[0]
+
+                                                    return (
+                                                        <div key={student._id} className="progress-student-card">
+                                                            <div className="progress-student-card-header">
+                                                                <div className="progress-student-card-avatar">
+                                                                    {getInitials(student.firstName, student.lastName)}
+                                                                </div>
+                                                                <div className="progress-student-card-info">
+                                                                    <div className="progress-student-card-name">
+                                                                        {student.firstName} {student.lastName}
+                                                                    </div>
+                                                                    <div className="progress-student-card-meta">
+                                                                        <span className="progress-student-card-level-badge">
+                                                                            {student.currentLevel}
+                                                                        </span>
+                                                                        <span>•</span>
+                                                                        <span>{student.className}</span>
+                                                                    </div>
+                                                                </div>
+                                                                {primaryLevel && (
+                                                                    <ProgressRing percentage={primaryLevel.percentage} size={48} />
+                                                                )}
+                                                            </div>
+                                                            <div className="progress-student-card-body">
+                                                                {primaryLevel && (
+                                                                    <>
+                                                                        <div className="progress-student-card-overall">
+                                                                            <span className="progress-student-card-overall-label">
+                                                                                Progression globale
+                                                                            </span>
+                                                                            <div className="progress-student-card-overall-value">
+                                                                                <span className="progress-fraction">
+                                                                                    {primaryLevel.activeCount}/{primaryLevel.totalAvailable}
+                                                                                </span>
+                                                                                <span className={`progress-percentage-badge ${getProgressClass(primaryLevel.percentage)}`}>
+                                                                                    {primaryLevel.percentage}%
+                                                                                </span>
+                                                                            </div>
+                                                                        </div>
+                                                                        <div className="progress-student-card-categories">
+                                                                            {(Array.isArray(primaryLevel.byCategory) ? primaryLevel.byCategory : []).map((cat: CategoryProgress) => (
+                                                                                <div key={cat.name} className="progress-student-card-category">
+                                                                                    <span className="progress-student-card-category-name">{cat.name}</span>
+                                                                                    <div className="progress-student-card-category-bar">
+                                                                                        <div
+                                                                                            className={`progress-student-card-category-bar-fill ${getProgressClass(cat.percentage)}`}
+                                                                                            style={{ width: `${cat.percentage}%` }}
+                                                                                        />
+                                                                                    </div>
+                                                                                    <span className={`progress-student-card-category-value`} style={{
+                                                                                        color: cat.percentage >= 80 ? '#059669' : cat.percentage >= 50 ? '#d97706' : '#dc2626'
+                                                                                    }}>
+                                                                                        {cat.percentage}%
+                                                                                    </span>
+                                                                                </div>
+                                                                            ))}
+                                                                        </div>
+                                                                    </>
+                                                                )}
+                                                            </div>
                                                         </div>
-                                                        <span className={`progress-student-card-category-value`} style={{
-                                                            color: cat.percentage >= 80 ? '#059669' : cat.percentage >= 50 ? '#d97706' : '#dc2626'
-                                                        }}>
-                                                            {cat.percentage}%
-                                                        </span>
-                                                    </div>
-                                                ))}
+                                                    )
+                                                })}
                                             </div>
-                                        </>
-                                    )}
-                                </div>
+                                        </div>
+                                    )
+                                })}
                             </div>
-                        )
-                    })}
+                        </div>
+                    ))}
                 </div>
             )}
 

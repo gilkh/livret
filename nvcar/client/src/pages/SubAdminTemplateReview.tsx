@@ -12,6 +12,7 @@ import ScrollToTopButton from '../components/ScrollToTopButton'
 import ScrollPageDownButton from '../components/ScrollPageDownButton'
 import { openPdfExport, buildStudentPdfUrl, buildSavedGradebookPdfUrl } from '../utils/pdfExport'
 import { formatDdMonthYyyy, formatDdMmYyyyColon } from '../utils/dateFormat'
+import { Download, Sparkles } from 'lucide-react'
 
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
@@ -723,7 +724,13 @@ export default function SubAdminTemplateReview() {
         }
     }
 
-    const handleExportPDF = async () => {
+    const [exportQualityChoice, setExportQualityChoice] = useState<{ callback: (hq: boolean) => void } | null>(null)
+
+    const promptExportQuality = (exportFn: (highQuality: boolean) => void) => {
+        setExportQualityChoice({ callback: exportFn })
+    }
+
+    const handleExportPDF = async (highQuality: boolean = false) => {
         if (template && student) {
             try {
                 const base = (api.defaults.baseURL || '').replace(/\/$/, '')
@@ -762,7 +769,7 @@ export default function SubAdminTemplateReview() {
                 }
 
                 const studentFullName = `${student.firstName} ${student.lastName}`
-                openPdfExport(pdfUrl, studentFullName, 'single', 1)
+                openPdfExport(pdfUrl, studentFullName, 'single', 1, highQuality)
             } catch (e: any) {
                 showToast('Échec de l\'export PDF', 'error')
                 console.error(e)
@@ -1194,7 +1201,7 @@ export default function SubAdminTemplateReview() {
                             </button>
                         )}
 
-                        <button className="btn secondary" onClick={handleExportPDF} style={{
+                        <button className="btn secondary" onClick={() => promptExportQuality((hq) => handleExportPDF(hq))} style={{
                             background: '#f1f5f9',
                             color: '#475569',
                             fontWeight: 500,
@@ -2457,6 +2464,100 @@ export default function SubAdminTemplateReview() {
                     })}
                 </div>
             </div>
+
+            {/* Export quality choice modal */}
+            {exportQualityChoice && (
+                <div
+                    style={{
+                        position: 'fixed', inset: 0, zIndex: 9999,
+                        background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center'
+                    }}
+                    onClick={() => setExportQualityChoice(null)}
+                >
+                    <div
+                        style={{
+                            background: 'white', borderRadius: 16, padding: '28px 32px',
+                            boxShadow: '0 20px 60px rgba(0,0,0,0.25)', maxWidth: 420, width: '90%'
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <h3 style={{ margin: '0 0 6px', fontSize: 18, color: '#1e293b' }}>
+                            Qualité de l'export
+                        </h3>
+                        <p style={{ margin: '0 0 20px', fontSize: 14, color: '#64748b', lineHeight: 1.5 }}>
+                            Choisissez la qualité du carnet PDF exporté.
+                        </p>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                            <button
+                                onClick={() => {
+                                    const cb = exportQualityChoice.callback
+                                    setExportQualityChoice(null)
+                                    cb(false)
+                                }}
+                                style={{
+                                    padding: '14px 18px', borderRadius: 12,
+                                    border: '2px solid #e2e8f0', background: '#f8fafc',
+                                    cursor: 'pointer', textAlign: 'left' as const,
+                                    display: 'flex', alignItems: 'center', gap: 14,
+                                    transition: 'border-color 0.15s, background 0.15s'
+                                }}
+                                onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#3b82f6'; e.currentTarget.style.background = '#eff6ff' }}
+                                onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.background = '#f8fafc' }}
+                            >
+                                <Download size={22} style={{ color: '#3b82f6', flexShrink: 0 }} />
+                                <div>
+                                    <div style={{ fontWeight: 700, fontSize: 15, color: '#1e293b' }}>
+                                        Compressé
+                                        <span style={{ fontWeight: 500, fontSize: 12, color: '#94a3b8', marginLeft: 8 }}>— rapide</span>
+                                    </div>
+                                    <div style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>
+                                        Fichier léger, bonne qualité visuelle (JPEG)
+                                    </div>
+                                </div>
+                            </button>
+                            <button
+                                onClick={() => {
+                                    const cb = exportQualityChoice.callback
+                                    setExportQualityChoice(null)
+                                    cb(true)
+                                }}
+                                style={{
+                                    padding: '14px 18px', borderRadius: 12,
+                                    border: '2px solid #e2e8f0', background: '#f8fafc',
+                                    cursor: 'pointer', textAlign: 'left' as const,
+                                    display: 'flex', alignItems: 'center', gap: 14,
+                                    transition: 'border-color 0.15s, background 0.15s'
+                                }}
+                                onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#8b5cf6'; e.currentTarget.style.background = '#f5f3ff' }}
+                                onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.background = '#f8fafc' }}
+                            >
+                                <Sparkles size={22} style={{ color: '#8b5cf6', flexShrink: 0 }} />
+                                <div>
+                                    <div style={{ fontWeight: 700, fontSize: 15, color: '#1e293b' }}>
+                                        Qualité maximale
+                                        <span style={{ fontWeight: 500, fontSize: 12, color: '#94a3b8', marginLeft: 8 }}>— plus lent</span>
+                                    </div>
+                                    <div style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>
+                                        Aucune perte de pixels, fichier plus volumineux (PNG)
+                                    </div>
+                                </div>
+                            </button>
+                        </div>
+                        <button
+                            onClick={() => setExportQualityChoice(null)}
+                            style={{
+                                marginTop: 16, width: '100%', padding: '10px',
+                                borderRadius: 10, border: '1px solid #e2e8f0',
+                                background: 'transparent', color: '#94a3b8',
+                                cursor: 'pointer', fontSize: 14, fontWeight: 500
+                            }}
+                        >
+                            Annuler
+                        </button>
+                    </div>
+                </div>
+            )}
         </div>
     )
 }

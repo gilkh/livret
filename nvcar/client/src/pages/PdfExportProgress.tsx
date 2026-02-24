@@ -12,9 +12,21 @@ export default function PdfExportProgress() {
     const [fileName, setFileName] = useState('')
     const [estimatedTime, setEstimatedTime] = useState<number | null>(null)
     const [elapsedTime, setElapsedTime] = useState(0)
+    const [receivedBytes, setReceivedBytes] = useState(0)
+    const [totalBytes, setTotalBytes] = useState<number | null>(null)
+    const [downloadSpeedBps, setDownloadSpeedBps] = useState<number | null>(null)
+    const [serverProcessedAssignments, setServerProcessedAssignments] = useState<number | null>(null)
+    const [serverTotalAssignments, setServerTotalAssignments] = useState<number | null>(null)
+    const [serverGenerationDone, setServerGenerationDone] = useState(false)
     const startTimeRef = useRef<number>(Date.now())
+    const downloadStartRef = useRef<number | null>(null)
+    const statusRef = useRef<ExportStatus>('preparing')
     const abortControllerRef = useRef<AbortController | null>(null)
     const fetchStartedRef = useRef<boolean>(false)
+
+    useEffect(() => {
+        statusRef.current = status
+    }, [status])
 
     // Get export parameters from URL
     const exportUrl = searchParams.get('url') || ''
@@ -22,6 +34,7 @@ export default function PdfExportProgress() {
     const studentName = searchParams.get('name') || 'Carnet'
     const count = parseInt(searchParams.get('count') || '1', 10)
     const exportId = searchParams.get('exportId') || ''
+    const isHighQuality = searchParams.get('hq') === '1'
 
     // Elapsed time counter
     useEffect(() => {
@@ -31,13 +44,21 @@ export default function PdfExportProgress() {
         return () => clearInterval(interval)
     }, [])
 
-    // Estimate time based on progress and elapsed time
+    // Keep remaining-time estimate truthful: only computed during measurable download phase
     useEffect(() => {
-        if (progress > 5 && progress < 100) {
-            const remaining = ((elapsedTime / progress) * (100 - progress))
-            setEstimatedTime(Math.ceil(remaining))
+        // For batch exports, ETA is managed by the server progress polling — skip this effect
+        if (exportType === 'batch') return
+        if (status !== 'downloading') {
+            setEstimatedTime(null)
+            return
         }
-    }, [progress, elapsedTime])
+        if (!totalBytes || totalBytes <= 0 || !downloadSpeedBps || downloadSpeedBps <= 0) {
+            setEstimatedTime(null)
+            return
+        }
+        const remainingBytes = Math.max(0, totalBytes - receivedBytes)
+        setEstimatedTime(Math.ceil(remainingBytes / downloadSpeedBps))
+    }, [status, totalBytes, receivedBytes, downloadSpeedBps, exportType])
 
     useEffect(() => {
         // Prevent running multiple times (React Strict Mode runs effects twice)
@@ -76,25 +97,81 @@ export default function PdfExportProgress() {
 
             try {
                 setStatus('generating')
-                setProgress(10)
+                setProgress(0)
+                setReceivedBytes(0)
+                setTotalBytes(null)
+                setDownloadSpeedBps(null)
 
                 const token = localStorage.getItem('token') || sessionStorage.getItem('token')
                 const origin = window.location.origin
 
                 let response: Response
+                let progressInterval: ReturnType<typeof setInterval> | null = null
+
+                const stopProgressPolling = () => {
+                    if (progressInterval) {
+                        clearInterval(progressInterval)
+                        progressInterval = null
+                    }
+                }
+
+                const tokenForProgress = token || localStorage.getItem('token') || sessionStorage.getItem('token') || ''
+
+                const startBatchProgressPolling = () => {
+                    if (exportType !== 'batch' || !batchData?.progressUrl) return
+                    let pollingInFlight = false
+                    progressInterval = setInterval(async () => {
+                        if (pollingInFlight) return
+                        if (abortControllerRef.current?.signal.aborted) {
+                            stopProgressPolling()
+                            return
+                        }
+                        pollingInFlight = true
+                        try {
+                            const progressRes = await fetch(batchData.progressUrl, {
+                                method: 'GET',
+                                headers: {
+                                    'Authorization': tokenForProgress ? `Bearer ${tokenForProgress}` : '',
+                                }
+                            })
+                            if (!progressRes.ok) return
+                            const payload = await progressRes.json()
+                            const processed = Number(payload?.processedAssignments || 0)
+                            const totalAssignments = Number(payload?.totalAssignments || 0)
+                            const serverPercent = Number(payload?.progressPercent || 0)
+                            const etaSeconds = payload?.etaSeconds
+
+                            setServerProcessedAssignments(Number.isFinite(processed) ? processed : null)
+                            setServerTotalAssignments(Number.isFinite(totalAssignments) ? totalAssignments : null)
+
+                            if (statusRef.current === 'generating' || statusRef.current === 'downloading') {
+                                setProgress(Math.max(0, Math.min(100, serverPercent)))
+                                if (payload?.status === 'completed') {
+                                    setEstimatedTime(null)
+                                } else {
+                                    setEstimatedTime(Number.isFinite(etaSeconds) ? Math.max(0, Number(etaSeconds)) : null)
+                                }
+                            }
+
+                            if (payload?.status === 'completed') {
+                                setServerGenerationDone(true)
+                                if (statusRef.current === 'generating') {
+                                    setStatus('downloading')
+                                }
+                                stopProgressPolling()
+                            } else if (payload?.status === 'failed') {
+                                stopProgressPolling()
+                            }
+                        } catch {
+                        } finally {
+                            pollingInFlight = false
+                        }
+                    }, 1000)
+                }
 
                 if (exportType === 'batch' && batchData) {
                     // Batch export - use POST request
-                    const progressInterval = setInterval(() => {
-                        setProgress(prev => {
-                            if (prev >= 50) {
-                                clearInterval(progressInterval)
-                                return prev
-                            }
-                            // Slower progress for batch since it takes longer
-                            return prev + Math.random() * 2
-                        })
-                    }, 1000)
+                    startBatchProgressPolling()
 
                     response = await fetch(batchData.url, {
                         method: 'POST',
@@ -105,12 +182,11 @@ export default function PdfExportProgress() {
                         body: JSON.stringify({
                             assignmentIds: batchData.assignmentIds,
                             groupLabel: batchData.groupLabel,
+                            ...(batchData.requestBody || {}),
                             frontendOrigin: origin
                         }),
                         signal: abortControllerRef.current.signal
                     })
-
-                    clearInterval(progressInterval)
                 } else {
                     // Single export - use GET request
                     let finalUrl = exportUrl
@@ -120,16 +196,9 @@ export default function PdfExportProgress() {
                     if (!finalUrl.includes('frontendOrigin=')) {
                         finalUrl += `&frontendOrigin=${encodeURIComponent(origin)}`
                     }
-
-                    const progressInterval = setInterval(() => {
-                        setProgress(prev => {
-                            if (prev >= 60) {
-                                clearInterval(progressInterval)
-                                return prev
-                            }
-                            return prev + Math.random() * 5
-                        })
-                    }, 500)
+                    if (isHighQuality && !finalUrl.includes('hq=')) {
+                        finalUrl += `&hq=1`
+                    }
 
                     response = await fetch(finalUrl, {
                         method: 'GET',
@@ -138,9 +207,10 @@ export default function PdfExportProgress() {
                         },
                         signal: abortControllerRef.current.signal
                     })
-
-                    clearInterval(progressInterval)
                 }
+
+                // Polling continues for batch exports until server reports completion
+                // For non-batch, polling was never started so no action needed
 
                 if (!response.ok) {
                     // Try to extract error message from response
@@ -156,12 +226,20 @@ export default function PdfExportProgress() {
                     throw new Error(errorText)
                 }
 
-                setStatus('downloading')
-                setProgress(70)
+                if (exportType === 'batch') {
+                    // For batch: stay in 'generating' status until server reports all PDFs done
+                    // The polling callback will transition to 'downloading' when server is complete
+                } else {
+                    setStatus('downloading')
+                    setProgress(0)
+                    setEstimatedTime(null)
+                }
 
                 // Get content length for progress tracking
                 const contentLength = response.headers.get('content-length')
                 const total = contentLength ? parseInt(contentLength, 10) : 0
+                setTotalBytes(total > 0 ? total : null)
+                downloadStartRef.current = Date.now()
 
                 // Get file name from content-disposition header
                 const contentDisposition = response.headers.get('content-disposition') || ''
@@ -189,13 +267,17 @@ export default function PdfExportProgress() {
 
                     chunks.push(value)
                     receivedLength += value.length
+                    setReceivedBytes(receivedLength)
 
-                    if (total > 0) {
-                        const downloadProgress = 70 + (receivedLength / total) * 25
-                        setProgress(Math.min(95, downloadProgress))
-                    } else {
-                        // Indeterminate progress
-                        setProgress(prev => Math.min(95, prev + 0.5))
+                    if (downloadStartRef.current) {
+                        const elapsedSeconds = Math.max(0.001, (Date.now() - downloadStartRef.current) / 1000)
+                        const speed = receivedLength / elapsedSeconds
+                        setDownloadSpeedBps(speed)
+                    }
+
+                    if (total > 0 && exportType !== 'batch') {
+                        const downloadProgress = (receivedLength / total) * 100
+                        setProgress(Math.min(100, downloadProgress))
                     }
                 }
 
@@ -213,6 +295,7 @@ export default function PdfExportProgress() {
                 const contentType = response.headers.get('content-type') || (exportType === 'batch' ? 'application/zip' : 'application/pdf')
                 const blob = new Blob([combined.buffer], { type: contentType })
 
+                stopProgressPolling()
                 setProgress(100)
                 setStatus('complete')
 
@@ -232,6 +315,7 @@ export default function PdfExportProgress() {
                 }, 2500)
 
             } catch (error: any) {
+                stopProgressPolling()
                 if (error.name === 'AbortError') {
                     setStatus('error')
                     setErrorMessage('Export annulé')
@@ -275,15 +359,35 @@ export default function PdfExportProgress() {
         return `${mins}m ${secs}s`
     }
 
+    const formatBytes = (bytes: number) => {
+        if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
+        const units = ['B', 'KB', 'MB', 'GB']
+        let value = bytes
+        let unitIndex = 0
+        while (value >= 1024 && unitIndex < units.length - 1) {
+            value /= 1024
+            unitIndex += 1
+        }
+        const precision = unitIndex <= 1 ? 0 : 1
+        return `${value.toFixed(precision)} ${units[unitIndex]}`
+    }
+
     const getStatusMessage = () => {
         switch (status) {
             case 'preparing':
                 return 'Préparation de l\'export...'
             case 'generating':
-                return exportType === 'batch'
-                    ? `Génération de ${count} carnet${count > 1 ? 's' : ''}...`
-                    : 'Génération du PDF...'
+                if (exportType === 'batch') {
+                    if (serverProcessedAssignments !== null && serverTotalAssignments) {
+                        return `Génération : ${serverProcessedAssignments} / ${serverTotalAssignments} carnets`
+                    }
+                    return `Génération de ${count} carnet${count > 1 ? 's' : ''} en cours...`
+                }
+                return 'Génération du PDF...'
             case 'downloading':
+                if (exportType === 'batch') {
+                    return 'Finalisation du téléchargement...'
+                }
                 return 'Téléchargement en cours...'
             case 'complete':
                 return 'Export terminé !'
@@ -336,7 +440,7 @@ export default function PdfExportProgress() {
 
                 {/* Header */}
                 <div className="export-header">
-                    <h1>Export PDF</h1>
+                    <h1>Export PDF{isHighQuality ? ' — Qualité maximale' : ''}</h1>
                     <span className="student-name">{studentName}</span>
                 </div>
 
@@ -344,6 +448,42 @@ export default function PdfExportProgress() {
                 <div className="status-section">
                     {getStatusIcon()}
                     <h2 className="status-message">{getStatusMessage()}</h2>
+                    {status !== 'error' && status !== 'complete' && exportType === 'batch' && (
+                        <div className="batch-stepper">
+                            <div className={`batch-step ${status === 'generating' ? 'active' : 'completed'}`}>
+                                <div className="batch-step-dot">
+                                    {status !== 'generating' ? (
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="20 6 9 17 4 12" /></svg>
+                                    ) : (
+                                        <span>1</span>
+                                    )}
+                                </div>
+                                <span className="batch-step-label">Génération</span>
+                            </div>
+                            <div className="batch-step-connector">
+                                <div className={`batch-step-connector-fill ${status !== 'generating' ? 'filled' : ''}`} />
+                            </div>
+                            <div className={`batch-step ${status === 'downloading' ? 'active' : status === 'complete' ? 'completed' : ''}`}>
+                                <div className="batch-step-dot">
+                                    {status === 'complete' ? (
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="20 6 9 17 4 12" /></svg>
+                                    ) : (
+                                        <span>2</span>
+                                    )}
+                                </div>
+                                <span className="batch-step-label">Téléchargement</span>
+                            </div>
+                        </div>
+                    )}
+                    {status !== 'error' && status !== 'complete' && exportType !== 'batch' && (
+                        <p className="time-estimate" style={{ marginTop: 6 }}>
+                            {status === 'generating'
+                                ? 'Génération du carnet en cours...'
+                                : status === 'downloading'
+                                    ? 'Téléchargement du fichier...'
+                                    : ''}
+                        </p>
+                    )}
 
                     {status === 'error' && (
                         <p className="error-detail">{errorMessage}</p>
@@ -361,12 +501,55 @@ export default function PdfExportProgress() {
                             <div className="progress-glow" style={{ left: `${progress}%` }} />
                         </div>
                         <div className="progress-info">
-                            <span className="progress-percentage">{Math.round(progress)}%</span>
-                            {estimatedTime !== null && status !== 'complete' && (
-                                <span className="time-estimate">
-                                    ~{formatTime(estimatedTime)} restant{estimatedTime !== 1 ? 's' : ''}
-                                </span>
-                            )}
+                            <span className="progress-percentage">
+                                {status === 'complete' ? '100%' : (exportType === 'batch' && status === 'generating') ? `${Math.round(progress)}%` : (exportType === 'batch' && status === 'downloading') ? '100%' : (status === 'downloading' && totalBytes) ? `${Math.round(progress)}%` : '—'}
+                            </span>
+                            <div className="progress-details">
+                                {exportType === 'batch' && status === 'generating' && (
+                                    <>
+                                        {serverProcessedAssignments !== null && serverTotalAssignments !== null && serverTotalAssignments > 0 && (
+                                            <span className="progress-detail-item">
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 14, height: 14 }}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /></svg>
+                                                {serverProcessedAssignments}/{serverTotalAssignments} carnets
+                                            </span>
+                                        )}
+                                        {estimatedTime !== null && (
+                                            <span className="progress-detail-item">
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 14, height: 14 }}><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
+                                                ~{formatTime(estimatedTime)} restant{estimatedTime !== 1 ? 's' : ''}
+                                            </span>
+                                        )}
+                                        {serverProcessedAssignments !== null && serverProcessedAssignments > 0 && elapsedTime > 5 && (
+                                            <span className="progress-detail-item">
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 14, height: 14 }}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" /></svg>
+                                                {(serverProcessedAssignments / (elapsedTime / 60)).toFixed(1)} carnets/min
+                                            </span>
+                                        )}
+                                    </>
+                                )}
+                                {exportType === 'batch' && status === 'downloading' && (
+                                    <span className="progress-detail-item">
+                                        {receivedBytes > 0 ? `${formatBytes(receivedBytes)} reçus` : 'Finalisation en cours...'}
+                                        {downloadSpeedBps ? ` • ${formatBytes(downloadSpeedBps)}/s` : ''}
+                                    </span>
+                                )}
+                                {exportType !== 'batch' && (
+                                    <>
+                                        {estimatedTime !== null && (status === 'downloading' || status === 'generating') && (
+                                            <span className="progress-detail-item">
+                                                ~{formatTime(estimatedTime)} restant{estimatedTime !== 1 ? 's' : ''}
+                                            </span>
+                                        )}
+                                        {status === 'downloading' && (
+                                            <span className="progress-detail-item">
+                                                {totalBytes
+                                                    ? `${formatBytes(receivedBytes)} / ${formatBytes(totalBytes)}${downloadSpeedBps ? ` • ${formatBytes(downloadSpeedBps)}/s` : ''}`
+                                                    : `${formatBytes(receivedBytes)} reçus${downloadSpeedBps ? ` • ${formatBytes(downloadSpeedBps)}/s` : ''}`}
+                                            </span>
+                                        )}
+                                    </>
+                                )}
+                            </div>
                         </div>
                     </div>
                 )}

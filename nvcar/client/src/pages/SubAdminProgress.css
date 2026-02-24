@@ -870,9 +870,15 @@
 
 /* Grid View Cards */
 .progress-grid-view {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.progress-class-grid-cards {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-    gap: 20px;
+    gap: 14px;
 }
 
 .progress-student-card {
@@ -1064,6 +1070,10 @@
 
     .progress-filter-select {
         width: 100%;
+    }
+
+    .progress-class-grid-cards {
+        grid-template-columns: 1fr;
     }
 
     .progress-view-toggle {

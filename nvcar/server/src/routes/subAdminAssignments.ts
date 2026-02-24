@@ -31,6 +31,9 @@ subAdminAssignmentsRouter.get('/progress', requireAuth(['SUBADMIN', 'AEFE']), as
         }
 
         const assignedLevels = scope.levels
+        const normalizedAssignedLevels = new Set(
+            assignedLevels.map((lvl: string) => String(lvl || '').trim().toUpperCase()).filter(Boolean)
+        )
 
         // Get active school year
         const activeYear = await SchoolYear.findOne({ active: true }).lean()
@@ -127,6 +130,7 @@ subAdminAssignmentsRouter.get('/progress', requireAuth(['SUBADMIN', 'AEFE']), as
             const enrollment = enrollments.find(e => e.studentId === String(student._id))
             const cls = classes.find(c => String(c._id) === enrollment?.classId)
             const currentLevel = cls?.level || student.level || 'Unknown'
+            const normalizedCurrentLevel = String(currentLevel || '').trim().toUpperCase()
 
             // Find all assignments for this student
             const studentAssignments = completedAssignments.filter(a => a.studentId === String(student._id))
@@ -187,39 +191,45 @@ subAdminAssignmentsRouter.get('/progress', requireAuth(['SUBADMIN', 'AEFE']), as
                                 return rawLang || 'Autre'
                             })()
 
-                            const targetLevels: string[] = (() => {
+                            const itemLevelsRaw: string[] = (() => {
                                 let levelsArr = item.levels && Array.isArray(item.levels) ? item.levels : []
                                 if (levelsArr.length === 0 && item.level) levelsArr = [item.level]
-
-                                if (levelsArr.length > 0) return levelsArr
-                                const lvl = currentLevel && currentLevel !== 'Unknown' ? currentLevel : ''
-                                return lvl ? [lvl] : []
+                                return levelsArr
                             })()
 
-                            targetLevels.forEach(lvl => {
-                                if (!assignedLevels.includes(lvl)) return
+                            if (!normalizedCurrentLevel || normalizedCurrentLevel === 'UNKNOWN') return
 
-                                if (!statsByLevel[lvl]) {
-                                    statsByLevel[lvl] = {
-                                        total: 0,
-                                        filled: 0,
-                                        byCategory: {}
-                                    }
+                            // A sub-admin should only see/count progress for the student's current class level.
+                            if (itemLevelsRaw.length > 0) {
+                                const appliesToCurrentLevel = itemLevelsRaw
+                                    .map(lvl => String(lvl || '').trim().toUpperCase())
+                                    .includes(normalizedCurrentLevel)
+                                if (!appliesToCurrentLevel) return
+                            }
+
+                            const targetLevel = currentLevel
+                            if (!normalizedAssignedLevels.has(String(targetLevel || '').trim().toUpperCase())) return
+
+                            if (!statsByLevel[targetLevel]) {
+                                statsByLevel[targetLevel] = {
+                                    total: 0,
+                                    filled: 0,
+                                    byCategory: {}
                                 }
+                            }
 
-                                if (!statsByLevel[lvl].byCategory[lang]) {
-                                    statsByLevel[lvl].byCategory[lang] = { total: 0, filled: 0, name: lang }
-                                }
+                            if (!statsByLevel[targetLevel].byCategory[lang]) {
+                                statsByLevel[targetLevel].byCategory[lang] = { total: 0, filled: 0, name: lang }
+                            }
 
-                                statsByLevel[lvl].total++
-                                statsByLevel[lvl].byCategory[lang].total++
+                            statsByLevel[targetLevel].total++
+                            statsByLevel[targetLevel].byCategory[lang].total++
 
-                                const isActive = item.active === true || item.active === 'true'
-                                if (isActive) {
-                                    statsByLevel[lvl].filled++
-                                    statsByLevel[lvl].byCategory[lang].filled++
-                                }
-                            })
+                            const isActive = item.active === true || item.active === 'true'
+                            if (isActive) {
+                                statsByLevel[targetLevel].filled++
+                                statsByLevel[targetLevel].byCategory[lang].filled++
+                            }
                         })
                     })
                 })
@@ -753,6 +763,25 @@ subAdminAssignmentsRouter.get('/teacher-progress', requireAuth(['SUBADMIN', 'AEF
         const teachers = await User.find({ _id: { $in: teacherIds } }).lean()
         const outlookTeachers = await OutlookUser.find({ _id: { $in: teacherIds } }).lean()
         const teacherMap = new Map([...teachers, ...outlookTeachers].map((t: any) => [String(t._id), t]))
+        const formatNameFromEmail = (email: string): string => {
+            const localPart = String(email || '').split('@')[0] || ''
+            const cleaned = localPart.replace(/[._-]+/g, ' ').replace(/\s+/g, ' ').trim()
+            if (!cleaned) return email
+            return cleaned
+                .split(' ')
+                .map(part => part ? part.charAt(0).toUpperCase() + part.slice(1).toLowerCase() : '')
+                .join(' ')
+                .trim()
+        }
+        const resolveTeacherName = (teacherId: any): string | null => {
+            const teacher = teacherMap.get(String(teacherId))
+            if (!teacher) return null
+            const displayName = String(teacher.displayName || '').trim()
+            if (displayName) return displayName
+            const email = String(teacher.email || '').trim()
+            if (email) return formatNameFromEmail(email)
+            return null
+        }
 
         // Find enrollments
         const enrollments = await Enrollment.find({
@@ -798,8 +827,9 @@ subAdminAssignmentsRouter.get('/teacher-progress', requireAuth(['SUBADMIN', 'AEF
         const result = classes.map(cls => {
             const clsId = String(cls._id)
             const clsTeachers = teacherAssignments
-                .filter(ta => ta.classId === clsId)
-                .map(ta => teacherMap.get(ta.teacherId)?.displayName || teacherMap.get(ta.teacherId)?.email || 'Unknown')
+                .filter(ta => String(ta.classId) === clsId)
+                .map(ta => resolveTeacherName(ta.teacherId))
+                .filter((name): name is string => !!name)
 
             const clsEnrollments = enrollments.filter(e => e.classId === clsId)
             const clsStudentIds = new Set(clsEnrollments.map(e => e.studentId))
@@ -907,7 +937,7 @@ subAdminAssignmentsRouter.get('/teacher-progress', requireAuth(['SUBADMIN', 'AEF
                                 if (!categoryStats[lang]) {
                                     // Determine assigned teachers
                                     const assignedTeachers = teacherAssignments
-                                        .filter((ta: any) => ta.classId === clsId)
+                                        .filter((ta: any) => String(ta.classId) === clsId)
                                         .filter((ta: any) => {
                                             const l = lang.toLowerCase();
                                             const isArabic = code === 'ar' || code === 'lb' || l.includes('arabe') || l.includes('arabic') || l.includes('العربية');
@@ -927,9 +957,12 @@ subAdminAssignmentsRouter.get('/teacher-progress', requireAuth(['SUBADMIN', 'AEF
                                             // Default/Polyvalent: include teachers who are explicitly polyvalent OR assigned to all languages (empty languages)
                                             return (ta as any).isProfPolyvalent || (langs.length === 0 && !(ta as any).isProfPolyvalent);
                                         })
-                                        .map((ta: any) => teacherMap.get(ta.teacherId)?.displayName || 'Unknown');
+                                        .map((ta: any) => resolveTeacherName(ta.teacherId))
+                                        .filter((name: any): name is string => !!name)
 
-                                    categoryStats[lang] = { total: 0, filled: 0, name: lang, teachers: assignedTeachers }
+                                    const uniqueAssignedTeachers = Array.from(new Set(assignedTeachers))
+
+                                    categoryStats[lang] = { total: 0, filled: 0, name: lang, teachers: uniqueAssignedTeachers }
                                 }
 
                                 categoryStats[lang].total++

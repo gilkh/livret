@@ -149,8 +149,6 @@ const ClassCard = ({ cls, index }: { cls: ClassProgress, index: number }) => {
                 <div className="class-info">
                     <h4 className="class-name">{cls.className}</h4>
                     <p className="class-details">
-                        <span>{cls.teachers.join(', ') || 'Aucun enseignant'}</span>
-                        <span className="separator" />
                         <span>{cls.studentCount} élèves</span>
                     </p>
                 </div>

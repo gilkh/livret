@@ -355,6 +355,36 @@ export default function AdminSettings() {
     }
   }
 
+  const deleteErrorLog = async (id: string) => {
+    if (!confirm('Supprimer cette erreur ?')) return
+    try {
+      await api.delete(`/error-logs/${id}`)
+      setErrorLogs(prev => prev.filter(l => l._id !== id))
+      showMsg('Erreur supprimée')
+    } catch (err) {
+      console.error('Failed to delete error log:', err)
+      showMsg('Erreur lors de la suppression', 'error')
+    }
+  }
+
+  const clearErrorLogs = async () => {
+    const label = errorLogFilter === 'open'
+      ? 'non résolues'
+      : errorLogFilter === 'resolved'
+        ? 'résolues'
+        : 'de la liste'
+
+    if (!confirm(`Supprimer toutes les erreurs ${label} ?`)) return
+    try {
+      await api.delete(`/error-logs?status=${errorLogFilter}`)
+      setErrorLogs([])
+      showMsg('Liste des erreurs vidée')
+    } catch (err) {
+      console.error('Failed to clear error logs:', err)
+      showMsg('Erreur lors de la suppression', 'error')
+    }
+  }
+
 
   // Backup functions
   const createBackup = async () => {
@@ -651,6 +681,11 @@ export default function AdminSettings() {
                     ✅ Tout résoudre
                   </button>
                 )}
+                {errorLogs.length > 0 && (
+                  <button type="button" className="settings-btn danger" onClick={clearErrorLogs}>
+                    🗑️ Vider la liste
+                  </button>
+                )}
               </div>
             </div>
 
@@ -721,14 +756,23 @@ export default function AdminSettings() {
                           </span>
                         </td>
                         <td style={{ textAlign: 'right' }}>
-                          {!log.resolved && (
-                            <button type="button" className="settings-btn success" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => resolveErrorLog(log._id)}>
-                              ✅ Résoudre
+                          <div style={{ display: 'inline-flex', gap: 8, alignItems: 'center', justifyContent: 'flex-end' }}>
+                            {!log.resolved && (
+                              <button type="button" className="settings-btn success" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => resolveErrorLog(log._id)}>
+                                ✅ Résoudre
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              className="settings-btn danger"
+                              style={{ padding: '6px 10px', fontSize: 12, minWidth: 0 }}
+                              onClick={() => deleteErrorLog(log._id)}
+                              title="Supprimer"
+                              aria-label="Supprimer"
+                            >
+                              ✕
                             </button>
-                          )}
-                          {log.resolved && (
-                            <span style={{ fontSize: 12, color: '#64748b' }}>✔</span>
-                          )}
+                          </div>
                         </td>
                       </tr>
                     ))}

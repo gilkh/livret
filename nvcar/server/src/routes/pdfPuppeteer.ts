@@ -79,6 +79,7 @@ const getBrowser = async () => {
       headless: true,
       // @ts-ignore - available at runtime, not in older type defs
       ignoreHTTPSErrors: true,
+      protocolTimeout: 180_000, // 3 min — prevents CDP timeout under heavy batch concurrency
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
@@ -104,6 +105,14 @@ const getBrowser = async () => {
   return browserInstance
 }
 
+/** Force-close the current browser so the next getBrowser() creates a fresh one */
+const closeBrowser = async () => {
+  if (browserInstance) {
+    try { await browserInstance.close() } catch {}
+    browserInstance = null
+  }
+}
+
 const sanitizeFileName = (value: string) => {
   const cleaned = String(value || '')
     .normalize('NFKD')
@@ -115,6 +124,15 @@ const sanitizeFileName = (value: string) => {
   return cleaned || 'file'
 }
 
+const sanitizeArchiveFolder = (value: string) => {
+  return String(value || '')
+    .replace(/\\+/g, '/')
+    .split('/')
+    .map((segment) => sanitizeFileName(segment))
+    .filter(Boolean)
+    .join('/')
+}
+
 const getTokenFromReq = (req: any) => {
   if (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
     return req.headers.authorization.slice('Bearer '.length)
@@ -122,6 +140,65 @@ const getTokenFromReq = (req: any) => {
   if (req.query?.token) return String(req.query.token)
   if (req.body?.token) return String(req.body.token)
   return ''
+}
+
+type ZipProgressStatus = 'running' | 'completed' | 'failed'
+type ZipProgressState = {
+  token: string
+  status: ZipProgressStatus
+  totalAssignments: number
+  completedAssignments: number
+  failedAssignments: number
+  startedAt: number
+  updatedAt: number
+  etaSeconds: number | null
+  error?: string
+}
+
+const zipProgressStore = new Map<string, ZipProgressState>()
+const ZIP_PROGRESS_TTL_MS = Math.max(60_000, Number(process.env.PDF_ZIP_PROGRESS_TTL_MS || '1800000'))
+
+const scheduleZipProgressCleanup = (token: string) => {
+  setTimeout(() => {
+    zipProgressStore.delete(token)
+  }, ZIP_PROGRESS_TTL_MS)
+}
+
+const initZipProgress = (token: string, totalAssignments: number) => {
+  const now = Date.now()
+  zipProgressStore.set(token, {
+    token,
+    status: 'running',
+    totalAssignments,
+    completedAssignments: 0,
+    failedAssignments: 0,
+    startedAt: now,
+    updatedAt: now,
+    etaSeconds: null
+  })
+}
+
+const updateZipProgress = (
+  token: string,
+  patch: Partial<ZipProgressState> | ((current: ZipProgressState) => Partial<ZipProgressState>)
+) => {
+  const current = zipProgressStore.get(token)
+  if (!current) return
+  const partial = typeof patch === 'function' ? patch(current) : patch
+  zipProgressStore.set(token, {
+    ...current,
+    ...partial,
+    updatedAt: Date.now()
+  })
+}
+
+const recomputeZipProgressEta = (state: ZipProgressState) => {
+  const processed = state.completedAssignments + state.failedAssignments
+  if (processed <= 0 || state.totalAssignments <= processed) return null
+  const elapsedMs = Math.max(1, Date.now() - state.startedAt)
+  const avgMsPerAssignment = elapsedMs / processed
+  const remainingAssignments = state.totalAssignments - processed
+  return Math.ceil((avgMsPerAssignment * remainingAssignments) / 1000)
 }
 
 const resolveFrontendUrl = (req?: any) => {
@@ -201,7 +278,26 @@ const resolveFrontendUrl = (req?: any) => {
   return 'https://127.0.0.1:443'
 }
 
-const generatePdfBufferFromPrintUrl = async (printUrl: string, token: string, frontendUrl: string) => {
+type PdfGenerationMode = 'single' | 'batch'
+type PdfGenerationOptions = {
+  mode?: PdfGenerationMode
+  highQuality?: boolean
+  useNativePdf?: boolean
+  readyTimeoutMs?: number
+  prePdfDelayMs?: number
+  navigationTimeoutMs?: number
+  deviceScaleFactor?: number
+  reusePage?: any
+  keepPageOpen?: boolean
+  verboseLogs?: boolean
+}
+
+const generatePdfBufferFromPrintUrl = async (printUrl: string, token: string, frontendUrl: string, options: PdfGenerationOptions = {}) => {
+  const mode: PdfGenerationMode = options.mode || 'single'
+  const highQuality = options.highQuality === true
+  const verboseLogs = typeof options.verboseLogs === 'boolean'
+    ? options.verboseLogs
+    : (mode !== 'batch' || process.env.PDF_BATCH_VERBOSE_LOGS === 'true')
   const pdfPageWidthPxRaw = Number(process.env.PDF_PAGE_WIDTH_PX || '800')
   const pdfPageHeightPxRaw = Number(process.env.PDF_PAGE_HEIGHT_PX || '1120')
   const pdfPageWidthPx = Number.isFinite(pdfPageWidthPxRaw) && pdfPageWidthPxRaw > 0 ? Math.round(pdfPageWidthPxRaw) : 800
@@ -209,22 +305,33 @@ const generatePdfBufferFromPrintUrl = async (printUrl: string, token: string, fr
 
   // Device scale factor controls DPI: 1.35 = ~130 DPI (sharp for screen/print, optimized for size)
   // Lower = smaller files, Higher = sharper but larger files
-  const pdfDeviceScaleFactorRaw = Number(process.env.PDF_DEVICE_SCALE_FACTOR || process.env.PDF_DPI_SCALE || '1.35')
+  // High quality mode uses 2x scale for crisp output
+  const batchDefaultScale = highQuality ? '2' : (process.env.PDF_BATCH_DEVICE_SCALE_FACTOR || '1.15')
+  const pdfDeviceScaleFactorRaw = Number(options.deviceScaleFactor ?? (highQuality ? '2' : (process.env.PDF_DEVICE_SCALE_FACTOR ?? process.env.PDF_DPI_SCALE ?? (mode === 'batch' ? batchDefaultScale : '1.35'))))
   const pdfDeviceScaleFactor = Number.isFinite(pdfDeviceScaleFactorRaw) && pdfDeviceScaleFactorRaw > 0 ? Math.min(3, Math.max(1, pdfDeviceScaleFactorRaw)) : 1.35
 
   // Use native page.pdf() instead of screenshot-based approach
-  // Default to screenshot (false) since native PDF can add white borders around content
-  const useNativePdf = process.env.PDF_USE_NATIVE === 'true' // Must explicitly enable
+  // Default to screenshot (false) for both single and batch — native PDF adds white borders
+  const useNativePdf = typeof options.useNativePdf === 'boolean'
+    ? options.useNativePdf
+    : (mode === 'batch' ? process.env.PDF_BATCH_USE_NATIVE === 'true' : process.env.PDF_USE_NATIVE === 'true')
+
+  const readyTimeoutMsRaw = Number(options.readyTimeoutMs ?? process.env.PDF_READY_TIMEOUT_MS ?? (mode === 'batch' ? '1500' : '10000'))
+  const readyTimeoutMs = Number.isFinite(readyTimeoutMsRaw) && readyTimeoutMsRaw >= 0 ? Math.round(readyTimeoutMsRaw) : (mode === 'batch' ? 1500 : 10000)
+  const prePdfDelayMsRaw = Number(options.prePdfDelayMs ?? process.env.PDF_PRE_DELAY_MS ?? (mode === 'batch' ? '50' : '250'))
+  const prePdfDelayMs = Number.isFinite(prePdfDelayMsRaw) && prePdfDelayMsRaw >= 0 ? Math.round(prePdfDelayMsRaw) : (mode === 'batch' ? 50 : 250)
+  const navigationTimeoutMsRaw = Number(options.navigationTimeoutMs ?? process.env.PDF_NAVIGATION_TIMEOUT_MS ?? (mode === 'batch' ? '20000' : '30000'))
+  const navigationTimeoutMs = Number.isFinite(navigationTimeoutMsRaw) && navigationTimeoutMsRaw > 0 ? Math.round(navigationTimeoutMsRaw) : (mode === 'batch' ? 20000 : 30000)
 
   // SAFETY: Force 127.0.0.1 if localhost leaked through (e.g. stale code or resolve bypass)
   if (printUrl.includes('//localhost')) {
     printUrl = printUrl.replace('//localhost', '//127.0.0.1')
-    console.log('[PDF DEBUG] Rewrote printUrl localhost to 127.0.0.1')
+    if (verboseLogs) console.log('[PDF DEBUG] Rewrote printUrl localhost to 127.0.0.1')
   }
   // SAFETY: Fix port 5173 to 443 (user's Vite runs on 443)
   if (printUrl.includes(':5173')) {
     printUrl = printUrl.replace(':5173', ':443')
-    console.log('[PDF DEBUG] Rewrote printUrl port 5173 to 443')
+    if (verboseLogs) console.log('[PDF DEBUG] Rewrote printUrl port 5173 to 443')
   }
   if (frontendUrl.includes('//localhost')) {
     frontendUrl = frontendUrl.replace('//localhost', '//127.0.0.1')
@@ -237,22 +344,29 @@ const generatePdfBufferFromPrintUrl = async (printUrl: string, token: string, fr
   const tStart = Date.now()
   const safePrintUrl = String(printUrl || '').replace(/([?&])token=[^&]*/, '$1token=***')
   const browser = await getBrowser()
-  page = await browser.newPage()
-  console.log(`[PDF TIMING] Starting PDF generation for ${safePrintUrl} (native=${useNativePdf})`)
+  const reusePage = options.reusePage || null
+  page = reusePage || await browser.newPage()
+  const shouldClosePage = !reusePage || !options.keepPageOpen
+  if (verboseLogs) {
+    console.log(`[PDF TIMING] Starting PDF generation for ${safePrintUrl} (native=${useNativePdf})`)
+  }
 
   try {
-    page.on('console', (msg: any) => {
-      console.log('[BROWSER LOG]', msg.text())
-    })
-    page.on('pageerror', (err: any) => {
-      console.error('[PAGE ERROR]', err)
-    })
-    page.on('requestfailed', (req: any) => {
-      console.error('[FAILED REQUEST]', req.url(), req.failure())
-    })
+    if (verboseLogs && !(page as any).__pdfListenersAttached) {
+      page.on('console', (msg: any) => {
+        console.log('[BROWSER LOG]', msg.text())
+      })
+      page.on('pageerror', (err: any) => {
+        console.error('[PAGE ERROR]', err)
+      })
+      page.on('requestfailed', (req: any) => {
+        console.error('[FAILED REQUEST]', req.url(), req.failure())
+      })
+      ;(page as any).__pdfListenersAttached = true
+    }
 
     await page.setViewport({ width: pdfPageWidthPx, height: pdfPageHeightPx, deviceScaleFactor: pdfDeviceScaleFactor })
-    console.log(`[PDF TIMING] newPage created in ${Date.now() - tStart}ms`)
+    if (verboseLogs && !reusePage) console.log(`[PDF TIMING] newPage created in ${Date.now() - tStart}ms`)
 
     if (token) {
       let cookieDomain = 'localhost'
@@ -272,13 +386,15 @@ const generatePdfBufferFromPrintUrl = async (printUrl: string, token: string, fr
     let navMs = 0
     let response: any = null
 
-    console.log(`[PDF DEBUG] Attempting to navigate to: ${safePrintUrl}`)
-    console.log(`[PDF DEBUG] Frontend URL being used: ${frontendUrl}`)
+    if (verboseLogs) {
+      console.log(`[PDF DEBUG] Attempting to navigate to: ${safePrintUrl}`)
+      console.log(`[PDF DEBUG] Frontend URL being used: ${frontendUrl}`)
+    }
 
     try {
-      response = await page.goto(printUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
+      response = await page.goto(printUrl, { waitUntil: 'domcontentloaded', timeout: navigationTimeoutMs })
       navMs = Date.now() - navStart
-      console.log(`[PDF TIMING] page.goto completed in ${navMs}ms for ${safePrintUrl}`)
+      if (verboseLogs) console.log(`[PDF TIMING] page.goto completed in ${navMs}ms for ${safePrintUrl}`)
     } catch (navError: any) {
       navMs = Date.now() - navStart
       console.error(`[PDF ERROR] Navigation failed after ${navMs}ms for ${safePrintUrl}`)
@@ -319,25 +435,27 @@ const generatePdfBufferFromPrintUrl = async (printUrl: string, token: string, fr
       await page.emulateMediaType('print')
     } catch { }
 
-    // Wait for explicit ready signal from client, but shorter timeout (10s)
+    // Wait for explicit ready signal from client
     let readyStart = Date.now()
     let readyMs = 0
     try {
       await page.waitForFunction(() => {
         // @ts-ignore
-        return (window as any).__READY_FOR_PDF__ === true
-      }, { timeout: 10000 })
+        return (window as any).__READY_FOR_PDF__ === true || document.querySelectorAll('.page-canvas').length > 0
+      }, { timeout: readyTimeoutMs })
       readyMs = Date.now() - readyStart
-      console.log(`[PDF TIMING] waitForFunction resolved in ${readyMs}ms for ${safePrintUrl}`)
+      if (verboseLogs) console.log(`[PDF TIMING] waitForFunction resolved in ${readyMs}ms for ${safePrintUrl}`)
     } catch (e) {
       readyMs = Date.now() - readyStart
-      console.warn(`[PDF TIMING] Timeout waiting for READY_FOR_PDF after ${readyMs}ms for ${safePrintUrl}, proceeding...`)
+      if (verboseLogs) console.warn(`[PDF TIMING] Timeout waiting for READY_FOR_PDF after ${readyMs}ms for ${safePrintUrl}, proceeding...`)
     }
 
-    // Keep a short safety delay (reduce from 1s to 250ms)
+    // Keep a short safety delay
     const delayStart = Date.now()
-    await new Promise(resolve => setTimeout(resolve, 250))
-    console.log(`[PDF TIMING] pre-pdf delay ${Date.now() - delayStart}ms for ${safePrintUrl}`)
+    if (prePdfDelayMs > 0) {
+      await new Promise(resolve => setTimeout(resolve, prePdfDelayMs))
+    }
+    if (verboseLogs) console.log(`[PDF TIMING] pre-pdf delay ${Date.now() - delayStart}ms for ${safePrintUrl}`)
 
     // Get page dimensions from .page-canvas elements
     let resolvedPdfPageWidthPx = pdfPageWidthPx
@@ -360,7 +478,7 @@ const generatePdfBufferFromPrintUrl = async (printUrl: string, token: string, fr
         pageCount = pageInfo.count || 1
       }
     } catch { }
-    console.log(`[PDF DEBUG] Found ${pageCount} pages, size ${resolvedPdfPageWidthPx}x${resolvedPdfPageHeightPx}px @ scale ${pdfDeviceScaleFactor} for ${safePrintUrl}`)
+    if (verboseLogs) console.log(`[PDF DEBUG] Found ${pageCount} pages, size ${resolvedPdfPageWidthPx}x${resolvedPdfPageHeightPx}px @ scale ${pdfDeviceScaleFactor} for ${safePrintUrl}`)
 
     const tPdfStart = Date.now()
     let pdfBuffer: Buffer
@@ -374,7 +492,7 @@ const generatePdfBufferFromPrintUrl = async (printUrl: string, token: string, fr
       const pageWidthInches = resolvedPdfPageWidthPx / 96
       const pageHeightInches = resolvedPdfPageHeightPx / 96
 
-      console.log(`[PDF DEBUG] Using NATIVE page.pdf() - ${pageWidthInches.toFixed(2)}in x ${pageHeightInches.toFixed(2)}in per page`)
+      if (verboseLogs) console.log(`[PDF DEBUG] Using NATIVE page.pdf() - ${pageWidthInches.toFixed(2)}in x ${pageHeightInches.toFixed(2)}in per page`)
 
       pdfBuffer = await page.pdf({
         width: `${pageWidthInches}in`,
@@ -383,7 +501,11 @@ const generatePdfBufferFromPrintUrl = async (printUrl: string, token: string, fr
         preferCSSPageSize: true, // Prefer CSS @page rules if defined
         scale: 1, // Full scale - CSS handles sizing
         margin: { top: 0, right: 0, bottom: 0, left: 0 }
-      }) as Buffer
+      })
+      // Puppeteer may return Uint8Array instead of Buffer — normalize
+      if (!Buffer.isBuffer(pdfBuffer)) {
+        pdfBuffer = Buffer.from(pdfBuffer)
+      }
 
     } else {
       // ========== SCREENSHOT-BASED APPROACH (DEFAULT) ==========
@@ -396,11 +518,12 @@ const generatePdfBufferFromPrintUrl = async (printUrl: string, token: string, fr
       }
 
       // PDF quality settings - optimized for size while maintaining good quality
-      // 72% JPEG quality: imperceptible quality loss on gradebooks, ~20% smaller than 80%
-      const pdfImageQuality = Number(process.env.PDF_IMAGE_QUALITY || '72')
-      const pdfUseJpeg = process.env.PDF_USE_JPEG !== 'false'
+      // High quality mode: PNG + 2x scale for lossless output
+      // Compressed mode: JPEG 60-72% quality
+      const pdfImageQuality = Number(mode === 'batch' ? (process.env.PDF_BATCH_IMAGE_QUALITY || process.env.PDF_IMAGE_QUALITY || '60') : (process.env.PDF_IMAGE_QUALITY || '72'))
+      const pdfUseJpeg = highQuality ? false : (process.env.PDF_USE_JPEG !== 'false')
 
-      console.log(`[PDF DEBUG] Using SCREENSHOT approach - quality=${pdfImageQuality}, jpeg=${pdfUseJpeg}, pages=${pageCanvases.length}`)
+      if (verboseLogs) console.log(`[PDF DEBUG] Using SCREENSHOT approach - quality=${pdfImageQuality}, jpeg=${pdfUseJpeg}, highQuality=${highQuality}, pages=${pageCanvases.length}`)
 
       pdfBuffer = await new Promise<Buffer>(async (resolve, reject) => {
         try {
@@ -416,11 +539,13 @@ const generatePdfBufferFromPrintUrl = async (printUrl: string, token: string, fr
             } catch { }
 
             const imageBuffer = pdfUseJpeg
-              ? (await handle.screenshot({ type: 'jpeg', quality: pdfImageQuality, omitBackground: false })) as Buffer
-              : (await handle.screenshot({ type: 'png', omitBackground: true })) as Buffer
+              ? (await handle.screenshot({ type: 'jpeg', quality: pdfImageQuality, omitBackground: false }))
+              : (await handle.screenshot({ type: 'png', omitBackground: true }))
+            // Puppeteer may return Uint8Array — normalize for PDFKit
+            const imgBuf: Buffer = Buffer.isBuffer(imageBuffer) ? imageBuffer : Buffer.from(imageBuffer)
 
             doc.addPage({ size: [resolvedPdfPageWidthPx, resolvedPdfPageHeightPx], margin: 0 })
-            doc.image(imageBuffer, 0, 0, { width: resolvedPdfPageWidthPx, height: resolvedPdfPageHeightPx })
+            doc.image(imgBuf, 0, 0, { width: resolvedPdfPageWidthPx, height: resolvedPdfPageHeightPx })
           }
 
           doc.end()
@@ -432,24 +557,30 @@ const generatePdfBufferFromPrintUrl = async (printUrl: string, token: string, fr
 
     const pdfMs = Date.now() - tPdfStart
 
-    console.log(`[PDF TIMING] pdf render took ${pdfMs}ms, size: ${pdfBuffer?.length || 0}, isBuffer: ${Buffer.isBuffer(pdfBuffer)}, native: ${useNativePdf} for ${safePrintUrl}`)
+    if (verboseLogs) console.log(`[PDF TIMING] pdf render took ${pdfMs}ms, size: ${pdfBuffer?.length || 0}, isBuffer: ${Buffer.isBuffer(pdfBuffer)}, native: ${useNativePdf} for ${safePrintUrl}`)
     const totalMs = Date.now() - tStart
-    console.log(`[PDF TIMING] generatePdfBufferFromPrintUrl total ${totalMs}ms (nav ${navMs}ms, ready ${readyMs}ms, pdf ${pdfMs}ms) for ${safePrintUrl}`)
+    if (verboseLogs) console.log(`[PDF TIMING] generatePdfBufferFromPrintUrl total ${totalMs}ms (nav ${navMs}ms, ready ${readyMs}ms, pdf ${pdfMs}ms) for ${safePrintUrl}`)
 
     try {
-      fs.appendFileSync('pdf-timings.log', `${new Date().toISOString()} ${safePrintUrl} totalMs=${totalMs} navMs=${navMs} readyMs=${readyMs} pdfMs=${pdfMs} size=${pdfBuffer?.length || 0} native=${useNativePdf}\n`)
-    } catch (e) {
-      console.warn('[PDF] Failed to append timing to file:', e)
+      if (process.env.PDF_TIMING_LOG === 'true') {
+        fs.appendFileSync('pdf-timings.log', `${new Date().toISOString()} ${safePrintUrl} totalMs=${totalMs} navMs=${navMs} readyMs=${readyMs} pdfMs=${pdfMs} size=${pdfBuffer?.length || 0} native=${useNativePdf}\n`)
+      }
+    } catch {
     }
 
     if (!pdfBuffer || pdfBuffer.length === 0) {
       throw new Error('Generated PDF buffer is empty')
     }
 
+    // Final safety: always return a proper Buffer
+    if (!Buffer.isBuffer(pdfBuffer)) {
+      pdfBuffer = Buffer.from(pdfBuffer)
+    }
+
     return pdfBuffer
   } finally {
     try {
-      await page?.close()
+      if (shouldClosePage) await page?.close()
     } catch { }
   }
 }
@@ -497,15 +628,16 @@ pdfPuppeteerRouter.get('/student/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHE
       token = String(req.query.token)
     }
 
+    const highQuality = req.query.hq === '1'
     console.log('[PDF] Getting browser instance...')
 
     const frontendUrl = resolveFrontendUrl(req)
     const printUrl = `${frontendUrl}/print/carnet/${assignment._id}?token=${token}`
 
     const safePrintUrl = String(printUrl || '').replace(/([?&])token=[^&]*/, '$1token=***')
-    console.log('[PDF] Generating PDF via shared function:', safePrintUrl)
+    console.log('[PDF] Generating PDF via shared function:', safePrintUrl, 'highQuality:', highQuality)
     const genStart = Date.now()
-    const pdfBuffer = await generatePdfBufferFromPrintUrl(printUrl, token, frontendUrl)
+    const pdfBuffer = await generatePdfBufferFromPrintUrl(printUrl, token, frontendUrl, { highQuality })
     console.log(`[PDF TIMING] generatePdfBufferFromPrintUrl total ${Date.now() - genStart}ms for ${safePrintUrl}`)
 
     console.log('[PDF] PDF generated successfully, size:', pdfBuffer.length, 'bytes')
@@ -570,9 +702,26 @@ pdfPuppeteerRouter.post('/assignments/zip', requireAuth(['ADMIN', 'SUBADMIN', 'A
     const assignmentIds = Array.isArray(req.body?.assignmentIds) ? req.body.assignmentIds.filter(Boolean) : []
     const groupLabel = String(req.body?.groupLabel || '').trim()
     const hideSignatures = req.body?.hideSignatures === true
+    const highQuality = req.body?.highQuality === true
+    const progressToken = String(req.body?.progressToken || '').trim()
+    const rawAssignmentFolderMap = req.body?.assignmentFolderMap && typeof req.body.assignmentFolderMap === 'object'
+      ? req.body.assignmentFolderMap
+      : {}
+    const assignmentFolderMap: Record<string, string> = Object.entries(rawAssignmentFolderMap)
+      .reduce((acc, [assignmentId, folder]) => {
+        if (typeof assignmentId !== 'string') return acc
+        const sanitizedFolder = sanitizeArchiveFolder(String(folder || ''))
+        if (!sanitizedFolder) return acc
+        acc[assignmentId] = sanitizedFolder
+        return acc
+      }, {} as Record<string, string>)
 
     if (assignmentIds.length === 0) {
       return res.status(400).json({ error: 'missing_assignment_ids' })
+    }
+
+    if (progressToken) {
+      initZipProgress(progressToken, assignmentIds.length)
     }
 
     const token = getTokenFromReq(req)
@@ -594,15 +743,27 @@ pdfPuppeteerRouter.post('/assignments/zip', requireAuth(['ADMIN', 'SUBADMIN', 'A
       'Content-Disposition': buildContentDisposition(String(archiveFileName || 'archive.zip'))
     })
 
-    archive = archiver('zip', { zlib: { level: 9 } })
+    const zipCompressionLevelRaw = Number(process.env.PDF_ZIP_COMPRESSION_LEVEL || '0')
+    const zipCompressionLevel = Number.isFinite(zipCompressionLevelRaw)
+      ? Math.min(9, Math.max(0, Math.round(zipCompressionLevelRaw)))
+      : 1
+    archive = archiver('zip', { zlib: { level: zipCompressionLevel } })
     let aborted = false
     res.on('close', () => {
       if (res.writableEnded) return
       aborted = true
       try { archive?.abort() } catch { }
     })
-    archive.on('error', (err) => {
-      console.error('[PDF ZIP] Archiver error:', err)
+    archive.on('error', (err: any) => {
+      // INPUTSTEAMBUFFERREQUIRED and QUEUECLOSED are per-entry errors that we
+      // already handle at the worker level – don't destroy the whole response.
+      const code = String(err?.code || '')
+      if (code === 'INPUTSTEAMBUFFERREQUIRED' || code === 'QUEUECLOSED') {
+        console.warn('[PDF ZIP] Archiver non-fatal error (handled):', code, err?.data?.name || '')
+        return
+      }
+      console.error('[PDF ZIP] Archiver fatal error:', err)
+      aborted = true
       res.destroy(err)
     })
     archive.on('warning', (err) => {
@@ -612,48 +773,121 @@ pdfPuppeteerRouter.post('/assignments/zip', requireAuth(['ADMIN', 'SUBADMIN', 'A
     archive.pipe(res)
 
     const zipStart = Date.now()
-    console.log(`[PDF ZIP] Starting zip generation for ${assignmentIds.length} assignments, group="${groupLabel}"`)
+    console.log(`[PDF ZIP] Starting zip generation for ${assignmentIds.length} assignments, group="${groupLabel}", highQuality=${highQuality}`)
 
     archive.append(`Archive started at ${new Date().toISOString()}\n`, { name: 'info.txt' })
 
-    // Parallelize generation with a small worker pool to reduce wall-clock
+    // Parallelize generation with a worker pool to reduce wall-clock
+    // Default concurrency=3: screenshot-based PDF is heavy on CDP calls; too many workers cause protocol timeouts
     const concurrency = Math.min(Math.max(1, Number(process.env.PDF_CONCURRENCY || '3')), assignmentIds.length)
     console.log(`[PDF ZIP] Generating ${assignmentIds.length} PDFs using concurrency=${concurrency}`)
 
-    const activeYear = await getActiveSchoolYear()
+    const [activeYear, assignmentDocs] = await Promise.all([
+      getActiveSchoolYear(),
+      TemplateAssignment.find({ _id: { $in: assignmentIds } }, '_id studentId templateId').lean()
+    ])
     const activeYearId = activeYear?._id ? String(activeYear._id) : ''
     const activeYearName = String(activeYear?.name || '').trim()
+    const assignmentById = new Map(assignmentDocs.map((assignment: any) => [String(assignment._id), assignment]))
+    type OrderedAssignmentEntry = { assignmentId: string; assignment?: any }
+    const orderedAssignments: OrderedAssignmentEntry[] = assignmentIds
+      .map((assignmentId: string): OrderedAssignmentEntry => ({ assignmentId: String(assignmentId), assignment: assignmentById.get(String(assignmentId)) }))
+
+    const foundAssignments = orderedAssignments.filter((entry: OrderedAssignmentEntry) => !!entry.assignment)
+    const studentIds = Array.from(new Set(foundAssignments.map((entry: OrderedAssignmentEntry) => String((entry.assignment as any).studentId || '')).filter(Boolean)))
+    const students = studentIds.length
+      ? await Student.find({ _id: { $in: studentIds } }, '_id firstName lastName level schoolYearId').lean()
+      : []
+    const studentById = new Map(students.map((student: any) => [String(student._id), student]))
+
+    const needsFallbackYear = !activeYearName
+    const studentYearIds = needsFallbackYear
+      ? Array.from(new Set(students.map((student: any) => String(student.schoolYearId || '')).filter(Boolean)))
+      : []
+
+    const studentIdsNeedingLevel = students
+      .filter((student: any) => !String(student.level || '').trim())
+      .map((student: any) => String(student._id))
+
+    const [schoolYears, enrollments] = await Promise.all([
+      studentYearIds.length
+        ? SchoolYear.find({ _id: { $in: studentYearIds } }, '_id name').lean()
+        : Promise.resolve([]),
+      studentIdsNeedingLevel.length
+        ? Enrollment.find(
+          activeYearId
+            ? { studentId: { $in: studentIdsNeedingLevel }, schoolYearId: activeYearId, status: 'active' }
+            : { studentId: { $in: studentIdsNeedingLevel }, status: 'active' },
+          '_id studentId classId'
+        ).lean()
+        : Promise.resolve([])
+    ])
+    const schoolYearNameById = new Map(schoolYears.map((schoolYear: any) => [String(schoolYear._id), String(schoolYear.name || '').trim()]))
+
+    const enrollmentByStudentId = new Map<string, any>()
+    for (const enrollment of enrollments as any[]) {
+      const studentId = String(enrollment.studentId || '')
+      if (!studentId || enrollmentByStudentId.has(studentId)) continue
+      enrollmentByStudentId.set(studentId, enrollment)
+    }
+
+    const classIds = Array.from(new Set((enrollments as any[]).map((enrollment) => String(enrollment.classId || '')).filter(Boolean)))
+    const classes = classIds.length ? await ClassModel.find({ _id: { $in: classIds } }, '_id level').lean() : []
+    const classById = new Map(classes.map((classDoc: any) => [String(classDoc._id), classDoc]))
+
+    const studentResolvedLevelById = new Map<string, string>()
+    for (const student of students as any[]) {
+      const studentId = String(student._id)
+      let resolvedLevel = String(student.level || '').trim()
+      if (!resolvedLevel) {
+        const enrollment = enrollmentByStudentId.get(studentId)
+        const classDoc = enrollment?.classId ? classById.get(String(enrollment.classId)) : null
+        resolvedLevel = String((classDoc as any)?.level || '').trim()
+      }
+      studentResolvedLevelById.set(studentId, resolvedLevel)
+    }
 
     let idx = 0
     const getNext = () => {
       const i = idx
       idx += 1
-      return assignmentIds[i]
+      return orderedAssignments[i]
     }
 
+    const MAX_RETRIES = 2 // retry up to 2 times on transient protocol timeouts
+
     const workers = Array.from({ length: concurrency }).map((_, workerIdx) => (async () => {
+      const workerBrowser = await getBrowser()
+      let workerPage = await workerBrowser.newPage()
       while (true) {
         if (aborted) break
-        const assignmentId = getNext()
-        if (!assignmentId) break
+        const nextEntry = getNext()
+        if (!nextEntry) break
+        const assignmentId = String(nextEntry.assignmentId)
         try {
-          const assignment = await TemplateAssignment.findById(assignmentId).lean()
+          const assignment = nextEntry.assignment
           if (!assignment) {
             if (archive) archive.append(`Assignment not found: ${assignmentId}\n`, { name: `errors/${sanitizeFileName(String(assignmentId))}.txt` })
+            if (progressToken) {
+              updateZipProgress(progressToken, (current) => {
+                const next: ZipProgressState = {
+                  ...current,
+                  failedAssignments: current.failedAssignments + 1,
+                  updatedAt: Date.now(),
+                  etaSeconds: current.etaSeconds
+                }
+                return { failedAssignments: next.failedAssignments, etaSeconds: recomputeZipProgressEta(next) }
+              })
+            }
             continue
           }
 
-          const student = await Student.findById(assignment.studentId).lean()
-          const template = await GradebookTemplate.findById(assignment.templateId).lean()
+          const student = studentById.get(String((assignment as any).studentId || ''))
 
           const studentLast = student?.lastName || 'Eleve'
           const studentFirst = student?.firstName || ''
-          let yearName = activeYearName
-          if (!yearName && student?.schoolYearId) {
-            const sy = await SchoolYear.findById(student.schoolYearId).lean()
-            yearName = String(sy?.name || '').trim()
-          }
-          const level = await resolveStudentLevel(String(student?._id || ''), String(student?.level || ''), activeYearId || String(student?.schoolYearId || ''))
+          const yearName = activeYearName || schoolYearNameById.get(String(student?.schoolYearId || '')) || ''
+          const level = studentResolvedLevelById.get(String(student?._id || '')) || ''
           const pdfName = buildStudentPdfFilename({
             level,
             firstName: studentFirst,
@@ -663,25 +897,112 @@ pdfPuppeteerRouter.post('/assignments/zip', requireAuth(['ADMIN', 'SUBADMIN', 'A
 
           const printUrl = `${frontendUrl}/print/carnet/${assignment._id}?token=${token}${hideSignatures ? '&hideSignatures=true' : ''}`
           const safePrintUrl = String(printUrl || '').replace(/([?&])token=[^&]*/, '$1token=***')
-          console.log(`[PDF ZIP] (worker ${workerIdx}) Generating PDF for assignment ${assignmentId} (${safePrintUrl})`)
-          const assignStart = Date.now()
-          const pdfBuffer = await generatePdfBufferFromPrintUrl(printUrl, token, frontendUrl)
-          const assignMs = Date.now() - assignStart
-          console.log(`[PDF ZIP] (worker ${workerIdx}) PDF for ${assignmentId} generated in ${assignMs}ms, size=${pdfBuffer?.length || 0}`)
-          try {
-            fs.appendFileSync('pdf-timings.log', `${new Date().toISOString()} assignment=${assignmentId} worker=${workerIdx} totalMs=${assignMs} size=${pdfBuffer?.length || 0} name=${pdfName}\n`)
-          } catch (e) {
-            console.warn('[PDF ZIP] Failed to append timing to file:', e)
+          if (process.env.PDF_BATCH_VERBOSE_LOGS === 'true') {
+            console.log(`[PDF ZIP] (worker ${workerIdx}) Generating PDF for assignment ${assignmentId} (${safePrintUrl})`)
           }
 
-          // Append to archive
-          if (archive) archive.append(pdfBuffer, { name: pdfName })
+          let pdfBuffer: Buffer | null = null
+          let lastErr: any = null
+          const assignStart = Date.now()
+          for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+            try {
+              pdfBuffer = await generatePdfBufferFromPrintUrl(printUrl, token, frontendUrl, {
+                mode: 'batch',
+                highQuality,
+                reusePage: workerPage,
+                keepPageOpen: true,
+                verboseLogs: process.env.PDF_BATCH_VERBOSE_LOGS === 'true'
+              })
+              lastErr = null
+              break // success
+            } catch (retryErr: any) {
+              lastErr = retryErr
+              const isTimeout = String(retryErr?.message || '').includes('timed out') || String(retryErr?.message || '').includes('protocolTimeout')
+              if (isTimeout && attempt < MAX_RETRIES) {
+                console.warn(`[PDF ZIP] (worker ${workerIdx}) Attempt ${attempt + 1} timed out for ${assignmentId}, retrying with fresh page...`)
+                try { await workerPage.close() } catch {}
+                const freshBrowser = await getBrowser()
+                workerPage = await freshBrowser.newPage()
+              } else {
+                throw retryErr
+              }
+            }
+          }
+          if (lastErr) throw lastErr
+
+          const assignMs = Date.now() - assignStart
+          if (process.env.PDF_BATCH_VERBOSE_LOGS === 'true') {
+            console.log(`[PDF ZIP] (worker ${workerIdx}) PDF for ${assignmentId} generated in ${assignMs}ms, size=${pdfBuffer?.length || 0}`)
+          }
+          try {
+            if (process.env.PDF_TIMING_LOG === 'true') {
+              fs.appendFileSync('pdf-timings.log', `${new Date().toISOString()} assignment=${assignmentId} worker=${workerIdx} totalMs=${assignMs} size=${pdfBuffer?.length || 0} name=${pdfName}\n`)
+            }
+          } catch {
+          }
+
+          // Append to archive — validate buffer first
+          const folderName = assignmentFolderMap[assignmentId]
+          const archiveName = folderName ? `${folderName}/${pdfName}` : pdfName
+          if (!Buffer.isBuffer(pdfBuffer) || pdfBuffer.length === 0) {
+            console.warn(`[PDF ZIP] (worker ${workerIdx}) Invalid PDF buffer for ${assignmentId} (type=${typeof pdfBuffer}, isBuffer=${Buffer.isBuffer(pdfBuffer)}, length=${pdfBuffer?.length || 0}), skipping`)
+            if (archive && !aborted) {
+              try { archive.append(`PDF generation returned empty or invalid buffer\n`, { name: `errors/${sanitizeFileName(String(assignmentId))}.txt` }) } catch {}
+            }
+            if (progressToken) {
+              updateZipProgress(progressToken, (current) => {
+                const next: ZipProgressState = {
+                  ...current,
+                  failedAssignments: current.failedAssignments + 1,
+                  updatedAt: Date.now(),
+                  etaSeconds: current.etaSeconds
+                }
+                return { failedAssignments: next.failedAssignments, etaSeconds: recomputeZipProgressEta(next) }
+              })
+            }
+            continue
+          }
+          if (archive && !aborted) {
+            try {
+              archive.append(pdfBuffer, { name: archiveName })
+            } catch (appendErr: any) {
+              console.error(`[PDF ZIP] (worker ${workerIdx}) Failed to append ${archiveName}:`, appendErr?.message || appendErr)
+            }
+          }
+          if (progressToken) {
+            updateZipProgress(progressToken, (current) => {
+              const next: ZipProgressState = {
+                ...current,
+                completedAssignments: current.completedAssignments + 1,
+                updatedAt: Date.now(),
+                etaSeconds: current.etaSeconds
+              }
+              return { completedAssignments: next.completedAssignments, etaSeconds: recomputeZipProgressEta(next) }
+            })
+          }
 
         } catch (e: any) {
           const errMsg = e?.message ? String(e.message) : 'pdf_generation_failed'
-          if (archive) archive.append(`${errMsg}\n`, { name: `errors/${sanitizeFileName(String(assignmentId))}.txt` })
+          console.error(`[PDF ZIP] (worker ${workerIdx}) Error generating PDF for ${assignmentId}: ${errMsg}`)
+          if (archive && !aborted) {
+            try { archive.append(`${errMsg}\n`, { name: `errors/${sanitizeFileName(String(assignmentId))}.txt` }) } catch {}
+          }
+          if (progressToken) {
+            updateZipProgress(progressToken, (current) => {
+              const next: ZipProgressState = {
+                ...current,
+                failedAssignments: current.failedAssignments + 1,
+                updatedAt: Date.now(),
+                etaSeconds: current.etaSeconds
+              }
+              return { failedAssignments: next.failedAssignments, etaSeconds: recomputeZipProgressEta(next) }
+            })
+          }
         }
       }
+      try {
+        await workerPage.close()
+      } catch { }
     })())
 
     await Promise.all(workers)
@@ -689,8 +1010,24 @@ pdfPuppeteerRouter.post('/assignments/zip', requireAuth(['ADMIN', 'SUBADMIN', 'A
     // finalize archive after all workers finish
     console.log('[PDF ZIP] All workers completed, finalizing archive')
     await archive.finalize()
+    if (progressToken) {
+      updateZipProgress(progressToken, {
+        status: 'completed',
+        etaSeconds: 0
+      })
+      scheduleZipProgressCleanup(progressToken)
+    }
   } catch (e: any) {
     console.error('[PDF ZIP] Failed:', e)
+    if (String(req.body?.progressToken || '').trim()) {
+      const progressToken = String(req.body?.progressToken || '').trim()
+      updateZipProgress(progressToken, {
+        status: 'failed',
+        etaSeconds: null,
+        error: e?.message ? String(e.message) : 'zip_generation_failed'
+      })
+      scheduleZipProgressCleanup(progressToken)
+    }
     if (res.headersSent) {
       try {
         // If archive is not yet finalized, try to append error and finalize
@@ -710,6 +1047,31 @@ pdfPuppeteerRouter.post('/assignments/zip', requireAuth(['ADMIN', 'SUBADMIN', 'A
     }
     res.status(500).json({ error: 'zip_generation_failed', message: e.message })
   }
+})
+
+pdfPuppeteerRouter.get('/assignments/zip-progress/:token', requireAuth(['ADMIN', 'SUBADMIN', 'AEFE']), async (req, res) => {
+  const token = String(req.params?.token || '').trim()
+  if (!token) return res.status(400).json({ error: 'missing_progress_token' })
+  const state = zipProgressStore.get(token)
+  if (!state) return res.status(404).json({ error: 'progress_not_found' })
+
+  const processed = state.completedAssignments + state.failedAssignments
+  const total = Math.max(0, state.totalAssignments)
+  const percent = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 0
+
+  res.json({
+    token: state.token,
+    status: state.status,
+    totalAssignments: state.totalAssignments,
+    completedAssignments: state.completedAssignments,
+    failedAssignments: state.failedAssignments,
+    processedAssignments: processed,
+    progressPercent: percent,
+    etaSeconds: state.etaSeconds,
+    startedAt: state.startedAt,
+    updatedAt: state.updatedAt,
+    error: state.error || null
+  })
 })
 
 pdfPuppeteerRouter.get('/preview/:templateId/:studentId', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), async (req, res) => {
@@ -777,15 +1139,16 @@ pdfPuppeteerRouter.get('/preview-empty/:templateId', requireAuth(['ADMIN', 'SUBA
   try {
     const { templateId } = req.params
     const token = getTokenFromReq(req)
+    const highQuality = req.query.hq === '1'
     const template = await GradebookTemplate.findById(templateId).lean()
     if (!template) return res.status(404).json({ error: 'template_not_found' })
     const frontendUrl = resolveFrontendUrl(req)
 
     const printUrl = `${frontendUrl}/print/preview-empty/${templateId}?token=${token}&empty=true`
     const safePrintUrl = String(printUrl || '').replace(/([?&])token=[^&]*/, '$1token=***')
-    console.log('[PDF] Generating Empty Preview PDF via shared function:', safePrintUrl)
+    console.log('[PDF] Generating Empty Preview PDF via shared function:', safePrintUrl, 'highQuality:', highQuality)
     const genStart = Date.now()
-    const pdfBuffer = await generatePdfBufferFromPrintUrl(printUrl, token, frontendUrl)
+    const pdfBuffer = await generatePdfBufferFromPrintUrl(printUrl, token, frontendUrl, { highQuality })
     console.log(`[PDF TIMING] generatePdfBufferFromPrintUrl total ${Date.now() - genStart}ms for ${safePrintUrl}`)
 
     if (!pdfBuffer || pdfBuffer.length === 0) {
@@ -826,14 +1189,15 @@ pdfPuppeteerRouter.get('/saved/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER'
     }
 
     const token = getTokenFromReq(req)
+    const highQuality = req.query.hq === '1'
     const frontendUrl = resolveFrontendUrl(req)
 
     const printUrl = `${frontendUrl}/print/saved/${saved._id}?token=${token}`
 
     const safePrintUrl = String(printUrl || '').replace(/([?&])token=[^&]*/, '$1token=***')
-    console.log('[PDF] Generating Saved Gradebook PDF via shared function:', safePrintUrl)
+    console.log('[PDF] Generating Saved Gradebook PDF via shared function:', safePrintUrl, 'highQuality:', highQuality)
     const genStart = Date.now()
-    const pdfBuffer = await generatePdfBufferFromPrintUrl(printUrl, token, frontendUrl)
+    const pdfBuffer = await generatePdfBufferFromPrintUrl(printUrl, token, frontendUrl, { highQuality })
     console.log(`[PDF TIMING] generatePdfBufferFromPrintUrl total ${Date.now() - genStart}ms for ${safePrintUrl}`)
 
     if (!pdfBuffer || pdfBuffer.length === 0) {

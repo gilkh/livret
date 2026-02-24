@@ -261,13 +261,14 @@
 
 .progress-info {
     display: flex;
-    justify-content: space-between;
+    flex-direction: column;
     align-items: center;
+    gap: 8px;
     margin-top: 12px;
 }
 
 .progress-percentage {
-    font-size: 24px;
+    font-size: 28px;
     font-weight: 700;
     color: #a5b4fc;
     background: linear-gradient(135deg, #6366f1, #a855f7);
@@ -277,6 +278,117 @@
 }
 
 .time-estimate {
+    font-size: 13px;
+    color: #94a3b8;
+    font-weight: 500;
+}
+
+/* Batch export phase stepper */
+.batch-stepper {
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    margin-top: 16px;
+    margin-bottom: 4px;
+}
+
+.batch-step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    opacity: 0.4;
+    transition: opacity 0.3s ease;
+}
+
+.batch-step.active,
+.batch-step.completed {
+    opacity: 1;
+}
+
+.batch-step-dot {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 700;
+    border: 2px solid rgba(148, 163, 184, 0.3);
+    color: #94a3b8;
+    background: rgba(30, 41, 59, 0.8);
+    transition: all 0.3s ease;
+}
+
+.batch-step.active .batch-step-dot {
+    border-color: #6366f1;
+    color: #a5b4fc;
+    background: rgba(99, 102, 241, 0.15);
+    box-shadow: 0 0 12px rgba(99, 102, 241, 0.3);
+}
+
+.batch-step.completed .batch-step-dot {
+    border-color: #10b981;
+    color: #6ee7b7;
+    background: rgba(16, 185, 129, 0.15);
+}
+
+.batch-step-dot svg {
+    width: 16px;
+    height: 16px;
+}
+
+.batch-step-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: #94a3b8;
+    transition: color 0.3s ease;
+}
+
+.batch-step.active .batch-step-label {
+    color: #c7d2fe;
+}
+
+.batch-step.completed .batch-step-label {
+    color: #6ee7b7;
+}
+
+.batch-step-connector {
+    width: 60px;
+    height: 2px;
+    background: rgba(148, 163, 184, 0.2);
+    margin: 0 12px;
+    margin-top: 15px;
+    border-radius: 1px;
+    overflow: hidden;
+}
+
+.batch-step-connector-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #10b981, #6ee7b7);
+    transition: width 0.5s ease;
+    border-radius: 1px;
+}
+
+.batch-step-connector-fill.filled {
+    width: 100%;
+}
+
+/* Progress details */
+.progress-details {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 16px;
+    justify-content: center;
+    align-items: center;
+}
+
+.progress-detail-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
     font-size: 13px;
     color: #94a3b8;
     font-weight: 500;

@@ -4,7 +4,7 @@ import api from '../api'
 import ProgressionChart from '../components/ProgressionChart'
 import { useSchoolYear } from '../context/SchoolYearContext'
 import { openBatchPdfExport } from '../utils/pdfExport'
-import { AlertTriangle, CheckCircle2, Download, PenTool, TrendingUp, Users, BookOpen, Lightbulb, ArrowRight } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Download, PenTool, TrendingUp, Users, BookOpen, Lightbulb, ArrowRight, Sparkles } from 'lucide-react'
 
 type Teacher = { _id: string; email: string; displayName: string }
 type PendingTemplate = {
@@ -59,6 +59,7 @@ export default function SubAdminDashboard() {
     const [expandedPromotions, setExpandedPromotions] = useState<Record<string, boolean>>({})
     const [promotionDownloads, setPromotionDownloads] = useState<Record<string, { status: 'idle' | 'preparing' | 'downloading' | 'done' | 'error'; progress: number; error?: string }>>({})
     const [hasSignature, setHasSignature] = useState<boolean | null>(null)
+    const [exportQualityChoice, setExportQualityChoice] = useState<{ callback: (hq: boolean) => void } | null>(null)
 
     // Check if user has a signature
     useEffect(() => {
@@ -149,13 +150,18 @@ export default function SubAdminDashboard() {
         setExpandedPromotions(prev => ({ ...prev, [group]: !prev[group] }))
     }
 
-    const downloadPromotionGroupZip = async (group: string, students: PromotedStudent[]) => {
+    /** Show quality choice dialog, then call the provided export function with the chosen quality */
+    const promptExportQuality = (exportFn: (highQuality: boolean) => void) => {
+        setExportQualityChoice({ callback: exportFn })
+    }
+
+    const downloadPromotionGroupZip = async (group: string, students: PromotedStudent[], highQuality = false) => {
         const assignmentIds = students.map(s => s.assignmentId).filter(Boolean) as string[]
         if (assignmentIds.length === 0) return
 
         // Use the new progress page in a new tab for batch exports
         const base = (api.defaults.baseURL || '').replace(/\/$/, '')
-        openBatchPdfExport(base, assignmentIds, group, `Carnets - ${group}`)
+        openBatchPdfExport(base, assignmentIds, group, `Carnets - ${group}`, {}, highQuality)
     }
 
     const getClassAssignmentIds = (level: string, className: string): string[] => {
@@ -163,12 +169,49 @@ export default function SubAdminDashboard() {
         return Array.from(new Set(templates.map(t => t._id).filter(Boolean)))
     }
 
-    const downloadClassZip = (level: string, className: string) => {
+    const downloadClassZip = (level: string, className: string, highQuality = false) => {
         const assignmentIds = getClassAssignmentIds(level, className)
         if (assignmentIds.length === 0) return
 
         const base = (api.defaults.baseURL || '').replace(/\/$/, '')
-        openBatchPdfExport(base, assignmentIds, `${level}-${className}`, `Carnets - ${className}`)
+        openBatchPdfExport(base, assignmentIds, `${level}-${className}`, `Carnets - ${className}`, {}, highQuality)
+    }
+
+    const getLevelAssignmentIds = (level: string): string[] => {
+        const classesInLevel = groupedAllTemplates[level] || {}
+        const ids = Object.values(classesInLevel)
+            .flat()
+            .map(t => t._id)
+            .filter(Boolean)
+        return Array.from(new Set(ids))
+    }
+
+    const getLevelAssignmentFolderMap = (level: string): Record<string, string> => {
+        const classesInLevel = groupedAllTemplates[level] || {}
+        const map: Record<string, string> = {}
+        Object.entries(classesInLevel).forEach(([className, templates]) => {
+            templates.forEach(template => {
+                if (!template?._id) return
+                map[String(template._id)] = className || 'Sans classe'
+            })
+        })
+        return map
+    }
+
+    const downloadLevelZip = (level: string, highQuality = false) => {
+        const assignmentIds = getLevelAssignmentIds(level)
+        if (assignmentIds.length === 0) return
+
+        const assignmentFolderMap = getLevelAssignmentFolderMap(level)
+        const base = (api.defaults.baseURL || '').replace(/\/$/, '')
+        openBatchPdfExport(
+            base,
+            assignmentIds,
+            `niveau-${level}`,
+            `Carnets - Niveau ${level}`,
+            { assignmentFolderMap },
+            highQuality
+        )
     }
 
     // Calculate statistics
@@ -691,7 +734,7 @@ export default function SubAdminDashboard() {
 
                                                             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
                                                                 <button
-                                                                    onClick={() => downloadPromotionGroupZip(group, students)}
+                                                                    onClick={() => promptExportQuality((hq) => downloadPromotionGroupZip(group, students, hq))}
                                                                     disabled={isDisabled}
                                                                     className="btn"
                                                                     style={{
@@ -825,9 +868,41 @@ export default function SubAdminDashboard() {
                         {sortedLevels.length > 0 ? (
                             sortedLevels.map(level => (
                                 <div key={level} style={{ marginBottom: 24 }}>
-                                    <h4 style={{ fontSize: 18, color: '#334155', marginBottom: 12, borderBottom: '2px solid #e2e8f0', paddingBottom: 8 }}>
-                                        Niveau: {level}
-                                    </h4>
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12, borderBottom: '2px solid #e2e8f0', paddingBottom: 8 }}>
+                                        <h4 style={{ fontSize: 18, color: '#334155', margin: 0 }}>
+                                            Niveau: {level}
+                                        </h4>
+                                        {(() => {
+                                            const levelAssignmentIds = getLevelAssignmentIds(level)
+                                            const canExportLevel = levelAssignmentIds.length > 0
+                                            return (
+                                                <button
+                                                    onClick={() => promptExportQuality((hq) => downloadLevelZip(level, hq))}
+                                                    disabled={!canExportLevel}
+                                                    className="btn"
+                                                    style={{
+                                                        padding: '8px 10px',
+                                                        fontSize: 12,
+                                                        fontWeight: 600,
+                                                        background: '#1d4ed8',
+                                                        color: 'white',
+                                                        borderRadius: 8,
+                                                        border: '1px solid #1d4ed8',
+                                                        opacity: canExportLevel ? 1 : 0.55,
+                                                        cursor: canExportLevel ? 'pointer' : 'not-allowed',
+                                                        display: 'inline-flex',
+                                                        alignItems: 'center',
+                                                        gap: 6,
+                                                        whiteSpace: 'nowrap'
+                                                    }}
+                                                    title="Exporter tous les carnets de ce niveau, classés par dossiers de classe"
+                                                >
+                                                    <Download size={14} />
+                                                    Exporter niveau ({levelAssignmentIds.length})
+                                                </button>
+                                            )
+                                        })()}
+                                    </div>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                                         {Object.keys(groupedTemplates[level]).sort().map(className => {
                                             const templates = groupedTemplates[level][className]
@@ -864,7 +939,7 @@ export default function SubAdminDashboard() {
                                                             <button
                                                                 onClick={(e) => {
                                                                     e.stopPropagation()
-                                                                    downloadClassZip(level, className)
+                                                                    promptExportQuality((hq) => downloadClassZip(level, className, hq))
                                                                 }}
                                                                 disabled={!canExportClass}
                                                                 className="btn"
@@ -1044,6 +1119,100 @@ export default function SubAdminDashboard() {
                     </>
                 )}
             </div>
+
+            {/* Export quality choice modal */}
+            {exportQualityChoice && (
+                <div
+                    style={{
+                        position: 'fixed', inset: 0, zIndex: 9999,
+                        background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center'
+                    }}
+                    onClick={() => setExportQualityChoice(null)}
+                >
+                    <div
+                        style={{
+                            background: 'white', borderRadius: 16, padding: '28px 32px',
+                            boxShadow: '0 20px 60px rgba(0,0,0,0.25)', maxWidth: 420, width: '90%'
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <h3 style={{ margin: '0 0 6px', fontSize: 18, color: '#1e293b' }}>
+                            Qualité de l'export
+                        </h3>
+                        <p style={{ margin: '0 0 20px', fontSize: 14, color: '#64748b', lineHeight: 1.5 }}>
+                            Choisissez la qualité des carnets PDF exportés.
+                        </p>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                            <button
+                                onClick={() => {
+                                    const cb = exportQualityChoice.callback
+                                    setExportQualityChoice(null)
+                                    cb(false)
+                                }}
+                                style={{
+                                    padding: '14px 18px', borderRadius: 12,
+                                    border: '2px solid #e2e8f0', background: '#f8fafc',
+                                    cursor: 'pointer', textAlign: 'left',
+                                    display: 'flex', alignItems: 'center', gap: 14,
+                                    transition: 'border-color 0.15s, background 0.15s'
+                                }}
+                                onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#3b82f6'; e.currentTarget.style.background = '#eff6ff' }}
+                                onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.background = '#f8fafc' }}
+                            >
+                                <Download size={22} style={{ color: '#3b82f6', flexShrink: 0 }} />
+                                <div>
+                                    <div style={{ fontWeight: 700, fontSize: 15, color: '#1e293b' }}>
+                                        Compressé
+                                        <span style={{ fontWeight: 500, fontSize: 12, color: '#94a3b8', marginLeft: 8 }}>— rapide</span>
+                                    </div>
+                                    <div style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>
+                                        Fichiers légers, bonne qualité visuelle (JPEG)
+                                    </div>
+                                </div>
+                            </button>
+                            <button
+                                onClick={() => {
+                                    const cb = exportQualityChoice.callback
+                                    setExportQualityChoice(null)
+                                    cb(true)
+                                }}
+                                style={{
+                                    padding: '14px 18px', borderRadius: 12,
+                                    border: '2px solid #e2e8f0', background: '#f8fafc',
+                                    cursor: 'pointer', textAlign: 'left',
+                                    display: 'flex', alignItems: 'center', gap: 14,
+                                    transition: 'border-color 0.15s, background 0.15s'
+                                }}
+                                onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#8b5cf6'; e.currentTarget.style.background = '#f5f3ff' }}
+                                onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.background = '#f8fafc' }}
+                            >
+                                <Sparkles size={22} style={{ color: '#8b5cf6', flexShrink: 0 }} />
+                                <div>
+                                    <div style={{ fontWeight: 700, fontSize: 15, color: '#1e293b' }}>
+                                        Qualité maximale
+                                        <span style={{ fontWeight: 500, fontSize: 12, color: '#94a3b8', marginLeft: 8 }}>— plus lent</span>
+                                    </div>
+                                    <div style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>
+                                        Aucune perte de pixels, fichiers plus volumineux (PNG)
+                                    </div>
+                                </div>
+                            </button>
+                        </div>
+                        <button
+                            onClick={() => setExportQualityChoice(null)}
+                            style={{
+                                marginTop: 16, width: '100%', padding: '10px',
+                                borderRadius: 10, border: '1px solid #e2e8f0',
+                                background: 'transparent', color: '#94a3b8',
+                                cursor: 'pointer', fontSize: 14, fontWeight: 500
+                            }}
+                        >
+                            Annuler
+                        </button>
+                    </div>
+                </div>
+            )}
         </div>
     )
 }

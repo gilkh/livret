@@ -9,7 +9,8 @@ export function openPdfExport(
     url: string,
     name: string = 'Carnet',
     type: 'single' | 'batch' = 'single',
-    count: number = 1
+    count: number = 1,
+    highQuality: boolean = false
 ): void {
     // Build progress page URL with parameters
     const progressUrl = new URL('/export-progress', window.location.origin)
@@ -18,6 +19,9 @@ export function openPdfExport(
     progressUrl.searchParams.set('type', type)
     if (count > 1) {
         progressUrl.searchParams.set('count', count.toString())
+    }
+    if (highQuality) {
+        progressUrl.searchParams.set('hq', '1')
     }
 
     // Open in new tab
@@ -61,6 +65,18 @@ export function buildSavedGradebookPdfUrl(
 }
 
 /**
+ * Build the PDF export URL for an empty template preview
+ */
+export function buildPreviewEmptyPdfUrl(
+    baseUrl: string,
+    templateId: string
+): string {
+    const base = baseUrl.replace(/\/$/, '')
+    const origin = window.location.origin
+    return `${base}/pdf-v2/preview-empty/${templateId}?frontendOrigin=${encodeURIComponent(origin)}`
+}
+
+/**
  * Open a batch PDF export (ZIP) with the progress UI
  * Uses sessionStorage to pass data to the new tab since POST body can't go in URL
  * @param baseUrl - The API base URL
@@ -72,17 +88,29 @@ export function openBatchPdfExport(
     baseUrl: string,
     assignmentIds: string[],
     groupLabel: string,
-    displayName: string
+    displayName: string,
+    requestBody: Record<string, unknown> = {},
+    highQuality: boolean = false
 ): void {
     // Generate unique export ID
     const exportId = `batch-${Date.now()}-${Math.random().toString(36).substring(7)}`
 
     // Store batch data in sessionStorage
+    const progressToken = `progress-${Date.now()}-${Math.random().toString(36).substring(2, 10)}`
+
     const batchData = {
         type: 'batch',
         url: `${baseUrl.replace(/\/$/, '')}/pdf-v2/assignments/zip`,
+        progressUrl: `${baseUrl.replace(/\/$/, '')}/pdf-v2/assignments/zip-progress/${encodeURIComponent(progressToken)}`,
+        progressToken,
         assignmentIds,
         groupLabel,
+        highQuality,
+        requestBody: {
+            ...requestBody,
+            progressToken,
+            highQuality
+        },
         displayName,
         count: assignmentIds.length
     }
@@ -94,6 +122,9 @@ export function openBatchPdfExport(
     progressUrl.searchParams.set('type', 'batch')
     progressUrl.searchParams.set('name', displayName)
     progressUrl.searchParams.set('count', assignmentIds.length.toString())
+    if (highQuality) {
+        progressUrl.searchParams.set('hq', '1')
+    }
 
     // Open in new tab
     window.open(progressUrl.toString(), '_blank')

@@ -397,7 +397,7 @@ exports.adminExtrasRouter.post('/alert/stop', (0, auth_1.requireAuth)(['ADMIN'])
         await SystemAlert_1.SystemAlert.updateMany({ active: true }, { active: false });
         const cancelDurationMinutes = !isNaN(Number(duration)) && Number(duration) > 0 ? Number(duration) : 5;
         const cancelNotice = await SystemAlert_1.SystemAlert.create({
-            message: 'Maintenance cancelled. The system will remain working. If a new notice is required, it will be shared.',
+            message: 'La maintenance a été annulée. Le système reste pleinement opérationnel, sauf communication d’un nouvel avis.',
             type: 'success',
             createdBy: req.user.userId,
             active: true,
