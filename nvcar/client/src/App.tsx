@@ -53,6 +53,7 @@ import SubAdminSemesterRequest from './pages/SubAdminSemesterRequest'
 import SuggestionGradebookTemplates from './pages/SuggestionGradebookTemplates'
 import AdminMonitoring from './pages/AdminMonitoring'
 import AdminClassTeacherCoverage from './pages/AdminClassTeacherCoverage'
+import AdminGradebookToggleBatch from './pages/AdminGradebookToggleBatch'
 import SystemAlertBanner from './components/SystemAlertBanner'
 import SimulationLab from './pages/SimulationLab'
 import Toast, { ToastType } from './components/Toast'
@@ -713,6 +714,14 @@ export default function App() {
           element={
             <RequireAuth>
               <AdminClassTeacherCoverage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/admin/gradebook-toggle-batch"
+          element={
+            <RequireAuth>
+              <AdminGradebookToggleBatch />
             </RequireAuth>
           }
         />

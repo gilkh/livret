@@ -1,0 +1,445 @@
+/* ─── Page ─── */
+.tgl-page {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 24px 20px;
+  font-family: inherit;
+}
+
+/* ─── Header ─── */
+.tgl-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 20px;
+}
+.tgl-header-icon {
+  font-size: 32px;
+  line-height: 1;
+}
+.tgl-header h1 {
+  margin: 0 0 2px;
+  font-size: 22px;
+}
+.tgl-header p {
+  margin: 0;
+  color: #6b7280;
+  font-size: 14px;
+}
+
+/* ─── Filters ─── */
+.tgl-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 14px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+}
+.tgl-filters label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-weight: 600;
+  font-size: 13px;
+}
+.tgl-filters label span {
+  font-weight: 500;
+  color: #6b7280;
+}
+.tgl-filters select {
+  min-height: 36px;
+  padding: 6px 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 14px;
+  background: #fff;
+}
+.tgl-global-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+.tgl-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 16px;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity .15s;
+}
+.tgl-btn:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+.tgl-btn-on {
+  background: #dcfce7;
+  color: #166534;
+}
+.tgl-btn-on:hover:not(:disabled) {
+  background: #bbf7d0;
+}
+.tgl-btn-off {
+  background: #fee2e2;
+  color: #991b1b;
+}
+.tgl-btn-off:hover:not(:disabled) {
+  background: #fecaca;
+}
+
+/* ─── Feedback ─── */
+.tgl-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 0;
+  color: #6b7280;
+  font-size: 14px;
+}
+.tgl-spinner {
+  width: 18px;
+  height: 18px;
+  border: 3px solid #e5e7eb;
+  border-top-color: #6366f1;
+  border-radius: 50%;
+  animation: tgl-spin .6s linear infinite;
+}
+@keyframes tgl-spin {
+  to { transform: rotate(360deg); }
+}
+.tgl-error {
+  background: #fef2f2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 14px;
+  margin-bottom: 12px;
+}
+.tgl-toast {
+  background: #f0fdf4;
+  color: #166534;
+  border: 1px solid #86efac;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 14px;
+  margin-bottom: 12px;
+  cursor: pointer;
+}
+
+/* ─── Stats ─── */
+.tgl-stats {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+.tgl-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 80px;
+  padding: 10px 16px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+}
+.tgl-stat-on {
+  border-color: #86efac;
+  background: #f0fdf4;
+}
+.tgl-stat-off {
+  border-color: #fecaca;
+  background: #fef2f2;
+}
+.tgl-stat-n {
+  font-size: 22px;
+  font-weight: 700;
+}
+.tgl-stat-l {
+  font-size: 12px;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+}
+
+/* ─── Matrix table ─── */
+.tgl-matrix-wrap {
+  overflow-x: auto;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 12px;
+  margin-bottom: 20px;
+}
+.tgl-matrix {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.tgl-matrix th,
+.tgl-matrix td {
+  border: 1px solid #e5e7eb;
+  padding: 6px 8px;
+  text-align: center;
+  white-space: nowrap;
+}
+.tgl-th-class {
+  background: #f9fafb;
+  text-align: left;
+  font-weight: 600;
+  min-width: 100px;
+}
+.tgl-th-level {
+  background: #f3f4f6;
+  font-weight: 700;
+  font-size: 13px;
+}
+.tgl-th-level-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+.tgl-th-level-name {
+  font-size: 14px;
+}
+.tgl-th-tag {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .3px;
+}
+.tgl-tag-past {
+  background: #fef3c7;
+  color: #92400e;
+}
+.tgl-tag-mixed {
+  background: #e0e7ff;
+  color: #3730a3;
+}
+.tgl-tag-future {
+  background: #e0e7ff;
+  color: #4338ca;
+}
+.tgl-th-past {
+  background: #fefce8;
+}
+.tgl-th-future {
+  background: #f0f0f6;
+}
+.tgl-th-level-actions {
+  display: flex;
+  gap: 3px;
+  justify-content: center;
+  margin-top: 2px;
+}
+.tgl-th-lang {
+  background: #f9fafb;
+  font-size: 11px;
+  font-weight: 500;
+  color: #6b7280;
+}
+.tgl-th-total,
+.tgl-th-actions {
+  background: #f9fafb;
+  font-weight: 600;
+  text-align: center;
+  min-width: 60px;
+}
+.tgl-td-class {
+  text-align: left;
+  font-weight: 500;
+}
+.tgl-td-level {
+  text-align: center;
+  color: #6b7280;
+}
+.tgl-td-cell {
+  vertical-align: middle;
+}
+.tgl-td-cell.tgl-past {
+  background: #fffbeb;
+}
+.tgl-td-cell.tgl-future {
+  background: #f0f0f4;
+  position: relative;
+}
+.tgl-td-cell.tgl-empty {
+  background: #fafafa;
+}
+.tgl-dash {
+  color: #d1d5db;
+}
+.tgl-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+.tgl-cell-blurred {
+  filter: blur(3px);
+  opacity: .4;
+  pointer-events: none;
+  user-select: none;
+}
+.tgl-cell-count {
+  font-weight: 600;
+  font-size: 13px;
+}
+.tgl-cell-count.all-on {
+  color: #16a34a;
+}
+.tgl-cell-count.all-off {
+  color: #dc2626;
+}
+.tgl-cell-btns {
+  display: flex;
+  gap: 3px;
+}
+.tgl-td-total {
+  text-align: center;
+  font-weight: 600;
+}
+.tgl-td-actions {
+  text-align: center;
+}
+
+/* mini buttons */
+.tgl-mbtn {
+  display: inline-block;
+  padding: 2px 7px;
+  border: none;
+  border-radius: 5px;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity .12s;
+}
+.tgl-mbtn:disabled {
+  opacity: .35;
+  cursor: not-allowed;
+}
+.tgl-mbtn-on {
+  background: #dcfce7;
+  color: #166534;
+}
+.tgl-mbtn-on:hover:not(:disabled) {
+  background: #bbf7d0;
+}
+.tgl-mbtn-off {
+  background: #fee2e2;
+  color: #991b1b;
+}
+.tgl-mbtn-off:hover:not(:disabled) {
+  background: #fecaca;
+}
+
+/* ─── Legend ─── */
+.tgl-legend {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  font-size: 12px;
+  color: #6b7280;
+}
+.tgl-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.tgl-legend-past {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 3px;
+}
+.tgl-legend-future {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  background: #f0f0f4;
+  border: 1px solid #c7c7d1;
+  border-radius: 3px;
+}
+
+/* ─── Section headings ─── */
+.tgl-section {
+  margin-top: 20px;
+}
+.tgl-section h2 {
+  font-size: 16px;
+  margin: 0 0 12px;
+}
+
+/* ─── Level cards ─── */
+.tgl-level-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+}
+.tgl-level-card {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 14px;
+}
+.tgl-level-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+.tgl-level-badge {
+  font-weight: 700;
+  font-size: 16px;
+}
+.tgl-level-pct {
+  font-weight: 700;
+  font-size: 16px;
+  color: #6366f1;
+}
+.tgl-level-bar {
+  height: 6px;
+  background: #e5e7eb;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.tgl-level-bar-fill {
+  height: 100%;
+  background: #6366f1;
+  border-radius: 4px;
+  transition: width .3s;
+}
+.tgl-level-detail {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #6b7280;
+}
+.tgl-level-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+/* ─── Empty state ─── */
+.tgl-empty-state {
+  text-align: center;
+  padding: 40px;
+  color: #9ca3af;
+  font-size: 15px;
+}

@@ -16,7 +16,8 @@ import {
   Layers,
   GraduationCap,
   Activity,
-  UserPlus
+  UserPlus,
+  ToggleLeft
 } from 'lucide-react'
 import DashboardCard from '../components/DashboardCard'
 import './AdminDashboard.css'
@@ -156,6 +157,14 @@ export default function AdminDashboard() {
               to="/admin/gradebooks"
               color="#f6ffed"
               iconColor="#52c41a"
+            />
+            <DashboardCard
+              title="Toggles Carnets"
+              description="Compter ON/OFF puis activer/désactiver par classe/niveau."
+              icon={ToggleLeft}
+              to="/admin/gradebook-toggle-batch"
+              color="#eef2ff"
+              iconColor="#4338ca"
             />
             <DashboardCard
               title="Supervision"
