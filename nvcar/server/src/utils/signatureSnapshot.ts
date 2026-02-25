@@ -10,19 +10,39 @@ const guessMimeType = (source: string) => {
     return 'image/png'
 }
 
+const tryResolveLocalUploadsPath = (source: string): string | null => {
+    const raw = String(source || '').trim()
+    if (!raw) return null
+
+    let pathname = raw
+    if (/^https?:\/\//i.test(raw)) {
+        try {
+            pathname = new URL(raw).pathname || ''
+        } catch {
+            pathname = raw
+        }
+    }
+
+    const uploadsIdx = pathname.indexOf('/uploads/')
+    if (uploadsIdx === -1) return null
+
+    const relFromPublic = pathname.slice(uploadsIdx + 1).replace(/^\/+/, '')
+    if (!relFromPublic) return null
+
+    return path.join(__dirname, '../../public', relFromPublic)
+}
+
 export const buildSignatureSnapshot = async (signatureUrl?: string, baseUrl?: string): Promise<string | undefined> => {
     if (!signatureUrl) return undefined
     if (String(signatureUrl).startsWith('data:')) return String(signatureUrl)
 
     try {
         const raw = String(signatureUrl)
-        if (raw.startsWith('/') || raw.startsWith('uploads')) {
-            const localPath = path.join(__dirname, '../../public', raw.startsWith('/') ? raw : `/${raw}`)
-            if (fs.existsSync(localPath)) {
-                const buf = fs.readFileSync(localPath)
-                const mime = guessMimeType(localPath)
-                return `data:${mime};base64,${buf.toString('base64')}`
-            }
+        const localPath = tryResolveLocalUploadsPath(raw)
+        if (localPath && fs.existsSync(localPath)) {
+            const buf = fs.readFileSync(localPath)
+            const mime = guessMimeType(localPath)
+            return `data:${mime};base64,${buf.toString('base64')}`
         }
 
         const normalizedBase = baseUrl || 'http://localhost:4000'

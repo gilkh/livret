@@ -1189,12 +1189,7 @@ subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', requireAut
 
             let sigUrl: string | undefined = undefined
             if (user?.signatureUrl) {
-                if (String(user.signatureUrl).startsWith('http')) {
-                    sigUrl = user.signatureUrl
-                } else {
-                    const base = `${req.protocol}://${req.get('host')}`
-                    sigUrl = `${base}${user.signatureUrl}`
-                }
+                sigUrl = String(user.signatureUrl)
             }
 
             const baseUrl = `${req.protocol}://${req.get('host')}`

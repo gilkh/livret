@@ -94,7 +94,7 @@ export const createApp = () => {
   app.use('/template-propagation', templatePropagationRouter)
   app.use('/error-logs', errorLogsRouter)
   app.use('/integrity', integrityRouter)
-  app.use('/uploads', express.static(path.join(process.cwd(), 'public', 'uploads')))
+  app.use('/uploads', express.static(path.join(__dirname, '../public/uploads')))
 
   app.get('/health', (_, res) => res.json({ ok: true }))
   connectDb()
