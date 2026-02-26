@@ -78,6 +78,7 @@ const getBrowser = async () => {
             headless: true,
             // @ts-ignore - available at runtime, not in older type defs
             ignoreHTTPSErrors: true,
+            protocolTimeout: 180000, // 3 min — prevents CDP timeout under heavy batch concurrency
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
@@ -100,6 +101,16 @@ const getBrowser = async () => {
         browserInstance = null;
     });
     return browserInstance;
+};
+/** Force-close the current browser so the next getBrowser() creates a fresh one */
+const closeBrowser = async () => {
+    if (browserInstance) {
+        try {
+            await browserInstance.close();
+        }
+        catch { }
+        browserInstance = null;
+    }
 };
 const sanitizeFileName = (value) => {
     const cleaned = String(value || '')
@@ -244,6 +255,7 @@ const resolveFrontendUrl = (req) => {
 };
 const generatePdfBufferFromPrintUrl = async (printUrl, token, frontendUrl, options = {}) => {
     const mode = options.mode || 'single';
+    const highQuality = options.highQuality === true;
     const verboseLogs = typeof options.verboseLogs === 'boolean'
         ? options.verboseLogs
         : (mode !== 'batch' || process.env.PDF_BATCH_VERBOSE_LOGS === 'true');
@@ -253,14 +265,15 @@ const generatePdfBufferFromPrintUrl = async (printUrl, token, frontendUrl, optio
     const pdfPageHeightPx = Number.isFinite(pdfPageHeightPxRaw) && pdfPageHeightPxRaw > 0 ? Math.round(pdfPageHeightPxRaw) : 1120;
     // Device scale factor controls DPI: 1.35 = ~130 DPI (sharp for screen/print, optimized for size)
     // Lower = smaller files, Higher = sharper but larger files
-    const batchDefaultScale = process.env.PDF_BATCH_DEVICE_SCALE_FACTOR || '1.15';
-    const pdfDeviceScaleFactorRaw = Number(options.deviceScaleFactor ?? process.env.PDF_DEVICE_SCALE_FACTOR ?? process.env.PDF_DPI_SCALE ?? (mode === 'batch' ? batchDefaultScale : '1.35'));
+    // High quality mode uses 2x scale for crisp output
+    const batchDefaultScale = highQuality ? '2' : (process.env.PDF_BATCH_DEVICE_SCALE_FACTOR || '1.15');
+    const pdfDeviceScaleFactorRaw = Number(options.deviceScaleFactor ?? (highQuality ? '2' : (process.env.PDF_DEVICE_SCALE_FACTOR ?? process.env.PDF_DPI_SCALE ?? (mode === 'batch' ? batchDefaultScale : '1.35'))));
     const pdfDeviceScaleFactor = Number.isFinite(pdfDeviceScaleFactorRaw) && pdfDeviceScaleFactorRaw > 0 ? Math.min(3, Math.max(1, pdfDeviceScaleFactorRaw)) : 1.35;
     // Use native page.pdf() instead of screenshot-based approach
-    // Default to screenshot (false) since native PDF can add white borders around content
+    // Default to screenshot (false) for both single and batch — native PDF adds white borders
     const useNativePdf = typeof options.useNativePdf === 'boolean'
         ? options.useNativePdf
-        : (mode === 'batch' ? process.env.PDF_BATCH_USE_NATIVE !== 'false' : process.env.PDF_USE_NATIVE === 'true');
+        : (mode === 'batch' ? process.env.PDF_BATCH_USE_NATIVE === 'true' : process.env.PDF_USE_NATIVE === 'true');
     const readyTimeoutMsRaw = Number(options.readyTimeoutMs ?? process.env.PDF_READY_TIMEOUT_MS ?? (mode === 'batch' ? '1500' : '10000'));
     const readyTimeoutMs = Number.isFinite(readyTimeoutMsRaw) && readyTimeoutMsRaw >= 0 ? Math.round(readyTimeoutMsRaw) : (mode === 'batch' ? 1500 : 10000);
     const prePdfDelayMsRaw = Number(options.prePdfDelayMs ?? process.env.PDF_PRE_DELAY_MS ?? (mode === 'batch' ? '50' : '250'));
@@ -445,6 +458,10 @@ const generatePdfBufferFromPrintUrl = async (printUrl, token, frontendUrl, optio
                 scale: 1, // Full scale - CSS handles sizing
                 margin: { top: 0, right: 0, bottom: 0, left: 0 }
             });
+            // Puppeteer may return Uint8Array instead of Buffer — normalize
+            if (!Buffer.isBuffer(pdfBuffer)) {
+                pdfBuffer = Buffer.from(pdfBuffer);
+            }
         }
         else {
             // ========== SCREENSHOT-BASED APPROACH (DEFAULT) ==========
@@ -455,11 +472,12 @@ const generatePdfBufferFromPrintUrl = async (printUrl, token, frontendUrl, optio
                 throw new Error('No .page-canvas elements found on print page');
             }
             // PDF quality settings - optimized for size while maintaining good quality
-            // 72% JPEG quality: imperceptible quality loss on gradebooks, ~20% smaller than 80%
+            // High quality mode: PNG + 2x scale for lossless output
+            // Compressed mode: JPEG 60-72% quality
             const pdfImageQuality = Number(mode === 'batch' ? (process.env.PDF_BATCH_IMAGE_QUALITY || process.env.PDF_IMAGE_QUALITY || '60') : (process.env.PDF_IMAGE_QUALITY || '72'));
-            const pdfUseJpeg = process.env.PDF_USE_JPEG !== 'false';
+            const pdfUseJpeg = highQuality ? false : (process.env.PDF_USE_JPEG !== 'false');
             if (verboseLogs)
-                console.log(`[PDF DEBUG] Using SCREENSHOT approach - quality=${pdfImageQuality}, jpeg=${pdfUseJpeg}, pages=${pageCanvases.length}`);
+                console.log(`[PDF DEBUG] Using SCREENSHOT approach - quality=${pdfImageQuality}, jpeg=${pdfUseJpeg}, highQuality=${highQuality}, pages=${pageCanvases.length}`);
             pdfBuffer = await new Promise(async (resolve, reject) => {
                 try {
                     const chunks = [];
@@ -475,8 +493,10 @@ const generatePdfBufferFromPrintUrl = async (printUrl, token, frontendUrl, optio
                         const imageBuffer = pdfUseJpeg
                             ? (await handle.screenshot({ type: 'jpeg', quality: pdfImageQuality, omitBackground: false }))
                             : (await handle.screenshot({ type: 'png', omitBackground: true }));
+                        // Puppeteer may return Uint8Array — normalize for PDFKit
+                        const imgBuf = Buffer.isBuffer(imageBuffer) ? imageBuffer : Buffer.from(imageBuffer);
                         doc.addPage({ size: [resolvedPdfPageWidthPx, resolvedPdfPageHeightPx], margin: 0 });
-                        doc.image(imageBuffer, 0, 0, { width: resolvedPdfPageWidthPx, height: resolvedPdfPageHeightPx });
+                        doc.image(imgBuf, 0, 0, { width: resolvedPdfPageWidthPx, height: resolvedPdfPageHeightPx });
                     }
                     doc.end();
                 }
@@ -500,6 +520,10 @@ const generatePdfBufferFromPrintUrl = async (printUrl, token, frontendUrl, optio
         }
         if (!pdfBuffer || pdfBuffer.length === 0) {
             throw new Error('Generated PDF buffer is empty');
+        }
+        // Final safety: always return a proper Buffer
+        if (!Buffer.isBuffer(pdfBuffer)) {
+            pdfBuffer = Buffer.from(pdfBuffer);
         }
         return pdfBuffer;
     }
@@ -547,13 +571,14 @@ exports.pdfPuppeteerRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN',
         else if (req.query.token) {
             token = String(req.query.token);
         }
+        const highQuality = req.query.hq === '1';
         console.log('[PDF] Getting browser instance...');
         const frontendUrl = resolveFrontendUrl(req);
         const printUrl = `${frontendUrl}/print/carnet/${assignment._id}?token=${token}`;
         const safePrintUrl = String(printUrl || '').replace(/([?&])token=[^&]*/, '$1token=***');
-        console.log('[PDF] Generating PDF via shared function:', safePrintUrl);
+        console.log('[PDF] Generating PDF via shared function:', safePrintUrl, 'highQuality:', highQuality);
         const genStart = Date.now();
-        const pdfBuffer = await generatePdfBufferFromPrintUrl(printUrl, token, frontendUrl);
+        const pdfBuffer = await generatePdfBufferFromPrintUrl(printUrl, token, frontendUrl, { highQuality });
         console.log(`[PDF TIMING] generatePdfBufferFromPrintUrl total ${Date.now() - genStart}ms for ${safePrintUrl}`);
         console.log('[PDF] PDF generated successfully, size:', pdfBuffer.length, 'bytes');
         // Verify PDF is valid
@@ -610,6 +635,7 @@ exports.pdfPuppeteerRouter.post('/assignments/zip', (0, auth_1.requireAuth)(['AD
         const assignmentIds = Array.isArray(req.body?.assignmentIds) ? req.body.assignmentIds.filter(Boolean) : [];
         const groupLabel = String(req.body?.groupLabel || '').trim();
         const hideSignatures = req.body?.hideSignatures === true;
+        const highQuality = req.body?.highQuality === true;
         const progressToken = String(req.body?.progressToken || '').trim();
         const rawAssignmentFolderMap = req.body?.assignmentFolderMap && typeof req.body.assignmentFolderMap === 'object'
             ? req.body.assignmentFolderMap
@@ -663,7 +689,15 @@ exports.pdfPuppeteerRouter.post('/assignments/zip', (0, auth_1.requireAuth)(['AD
             catch { }
         });
         archive.on('error', (err) => {
-            console.error('[PDF ZIP] Archiver error:', err);
+            // INPUTSTEAMBUFFERREQUIRED and QUEUECLOSED are per-entry errors that we
+            // already handle at the worker level – don't destroy the whole response.
+            const code = String(err?.code || '');
+            if (code === 'INPUTSTEAMBUFFERREQUIRED' || code === 'QUEUECLOSED') {
+                console.warn('[PDF ZIP] Archiver non-fatal error (handled):', code, err?.data?.name || '');
+                return;
+            }
+            console.error('[PDF ZIP] Archiver fatal error:', err);
+            aborted = true;
             res.destroy(err);
         });
         archive.on('warning', (err) => {
@@ -671,15 +705,18 @@ exports.pdfPuppeteerRouter.post('/assignments/zip', (0, auth_1.requireAuth)(['AD
         });
         archive.pipe(res);
         const zipStart = Date.now();
-        console.log(`[PDF ZIP] Starting zip generation for ${assignmentIds.length} assignments, group="${groupLabel}"`);
+        console.log(`[PDF ZIP] Starting zip generation for ${assignmentIds.length} assignments, group="${groupLabel}", highQuality=${highQuality}`);
         archive.append(`Archive started at ${new Date().toISOString()}\n`, { name: 'info.txt' });
         // Parallelize generation with a worker pool to reduce wall-clock
-        const concurrency = Math.min(Math.max(1, Number(process.env.PDF_CONCURRENCY || '8')), assignmentIds.length);
+        // Default concurrency=3: screenshot-based PDF is heavy on CDP calls; too many workers cause protocol timeouts
+        const concurrency = Math.min(Math.max(1, Number(process.env.PDF_CONCURRENCY || '3')), assignmentIds.length);
         console.log(`[PDF ZIP] Generating ${assignmentIds.length} PDFs using concurrency=${concurrency}`);
-        const activeYear = await getActiveSchoolYear();
+        const [activeYear, assignmentDocs] = await Promise.all([
+            getActiveSchoolYear(),
+            TemplateAssignment_1.TemplateAssignment.find({ _id: { $in: assignmentIds } }, '_id studentId templateId').lean()
+        ]);
         const activeYearId = activeYear?._id ? String(activeYear._id) : '';
         const activeYearName = String(activeYear?.name || '').trim();
-        const assignmentDocs = await TemplateAssignment_1.TemplateAssignment.find({ _id: { $in: assignmentIds } }, '_id studentId templateId').lean();
         const assignmentById = new Map(assignmentDocs.map((assignment) => [String(assignment._id), assignment]));
         const orderedAssignments = assignmentIds
             .map((assignmentId) => ({ assignmentId: String(assignmentId), assignment: assignmentById.get(String(assignmentId)) }));
@@ -693,18 +730,20 @@ exports.pdfPuppeteerRouter.post('/assignments/zip', (0, auth_1.requireAuth)(['AD
         const studentYearIds = needsFallbackYear
             ? Array.from(new Set(students.map((student) => String(student.schoolYearId || '')).filter(Boolean)))
             : [];
-        const schoolYears = studentYearIds.length
-            ? await SchoolYear_1.SchoolYear.find({ _id: { $in: studentYearIds } }, '_id name').lean()
-            : [];
-        const schoolYearNameById = new Map(schoolYears.map((schoolYear) => [String(schoolYear._id), String(schoolYear.name || '').trim()]));
         const studentIdsNeedingLevel = students
             .filter((student) => !String(student.level || '').trim())
             .map((student) => String(student._id));
-        const enrollments = studentIdsNeedingLevel.length
-            ? await Enrollment_1.Enrollment.find(activeYearId
-                ? { studentId: { $in: studentIdsNeedingLevel }, schoolYearId: activeYearId, status: 'active' }
-                : { studentId: { $in: studentIdsNeedingLevel }, status: 'active' }, '_id studentId classId').lean()
-            : [];
+        const [schoolYears, enrollments] = await Promise.all([
+            studentYearIds.length
+                ? SchoolYear_1.SchoolYear.find({ _id: { $in: studentYearIds } }, '_id name').lean()
+                : Promise.resolve([]),
+            studentIdsNeedingLevel.length
+                ? Enrollment_1.Enrollment.find(activeYearId
+                    ? { studentId: { $in: studentIdsNeedingLevel }, schoolYearId: activeYearId, status: 'active' }
+                    : { studentId: { $in: studentIdsNeedingLevel }, status: 'active' }, '_id studentId classId').lean()
+                : Promise.resolve([])
+        ]);
+        const schoolYearNameById = new Map(schoolYears.map((schoolYear) => [String(schoolYear._id), String(schoolYear.name || '').trim()]));
         const enrollmentByStudentId = new Map();
         for (const enrollment of enrollments) {
             const studentId = String(enrollment.studentId || '');
@@ -732,9 +771,10 @@ exports.pdfPuppeteerRouter.post('/assignments/zip', (0, auth_1.requireAuth)(['AD
             idx += 1;
             return orderedAssignments[i];
         };
+        const MAX_RETRIES = 2; // retry up to 2 times on transient protocol timeouts
         const workers = Array.from({ length: concurrency }).map((_, workerIdx) => (async () => {
             const workerBrowser = await getBrowser();
-            const workerPage = await workerBrowser.newPage();
+            let workerPage = await workerBrowser.newPage();
             while (true) {
                 if (aborted)
                     break;
@@ -776,13 +816,40 @@ exports.pdfPuppeteerRouter.post('/assignments/zip', (0, auth_1.requireAuth)(['AD
                     if (process.env.PDF_BATCH_VERBOSE_LOGS === 'true') {
                         console.log(`[PDF ZIP] (worker ${workerIdx}) Generating PDF for assignment ${assignmentId} (${safePrintUrl})`);
                     }
+                    let pdfBuffer = null;
+                    let lastErr = null;
                     const assignStart = Date.now();
-                    const pdfBuffer = await generatePdfBufferFromPrintUrl(printUrl, token, frontendUrl, {
-                        mode: 'batch',
-                        reusePage: workerPage,
-                        keepPageOpen: true,
-                        verboseLogs: process.env.PDF_BATCH_VERBOSE_LOGS === 'true'
-                    });
+                    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+                        try {
+                            pdfBuffer = await generatePdfBufferFromPrintUrl(printUrl, token, frontendUrl, {
+                                mode: 'batch',
+                                highQuality,
+                                reusePage: workerPage,
+                                keepPageOpen: true,
+                                verboseLogs: process.env.PDF_BATCH_VERBOSE_LOGS === 'true'
+                            });
+                            lastErr = null;
+                            break; // success
+                        }
+                        catch (retryErr) {
+                            lastErr = retryErr;
+                            const isTimeout = String(retryErr?.message || '').includes('timed out') || String(retryErr?.message || '').includes('protocolTimeout');
+                            if (isTimeout && attempt < MAX_RETRIES) {
+                                console.warn(`[PDF ZIP] (worker ${workerIdx}) Attempt ${attempt + 1} timed out for ${assignmentId}, retrying with fresh page...`);
+                                try {
+                                    await workerPage.close();
+                                }
+                                catch { }
+                                const freshBrowser = await getBrowser();
+                                workerPage = await freshBrowser.newPage();
+                            }
+                            else {
+                                throw retryErr;
+                            }
+                        }
+                    }
+                    if (lastErr)
+                        throw lastErr;
                     const assignMs = Date.now() - assignStart;
                     if (process.env.PDF_BATCH_VERBOSE_LOGS === 'true') {
                         console.log(`[PDF ZIP] (worker ${workerIdx}) PDF for ${assignmentId} generated in ${assignMs}ms, size=${pdfBuffer?.length || 0}`);
@@ -794,11 +861,38 @@ exports.pdfPuppeteerRouter.post('/assignments/zip', (0, auth_1.requireAuth)(['AD
                     }
                     catch {
                     }
-                    // Append to archive
+                    // Append to archive — validate buffer first
                     const folderName = assignmentFolderMap[assignmentId];
                     const archiveName = folderName ? `${folderName}/${pdfName}` : pdfName;
-                    if (archive)
-                        archive.append(pdfBuffer, { name: archiveName });
+                    if (!Buffer.isBuffer(pdfBuffer) || pdfBuffer.length === 0) {
+                        console.warn(`[PDF ZIP] (worker ${workerIdx}) Invalid PDF buffer for ${assignmentId} (type=${typeof pdfBuffer}, isBuffer=${Buffer.isBuffer(pdfBuffer)}, length=${pdfBuffer?.length || 0}), skipping`);
+                        if (archive && !aborted) {
+                            try {
+                                archive.append(`PDF generation returned empty or invalid buffer\n`, { name: `errors/${sanitizeFileName(String(assignmentId))}.txt` });
+                            }
+                            catch { }
+                        }
+                        if (progressToken) {
+                            updateZipProgress(progressToken, (current) => {
+                                const next = {
+                                    ...current,
+                                    failedAssignments: current.failedAssignments + 1,
+                                    updatedAt: Date.now(),
+                                    etaSeconds: current.etaSeconds
+                                };
+                                return { failedAssignments: next.failedAssignments, etaSeconds: recomputeZipProgressEta(next) };
+                            });
+                        }
+                        continue;
+                    }
+                    if (archive && !aborted) {
+                        try {
+                            archive.append(pdfBuffer, { name: archiveName });
+                        }
+                        catch (appendErr) {
+                            console.error(`[PDF ZIP] (worker ${workerIdx}) Failed to append ${archiveName}:`, appendErr?.message || appendErr);
+                        }
+                    }
                     if (progressToken) {
                         updateZipProgress(progressToken, (current) => {
                             const next = {
@@ -813,8 +907,13 @@ exports.pdfPuppeteerRouter.post('/assignments/zip', (0, auth_1.requireAuth)(['AD
                 }
                 catch (e) {
                     const errMsg = e?.message ? String(e.message) : 'pdf_generation_failed';
-                    if (archive)
-                        archive.append(`${errMsg}\n`, { name: `errors/${sanitizeFileName(String(assignmentId))}.txt` });
+                    console.error(`[PDF ZIP] (worker ${workerIdx}) Error generating PDF for ${assignmentId}: ${errMsg}`);
+                    if (archive && !aborted) {
+                        try {
+                            archive.append(`${errMsg}\n`, { name: `errors/${sanitizeFileName(String(assignmentId))}.txt` });
+                        }
+                        catch { }
+                    }
                     if (progressToken) {
                         updateZipProgress(progressToken, (current) => {
                             const next = {
@@ -973,15 +1072,16 @@ exports.pdfPuppeteerRouter.get('/preview-empty/:templateId', (0, auth_1.requireA
     try {
         const { templateId } = req.params;
         const token = getTokenFromReq(req);
+        const highQuality = req.query.hq === '1';
         const template = await GradebookTemplate_1.GradebookTemplate.findById(templateId).lean();
         if (!template)
             return res.status(404).json({ error: 'template_not_found' });
         const frontendUrl = resolveFrontendUrl(req);
         const printUrl = `${frontendUrl}/print/preview-empty/${templateId}?token=${token}&empty=true`;
         const safePrintUrl = String(printUrl || '').replace(/([?&])token=[^&]*/, '$1token=***');
-        console.log('[PDF] Generating Empty Preview PDF via shared function:', safePrintUrl);
+        console.log('[PDF] Generating Empty Preview PDF via shared function:', safePrintUrl, 'highQuality:', highQuality);
         const genStart = Date.now();
-        const pdfBuffer = await generatePdfBufferFromPrintUrl(printUrl, token, frontendUrl);
+        const pdfBuffer = await generatePdfBufferFromPrintUrl(printUrl, token, frontendUrl, { highQuality });
         console.log(`[PDF TIMING] generatePdfBufferFromPrintUrl total ${Date.now() - genStart}ms for ${safePrintUrl}`);
         if (!pdfBuffer || pdfBuffer.length === 0) {
             throw new Error('Generated PDF buffer is empty');
@@ -1021,12 +1121,13 @@ exports.pdfPuppeteerRouter.get('/saved/:id', (0, auth_1.requireAuth)(['ADMIN', '
             return res.status(404).json({ error: 'saved_gradebook_not_found' });
         }
         const token = getTokenFromReq(req);
+        const highQuality = req.query.hq === '1';
         const frontendUrl = resolveFrontendUrl(req);
         const printUrl = `${frontendUrl}/print/saved/${saved._id}?token=${token}`;
         const safePrintUrl = String(printUrl || '').replace(/([?&])token=[^&]*/, '$1token=***');
-        console.log('[PDF] Generating Saved Gradebook PDF via shared function:', safePrintUrl);
+        console.log('[PDF] Generating Saved Gradebook PDF via shared function:', safePrintUrl, 'highQuality:', highQuality);
         const genStart = Date.now();
-        const pdfBuffer = await generatePdfBufferFromPrintUrl(printUrl, token, frontendUrl);
+        const pdfBuffer = await generatePdfBufferFromPrintUrl(printUrl, token, frontendUrl, { highQuality });
         console.log(`[PDF TIMING] generatePdfBufferFromPrintUrl total ${Date.now() - genStart}ms for ${safePrintUrl}`);
         if (!pdfBuffer || pdfBuffer.length === 0) {
             throw new Error('Generated PDF buffer is empty');

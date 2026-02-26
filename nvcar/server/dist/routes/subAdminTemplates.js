@@ -499,6 +499,8 @@ exports.subAdminTemplatesRouter.get('/pending-signatures', (0, auth_1.requireAut
                 studentId: assignment.studentId,
                 status: assignment.status,
                 isCompleted: assignment.isCompleted,
+                isCompletedSem1: assignment.isCompletedSem1 || assignment.isCompleted || false,
+                isCompletedSem2: assignment.isCompletedSem2 || false,
                 completedAt: assignment.completedAt,
                 template: template ? { name: template.name } : undefined,
                 student: student ? { firstName: student.firstName, lastName: student.lastName, avatarUrl: student.avatarUrl } : undefined,
@@ -1108,13 +1110,7 @@ exports.subAdminTemplatesRouter.post('/templates/:templateAssignmentId/sign', (0
             }
             let sigUrl = undefined;
             if (user?.signatureUrl) {
-                if (String(user.signatureUrl).startsWith('http')) {
-                    sigUrl = user.signatureUrl;
-                }
-                else {
-                    const base = `${req.protocol}://${req.get('host')}`;
-                    sigUrl = `${base}${user.signatureUrl}`;
-                }
+                sigUrl = String(user.signatureUrl);
             }
             const baseUrl = `${req.protocol}://${req.get('host')}`;
             const signatureData = await (0, signatureSnapshot_1.buildSignatureSnapshot)(sigUrl, baseUrl);
@@ -1737,13 +1733,72 @@ exports.subAdminTemplatesRouter.post('/templates/sign-class/:classId', (0, auth_
         }
         const activeYearForBulk = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
         const activeYearIdForBulk = activeYearForBulk ? String(activeYearForBulk._id) : '';
-        const signaturePeriodIdForBulk = activeYearIdForBulk ? (0, readinessUtils_1.computeSignaturePeriodId)(activeYearIdForBulk, 'sem1') : '';
+        const activeSemesterForBulk = activeYearForBulk?.activeSemester === 2 ? 2 : 1;
+        const requestedType = String(req.body?.type || req.query?.type || '').trim();
+        const requestedSemester = Number(req.body?.semester || req.query?.semester || 0);
+        const type = requestedType === 'end_of_year' || requestedSemester === 2
+            ? 'end_of_year'
+            : requestedType === 'standard' || requestedSemester === 1
+                ? 'standard'
+                : activeSemesterForBulk === 2
+                    ? 'end_of_year'
+                    : 'standard';
+        let signaturePeriodIdForBulk = '';
+        let signatureSchoolYearIdForBulk = activeYearIdForBulk || '';
+        if (type === 'end_of_year') {
+            const periodInfo = await (0, readinessUtils_1.resolveEndOfYearSignaturePeriod)().catch(() => null);
+            signaturePeriodIdForBulk = String(periodInfo?.signaturePeriodId || '');
+            signatureSchoolYearIdForBulk = String(periodInfo?.schoolYearId || activeYearIdForBulk || '');
+            if (!signaturePeriodIdForBulk && signatureSchoolYearIdForBulk) {
+                signaturePeriodIdForBulk = (0, readinessUtils_1.computeSignaturePeriodId)(signatureSchoolYearIdForBulk, 'end_of_year');
+            }
+        }
+        else {
+            signaturePeriodIdForBulk = activeYearIdForBulk ? (0, readinessUtils_1.computeSignaturePeriodId)(activeYearIdForBulk, 'sem1') : '';
+        }
+        // Load signer signature snapshot once (same behavior as per-assignment signing)
+        let user = await User_1.User.findById(subAdminId).lean();
+        if (!user)
+            user = await OutlookUser_1.OutlookUser.findById(subAdminId).lean();
+        let sigUrl = user?.signatureUrl ? String(user.signatureUrl) : undefined;
+        const baseUrl = `${req.protocol}://${req.get('host')}`;
+        const signatureData = await (0, signatureSnapshot_1.buildSignatureSnapshot)(sigUrl, baseUrl);
+        if (!sigUrl && !signatureData) {
+            return res.status(400).json({ error: 'signature_missing', message: 'No signature found for this user' });
+        }
+        const clsForBulk = await Class_1.ClassModel.findById(classId).lean();
+        const classLevelForBulk = String(clsForBulk?.level || '') || undefined;
         const query = {
             studentId: { $in: studentIds },
-            ...(activeYearIdForBulk ? { completionSchoolYearId: activeYearIdForBulk } : {})
         };
+        const andConditions = [];
+        if (activeYearIdForBulk) {
+            andConditions.push({
+                $or: [
+                    { completionSchoolYearId: activeYearIdForBulk },
+                    { completionSchoolYearId: { $exists: false } },
+                    { completionSchoolYearId: null },
+                    { completionSchoolYearId: '' }
+                ]
+            });
+        }
         if (!canBypass) {
-            query.status = 'completed';
+            if (type === 'end_of_year') {
+                query.isCompletedSem2 = true;
+            }
+            else {
+                // status is a UI-only hint; use the authoritative boolean fields
+                andConditions.push({
+                    $or: [
+                        { isCompletedSem1: true },
+                        { isCompleted: true },
+                        { status: 'completed' }
+                    ]
+                });
+            }
+        }
+        if (andConditions.length > 0) {
+            query.$and = andConditions;
         }
         // Get all template assignments for these students
         const templateAssignments = await TemplateAssignment_1.TemplateAssignment.find(query).lean();
@@ -1752,7 +1807,7 @@ exports.subAdminTemplatesRouter.post('/templates/sign-class/:classId', (0, auth_
         const existingSignatures = await TemplateSignature_1.TemplateSignature.find({ templateAssignmentId: { $in: assignmentIds } }).lean();
         const signedIds = new Set(existingSignatures
             .filter((s) => {
-            if (s.type && s.type !== 'standard')
+            if (s.type && s.type !== type)
                 return false;
             if (!signaturePeriodIdForBulk)
                 return true;
@@ -1760,87 +1815,157 @@ exports.subAdminTemplatesRouter.post('/templates/sign-class/:classId', (0, auth_
         })
             .map((s) => String(s.templateAssignmentId)));
         const toSign = templateAssignments.filter(a => !signedIds.has(String(a._id)));
-        // Create signatures for all unsigned assignments
-        const signatures = await Promise.all(toSign.map(async (assignment) => {
-            const type = 'standard';
-            const signaturePeriodId = signaturePeriodIdForBulk;
-            let signature = null;
+        let createdCount = 0;
+        let skippedCount = 0;
+        let failedCount = 0;
+        for (const assignment of toSign) {
             try {
-                signature = await TemplateSignature_1.TemplateSignature.create({
+                await (0, signatureService_1.signTemplateAssignment)({
                     templateAssignmentId: String(assignment._id),
-                    subAdminId,
-                    signedAt: new Date(),
-                    status: 'signed',
+                    signerId: subAdminId,
                     type,
-                    signaturePeriodId,
-                    schoolYearId: activeYearIdForBulk || undefined
+                    signatureUrl: sigUrl,
+                    signatureData,
+                    req,
+                    level: classLevelForBulk,
+                    signaturePeriodId: signaturePeriodIdForBulk || undefined,
+                    signatureSchoolYearId: signatureSchoolYearIdForBulk || undefined,
+                    // The pre-filter query already verified completion eligibility;
+                    // skip the redundant per-assignment check to avoid false rejections
+                    // when isCompletedSem1 is missing but isCompleted/status is set.
+                    skipCompletionCheck: true
                 });
+                createdCount++;
             }
             catch (err) {
                 const msg = String(err?.message || '');
-                if (msg.includes('E11000') || msg.includes('duplicate key')) {
-                    // Already signed by someone else concurrently; ignore for bulk
-                    return null;
+                if (msg === 'already_signed' || msg.includes('E11000') || msg.includes('duplicate key')) {
+                    skippedCount++;
+                    continue;
                 }
-                throw err;
-            }
-            // Update assignment status
-            (0, assignmentMetadata_1.warnOnInvalidStatusTransition)(assignment.status, 'signed', 'subAdminTemplates.signClass');
-            await TemplateAssignment_1.TemplateAssignment.findByIdAndUpdate(assignment._id, (0, assignmentMetadata_1.normalizeAssignmentMetadataPatch)({ status: 'signed' }), (0, assignmentMetadata_1.assignmentUpdateOptions)());
-            // Log audit
-            const template = await GradebookTemplate_1.GradebookTemplate.findById(assignment.templateId).lean();
-            const student = await Student_1.Student.findById(assignment.studentId).lean();
-            await (0, auditLogger_1.logAudit)({
-                userId: subAdminId,
-                action: 'SIGN_TEMPLATE',
-                details: {
-                    templateId: assignment.templateId,
-                    templateName: template?.name,
-                    studentId: assignment.studentId,
-                    studentName: student ? `${student.firstName} ${student.lastName}` : 'Unknown',
-                    classId,
-                },
-                req,
-            });
-            // Create SavedGradebook snapshot
-            try {
-                const updatedAssignment = await TemplateAssignment_1.TemplateAssignment.findById(assignment._id).lean();
-                if (updatedAssignment && student) {
-                    const statuses = await StudentCompetencyStatus_1.StudentCompetencyStatus.find({ studentId: assignment.studentId }).lean();
-                    const allSigs = await TemplateSignature_1.TemplateSignature.find({ templateAssignmentId: String(assignment._id) }).lean();
-                    const enrollment = enrollments.find(e => String(e.studentId) === String(assignment.studentId));
-                    const cls = await Class_1.ClassModel.findById(classId).lean();
-                    const snapshotData = {
-                        student,
-                        enrollment,
-                        statuses,
-                        assignment: updatedAssignment,
-                        className: cls?.name || '',
-                        signatures: allSigs,
-                        signature: allSigs.find((s) => s.type === 'standard') || null,
-                        finalSignature: allSigs.find((s) => s.type === 'end_of_year') || null,
-                    };
-                    await (0, rolloverService_1.createAssignmentSnapshot)(updatedAssignment, 'sem1', {
-                        schoolYearId: activeYearIdForBulk,
-                        level: cls?.level || 'Sans niveau',
-                        classId,
-                        data: snapshotData
-                    });
+                if (msg === 'not_completed_sem1' || msg === 'not_completed_sem2') {
+                    skippedCount++;
+                    continue;
                 }
+                failedCount++;
             }
-            catch (snapshotErr) {
-                console.error('Failed to create snapshot in sign-class:', snapshotErr);
-            }
-            return signature;
-        }));
+        }
         res.json({
-            signed: signatures.length,
-            alreadySigned: templateAssignments.length - toSign.length,
+            signed: createdCount,
+            alreadySigned: templateAssignments.length - toSign.length + skippedCount,
+            failed: failedCount,
+            type,
             total: templateAssignments.length
         });
     }
     catch (e) {
         res.status(500).json({ error: 'sign_failed', message: e.message });
+    }
+});
+// Sub-admin: Unsign all templates for a class (current semester/signature period)
+exports.subAdminTemplatesRouter.post('/templates/unsign-class/:classId', (0, auth_1.requireAuth)(['SUBADMIN', 'AEFE']), async (req, res) => {
+    try {
+        const subAdminId = req.user.userId;
+        const { classId } = req.params;
+        const enrollments = await Enrollment_1.Enrollment.find({ classId }).lean();
+        const studentIds = enrollments.map(e => e.studentId);
+        // Authorization mirrors sign-class
+        const teacherClassAssignments = await TeacherClassAssignment_1.TeacherClassAssignment.find({ classId }).lean();
+        const classTeacherIds = teacherClassAssignments.map(ta => ta.teacherId);
+        const subAdminAssignments = await SubAdminAssignment_1.SubAdminAssignment.find({
+            subAdminId,
+            teacherId: { $in: classTeacherIds },
+        }).lean();
+        let authorized = subAdminAssignments.length > 0;
+        if (!authorized) {
+            const roleScope = await RoleScope_1.RoleScope.findOne({ userId: subAdminId }).lean();
+            if (roleScope?.levels?.length) {
+                const cls = await Class_1.ClassModel.findById(classId).lean();
+                if (cls && cls.level && roleScope.levels.includes(cls.level)) {
+                    authorized = true;
+                }
+            }
+        }
+        if (!authorized)
+            return res.status(403).json({ error: 'not_authorized' });
+        const activeYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
+        const activeYearId = activeYear ? String(activeYear._id) : '';
+        const activeSemester = activeYear?.activeSemester === 2 ? 2 : 1;
+        const requestedType = String(req.body?.type || req.query?.type || '').trim();
+        const requestedSemester = Number(req.body?.semester || req.query?.semester || 0);
+        const type = requestedType === 'end_of_year' || requestedSemester === 2
+            ? 'end_of_year'
+            : requestedType === 'standard' || requestedSemester === 1
+                ? 'standard'
+                : activeSemester === 2
+                    ? 'end_of_year'
+                    : 'standard';
+        let signaturePeriodId = '';
+        if (type === 'end_of_year') {
+            const periodInfo = await (0, readinessUtils_1.resolveEndOfYearSignaturePeriod)().catch(() => null);
+            signaturePeriodId = String(periodInfo?.signaturePeriodId || '');
+            if (!signaturePeriodId && activeYearId) {
+                signaturePeriodId = (0, readinessUtils_1.computeSignaturePeriodId)(activeYearId, 'end_of_year');
+            }
+        }
+        else {
+            signaturePeriodId = activeYearId ? (0, readinessUtils_1.computeSignaturePeriodId)(activeYearId, 'sem1') : '';
+        }
+        const classDoc = await Class_1.ClassModel.findById(classId).lean();
+        const classLevel = String(classDoc?.level || '') || undefined;
+        const templateAssignments = await TemplateAssignment_1.TemplateAssignment.find({
+            studentId: { $in: studentIds },
+            ...(activeYearId
+                ? {
+                    $or: [
+                        { completionSchoolYearId: activeYearId },
+                        { completionSchoolYearId: { $exists: false } },
+                        { completionSchoolYearId: null },
+                        { completionSchoolYearId: '' }
+                    ]
+                }
+                : {})
+        }).lean();
+        const assignmentIds = templateAssignments.map(a => String(a._id));
+        const existingSignatures = await TemplateSignature_1.TemplateSignature.find({ templateAssignmentId: { $in: assignmentIds } }).lean();
+        const hasTargetSig = new Set(existingSignatures
+            .filter((s) => {
+            if (s.type && s.type !== type)
+                return false;
+            if (!signaturePeriodId)
+                return true;
+            return String(s.signaturePeriodId || '') === signaturePeriodId;
+        })
+            .map((s) => String(s.templateAssignmentId)));
+        const targets = templateAssignments.filter(a => hasTargetSig.has(String(a._id)));
+        let unsigned = 0;
+        let failed = 0;
+        for (const assignment of targets) {
+            try {
+                await (0, signatureService_1.unsignTemplateAssignment)({
+                    templateAssignmentId: String(assignment._id),
+                    signerId: subAdminId,
+                    type,
+                    req,
+                    level: classLevel,
+                    signaturePeriodId: signaturePeriodId || undefined
+                });
+                unsigned++;
+            }
+            catch {
+                failed++;
+            }
+        }
+        res.json({
+            unsigned,
+            failed,
+            alreadyUnsigned: Math.max(0, templateAssignments.length - targets.length),
+            total: templateAssignments.length,
+            type
+        });
+    }
+    catch (e) {
+        res.status(500).json({ error: 'unsign_failed', message: e.message });
     }
 });
 // Sub-admin: Mark assignment as done

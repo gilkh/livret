@@ -4,7 +4,7 @@ import api from '../api'
 import ProgressionChart from '../components/ProgressionChart'
 import { useSchoolYear } from '../context/SchoolYearContext'
 import { openBatchPdfExport } from '../utils/pdfExport'
-import { AlertTriangle, CheckCircle2, Download, PenTool, TrendingUp, Users, BookOpen, Lightbulb, ArrowRight, Sparkles } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Download, PenTool, RotateCcw, TrendingUp, Users, BookOpen, Lightbulb, ArrowRight, Sparkles } from 'lucide-react'
 
 type Teacher = { _id: string; email: string; displayName: string }
 type PendingTemplate = {
@@ -20,6 +20,8 @@ type PendingTemplate = {
         standard?: { signedAt: Date; subAdminId: string } | null
         final?: { signedAt: Date; subAdminId: string } | null
     }
+    isCompletedSem1?: boolean
+    isCompletedSem2?: boolean
     className?: string
     level?: string
     isPromoted?: boolean
@@ -27,6 +29,7 @@ type PendingTemplate = {
 type ClassInfo = {
     _id: string
     name: string
+    level?: string
     pendingSignatures: number
     totalAssignments: number
     signedAssignments: number
@@ -60,6 +63,12 @@ export default function SubAdminDashboard() {
     const [promotionDownloads, setPromotionDownloads] = useState<Record<string, { status: 'idle' | 'preparing' | 'downloading' | 'done' | 'error'; progress: number; error?: string }>>({})
     const [hasSignature, setHasSignature] = useState<boolean | null>(null)
     const [exportQualityChoice, setExportQualityChoice] = useState<{ callback: (hq: boolean) => void } | null>(null)
+    const [signingClass, setSigningClass] = useState<Record<string, boolean>>({})
+    const [signingLevel, setSigningLevel] = useState<Record<string, boolean>>({})
+    const [undoingClass, setUndoingClass] = useState<Record<string, boolean>>({})
+    const [undoingLevel, setUndoingLevel] = useState<Record<string, boolean>>({})
+    const [actionMessage, setActionMessage] = useState('')
+    const [levelSignConfirm, setLevelSignConfirm] = useState<{ level: string; unsignedCount: number } | null>(null)
 
     // Check if user has a signature
     useEffect(() => {
@@ -78,27 +87,28 @@ export default function SubAdminDashboard() {
         checkSignature()
     }, [apiPrefix])
 
-    useEffect(() => {
-        const loadData = async () => {
-            try {
-                setLoading(true)
-                const [teachersRes, pendingRes, classesRes, promotedRes] = await Promise.all([
-                    api.get(`${apiPrefix}/teachers`),
-                    api.get(`${apiPrefix}/pending-signatures`),
-                    api.get(`${apiPrefix}/classes`),
-                    api.get(`${apiPrefix}/promoted-students`),
-                ])
-                setTeachers(teachersRes.data)
-                setPending(pendingRes.data)
-                setClasses(classesRes.data)
-                setPromotedStudents(promotedRes.data)
-            } catch (e: any) {
-                setError('Impossible de charger les données: ' + (e.response?.data?.message || e.message))
-                console.error(e)
-            } finally {
-                setLoading(false)
-            }
+    const loadData = async () => {
+        try {
+            setLoading(true)
+            const [teachersRes, pendingRes, classesRes, promotedRes] = await Promise.all([
+                api.get(`${apiPrefix}/teachers`),
+                api.get(`${apiPrefix}/pending-signatures`),
+                api.get(`${apiPrefix}/classes`),
+                api.get(`${apiPrefix}/promoted-students`),
+            ])
+            setTeachers(teachersRes.data)
+            setPending(pendingRes.data)
+            setClasses(classesRes.data)
+            setPromotedStudents(promotedRes.data)
+        } catch (e: any) {
+            setError('Impossible de charger les données: ' + (e.response?.data?.message || e.message))
+            console.error(e)
+        } finally {
+            setLoading(false)
         }
+    }
+
+    useEffect(() => {
         loadData()
     }, [apiPrefix])
 
@@ -184,6 +194,169 @@ export default function SubAdminDashboard() {
             .map(t => t._id)
             .filter(Boolean)
         return Array.from(new Set(ids))
+    }
+
+    const getSignTypeForActiveSemester = (): 'standard' | 'end_of_year' => {
+        return activeSemester === 2 ? 'end_of_year' : 'standard'
+    }
+
+    const getUnsignedCountForSemester = (templates: PendingTemplate[]): number => {
+        return activeSemester === 2
+            ? templates.filter(t => !isSem2Signed(t) && t.isCompletedSem2).length
+            : templates.filter(t => !isSem1Signed(t) && (t.isCompletedSem1 || t.isCompleted)).length
+    }
+
+    const findClassId = (level: string, className: string): string | null => {
+        const found = classes.find(c => c.name === className && String(c.level || '') === String(level || ''))
+        if (found?._id) return found._id
+        const fallback = classes.find(c => c.name === className)
+        return fallback?._id || null
+    }
+
+    const signClassBatch = async (level: string, className: string) => {
+        const key = `${level}-${className}`
+        const classId = findClassId(level, className)
+        if (!classId) {
+            setError(`Classe introuvable pour ${className}`)
+            return
+        }
+
+        try {
+            setActionMessage('')
+            setError('')
+            setSigningClass(prev => ({ ...prev, [key]: true }))
+            const type = getSignTypeForActiveSemester()
+            const r = await api.post(`${apiPrefix}/templates/sign-class/${classId}`, {
+                type,
+                semester: activeSemester,
+            })
+            const signed = Number(r?.data?.signed || 0)
+            const already = Number(r?.data?.alreadySigned || 0)
+            setActionMessage(`Classe ${className}: ${signed} signé(s), ${already} déjà signé(s) (${activeSemesterLabel}).`)
+            await loadData()
+        } catch (e: any) {
+            setError(e.response?.data?.message || 'Échec de la signature de la classe')
+        } finally {
+            setSigningClass(prev => ({ ...prev, [key]: false }))
+        }
+    }
+
+    const signLevelBatch = async (level: string) => {
+        const classesInLevel = Object.keys(groupedAllTemplates[level] || {})
+        if (classesInLevel.length === 0) return
+
+        try {
+            setActionMessage('')
+            setError('')
+            setSigningLevel(prev => ({ ...prev, [level]: true }))
+
+            const results = await Promise.all(classesInLevel.map(async (className) => {
+                const classId = findClassId(level, className)
+                if (!classId) return { signed: 0, alreadySigned: 0, failed: 1 }
+
+                try {
+                    const type = getSignTypeForActiveSemester()
+                    const r = await api.post(`${apiPrefix}/templates/sign-class/${classId}`, {
+                        type,
+                        semester: activeSemester,
+                    })
+                    return {
+                        signed: Number(r?.data?.signed || 0),
+                        alreadySigned: Number(r?.data?.alreadySigned || 0),
+                        failed: Number(r?.data?.failed || 0),
+                    }
+                } catch {
+                    return { signed: 0, alreadySigned: 0, failed: 1 }
+                }
+            }))
+
+            const totals = results.reduce((acc, cur) => {
+                acc.signed += cur.signed
+                acc.alreadySigned += cur.alreadySigned
+                acc.failed += cur.failed
+                return acc
+            }, { signed: 0, alreadySigned: 0, failed: 0 })
+
+            setActionMessage(`Niveau ${level}: ${totals.signed} signé(s), ${totals.alreadySigned} déjà signé(s), ${totals.failed} erreur(s) (${activeSemesterLabel}).`)
+            await loadData()
+        } catch (e: any) {
+            setError(e.response?.data?.message || 'Échec de la signature du niveau')
+        } finally {
+            setSigningLevel(prev => ({ ...prev, [level]: false }))
+        }
+    }
+
+    const undoClassBatch = async (level: string, className: string) => {
+        const key = `${level}-${className}`
+        const classId = findClassId(level, className)
+        if (!classId) {
+            setError(`Classe introuvable pour ${className}`)
+            return
+        }
+
+        try {
+            setActionMessage('')
+            setError('')
+            setUndoingClass(prev => ({ ...prev, [key]: true }))
+            const type = getSignTypeForActiveSemester()
+            const r = await api.post(`${apiPrefix}/templates/unsign-class/${classId}`, {
+                type,
+                semester: activeSemester,
+            })
+            const unsigned = Number(r?.data?.unsigned || 0)
+            const alreadyUnsigned = Number(r?.data?.alreadyUnsigned || 0)
+            setActionMessage(`Annulation classe ${className}: ${unsigned} annulé(s), ${alreadyUnsigned} déjà non signé(s) (${activeSemesterLabel}).`)
+            await loadData()
+        } catch (e: any) {
+            setError(e.response?.data?.message || 'Échec de l’annulation de signature de la classe')
+        } finally {
+            setUndoingClass(prev => ({ ...prev, [key]: false }))
+        }
+    }
+
+    const undoLevelBatch = async (level: string) => {
+        const classesInLevel = Object.keys(groupedAllTemplates[level] || {})
+        if (classesInLevel.length === 0) return
+
+        try {
+            setActionMessage('')
+            setError('')
+            setUndoingLevel(prev => ({ ...prev, [level]: true }))
+
+            const results = await Promise.all(classesInLevel.map(async (className) => {
+                const classId = findClassId(level, className)
+                if (!classId) return { unsigned: 0, alreadyUnsigned: 0, failed: 1 }
+
+                try {
+                    const type = getSignTypeForActiveSemester()
+                    const r = await api.post(`${apiPrefix}/templates/unsign-class/${classId}`, {
+                        type,
+                        semester: activeSemester,
+                    })
+                    return {
+                        unsigned: Number(r?.data?.unsigned || 0),
+                        alreadyUnsigned: Number(r?.data?.alreadyUnsigned || 0),
+                        failed: Number(r?.data?.failed || 0),
+                    }
+                } catch {
+                    return { unsigned: 0, alreadyUnsigned: 0, failed: 1 }
+                }
+            }))
+
+            const totals = results.reduce((acc, cur) => {
+                acc.unsigned += cur.unsigned
+                acc.alreadyUnsigned += cur.alreadyUnsigned
+                acc.failed += cur.failed
+                return acc
+            }, { unsigned: 0, alreadyUnsigned: 0, failed: 0 })
+
+            setActionMessage(`Annulation niveau ${level}: ${totals.unsigned} annulé(s), ${totals.alreadyUnsigned} déjà non signé(s), ${totals.failed} erreur(s) (${activeSemesterLabel}).`)
+            await loadData()
+        } catch (e: any) {
+            setError(e.response?.data?.message || 'Échec de l’annulation de signature du niveau')
+        } finally {
+            setUndoingLevel(prev => ({ ...prev, [level]: false }))
+        }
     }
 
     const getLevelAssignmentFolderMap = (level: string): Record<string, string> => {
@@ -314,6 +487,61 @@ export default function SubAdminDashboard() {
     const activeCompletedCount = activeSemester === 1 ? sem1SignedCount : sem2SignedCount
     const activePerLevelBreakdown = activeSemester === 1 ? perLevelBreakdownSem1 : perLevelBreakdownSem2
     const activePerClassBreakdown = activeSemester === 1 ? perClassBreakdownSem1 : perClassBreakdownSem2
+
+    const actionRailStyle = {
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 6,
+        padding: 4,
+        borderRadius: 12,
+        background: '#f8fafc',
+        border: '1px solid #e2e8f0',
+        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.8)'
+    }
+
+    const actionBtnStyle = (variant: 'download' | 'sign' | 'undo', enabled: boolean) => {
+        const base = {
+            height: 32,
+            padding: '0 10px',
+            fontSize: 12,
+            fontWeight: 700,
+            borderRadius: 8,
+            opacity: enabled ? 1 : 0.5,
+            cursor: enabled ? 'pointer' : 'not-allowed',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            whiteSpace: 'nowrap' as const,
+            transition: 'all 0.15s ease'
+        }
+
+        if (variant === 'download') {
+            return {
+                ...base,
+                background: '#7c3aed',
+                color: 'white',
+                border: '1px solid #7c3aed',
+                boxShadow: enabled ? '0 1px 2px rgba(124,58,237,0.35)' : 'none'
+            }
+        }
+
+        if (variant === 'sign') {
+            return {
+                ...base,
+                background: '#2563eb',
+                color: 'white',
+                border: '1px solid #2563eb',
+                boxShadow: enabled ? '0 1px 2px rgba(37,99,235,0.35)' : 'none'
+            }
+        }
+
+        return {
+            ...base,
+            background: '#ffffff',
+            color: '#334155',
+            border: '1px solid #cbd5e1'
+        }
+    }
 
     return (
         <div className="container">
@@ -446,6 +674,20 @@ export default function SubAdminDashboard() {
                         marginBottom: 20
                     }}>
                         {error}
+                    </div>
+                )}
+                {actionMessage && (
+                    <div style={{
+                        color: '#065f46',
+                        background: '#ecfdf5',
+                        padding: '12px 16px',
+                        borderRadius: 10,
+                        border: '1px solid #a7f3d0',
+                        fontSize: 14,
+                        fontWeight: 500,
+                        marginBottom: 20
+                    }}>
+                        {actionMessage}
                     </div>
                 )}
 
@@ -875,31 +1117,45 @@ export default function SubAdminDashboard() {
                                         {(() => {
                                             const levelAssignmentIds = getLevelAssignmentIds(level)
                                             const canExportLevel = levelAssignmentIds.length > 0
+                                            const levelTemplates = Object.values(groupedAllTemplates[level] || {}).flat()
+                                            const levelUnsignedCount = getUnsignedCountForSemester(levelTemplates)
+                                            const levelSignedCount = levelTemplates.length - levelUnsignedCount
+                                            const canSignLevel = levelUnsignedCount > 0 && hasSignature !== false && !loading
+                                            const levelSigning = !!signingLevel[level]
+                                            const levelUndoing = !!undoingLevel[level]
+                                            const canUndoLevel = levelSignedCount > 0 && !loading
                                             return (
-                                                <button
-                                                    onClick={() => promptExportQuality((hq) => downloadLevelZip(level, hq))}
-                                                    disabled={!canExportLevel}
-                                                    className="btn"
-                                                    style={{
-                                                        padding: '8px 10px',
-                                                        fontSize: 12,
-                                                        fontWeight: 600,
-                                                        background: '#1d4ed8',
-                                                        color: 'white',
-                                                        borderRadius: 8,
-                                                        border: '1px solid #1d4ed8',
-                                                        opacity: canExportLevel ? 1 : 0.55,
-                                                        cursor: canExportLevel ? 'pointer' : 'not-allowed',
-                                                        display: 'inline-flex',
-                                                        alignItems: 'center',
-                                                        gap: 6,
-                                                        whiteSpace: 'nowrap'
-                                                    }}
-                                                    title="Exporter tous les carnets de ce niveau, classés par dossiers de classe"
-                                                >
-                                                    <Download size={14} />
-                                                    Exporter niveau ({levelAssignmentIds.length})
-                                                </button>
+                                                <div style={actionRailStyle}>
+                                                    <button
+                                                        onClick={() => promptExportQuality((hq) => downloadLevelZip(level, hq))}
+                                                        disabled={!canExportLevel}
+                                                        className="btn"
+                                                        style={actionBtnStyle('download', canExportLevel)}
+                                                        title="Télécharger tous les carnets de ce niveau, classés par dossiers de classe"
+                                                    >
+                                                        <Download size={14} />
+                                                        {activeSemester === 2 ? 'S2' : 'S1'} ({levelAssignmentIds.length})
+                                                    </button>
+                                                    <button
+                                                        onClick={() => setLevelSignConfirm({ level, unsignedCount: levelUnsignedCount })}
+                                                        disabled={!canSignLevel || levelSigning}
+                                                        className="btn"
+                                                        style={actionBtnStyle('sign', canSignLevel && !levelSigning)}
+                                                        title={`Signer en lot pour ${activeSemesterLabel}`}
+                                                    >
+                                                        <PenTool size={14} />
+                                                        {levelSigning ? '…' : `${activeSemester === 2 ? 'S2' : 'S1'} (${levelUnsignedCount})`}
+                                                    </button>
+                                                    <button
+                                                        onClick={() => undoLevelBatch(level)}
+                                                        disabled={!canUndoLevel || levelUndoing}
+                                                        className="btn"
+                                                        style={actionBtnStyle('undo', canUndoLevel && !levelUndoing)}
+                                                        title={`Annuler les signatures de ${activeSemesterLabel}`}
+                                                    >
+                                                        <RotateCcw size={14} /> {activeSemester === 2 ? 'S2' : 'S1'} ({levelSignedCount})
+                                                    </button>
+                                                </div>
                                             )
                                         })()}
                                     </div>
@@ -913,6 +1169,12 @@ export default function SubAdminDashboard() {
                                             const totalCount = templates.length
                                             const classAssignmentIds = getClassAssignmentIds(level, className)
                                             const canExportClass = classAssignmentIds.length > 0
+                                            const classUnsignedCount = getUnsignedCountForSemester(templates)
+                                            const classSignedCount = totalCount - classUnsignedCount
+                                            const canSignClass = classUnsignedCount > 0 && hasSignature !== false && !loading
+                                            const classSigning = !!signingClass[key]
+                                            const canUndoClass = classSignedCount > 0 && !loading
+                                            const classUndoing = !!undoingClass[key]
 
                                             return (
                                                 <div key={className} style={{ border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden' }}>
@@ -936,33 +1198,46 @@ export default function SubAdminDashboard() {
                                                             <span style={{ color: '#334155', fontWeight: 600 }}>S1</span> {sem1SignedInClass}/{totalCount}
                                                             <span style={{ color: '#94a3b8', margin: '0 8px' }}>•</span>
                                                             <span style={{ color: '#334155', fontWeight: 600 }}>S2</span> {sem2SignedInClass}/{totalCount}
-                                                            <button
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation()
-                                                                    promptExportQuality((hq) => downloadClassZip(level, className, hq))
-                                                                }}
-                                                                disabled={!canExportClass}
-                                                                className="btn"
-                                                                style={{
-                                                                    marginLeft: 12,
-                                                                    padding: '8px 10px',
-                                                                    fontSize: 12,
-                                                                    fontWeight: 600,
-                                                                    background: '#0f172a',
-                                                                    color: 'white',
-                                                                    borderRadius: 8,
-                                                                    border: '1px solid #0f172a',
-                                                                    opacity: canExportClass ? 1 : 0.55,
-                                                                    cursor: canExportClass ? 'pointer' : 'not-allowed',
-                                                                    display: 'inline-flex',
-                                                                    alignItems: 'center',
-                                                                    gap: 6
-                                                                }}
-                                                                title="Exporter tous les carnets de cette classe"
-                                                            >
-                                                                <Download size={14} />
-                                                                Exporter ({classAssignmentIds.length})
-                                                            </button>
+                                                            <span style={{ ...actionRailStyle, marginLeft: 12 }}>
+                                                                <button
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation()
+                                                                        promptExportQuality((hq) => downloadClassZip(level, className, hq))
+                                                                    }}
+                                                                    disabled={!canExportClass}
+                                                                    className="btn"
+                                                                    style={actionBtnStyle('download', canExportClass)}
+                                                                    title="Télécharger tous les carnets de cette classe"
+                                                                >
+                                                                    <Download size={14} />
+                                                                    {activeSemester === 2 ? 'S2' : 'S1'} ({classAssignmentIds.length})
+                                                                </button>
+                                                                <button
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation()
+                                                                        signClassBatch(level, className)
+                                                                    }}
+                                                                    disabled={!canSignClass || classSigning}
+                                                                    className="btn"
+                                                                    style={actionBtnStyle('sign', canSignClass && !classSigning)}
+                                                                    title={`Signer en lot cette classe (${activeSemesterLabel})`}
+                                                                >
+                                                                    <PenTool size={14} />
+                                                                    {classSigning ? '…' : `${activeSemester === 2 ? 'S2' : 'S1'} (${classUnsignedCount})`}
+                                                                </button>
+                                                                <button
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation()
+                                                                        undoClassBatch(level, className)
+                                                                    }}
+                                                                    disabled={!canUndoClass || classUndoing}
+                                                                    className="btn"
+                                                                    style={actionBtnStyle('undo', canUndoClass && !classUndoing)}
+                                                                    title={`Annuler les signatures de ${activeSemesterLabel} pour cette classe`}
+                                                                >
+                                                                    <RotateCcw size={14} /> {activeSemester === 2 ? 'S2' : 'S1'} ({classSignedCount})
+                                                                </button>
+                                                            </span>
                                                         </div>
                                                     </div>
 
@@ -1210,6 +1485,57 @@ export default function SubAdminDashboard() {
                         >
                             Annuler
                         </button>
+                    </div>
+                </div>
+            )}
+
+            {/* Compact level sign confirmation modal */}
+            {levelSignConfirm && (
+                <div
+                    style={{
+                        position: 'fixed', inset: 0, zIndex: 10000,
+                        background: 'rgba(0,0,0,0.35)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center'
+                    }}
+                    onClick={() => setLevelSignConfirm(null)}
+                >
+                    <div
+                        style={{
+                            background: 'white', borderRadius: 12, padding: '16px 18px',
+                            boxShadow: '0 16px 40px rgba(0,0,0,0.2)', maxWidth: 360, width: '92%'
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div style={{ fontSize: 15, fontWeight: 700, color: '#1e293b', marginBottom: 6 }}>
+                            Confirmer la signature en lot
+                        </div>
+                        <div style={{ fontSize: 13, color: '#64748b', marginBottom: 14, lineHeight: 1.5 }}>
+                            Niveau <strong>{levelSignConfirm.level}</strong> · {activeSemesterLabel} · {levelSignConfirm.unsignedCount} carnet(s) non signé(s)
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                            <button
+                                onClick={() => setLevelSignConfirm(null)}
+                                style={{
+                                    padding: '8px 10px', borderRadius: 8, border: '1px solid #cbd5e1',
+                                    background: '#fff', color: '#475569', cursor: 'pointer', fontSize: 13, fontWeight: 600
+                                }}
+                            >
+                                Annuler
+                            </button>
+                            <button
+                                onClick={async () => {
+                                    const selected = levelSignConfirm
+                                    setLevelSignConfirm(null)
+                                    if (selected) await signLevelBatch(selected.level)
+                                }}
+                                style={{
+                                    padding: '8px 12px', borderRadius: 8, border: '1px solid #2563eb',
+                                    background: '#2563eb', color: 'white', cursor: 'pointer', fontSize: 13, fontWeight: 700
+                                }}
+                            >
+                                Valider
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}

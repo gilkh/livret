@@ -136,3 +136,32 @@ exports.errorLogsRouter.patch('/resolve-all', (0, auth_1.requireAuth)(['ADMIN'])
         res.status(500).json({ error: 'resolve_failed' });
     }
 });
+exports.errorLogsRouter.delete('/', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
+    try {
+        const status = String(req.query.status || 'all');
+        const query = {};
+        if (status === 'open')
+            query.resolved = false;
+        if (status === 'resolved')
+            query.resolved = true;
+        const result = await ErrorLog_1.ErrorLog.deleteMany(query);
+        res.json({ success: true, deleted: result.deletedCount || 0 });
+    }
+    catch (err) {
+        console.error('Error deleting logs:', err);
+        res.status(500).json({ error: 'delete_failed' });
+    }
+});
+exports.errorLogsRouter.delete('/:id', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const log = await ErrorLog_1.ErrorLog.findByIdAndDelete(id);
+        if (!log)
+            return res.status(404).json({ error: 'not_found' });
+        res.json({ success: true });
+    }
+    catch (err) {
+        console.error('Error deleting log:', err);
+        res.status(500).json({ error: 'delete_failed' });
+    }
+});

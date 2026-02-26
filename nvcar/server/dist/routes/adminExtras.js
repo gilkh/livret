@@ -513,6 +513,573 @@ exports.adminExtrasRouter.get('/all-gradebooks', (0, auth_1.requireAuth)(['ADMIN
         res.status(500).json({ error: 'fetch_failed', message: e.message });
     }
 });
+// Helper: Extract toggle items from a block + assignment data (shared by summary & batch-update)
+function extractToggleItems(block, blockIdx, pageIdx, assignmentData) {
+    const results = [];
+    const blockId = typeof block?.props?.blockId === 'string' && block.props.blockId.trim() ? block.props.blockId.trim() : null;
+    if (['language_toggle', 'language_toggle_v2'].includes(block?.type)) {
+        const keyStable = blockId ? `language_toggle_${blockId}` : null;
+        const keyLegacy = `language_toggle_${pageIdx}_${blockIdx}`;
+        const items = (keyStable ? assignmentData[keyStable] : null) || assignmentData[keyLegacy] || block?.props?.items;
+        if (Array.isArray(items) && items.length > 0) {
+            results.push({ key: keyStable || keyLegacy, items });
+        }
+    }
+    else if (block?.type === 'table' && block?.props?.expandedRows) {
+        const rows = block?.props?.cells || [];
+        const expandedLanguages = block?.props?.expandedLanguages || [];
+        const rowLanguages = block?.props?.rowLanguages || {};
+        const rowIds = Array.isArray(block?.props?.rowIds) ? block.props.rowIds : [];
+        rows.forEach((_, ri) => {
+            const rowId = typeof rowIds?.[ri] === 'string' && rowIds[ri].trim() ? rowIds[ri].trim() : null;
+            const keyStable = blockId && rowId ? `table_${blockId}_row_${rowId}` : null;
+            const keyLegacy1 = `table_${pageIdx}_${blockIdx}_row_${ri}`;
+            const keyLegacy2 = `table_${blockIdx}_row_${ri}`;
+            const rowLangs = rowLanguages[ri] || expandedLanguages;
+            const currentItems = (keyStable ? assignmentData[keyStable] : null) || assignmentData[keyLegacy1] || assignmentData[keyLegacy2] || rowLangs || [];
+            if (Array.isArray(currentItems) && currentItems.length > 0) {
+                results.push({ key: keyStable || keyLegacy1, items: currentItems });
+            }
+        });
+    }
+    return results;
+}
+// Admin: Batch update gradebook toggle items by class or level
+exports.adminExtrasRouter.post('/gradebooks/toggles/batch-update', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
+    try {
+        const scopeTypeRaw = String(req.body?.scopeType || '').trim().toLowerCase();
+        const scopeValueRaw = String(req.body?.scopeValue || '').trim();
+        const toggleLevelRaw = String(req.body?.toggleLevel || '').trim().toUpperCase();
+        const levelRelationRaw = String(req.body?.levelRelation || 'all').trim().toLowerCase();
+        const languageCategoryRaw = String(req.body?.languageCategory || 'all').trim().toLowerCase();
+        const schoolYearIdRaw = String(req.body?.schoolYearId || '').trim();
+        const active = req.body?.active;
+        if (!['class', 'level'].includes(scopeTypeRaw)) {
+            return res.status(400).json({ error: 'invalid_scope_type' });
+        }
+        if (!scopeValueRaw) {
+            return res.status(400).json({ error: 'missing_scope_value' });
+        }
+        if (!toggleLevelRaw) {
+            return res.status(400).json({ error: 'missing_toggle_level' });
+        }
+        if (typeof active !== 'boolean') {
+            return res.status(400).json({ error: 'invalid_active_flag' });
+        }
+        if (!['all', 'current', 'past'].includes(levelRelationRaw)) {
+            return res.status(400).json({ error: 'invalid_level_relation' });
+        }
+        if (!['all', 'poly', 'arabic', 'english'].includes(languageCategoryRaw)) {
+            return res.status(400).json({ error: 'invalid_language_category' });
+        }
+        const targetYear = schoolYearIdRaw
+            ? await SchoolYear_1.SchoolYear.findById(schoolYearIdRaw).lean()
+            : await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
+        if (!targetYear) {
+            return res.status(400).json({ error: 'school_year_not_found' });
+        }
+        const schoolYearId = String(targetYear._id);
+        let classDocs = [];
+        if (scopeTypeRaw === 'class') {
+            const classDoc = await Class_1.ClassModel.findOne({ _id: scopeValueRaw, schoolYearId }).lean();
+            if (!classDoc) {
+                return res.status(404).json({ error: 'class_not_found' });
+            }
+            classDocs = [classDoc];
+        }
+        else {
+            const normalizedLevel = scopeValueRaw.toUpperCase();
+            classDocs = await Class_1.ClassModel.find({ schoolYearId, level: normalizedLevel }).lean();
+        }
+        const classIds = classDocs.map(c => String(c._id));
+        const classIdCandidates = [...classIds, ...classDocs.map(c => c._id)];
+        const classLevelById = new Map(classDocs.map(c => [String(c._id), String(c.level || '').toUpperCase()]));
+        const levels = await Level_1.Level.find({}).sort({ order: 1 }).lean();
+        const levelOrder = new Map();
+        levels.forEach((level, index) => {
+            const key = String(level?.name || '').trim().toUpperCase();
+            if (!key)
+                return;
+            const ord = Number.isFinite(Number(level?.order)) ? Number(level.order) : index + 1;
+            levelOrder.set(key, ord);
+        });
+        if (classIds.length === 0) {
+            return res.json({
+                success: true,
+                schoolYearId,
+                scopeType: scopeTypeRaw,
+                scopeValue: scopeValueRaw,
+                toggleLevel: toggleLevelRaw,
+                active,
+                matchedClasses: 0,
+                matchedStudents: 0,
+                matchedAssignments: 0,
+                updatedAssignments: 0,
+                updatedToggleBlocks: 0,
+                updatedItems: 0,
+            });
+        }
+        const enrollments = await Enrollment_1.Enrollment.find({
+            classId: { $in: classIdCandidates },
+            status: { $nin: ['archived', 'left'] }
+        }).select('studentId classId').lean();
+        const studentIds = Array.from(new Set(enrollments.map(e => String(e.studentId)).filter(Boolean)));
+        const studentClassLevel = new Map();
+        enrollments.forEach(enrollment => {
+            const studentId = String(enrollment?.studentId || '');
+            const classId = String(enrollment?.classId || '');
+            if (!studentId || !classId)
+                return;
+            const classLevel = classLevelById.get(classId) || '';
+            studentClassLevel.set(studentId, classLevel);
+        });
+        if (studentIds.length === 0) {
+            return res.json({
+                success: true,
+                schoolYearId,
+                scopeType: scopeTypeRaw,
+                scopeValue: scopeValueRaw,
+                toggleLevel: toggleLevelRaw,
+                active,
+                matchedClasses: classIds.length,
+                matchedStudents: 0,
+                matchedAssignments: 0,
+                updatedAssignments: 0,
+                updatedToggleBlocks: 0,
+                updatedItems: 0,
+            });
+        }
+        const assignments = await TemplateAssignment_1.TemplateAssignment.find({ studentId: { $in: studentIds } })
+            .select('_id studentId templateId templateVersion data')
+            .lean();
+        if (assignments.length === 0) {
+            return res.json({
+                success: true,
+                schoolYearId,
+                scopeType: scopeTypeRaw,
+                scopeValue: scopeValueRaw,
+                toggleLevel: toggleLevelRaw,
+                active,
+                matchedClasses: classIds.length,
+                matchedStudents: studentIds.length,
+                matchedAssignments: 0,
+                updatedAssignments: 0,
+                updatedToggleBlocks: 0,
+                updatedItems: 0,
+            });
+        }
+        const templateIds = Array.from(new Set(assignments.map(a => String(a.templateId))));
+        const templates = await GradebookTemplate_1.GradebookTemplate.find({ _id: { $in: templateIds } }).select('pages currentVersion versionHistory').lean();
+        const templateMap = new Map(templates.map(t => [String(t._id), t]));
+        const toUpper = (value) => String(value || '').trim().toUpperCase();
+        const classifyLanguage = (item) => {
+            const code = String(item?.code || item?.lang || '').trim().toLowerCase();
+            const label = String(item?.label || item?.type || '').toLowerCase();
+            if (code === 'fr' || code === 'fra' || label.includes('français') || label.includes('french'))
+                return 'poly';
+            if (code === 'ar' || code === 'ara' || code === 'arab' || code === 'lb' || label.includes('arabe') || label.includes('arabic') || label.includes('العربية'))
+                return 'arabic';
+            if (code === 'en' || code === 'eng' || code === 'uk' || code === 'gb' || label.includes('anglais') || label.includes('english'))
+                return 'english';
+            return 'other';
+        };
+        const classifyLevelRelation = (item, assignmentLevel) => {
+            const assignment = String(assignmentLevel || '').trim().toUpperCase();
+            const itemLevels = [];
+            if (Array.isArray(item?.levels)) {
+                item.levels.forEach((value) => {
+                    const normalized = String(value || '').trim().toUpperCase();
+                    if (normalized)
+                        itemLevels.push(normalized);
+                });
+            }
+            if (typeof item?.level === 'string') {
+                const normalized = String(item.level).trim().toUpperCase();
+                if (normalized)
+                    itemLevels.push(normalized);
+            }
+            const uniqueLevels = Array.from(new Set(itemLevels));
+            if (!assignment || uniqueLevels.length === 0)
+                return 'current';
+            if (uniqueLevels.includes(assignment))
+                return 'current';
+            const assignmentOrder = levelOrder.get(assignment);
+            if (!Number.isFinite(assignmentOrder))
+                return 'past';
+            const hasPast = uniqueLevels.some(level => {
+                const levelOrd = levelOrder.get(level);
+                return Number.isFinite(levelOrd) && Number(levelOrd) < Number(assignmentOrder);
+            });
+            return hasPast ? 'past' : 'current';
+        };
+        const shouldUpdateItem = (item, assignmentLevel) => {
+            if (!item || typeof item !== 'object')
+                return false;
+            if (toggleLevelRaw === 'ALL')
+                return true;
+            const normalizedLevels = [];
+            if (Array.isArray(item.levels)) {
+                for (const level of item.levels) {
+                    const normalized = toUpper(level);
+                    if (normalized)
+                        normalizedLevels.push(normalized);
+                }
+            }
+            if (typeof item.level === 'string') {
+                const normalized = toUpper(item.level);
+                if (normalized)
+                    normalizedLevels.push(normalized);
+            }
+            const levelMatch = normalizedLevels.length === 0
+                ? assignmentLevel === toggleLevelRaw
+                : normalizedLevels.includes(toggleLevelRaw);
+            if (!levelMatch)
+                return false;
+            const relation = classifyLevelRelation(item, assignmentLevel);
+            const language = classifyLanguage(item);
+            if (levelRelationRaw !== 'all' && relation !== levelRelationRaw)
+                return false;
+            if (languageCategoryRaw !== 'all' && language !== languageCategoryRaw)
+                return false;
+            return true;
+        };
+        const operations = [];
+        let updatedAssignments = 0;
+        let updatedToggleBlocks = 0;
+        let updatedItems = 0;
+        for (const assignment of assignments) {
+            const templateRaw = templateMap.get(String(assignment.templateId));
+            const template = templateRaw ? (0, templateUtils_1.getVersionedTemplate)(templateRaw, assignment.templateVersion) : null;
+            const templatePages = Array.isArray(template?.pages) ? template.pages : [];
+            const assignmentData = assignment.data && typeof assignment.data === 'object'
+                ? { ...assignment.data }
+                : {};
+            let assignmentChanged = false;
+            templatePages.forEach((page, pageIndex) => {
+                const blocks = Array.isArray(page?.blocks) ? page.blocks : [];
+                blocks.forEach((block, blockIndex) => {
+                    const extracted = extractToggleItems(block, blockIndex, pageIndex, assignmentData);
+                    if (extracted.length === 0)
+                        return;
+                    const assignmentLevel = String(studentClassLevel.get(String(assignment.studentId)) || '').toUpperCase();
+                    for (const { key, items } of extracted) {
+                        let blockChanged = false;
+                        const nextItems = items.map((item) => {
+                            if (!shouldUpdateItem(item, assignmentLevel))
+                                return item;
+                            if (item?.active === active)
+                                return item;
+                            blockChanged = true;
+                            updatedItems += 1;
+                            return { ...item, active };
+                        });
+                        if (!blockChanged)
+                            continue;
+                        assignmentData[key] = nextItems;
+                        assignmentChanged = true;
+                        updatedToggleBlocks += 1;
+                    }
+                });
+            });
+            if (!assignmentChanged)
+                continue;
+            updatedAssignments += 1;
+            operations.push({
+                updateOne: {
+                    filter: { _id: assignment._id },
+                    update: {
+                        $set: { data: assignmentData },
+                        $inc: { dataVersion: 1 }
+                    }
+                }
+            });
+        }
+        if (operations.length > 0) {
+            await TemplateAssignment_1.TemplateAssignment.bulkWrite(operations);
+        }
+        return res.json({
+            success: true,
+            schoolYearId,
+            scopeType: scopeTypeRaw,
+            scopeValue: scopeValueRaw,
+            toggleLevel: toggleLevelRaw,
+            levelRelation: levelRelationRaw,
+            languageCategory: languageCategoryRaw,
+            active,
+            matchedClasses: classIds.length,
+            matchedStudents: studentIds.length,
+            matchedAssignments: assignments.length,
+            updatedAssignments,
+            updatedToggleBlocks,
+            updatedItems,
+        });
+    }
+    catch (e) {
+        return res.status(500).json({ error: 'batch_toggle_update_failed', message: e.message });
+    }
+});
+// Admin: Get toggle summary counts by class and level
+exports.adminExtrasRouter.get('/gradebooks/toggles/summary', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
+    try {
+        const schoolYearIdRaw = String(req.query?.schoolYearId || '').trim();
+        const toggleLevelRaw = String(req.query?.toggleLevel || 'ALL').trim().toUpperCase();
+        const targetYear = schoolYearIdRaw
+            ? await SchoolYear_1.SchoolYear.findById(schoolYearIdRaw).lean()
+            : await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
+        if (!targetYear) {
+            return res.status(400).json({ error: 'school_year_not_found' });
+        }
+        const schoolYearId = String(targetYear._id);
+        const classDocs = await Class_1.ClassModel.find({ schoolYearId }).lean();
+        const classIds = classDocs.map(c => String(c._id));
+        const classIdCandidates = [...classIds, ...classDocs.map(c => c._id)];
+        const classLevelById = new Map(classDocs.map(c => [String(c._id), String(c.level || '').toUpperCase()]));
+        const levelsMeta = await Level_1.Level.find({}).sort({ order: 1 }).lean();
+        const levelOrder = new Map();
+        levelsMeta.forEach((level, index) => {
+            const key = String(level?.name || '').trim().toUpperCase();
+            if (!key)
+                return;
+            const ord = Number.isFinite(Number(level?.order)) ? Number(level.order) : index + 1;
+            levelOrder.set(key, ord);
+        });
+        if (classIds.length === 0) {
+            return res.json({
+                schoolYearId,
+                toggleLevel: toggleLevelRaw,
+                classes: [],
+                levels: [],
+                classMatrix: [],
+                totals: { on: 0, total: 0, off: 0 }
+            });
+        }
+        const enrollments = await Enrollment_1.Enrollment.find({
+            classId: { $in: classIdCandidates },
+            status: { $nin: ['archived', 'left'] }
+        }).select('studentId classId').lean();
+        const studentClassMap = new Map();
+        enrollments.forEach(enrollment => {
+            if (!enrollment?.studentId || !enrollment?.classId)
+                return;
+            studentClassMap.set(String(enrollment.studentId), String(enrollment.classId));
+        });
+        const studentIds = Array.from(studentClassMap.keys());
+        if (studentIds.length === 0) {
+            const emptyClasses = classDocs.map(cls => ({
+                classId: String(cls._id),
+                className: cls.name,
+                level: cls.level || '',
+                on: 0,
+                total: 0,
+                off: 0
+            }));
+            return res.json({
+                schoolYearId,
+                toggleLevel: toggleLevelRaw,
+                classes: emptyClasses,
+                levels: [],
+                classMatrix: [],
+                totals: { on: 0, total: 0, off: 0 }
+            });
+        }
+        const assignments = await TemplateAssignment_1.TemplateAssignment.find({ studentId: { $in: studentIds } })
+            .select('studentId templateId templateVersion data')
+            .lean();
+        const templateIds = Array.from(new Set(assignments.map(a => String(a.templateId))));
+        const templates = await GradebookTemplate_1.GradebookTemplate.find({ _id: { $in: templateIds } }).select('pages currentVersion versionHistory').lean();
+        const templateMap = new Map(templates.map(t => [String(t._id), t]));
+        const classMetaById = new Map();
+        classDocs.forEach(cls => {
+            classMetaById.set(String(cls._id), {
+                className: cls.name,
+                level: cls.level || ''
+            });
+        });
+        const countersByClass = new Map();
+        classIds.forEach(classId => countersByClass.set(classId, { on: 0, total: 0 }));
+        // Matrix: per class → per item-level → per language → { on, total }
+        const matrixByClass = new Map();
+        classIds.forEach(classId => matrixByClass.set(classId, new Map()));
+        const ensureLangBucket = () => ({
+            poly: { on: 0, total: 0 },
+            arabic: { on: 0, total: 0 },
+            english: { on: 0, total: 0 },
+        });
+        const classifyLanguage = (item) => {
+            const code = String(item?.code || item?.lang || '').trim().toLowerCase();
+            const label = String(item?.label || item?.type || '').toLowerCase();
+            if (code === 'fr' || code === 'fra' || label.includes('français') || label.includes('french'))
+                return 'poly';
+            if (code === 'ar' || code === 'ara' || code === 'arab' || code === 'lb' || label.includes('arabe') || label.includes('arabic') || label.includes('العربية'))
+                return 'arabic';
+            if (code === 'en' || code === 'eng' || code === 'uk' || code === 'gb' || label.includes('anglais') || label.includes('english'))
+                return 'english';
+            return 'other';
+        };
+        const shouldIncludeItem = (item, assignmentLevel) => {
+            if (!item || typeof item !== 'object')
+                return false;
+            if (toggleLevelRaw === 'ALL')
+                return true;
+            const normalizedLevels = [];
+            if (Array.isArray(item.levels)) {
+                item.levels.forEach((value) => {
+                    const normalized = String(value || '').trim().toUpperCase();
+                    if (normalized)
+                        normalizedLevels.push(normalized);
+                });
+            }
+            if (typeof item.level === 'string') {
+                const normalized = String(item.level).trim().toUpperCase();
+                if (normalized)
+                    normalizedLevels.push(normalized);
+            }
+            if (normalizedLevels.length === 0) {
+                return assignmentLevel === toggleLevelRaw;
+            }
+            return normalizedLevels.includes(toggleLevelRaw);
+        };
+        for (const assignment of assignments) {
+            const classId = studentClassMap.get(String(assignment.studentId));
+            if (!classId)
+                continue;
+            const templateRaw = templateMap.get(String(assignment.templateId));
+            const template = templateRaw ? (0, templateUtils_1.getVersionedTemplate)(templateRaw, assignment.templateVersion) : null;
+            const templatePages = Array.isArray(template?.pages) ? template.pages : [];
+            const assignmentData = assignment.data && typeof assignment.data === 'object' ? assignment.data : {};
+            const classCounters = countersByClass.get(classId);
+            if (!classCounters)
+                continue;
+            templatePages.forEach((page, pageIndex) => {
+                const blocks = Array.isArray(page?.blocks) ? page.blocks : [];
+                blocks.forEach((block, blockIndex) => {
+                    const extracted = extractToggleItems(block, blockIndex, pageIndex, assignmentData);
+                    if (extracted.length === 0)
+                        return;
+                    const assignmentLevel = String(classLevelById.get(String(classId)) || '').toUpperCase();
+                    for (const { items } of extracted) {
+                        items.forEach((item) => {
+                            if (!shouldIncludeItem(item, assignmentLevel))
+                                return;
+                            classCounters.total += 1;
+                            if (item?.active === true)
+                                classCounters.on += 1;
+                            const language = classifyLanguage(item);
+                            if (language === 'other')
+                                return;
+                            // Determine item's own level name
+                            let itemLevel = assignmentLevel;
+                            const itemLevels = [];
+                            if (Array.isArray(item?.levels)) {
+                                item.levels.forEach((v) => { const n = String(v || '').trim().toUpperCase(); if (n)
+                                    itemLevels.push(n); });
+                            }
+                            if (typeof item?.level === 'string') {
+                                const n = String(item.level).trim().toUpperCase();
+                                if (n)
+                                    itemLevels.push(n);
+                            }
+                            if (itemLevels.length > 0)
+                                itemLevel = itemLevels[0];
+                            const classMatrix = matrixByClass.get(String(classId));
+                            if (!classMatrix)
+                                return;
+                            if (!classMatrix.has(itemLevel))
+                                classMatrix.set(itemLevel, ensureLangBucket());
+                            const bucket = classMatrix.get(itemLevel);
+                            bucket[language].total += 1;
+                            if (item?.active === true)
+                                bucket[language].on += 1;
+                        });
+                    }
+                });
+            });
+        }
+        const classes = classIds.map(classId => {
+            const counters = countersByClass.get(classId) || { on: 0, total: 0 };
+            const meta = classMetaById.get(classId) || { className: classId, level: '' };
+            const off = Math.max(counters.total - counters.on, 0);
+            return {
+                classId,
+                className: meta.className,
+                level: meta.level,
+                on: counters.on,
+                total: counters.total,
+                off
+            };
+        }).sort((a, b) => a.className.localeCompare(b.className, 'fr', { sensitivity: 'base' }));
+        const levelMap = new Map();
+        classes.forEach(item => {
+            const levelKey = String(item.level || 'Sans niveau');
+            if (!levelMap.has(levelKey))
+                levelMap.set(levelKey, { on: 0, total: 0 });
+            const counters = levelMap.get(levelKey);
+            counters.on += item.on;
+            counters.total += item.total;
+        });
+        const levels = Array.from(levelMap.entries())
+            .map(([level, counters]) => ({
+            level,
+            on: counters.on,
+            total: counters.total,
+            off: Math.max(counters.total - counters.on, 0)
+        }))
+            .sort((a, b) => a.level.localeCompare(b.level, 'fr', { sensitivity: 'base', numeric: true }));
+        const classMatrix = classIds.map(classId => {
+            const meta = classMetaById.get(classId) || { className: classId, level: '' };
+            const rawMatrix = matrixByClass.get(classId) || new Map();
+            const classLevel = String(meta.level || '').toUpperCase();
+            const classLevelOrder = levelOrder.get(classLevel);
+            // Build per-level breakdown with relation tag
+            const byItemLevel = [];
+            for (const [lvl, bucket] of rawMatrix.entries()) {
+                const lvlOrder = levelOrder.get(lvl);
+                let relation = 'current';
+                if (classLevel && lvl !== classLevel && Number.isFinite(classLevelOrder) && Number.isFinite(lvlOrder)) {
+                    if (Number(lvlOrder) < Number(classLevelOrder)) {
+                        relation = 'past';
+                    }
+                    else if (Number(lvlOrder) > Number(classLevelOrder)) {
+                        relation = 'future';
+                    }
+                }
+                byItemLevel.push({ itemLevel: lvl, relation, ...bucket });
+            }
+            // Sort by level order
+            byItemLevel.sort((a, b) => {
+                const oa = levelOrder.get(a.itemLevel) ?? 99;
+                const ob = levelOrder.get(b.itemLevel) ?? 99;
+                return oa - ob;
+            });
+            return {
+                classId,
+                className: meta.className,
+                level: meta.level,
+                byItemLevel,
+            };
+        }).sort((a, b) => a.className.localeCompare(b.className, 'fr', { sensitivity: 'base' }));
+        const totals = classes.reduce((acc, cls) => {
+            acc.on += cls.on;
+            acc.total += cls.total;
+            return acc;
+        }, { on: 0, total: 0 });
+        return res.json({
+            schoolYearId,
+            toggleLevel: toggleLevelRaw,
+            classes,
+            levels,
+            classMatrix,
+            totals: {
+                on: totals.on,
+                total: totals.total,
+                off: Math.max(totals.total - totals.on, 0)
+            }
+        });
+    }
+    catch (e) {
+        return res.status(500).json({ error: 'toggle_summary_failed', message: e.message });
+    }
+});
 // Admin: Sign gradebook (Unrestricted)
 exports.adminExtrasRouter.post('/templates/:templateAssignmentId/sign', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
     try {
@@ -985,7 +1552,7 @@ exports.adminExtrasRouter.post('/ps-onboarding/batch-sign', (0, auth_1.requireAu
             if (!subadmin) {
                 subadmin = await OutlookUser_1.OutlookUser.findById(subadminId).lean();
             }
-            signatureUrl = subadmin?.signatureUrl;
+            signatureUrl = subadmin?.signatureUrl ? String(subadmin.signatureUrl) : undefined;
             const baseUrl = `${req.protocol}://${req.get('host')}`;
             signatureData = await (0, signatureSnapshot_1.buildSignatureSnapshot)(signatureUrl, baseUrl);
         }

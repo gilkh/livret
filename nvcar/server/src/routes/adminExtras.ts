@@ -1698,7 +1698,7 @@ adminExtrasRouter.post('/ps-onboarding/batch-sign', requireAuth(['ADMIN']), asyn
             if (!subadmin) {
                 subadmin = await OutlookUser.findById(subadminId).lean()
             }
-            signatureUrl = subadmin?.signatureUrl
+            signatureUrl = subadmin?.signatureUrl ? String(subadmin.signatureUrl) : undefined
             const baseUrl = `${req.protocol}://${req.get('host')}`
             signatureData = await buildSignatureSnapshot(signatureUrl, baseUrl)
         }

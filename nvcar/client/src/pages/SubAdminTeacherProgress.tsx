@@ -35,6 +35,12 @@ type StudentProgress = {
     hasArabic: boolean
     hasEnglish: boolean
     hasPolyvalent: boolean
+    arabicFilledCount?: number
+    arabicTotalCount?: number
+    englishFilledCount?: number
+    englishTotalCount?: number
+    polyvalentFilledCount?: number
+    polyvalentTotalCount?: number
 }
 
 type ClassDetailedProgress = {
@@ -228,6 +234,7 @@ const DetailedClassTable = ({ cls, isExpanded, onToggle }: { cls: ClassDetailedP
         if (percentage >= 50) return 'medium'
         return 'low'
     }
+
 
     return (
         <div className={`class-detailed-card ${isExpanded ? 'expanded' : 'collapsed'}`}>
