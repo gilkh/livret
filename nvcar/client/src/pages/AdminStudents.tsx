@@ -29,6 +29,12 @@ type Student = {
 type Year = { _id: string; name: string; active: boolean }
 type ClassInfo = { _id: string; name: string; level: string; schoolYearId: string }
 
+const compareStudentsByLastName = (a: Student, b: Student) => {
+  const familyNameCompare = (a.firstName || '').localeCompare(b.firstName || '', 'fr', { sensitivity: 'base' })
+  if (familyNameCompare !== 0) return familyNameCompare
+  return (a.lastName || '').localeCompare(b.lastName || '', 'fr', { sensitivity: 'base' })
+}
+
 export default function AdminStudents() {
   // Data State
   const [years, setYears] = useState<Year[]>([])
@@ -284,6 +290,14 @@ export default function AdminStudents() {
 
       grouped[level][className].push(s)
     })
+
+    Object.values(grouped).forEach(levelGroups => {
+      Object.values(levelGroups).forEach(classStudents => {
+        classStudents.sort(compareStudentsByLastName)
+      })
+    })
+
+    unassigned.sort(compareStudentsByLastName)
 
     return { grouped, unassigned }
   }, [students, search, levels])

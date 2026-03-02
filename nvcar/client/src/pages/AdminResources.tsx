@@ -53,6 +53,12 @@ type StudentDoc = {
   leftSchoolYearName?: string;
 }
 
+const compareStudentsByLastName = (a: StudentDoc, b: StudentDoc) => {
+  const familyNameCompare = (a.firstName || '').localeCompare(b.firstName || '', 'fr', { sensitivity: 'base' })
+  if (familyNameCompare !== 0) return familyNameCompare
+  return (a.lastName || '').localeCompare(b.lastName || '', 'fr', { sensitivity: 'base' })
+}
+
 export default function AdminResources() {
   const navigate = useNavigate()
   const { activeYearId, refetchYears } = useSchoolYear()
@@ -132,12 +138,14 @@ export default function AdminResources() {
 
   // Filtered Students
   const filteredStudents = useMemo(() => {
-    if (!studentSearch.trim()) return students
     const lower = studentSearch.toLowerCase()
-    return students.filter(s =>
+    const visibleStudents = !studentSearch.trim()
+      ? students
+      : students.filter(s =>
       s.firstName.toLowerCase().includes(lower) ||
       s.lastName.toLowerCase().includes(lower)
     )
+    return [...visibleStudents].sort(compareStudentsByLastName)
   }, [students, studentSearch])
 
   const loadYears = async () => {
