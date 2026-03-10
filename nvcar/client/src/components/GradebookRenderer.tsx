@@ -324,40 +324,25 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
     const checkBlockVisibility = (b: Block, pageIdx: number, blockIdx: number): boolean => {
         const blockLevel = getBlockLevel(b)
 
-        // Hide blocks whose level is higher than student's current level
-        if (isBlockLevelHigherThanStudent(blockLevel)) return false
+        // Level Guard: read from admin settings. Default true for backward compat.
+        const levelGuardEnabled = (blockVisibilitySettings as any)?._config?.levelGuardEnabled ?? true
+        if (levelGuardEnabled && isBlockLevelHigherThanStudent(blockLevel)) return false
 
         const blockId = typeof b?.props?.blockId === 'string' && b.props.blockId.trim() ? b.props.blockId.trim() : null
         const key = buildVisibilityKey(template?._id, pageIdx, blockIdx, blockId)
 
-        const isArchiveSem1 = viewType === 'archive_sem1'
-        const isLiveSem1 = viewType !== 'archive_sem1' && viewType !== 'archive_final' && activeYear?.activeSemester === 1
-        const shouldHideSem2 = isArchiveSem1 || isLiveSem1
-
-        const semesterRaw = (b.props as any)?.semester ?? (b.props as any)?.semestre
-        const periodRaw = String((b.props as any)?.period || '')
-        const isSem2AssignedBlock = semesterRaw === 2 || semesterRaw === '2' || periodRaw === 'end-year'
-        const allowsHistoricalSem2 = ['signature_box', 'signature_date', 'signature_block'].includes(b.type)
-        const studentLevelUpper = String(student?.level || '').toUpperCase()
-
         if (blockLevel) {
-            // Block has a level - use that level's settings
-            let visibilitySetting = blockVisibilitySettings?.[blockLevel.toUpperCase()]?.[viewType]?.[key]
-            const isSameLevelBlock = blockLevel.toUpperCase() === studentLevelUpper
-            if (visibilitySetting === undefined && shouldHideSem2 && !allowsHistoricalSem2 && isSem2AssignedBlock && isSameLevelBlock) {
-                visibilitySetting = 'after_sem2'
-            }
+            // Block has a level - use that level's admin-configured setting
+            const visibilitySetting = blockVisibilitySettings?.[blockLevel.toUpperCase()]?.[viewType]?.[key]
+            // No setting found: default to visible (admin has full control via auto-initialized defaults)
+            if (!visibilitySetting) return true
             const { hasSem1, hasSem2 } = getSignatureForLevel(blockLevel)
-
-            if (visibilitySetting) {
-                if (visibilitySetting === 'never') return false
-                if (visibilitySetting === 'after_sem1' && !hasSem1 && !hasSem2) return false
-                if (visibilitySetting === 'after_sem2' && !hasSem2) return false
-            }
+            if (visibilitySetting === 'never') return false
+            if (visibilitySetting === 'after_sem1' && !hasSem1 && !hasSem2) return false
+            if (visibilitySetting === 'after_sem2' && !hasSem2) return false
             return true
         } else {
             // Block has NO level - check all levels at or below student's current level
-            // Find settings for this block in any applicable level
             const studentLvl = (student?.level || 'PS').toUpperCase()
             const studentOrder = levelOrder[studentLvl] ?? 99
             const levelsToCheck = Object.keys(levelOrder).filter(lvl => levelOrder[lvl] <= studentOrder)
@@ -366,29 +351,18 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
             let anyLevelWouldShow = false
 
             for (const lvl of levelsToCheck) {
-                let visibilitySetting = blockVisibilitySettings?.[lvl]?.[viewType]?.[key]
-                if (visibilitySetting === undefined && shouldHideSem2 && !allowsHistoricalSem2 && isSem2AssignedBlock && String(lvl).toUpperCase() === studentLevelUpper) {
-                    visibilitySetting = 'after_sem2'
-                }
+                const visibilitySetting = blockVisibilitySettings?.[lvl]?.[viewType]?.[key]
                 if (visibilitySetting) {
                     foundSetting = true
                     const { hasSem1, hasSem2 } = getSignatureForLevel(lvl)
-
-                    if (visibilitySetting === 'always') {
-                        anyLevelWouldShow = true
-                        break
-                    } else if (visibilitySetting === 'after_sem1' && (hasSem1 || hasSem2)) {
-                        anyLevelWouldShow = true
-                        break
-                    } else if (visibilitySetting === 'after_sem2' && hasSem2) {
-                        anyLevelWouldShow = true
-                        break
-                    }
-                    // 'never' doesn't set anyLevelWouldShow
+                    if (visibilitySetting === 'always') { anyLevelWouldShow = true; break }
+                    if (visibilitySetting === 'after_sem1' && (hasSem1 || hasSem2)) { anyLevelWouldShow = true; break }
+                    if (visibilitySetting === 'after_sem2' && hasSem2) { anyLevelWouldShow = true; break }
+                    // 'never' does not set anyLevelWouldShow
                 }
             }
 
-            // If no settings found, default to visible; if found, use the result
+            // No settings found anywhere -> default to visible
             return !foundSetting || anyLevelWouldShow
         }
     }
@@ -435,6 +409,7 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                     >
                         {page.blocks.map((b, blockIdx) => {
                             if (!b || !b.props) return null;
+                            if (!checkBlockVisibility(b, originalPageIdx, blockIdx)) return null;
                             return (
                                 <div key={blockIdx} style={{ position: 'absolute', left: b.props.x || 0, top: b.props.y || 0, zIndex: b.props.z ?? blockIdx }}>
                                     {b.type === 'text' && (
@@ -496,8 +471,7 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                             padding: b.props.padding || 8,
                                             width: b.props.width,
                                             height: b.props.height,
-                                            boxSizing: 'border-box',
-                                            ...(!checkBlockVisibility(b, originalPageIdx, blockIdx) ? { display: 'none' } : {})
+                                            boxSizing: 'border-box'
                                         }}>
                                             {(() => {
                                                 const toggleKeyOriginal = `language_toggle_${originalPageIdx}_${blockIdx}`
@@ -617,8 +591,7 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
 
                                     {b.type === 'dropdown' && (
                                         <div style={{
-                                            width: b.props.width || 200,
-                                            ...(!checkBlockVisibility(b, originalPageIdx, blockIdx) ? { display: 'none' } : {})
+                                            width: b.props.width || 200
                                         }}>
                                             <div style={{ fontSize: 10, fontWeight: 'bold', color: '#6c5ce7', marginBottom: 2 }}>
                                                 {b.props.dropdownNumber && `Dropdown #${b.props.dropdownNumber}`}

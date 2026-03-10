@@ -40,6 +40,7 @@ export default function AdminGradebookReview() {
     const [isPromoted, setIsPromoted] = useState(false)
     const [isSignedByMe, setIsSignedByMe] = useState(false)
     const [activeSemester, setActiveSemester] = useState<number>(1)
+    const [blockVisibilitySettings, setBlockVisibilitySettings] = useState<any>({})
 
     const [canEdit, setCanEdit] = useState(false)
     const [editMode, setEditMode] = useState(false)
@@ -138,7 +139,12 @@ export default function AdminGradebookReview() {
                 setLoading(false)
             }
         }
-        if (assignmentId) loadData()
+        if (assignmentId) {
+            loadData()
+            api.get('/settings/public').then(r => {
+                setBlockVisibilitySettings(r.data?.block_visibility_settings || {})
+            }).catch(() => {})
+        }
     }, [assignmentId])
 
     // Close dropdown when clicking outside
@@ -514,6 +520,8 @@ export default function AdminGradebookReview() {
                             signature={signature}
                             finalSignature={finalSignature}
                             visiblePages={continuousScroll ? undefined : [selectedPage]}
+                            blockVisibilitySettings={blockVisibilitySettings}
+                            viewType="subadmin"
                         />
                     )}
                 </div>

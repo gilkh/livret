@@ -1375,30 +1375,20 @@ export default function SubAdminTemplateReview() {
                                         // Get block's level
                                         const blockLevel = getBlockLevel(b)
 
-                                        // Hide blocks whose level is higher than student's current level
-                                        if (isBlockLevelHigherThanStudent(blockLevel)) return null
+                                        // Level Guard: read from admin settings, default true
+                                        const levelGuardEnabled = (blockVisibility as any)?._config?.levelGuardEnabled ?? true
+                                        if (levelGuardEnabled && isBlockLevelHigherThanStudent(blockLevel)) return null
 
                                         const blockId = typeof b?.props?.blockId === 'string' && b.props.blockId.trim() ? b.props.blockId.trim() : null
                                         const key = buildVisibilityKey(template?._id, actualPageIndex, idx, blockId)
 
-                                        // For blocks WITH a level: use that level's settings and signatures
-                                        // For blocks WITHOUT a level: check all levels at or below student's level
-                                        // Show the block if ANY applicable level would show it (with its signature)
+                                        // Admin settings are the single source of truth.
+                                        // No after_sem2 injection, no fallbacks — what admin set is what is used.
                                         let shouldShow = true
 
-                                        const semesterRaw = (b.props as any)?.semester ?? (b.props as any)?.semestre
-                                        const periodRaw = String((b.props as any)?.period || '')
-                                        const isSem2AssignedBlock = semesterRaw === 2 || semesterRaw === '2' || periodRaw === 'end-year'
-                                        const allowsHistoricalSem2 = ['signature_box', 'signature_date', 'signature_block'].includes(b.type)
-                                        const studentLevelUpper = String(student?.level || '').toUpperCase()
-
                                         if (blockLevel) {
-                                            // Block has a level - use that level's settings
-                                            let visibilitySetting = blockVisibility?.[blockLevel.toUpperCase()]?.subadmin?.[key]
-                                            const isSameLevelBlock = blockLevel.toUpperCase() === studentLevelUpper
-                                            if (visibilitySetting === undefined && activeSemester === 1 && !allowsHistoricalSem2 && isSem2AssignedBlock && isSameLevelBlock) {
-                                                visibilitySetting = 'after_sem2'
-                                            }
+                                            // Block has a level - use that level's admin-configured setting
+                                            const visibilitySetting = blockVisibility?.[blockLevel.toUpperCase()]?.subadmin?.[key]
                                             const { hasSem1, hasSem2 } = getSignatureForLevel(blockLevel)
 
                                             if (visibilitySetting) {
@@ -1406,6 +1396,7 @@ export default function SubAdminTemplateReview() {
                                                 else if (visibilitySetting === 'after_sem1' && !hasSem1 && !hasSem2) shouldShow = false
                                                 else if (visibilitySetting === 'after_sem2' && !hasSem2) shouldShow = false
                                             }
+                                            // No setting = show (admin controls via auto-initialized defaults)
                                         } else {
                                             // Block has NO level - check all levels at or below student's current level
                                             const studentLvl = (student?.level || 'PS').toUpperCase()
@@ -1416,10 +1407,7 @@ export default function SubAdminTemplateReview() {
                                             let anyLevelWouldShow = false
 
                                             for (const lvl of levelsToCheck) {
-                                                let visibilitySetting = blockVisibility?.[lvl]?.subadmin?.[key]
-                                                if (visibilitySetting === undefined && activeSemester === 1 && !allowsHistoricalSem2 && isSem2AssignedBlock && String(lvl).toUpperCase() === studentLevelUpper) {
-                                                    visibilitySetting = 'after_sem2'
-                                                }
+                                                const visibilitySetting = blockVisibility?.[lvl]?.subadmin?.[key]
                                                 if (visibilitySetting) {
                                                     foundSetting = true
                                                     const { hasSem1, hasSem2 } = getSignatureForLevel(lvl)

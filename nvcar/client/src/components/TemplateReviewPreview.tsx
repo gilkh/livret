@@ -20,9 +20,11 @@ interface TemplateReviewPreviewProps {
     finalSignature: any
     activeSemester?: number
     minimalMode?: boolean
+    blockVisibilitySettings?: any
+    viewType?: 'teacher' | 'subadmin'
 }
 
-export default function TemplateReviewPreview({ template, student, assignment, signature, finalSignature, activeSemester: propActiveSemester, minimalMode = false }: TemplateReviewPreviewProps) {
+export default function TemplateReviewPreview({ template, student, assignment, signature, finalSignature, activeSemester: propActiveSemester, minimalMode = false, blockVisibilitySettings, viewType = 'teacher' }: TemplateReviewPreviewProps) {
     const { levels } = useLevels()
     const { activeYear } = useSchoolYear()
     const [selectedPage, setSelectedPage] = useState(0)
@@ -255,48 +257,99 @@ export default function TemplateReviewPreview({ template, student, assignment, s
         return String(promo?.year || '')
     }
 
-    const isBlockVisible = (b: Block) => {
+    // Level order for comparison (lower = lower level)
+    const levelOrder: Record<string, number> = { 'TPS': 0, 'PS': 1, 'MS': 2, 'GS': 3, 'EB1': 4, 'KG1': 1, 'KG2': 2, 'KG3': 3 }
+
+    const isBlockLevelHigherThanStudent = (blockLevel: string | null): boolean => {
+        if (!blockLevel) return false
+        const studentLvl = (student?.level || '').toUpperCase()
+        const blockLvl = blockLevel.toUpperCase()
+        const studentOrder = levelOrder[studentLvl] ?? 99
+        const blockOrder = levelOrder[blockLvl] ?? 99
+        return blockOrder > studentOrder
+    }
+
+    const normalizeYear = (y: any) => String(y || '').replace(/\s+/g, '').replace(/-/g, '/').trim()
+
+    const getSignatureForLevel = (targetLevel: string | null) => {
+        if (!targetLevel) return { hasSem1: !!signature, hasSem2: !!finalSignature }
+        const normalizedTarget = targetLevel.toUpperCase()
+        const history = assignment?.data?.signatures || []
+        const promotions = assignment?.data?.promotions || []
+        let hasSem1 = false
+        let hasSem2 = false
+
+        if (student?.level?.toUpperCase() === normalizedTarget) {
+            hasSem1 = !!signature
+            hasSem2 = !!finalSignature
+        }
+
+        history.forEach((sig: any) => {
+            if (sig.schoolYearName) {
+                const promo = promotions.find((p: any) => normalizeYear(p.year) === normalizeYear(sig.schoolYearName))
+                if (promo && promo.from?.toUpperCase() === normalizedTarget) {
+                    if (sig.type === 'standard' || !sig.type) hasSem1 = true
+                    if (sig.type === 'end_of_year') hasSem2 = true
+                }
+            }
+            if (sig.level?.toUpperCase() === normalizedTarget) {
+                if (sig.type === 'standard' || !sig.type) hasSem1 = true
+                if (sig.type === 'end_of_year') hasSem2 = true
+            }
+        })
+
+        return { hasSem1, hasSem2 }
+    }
+
+    const buildVisibilityKey = (tplId: string | undefined, pageIdx: number, blockIdx: number, blockId?: string | null) => {
+        if (blockId) return `block:${blockId}`
+        return `tpl:${tplId || ''}:p:${pageIdx}:b:${blockIdx}`
+    }
+
+    // Admin-settings-based visibility check — single source of truth
+    // When blockVisibilitySettings is provided, uses admin settings only.
+    // When not provided (e.g. SuggestionGradebookTemplates), shows all blocks.
+    const checkBlockVisibilityAdmin = (b: Block, pageIdx: number, blockIdx: number): boolean => {
+        if (!blockVisibilitySettings) return true // No settings provided: show everything
+
         const blockLevel = getBlockLevel(b)
 
-        // Case 1: Block has NO specific level (generic)
-        if (!blockLevel) {
-            // Use current active signature state
-            if (b.props.period === 'mid-year' && !signature && !b.props.field?.includes('signature')) return false
-            if (b.props.period === 'end-year' && !finalSignature && !b.props.field?.includes('signature')) return false
+        // Level Guard: read from admin settings
+        const levelGuardEnabled = blockVisibilitySettings?._config?.levelGuardEnabled ?? true
+        if (levelGuardEnabled && isBlockLevelHigherThanStudent(blockLevel)) return false
+
+        const blockId = typeof b?.props?.blockId === 'string' && b.props.blockId.trim() ? b.props.blockId.trim() : null
+        const key = buildVisibilityKey(template?._id, pageIdx, blockIdx, blockId)
+
+        if (blockLevel) {
+            const visibilitySetting = blockVisibilitySettings?.[blockLevel.toUpperCase()]?.[viewType]?.[key]
+            if (!visibilitySetting) return true // No setting -> show
+            const { hasSem1, hasSem2 } = getSignatureForLevel(blockLevel)
+            if (visibilitySetting === 'never') return false
+            if (visibilitySetting === 'after_sem1' && !hasSem1 && !hasSem2) return false
+            if (visibilitySetting === 'after_sem2' && !hasSem2) return false
             return true
-        }
+        } else {
+            // No level block: check all levels at or below student's level
+            const studentLvl = (student?.level || 'PS').toUpperCase()
+            const studentOrder = levelOrder[studentLvl] ?? 99
+            const levelsToCheck = Object.keys(levelOrder).filter(lvl => levelOrder[lvl] <= studentOrder)
 
-        // Case 2: Block HAS a level
-        // Check if we have a signature for that level
-        let isSignedStandard = false
-        let isSignedFinal = false
+            let foundSetting = false
+            let anyLevelWouldShow = false
 
-        // Check current props
-        if (student?.level === blockLevel) {
-            if (signature) isSignedStandard = true
-            if (finalSignature) isSignedFinal = true
-        }
-
-        // Check history
-        if (!isSignedStandard || !isSignedFinal) {
-            const history = assignment?.data?.signatures || []
-            const promotions = assignment?.data?.promotions || []
-
-            history.forEach((sig: any) => {
-                if (sig.schoolYearName) {
-                    const promo = promotions.find((p: any) => p.year === sig.schoolYearName)
-                    if (promo && promo.from === blockLevel) {
-                        if (sig.type === 'standard' || !sig.type) isSignedStandard = true
-                        if (sig.type === 'end_of_year') isSignedFinal = true
-                    }
+            for (const lvl of levelsToCheck) {
+                const visibilitySetting = blockVisibilitySettings?.[lvl]?.[viewType]?.[key]
+                if (visibilitySetting) {
+                    foundSetting = true
+                    const { hasSem1, hasSem2 } = getSignatureForLevel(lvl)
+                    if (visibilitySetting === 'always') { anyLevelWouldShow = true; break }
+                    if (visibilitySetting === 'after_sem1' && (hasSem1 || hasSem2)) { anyLevelWouldShow = true; break }
+                    if (visibilitySetting === 'after_sem2' && hasSem2) { anyLevelWouldShow = true; break }
                 }
-            })
+            }
+            return !foundSetting || anyLevelWouldShow
         }
-
-        if (b.props.period === 'mid-year' && !isSignedStandard && !b.props.field?.includes('signature') && b.type !== 'signature_box' && b.type !== 'final_signature_box') return false
-        if (b.props.period === 'end-year' && !isSignedFinal && !b.props.field?.includes('signature') && b.type !== 'signature_box' && b.type !== 'final_signature_box') return false
-
-        return true
     }
 
     const getScopedData = (key: string, blockLevel: string | null) => {
@@ -456,6 +509,7 @@ export default function TemplateReviewPreview({ template, student, assignment, s
                             <div className="page-margins" />
                             {page.blocks.map((b, idx) => {
                                 if (!b || !b.props) return null;
+                                if (!checkBlockVisibilityAdmin(b, actualPageIndex, idx)) return null;
                                 return (
                                     <div key={idx} style={{ position: 'absolute', left: b.props.x || 0, top: b.props.y || 0, zIndex: b.props.z ?? idx, padding: 6 }}>
                                         {b.type === 'text' && (
@@ -492,9 +546,7 @@ export default function TemplateReviewPreview({ template, student, assignment, s
                                                 padding: b.props.padding || 8,
                                                 width: b.props.width,
                                                 height: b.props.height,
-                                                boxSizing: 'border-box',
-                                                // Visibility check
-                                                ...((!isBlockVisible(b)) ? { display: 'none' } : {})
+                                                boxSizing: 'border-box'
                                             }}>
                                                 {(() => {
                                                     const toggleKeyOriginal = `language_toggle_${actualPageIndex}_${idx}`
@@ -645,11 +697,7 @@ export default function TemplateReviewPreview({ template, student, assignment, s
                                         {b.type === 'student_info' && <div style={{ color: b.props.color, fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden' }}>Nom, Classe, Naissance</div>}
                                         {b.type === 'category_title' && <div style={{ color: b.props.color, fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden' }}>Titre catégorie</div>}
                                         {b.type === 'competency_list' && <div style={{ color: b.props.color, fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden' }}>Liste des compétences</div>}
-                                        {b.type === 'dropdown' && (() => {
-                                            // Check visibility first
-                                            if (!isBlockVisible(b)) return null
-
-                                            // Check if dropdown is allowed for current level - show if at or below student's level
+                                        {b.type === 'dropdown' && (() => {                                            // Check if dropdown is allowed for current level - show if at or below student's level
                                             const isLevelAllowed = isLevelAtOrBelow(undefined, b.props.levels, student?.level)
                                             // Check if dropdown is allowed for current semester (default to both semesters if not specified)
                                             const dropdownSemesters = b.props.semesters || [1, 2]
@@ -1280,11 +1328,7 @@ export default function TemplateReviewPreview({ template, student, assignment, s
                                                 alignItems: 'center',
                                                 justifyContent: 'center',
                                                 fontSize: 10,
-                                                color: '#999',
-                                                // Hide if not visible
-                                                ...((!isBlockVisible(b)) ? { display: 'none' } : {}),
-                                                // Ensure it's treated as end-year
-                                                ...((!finalSignature && !isBlockVisible({ ...b, props: { ...b.props, period: 'end-year' } })) ? { display: 'none' } : {})
+                                                color: '#999'
                                             }}>
                                                 {(() => {
                                                     if (finalSignature) return '✓ Signé Fin Année'
@@ -1351,8 +1395,7 @@ export default function TemplateReviewPreview({ template, student, assignment, s
                                                 alignItems: 'center',
                                                 justifyContent: 'center',
                                                 fontSize: 10,
-                                                color: '#999',
-                                                ...((!isBlockVisible(b)) ? { display: 'none' } : {})
+                                                color: '#999'
                                             }}>
                                                 {(() => {
                                                     const blockLevel = getBlockLevel(b)

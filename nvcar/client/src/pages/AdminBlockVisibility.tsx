@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import api from '../api'
 import Toast, { ToastType } from '../components/Toast'
 import { Shield, FileText, Users, Eye, ChevronDown, Filter } from 'lucide-react'
@@ -9,8 +9,10 @@ type StudentLevel = 'PS' | 'MS' | 'GS' | 'EB1'
 type VisibilityOption = 'always' | 'after_sem1' | 'after_sem2' | 'never'
 type BlockType = 'dynamic_text' | 'promotion_info' | 'signature_box' | 'final_signature_box' | 'signature_date' | 'signature'
 
-// Settings structure: { [studentLevel]: { [viewKey]: { [blockKey]: 'always' | 'after_sem1' | 'after_sem2' } } }
+// Settings structure: { _config?: { levelGuardEnabled: boolean }, [studentLevel]: { [viewKey]: { [blockKey]: 'always' | 'after_sem1' | 'after_sem2' } } }
 type BlockVisibilitySettings = {
+  _config?: { levelGuardEnabled: boolean }
+} & {
   [level in StudentLevel]?: {
     [view in ViewKey]?: Record<string, VisibilityOption>
   }
@@ -68,6 +70,7 @@ const VIEW_LABELS: Record<ViewKey, { label: string; icon: React.ReactNode }> = {
 
 export default function AdminBlockVisibility() {
   const [settings, setSettings] = useState<BlockVisibilitySettings>({})
+  const [levelGuardEnabled, setLevelGuardEnabled] = useState<boolean>(true)
   const [templates, setTemplates] = useState<TemplateInfo[]>([])
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('')
   const [selectedLevel, setSelectedLevel] = useState<StudentLevel>('PS')
@@ -89,7 +92,9 @@ export default function AdminBlockVisibility() {
   const loadSettings = async () => {
     try {
       const res = await api.get('/settings/public')
-      setSettings(res.data.block_visibility_settings || {})
+      const stored: BlockVisibilitySettings = res.data.block_visibility_settings || {}
+      setSettings(stored)
+      setLevelGuardEnabled(stored._config?.levelGuardEnabled ?? true)
     } catch (e) {
       console.error(e)
       setToast({ message: 'Erreur lors du chargement des configurations', type: 'error' })
@@ -148,6 +153,15 @@ export default function AdminBlockVisibility() {
       })
 
       setItems(collected)
+      // Auto-save defaults for every block that has no explicit setting yet.
+      // This makes the UI display match exactly what renderers use.
+      // We use a small delay so `settings` state is up to date.
+      setTimeout(() => {
+        setSettings(current => {
+          initializeMissingDefaults(collected, current)
+          return current
+        })
+      }, 100)
     } catch (e) {
       console.error(e)
       setToast({ message: 'Erreur lors du chargement du template', type: 'error' })
@@ -236,13 +250,70 @@ export default function AdminBlockVisibility() {
   }, [selectedTemplateId])
 
   const saveSettings = async (next: BlockVisibilitySettings) => {
-    setSettings(next)
+    // Always persist the current levelGuard config alongside block settings
+    const withConfig: BlockVisibilitySettings = {
+      ...next,
+      _config: { levelGuardEnabled }
+    }
+    setSettings(withConfig)
     try {
-      await api.post('/settings', { key: 'block_visibility_settings', value: next })
-      setToast({ message: 'Configuration sauvegardee', type: 'success' })
+      await api.post('/settings', { key: 'block_visibility_settings', value: withConfig })
+      setToast({ message: 'Configuration sauvegardée', type: 'success' })
     } catch (e) {
       console.error(e)
       setToast({ message: 'Erreur lors de la sauvegarde', type: 'error' })
+    }
+  }
+
+  const saveLevelGuard = async (enabled: boolean) => {
+    setLevelGuardEnabled(enabled)
+    const next: BlockVisibilitySettings = {
+      ...settings,
+      _config: { levelGuardEnabled: enabled }
+    }
+    setSettings(next)
+    try {
+      await api.post('/settings', { key: 'block_visibility_settings', value: next })
+      setToast({ message: `Level Guard ${enabled ? 'activé' : 'désactivé'}`, type: 'success' })
+    } catch (e) {
+      console.error(e)
+      setToast({ message: 'Erreur lors de la sauvegarde', type: 'error' })
+    }
+  }
+
+  // Auto-initialize: save explicit default values for any block that has no stored setting yet.
+  // This ensures what the admin SEES in the UI matches what renderers USE — no hidden fallbacks.
+  const initializeMissingDefaults = async (blocks: TemplateBlockItem[], currentSettings: BlockVisibilitySettings) => {
+    const views: ViewKey[] = ['subadmin', 'pdf', 'teacher', 'archive_sem1', 'archive_final']
+    const levels: StudentLevel[] = ['PS', 'MS', 'GS', 'EB1']
+    let hasNew = false
+    const next: BlockVisibilitySettings = JSON.parse(JSON.stringify(currentSettings))
+
+    blocks.forEach(item => {
+      // Only initialize for the block's own level, or all levels if the block has no level
+      const blockLevel = item.level?.toUpperCase() as StudentLevel | undefined
+      const initLevels: StudentLevel[] = blockLevel ? [blockLevel as StudentLevel] : levels
+
+      initLevels.forEach(level => {
+        if (!next[level]) next[level] = {}
+        views.forEach(view => {
+          if (!next[level]![view]) next[level]![view] = {}
+          if (next[level]![view]![item.key] === undefined) {
+            next[level]![view]![item.key] = getDefaultVisibility(item)
+            hasNew = true
+          }
+        })
+      })
+    })
+
+    if (hasNew) {
+      const withConfig: BlockVisibilitySettings = { ...next, _config: { levelGuardEnabled } }
+      setSettings(withConfig)
+      try {
+        await api.post('/settings', { key: 'block_visibility_settings', value: withConfig })
+      } catch (e) {
+        console.error('Failed to auto-initialize defaults', e)
+      }
     }
   }
 
@@ -308,13 +379,39 @@ export default function AdminBlockVisibility() {
     <div className="admin-block-visibility">
       <header className="block-visibility-hero">
         <h1 className="block-visibility-hero-title">
-          <Eye size={36} /> Visibilite des blocs
+          <Eye size={36} /> Visibilité des blocs
         </h1>
         <p className="block-visibility-hero-subtitle">
-          Configurez quand les blocs sont visibles selon le niveau de l'eleve et l'etat des signatures.
+          Configurez quand les blocs sont visibles selon le niveau de l'élève et l'état des signatures.
         </p>
-        <div className="block-visibility-info-box">
-          <strong>Note de Sécurité (Level Guard) :</strong> Le système masque automatiquement tout bloc appartenant à un niveau supérieur à celui de l'élève (ex: un bloc "MS" ne sera jamais visible pour un élève de "PS"), quelle que soit la configuration ci-dessous.
+        {/* Level Guard toggle — stored in DB, read by all renderers */}
+        <div className="block-visibility-info-box" style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+          <div style={{ flex: 1 }}>
+            <strong>Level Guard :</strong> Masquer automatiquement les blocs dont le niveau est supérieur à celui de l'élève
+            (ex: un bloc "MS" n'est pas visible pour un élève "PS").
+            <span style={{ marginLeft: 8, fontSize: 12, color: levelGuardEnabled ? '#059669' : '#dc2626', fontWeight: 600 }}>
+              {levelGuardEnabled ? '✔ Activé' : '✖ Désactivé'}
+            </span>
+          </div>
+          <div
+            onClick={() => saveLevelGuard(!levelGuardEnabled)}
+            title={levelGuardEnabled ? 'Cliquer pour désactiver' : 'Cliquer pour activer'}
+            style={{
+              width: 52, height: 28,
+              background: levelGuardEnabled ? '#059669' : '#cbd5e1',
+              borderRadius: 14, position: 'relative',
+              cursor: 'pointer', transition: 'background 0.25s',
+              flexShrink: 0
+            }}
+          >
+            <div style={{
+              width: 22, height: 22, background: 'white', borderRadius: '50%',
+              position: 'absolute', top: 3,
+              left: levelGuardEnabled ? 27 : 3,
+              transition: 'left 0.25s',
+              boxShadow: '0 1px 4px rgba(0,0,0,0.25)'
+            }} />
+          </div>
         </div>
       </header>
 

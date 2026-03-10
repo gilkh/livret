@@ -1028,7 +1028,9 @@ export default function TeacherTemplateEditor() {
                                         const studentLevel = (student?.level || 'PS').toUpperCase()
                                         const studentOrder = levelOrder[studentLevel] ?? 99
 
-                                        if (blockLevel) {
+                                        // Level Guard: read from admin settings, default true
+                                        const levelGuardEnabled = (blockVisibility as any)?._config?.levelGuardEnabled ?? true
+                                        if (levelGuardEnabled && blockLevel) {
                                             const blockOrder = levelOrder[blockLevel.toUpperCase()] ?? 99
                                             if (blockOrder > studentOrder) return null
                                         }

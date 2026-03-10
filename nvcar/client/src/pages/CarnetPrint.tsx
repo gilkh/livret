@@ -34,6 +34,7 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
     const [blockVisibility, setBlockVisibility] = useState<any>({})
     const [snapshotReason, setSnapshotReason] = useState<string | null>(null)
     const [activeSemester, setActiveSemester] = useState<number>(1)
+    const [userRole, setUserRole] = useState<string>('')
     const { levels } = useLevels()
 
     const getNextLevel = (current: string) => {
@@ -429,6 +430,7 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                     setStudent(studentData)
                     setAssignment(assignmentData)
                     setActiveSemester(r.data.activeSemester || 1)
+                    setUserRole(isTeacher ? 'TEACHER' : (isAdmin ? 'ADMIN' : 'SUBADMIN'))
                     if (!isTeacher) {
                         setSignature(r.data.signature)
                         setFinalSignature(r.data.finalSignature || null)
@@ -563,10 +565,7 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                             // Get block's level
                             const blockLevel = getBlockLevel(b)
 
-                            // Hide blocks whose level is higher than student's current level
-                            if (!emptyExport && isBlockLevelHigherThanStudent(blockLevel)) return null
-
-                            // Hide signature blocks if hideSignatures is true
+                            // Hide signature blocks if hideSignatures is true (special PDF export URL param)
                             if (!emptyExport && shouldHideSignatureBlock(b)) return null
 
                             const blockId = typeof b?.props?.blockId === 'string' && b.props.blockId.trim() ? b.props.blockId.trim() : null
@@ -578,87 +577,57 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                             let shouldShow = true
 
                             if (!emptyExport) {
+                                // Determine view key: teacher uses 'teacher', saved snapshots use archive keys
                                 let viewKey = 'pdf'
-                                if (mode === 'saved') {
+                                if (userRole === 'TEACHER') {
+                                    viewKey = 'teacher'
+                                } else if (mode === 'saved') {
                                     if (snapshotReason === 'sem1') viewKey = 'archive_sem1'
                                     else if (['promotion', 'year_end'].includes(snapshotReason || '')) viewKey = 'archive_final'
                                 }
 
-                                const isSem1SavedSnapshot = mode === 'saved' && (snapshotReason === 'sem1' || snapshotReason === 'manual')
-                                const isLiveSem1 = mode !== 'saved' && activeSemester === 1
-                                const shouldHideSem2 = isSem1SavedSnapshot || isLiveSem1
-
-                                const allowsHistoricalSem2 = ['signature_box', 'signature_date', 'signature_block'].includes(b.type)
-                                const semesterRaw = (b.props as any)?.semester ?? (b.props as any)?.semestre
-                                const periodRaw = String((b.props as any)?.period || '')
-                                const isSem2AssignedBlock = semesterRaw === 2 || semesterRaw === '2' || periodRaw === 'end-year'
-                                const studentLevelUpper = String(student?.level || '').toUpperCase()
-                                const blockLevelUpper = String(blockLevel || '').toUpperCase()
-                                const isSameLevelBlock = !!blockLevelUpper && !!studentLevelUpper && blockLevelUpper === studentLevelUpper
-                                const resolveVisibilitySetting = (levelKey: string | null | undefined) => {
-                                    if (!levelKey) return undefined
-                                    const upper = String(levelKey).toUpperCase()
-                                    const byLevel = blockVisibility?.[upper]
-                                    if (!byLevel) return undefined
-                                    const direct = byLevel?.[viewKey]?.[key]
-                                    if (direct !== undefined) return direct
-                                    if (mode === 'saved' && viewKey !== 'pdf') {
-                                        const fallbackPdf = byLevel?.pdf?.[key]
-                                        if (fallbackPdf !== undefined) return fallbackPdf
-                                    }
-                                    return undefined
-                                }
-
-                                if (blockLevel) {
-                                    // Block has a level - use that level's settings
-                                    let visibilitySetting = resolveVisibilitySetting(blockLevel)
-                                    if (visibilitySetting === undefined && shouldHideSem2 && !allowsHistoricalSem2 && isSem2AssignedBlock && isSameLevelBlock) {
-                                        visibilitySetting = 'after_sem2'
-                                    }
-                                    const { hasSem1, hasSem2 } = getSignatureForLevel(blockLevel)
-                                    const sem2Reached = (shouldHideSem2 && !allowsHistoricalSem2) ? false : hasSem2
-
-                                    if (visibilitySetting) {
-                                        if (visibilitySetting === 'never') shouldShow = false
-                                        else if (visibilitySetting === 'after_sem1' && !hasSem1 && !sem2Reached) shouldShow = false
-                                        else if (visibilitySetting === 'after_sem2' && !sem2Reached) shouldShow = false
-                                    }
+                                // Level Guard: read from admin settings
+                                const levelGuardEnabled = blockVisibility?._config?.levelGuardEnabled ?? true
+                                if (levelGuardEnabled && isBlockLevelHigherThanStudent(blockLevel)) {
+                                    shouldShow = false
                                 } else {
-                                    // Block has NO level - check all levels at or below student's current level
-                                    // Find settings for this block in any applicable level
-                                    const studentLvl = (student?.level || 'PS').toUpperCase()
-                                    const studentOrder = levelOrder[studentLvl] ?? 99
-                                    const levelsToCheck = Object.keys(levelOrder).filter(lvl => levelOrder[lvl] <= studentOrder)
-
-                                    let foundSetting = false
-                                    let anyLevelWouldShow = false
-
-                                    for (const lvl of levelsToCheck) {
-                                        let visibilitySetting = resolveVisibilitySetting(lvl)
-                                        if (visibilitySetting === undefined && shouldHideSem2 && !allowsHistoricalSem2 && isSem2AssignedBlock && String(lvl).toUpperCase() === studentLevelUpper) {
-                                            visibilitySetting = 'after_sem2'
-                                        }
-                                        if (visibilitySetting) {
-                                            foundSetting = true
-                                            const { hasSem1, hasSem2 } = getSignatureForLevel(lvl)
-                                            const sem2Reached = (shouldHideSem2 && !allowsHistoricalSem2) ? false : hasSem2
-
-                                            if (visibilitySetting === 'always') {
-                                                anyLevelWouldShow = true
-                                                break
-                                            } else if (visibilitySetting === 'after_sem1' && (hasSem1 || sem2Reached)) {
-                                                anyLevelWouldShow = true
-                                                break
-                                            } else if (visibilitySetting === 'after_sem2' && sem2Reached) {
-                                                anyLevelWouldShow = true
-                                                break
-                                            }
-                                            // 'never' doesn't set anyLevelWouldShow
-                                        }
+                                    const resolveVisibilitySetting = (levelKey: string | null | undefined): string | undefined => {
+                                        if (!levelKey) return undefined
+                                        return blockVisibility?.[String(levelKey).toUpperCase()]?.[viewKey]?.[key]
                                     }
 
-                                    // If no settings found, default to visible; if found, use the result
-                                    shouldShow = !foundSetting || anyLevelWouldShow
+                                    if (blockLevel) {
+                                        // Block has a level - use that level's admin-configured setting
+                                        const visibilitySetting = resolveVisibilitySetting(blockLevel)
+                                        if (visibilitySetting) {
+                                            const { hasSem1, hasSem2 } = getSignatureForLevel(blockLevel)
+                                            if (visibilitySetting === 'never') shouldShow = false
+                                            else if (visibilitySetting === 'after_sem1' && !hasSem1 && !hasSem2) shouldShow = false
+                                            else if (visibilitySetting === 'after_sem2' && !hasSem2) shouldShow = false
+                                        }
+                                        // No setting = show (admin has full control via auto-initialized defaults)
+                                    } else {
+                                        // No level block: check all levels at or below student's level
+                                        const studentLvl = (student?.level || 'PS').toUpperCase()
+                                        const studentOrder = levelOrder[studentLvl] ?? 99
+                                        const levelsToCheck = Object.keys(levelOrder).filter(lvl => levelOrder[lvl] <= studentOrder)
+
+                                        let foundSetting = false
+                                        let anyLevelWouldShow = false
+
+                                        for (const lvl of levelsToCheck) {
+                                            const visibilitySetting = resolveVisibilitySetting(lvl)
+                                            if (visibilitySetting) {
+                                                foundSetting = true
+                                                const { hasSem1, hasSem2 } = getSignatureForLevel(lvl)
+                                                if (visibilitySetting === 'always') { anyLevelWouldShow = true; break }
+                                                if (visibilitySetting === 'after_sem1' && (hasSem1 || hasSem2)) { anyLevelWouldShow = true; break }
+                                                if (visibilitySetting === 'after_sem2' && hasSem2) { anyLevelWouldShow = true; break }
+                                            }
+                                        }
+                                        // No settings found -> show; settings found -> use result
+                                        shouldShow = !foundSetting || anyLevelWouldShow
+                                    }
                                 }
                             }
 
