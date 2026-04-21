@@ -159,6 +159,7 @@ export default function AdminSettings() {
   // Settings state
   const [teacherLogin, setTeacherLogin] = useState(true)
   const [subAdminLogin, setSubAdminLogin] = useState(true)
+  const [aefeLogin, setAefeLogin] = useState(true)
   const [microsoftLogin, setMicrosoftLogin] = useState(true)
   const [subAdminRestriction, setSubAdminRestriction] = useState(true)
   const [subAdminExemptStandard, setSubAdminExemptStandard] = useState(false)
@@ -246,6 +247,7 @@ export default function AdminSettings() {
       const res = await api.get('/settings')
       setTeacherLogin(res.data.login_enabled_teacher !== false)
       setSubAdminLogin(res.data.login_enabled_subadmin !== false)
++      setAefeLogin(res.data.login_enabled_aefe !== false)
       setMicrosoftLogin(res.data.login_enabled_microsoft !== false)
       setSubAdminRestriction(res.data.subadmin_restriction_enabled !== false)
       setSubAdminExemptStandard(res.data.subadmin_restriction_exempt_standard === true)
@@ -800,6 +802,7 @@ export default function AdminSettings() {
             {[
               { label: 'Connexion Enseignants', desc: 'Autoriser les enseignants à accéder à leur espace', value: teacherLogin, key: 'login_enabled_teacher', setter: setTeacherLogin },
               { label: 'Connexion Préfets', desc: 'Autoriser les préfets à accéder au panneau de gestion', value: subAdminLogin, key: 'login_enabled_subadmin', setter: setSubAdminLogin },
+              { label: 'Connexion Direction (AEFE)', desc: 'Autoriser les comptes AEFE/direction à se connecter', value: aefeLogin, key: 'login_enabled_aefe', setter: setAefeLogin },
               { label: 'Connexion Microsoft', desc: 'Afficher le bouton de connexion Microsoft', value: microsoftLogin, key: 'login_enabled_microsoft', setter: setMicrosoftLogin }
             ].map((s, i) => (
               <div key={i} className="setting-item">

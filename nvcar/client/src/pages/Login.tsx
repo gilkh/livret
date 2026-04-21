@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../api'
 
+const LOGIN_DISABLED_MESSAGE = 'L\'accès est actuellement désactivé. Si vous avez besoin d\'accéder, contactez l\'administrateur.'
+
 export default function Login() {
   const [error, setError] = useState<string | null>(null)
   const [isLoadingMicrosoft, setIsLoadingMicrosoft] = useState(false)
@@ -95,15 +97,19 @@ export default function Login() {
       }, 100)
     } catch (e: any) {
       console.error('Microsoft authentication error:', e)
-      const errorMsg = e.response?.data?.error || 'Échec de l\'authentification Microsoft'
+      const errorCode = e.response?.data?.error
+      const backendMessage = e.response?.data?.message
+      const errorMsg = errorCode || 'Échec de l\'authentification Microsoft'
       const errorDetails = e.response?.data?.details
       const readableDetails = errorDetails
         ? typeof errorDetails === 'string'
           ? errorDetails
           : JSON.stringify(errorDetails)
         : null
-      
-      if (errorMsg.includes('not authorized') || errorMsg.includes('Email not authorized')) {
+
+      if (errorCode === 'login_disabled') {
+        setError(backendMessage || LOGIN_DISABLED_MESSAGE)
+      } else if (errorMsg.includes('not authorized') || errorMsg.includes('Email not authorized')) {
         setError('Votre adresse email n\'est pas autorisée. Veuillez contacter l\'administrateur.')
       } else if (readableDetails) {
         setError(`${errorMsg}: ${readableDetails}`)

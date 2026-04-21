@@ -2,6 +2,7 @@ import { Router } from 'express'
 import axios from 'axios'
 import { OutlookUser } from '../models/OutlookUser'
 import { User } from '../models/User'
+import { Setting } from '../models/Setting'
 import { signToken } from '../auth'
 import { logAudit } from '../utils/auditLogger'
 
@@ -19,6 +20,22 @@ const ALLOWED_REDIRECT_URIS = [
   'https://livret.champville.com'
 ]
 const TENANT = process.env.MICROSOFT_TENANT || 'common' // 'common' allows any Microsoft account
+
+async function isRoleLoginEnabled(role: string): Promise<boolean> {
+  if (role === 'TEACHER') {
+    const s = await Setting.findOne({ key: 'login_enabled_teacher' })
+    return !(s && s.value === false)
+  }
+  if (role === 'SUBADMIN') {
+    const s = await Setting.findOne({ key: 'login_enabled_subadmin' })
+    return !(s && s.value === false)
+  }
+  if (role === 'AEFE') {
+    const s = await Setting.findOne({ key: 'login_enabled_aefe' })
+    return !(s && s.value === false)
+  }
+  return true
+}
 
 // Generate authorization URL
 microsoftRouter.get('/auth-url', (req, res) => {
@@ -150,6 +167,14 @@ microsoftRouter.post('/callback', async (req, res) => {
         user.displayName = displayName
       }
       await user.save()
+    }
+
+    const loginEnabled = await isRoleLoginEnabled(authRole)
+    if (!loginEnabled) {
+      return res.status(403).json({
+        error: 'login_disabled',
+        message: 'L\'accès est actuellement désactivé. Si vous avez besoin d\'accéder, contactez l\'administrateur.'
+      })
     }
 
     // Generate JWT token using the OutlookUser's ID (if from whitelist) or User's ID
