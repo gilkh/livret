@@ -14,7 +14,7 @@ type PendingTemplate = {
     isCompleted?: boolean
     completedAt?: Date
     template?: { name: string }
-    student?: { firstName: string; lastName: string; avatarUrl?: string }
+    student?: { firstName: string; lastName: string; avatarUrl?: string; sex?: 'female' | 'male' }
     signature?: { signedAt: Date; subAdminId: string }
     signatures?: {
         standard?: { signedAt: Date; subAdminId: string } | null
@@ -69,6 +69,12 @@ export default function SubAdminDashboard() {
     const [undoingLevel, setUndoingLevel] = useState<Record<string, boolean>>({})
     const [actionMessage, setActionMessage] = useState('')
     const [levelSignConfirm, setLevelSignConfirm] = useState<{ level: string; unsignedCount: number } | null>(null)
+
+    const getSexAccentColor = (sex?: 'female' | 'male') => {
+        if (sex === 'female') return '#ec4899'
+        if (sex === 'male') return '#3b82f6'
+        return '#cbd5e1'
+    }
 
     // Check if user has a signature
     useEffect(() => {
@@ -1264,8 +1270,22 @@ export default function SubAdminDashboard() {
                                                                         background: isPromoted ? '#f0fdf4' : '#fff',
                                                                         padding: 16,
                                                                         borderRadius: 10,
-                                                                        boxShadow: '0 2px 4px -1px rgba(0, 0, 0, 0.06)'
+                                                                        boxShadow: '0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+                                                                        position: 'relative',
+                                                                        overflow: 'hidden'
                                                                     }}>
+                                                                        <div
+                                                                            aria-hidden
+                                                                            style={{
+                                                                                position: 'absolute',
+                                                                                left: 0,
+                                                                                top: 22,
+                                                                                bottom: 22,
+                                                                                width: 1,
+                                                                                borderRadius: 999,
+                                                                                background: getSexAccentColor(student?.sex)
+                                                                            }}
+                                                                        />
                                                                         <div style={{ marginBottom: 12 }}>
                                                                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                                                                                 {student?.avatarUrl && (

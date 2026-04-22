@@ -263,7 +263,7 @@ teacherTemplatesRouter.get('/classes/:classId/students', requireAuth(['TEACHER',
         // Get students in class
         const enrollments = await Enrollment.find({ classId }).lean()
         const studentIds = enrollments.map(e => e.studentId)
-        const students = await Student.find({ _id: { $in: studentIds } }).select('firstName lastName avatarUrl dateOfBirth').lean()
+        const students = await Student.find({ _id: { $in: studentIds } }).select('firstName lastName avatarUrl dateOfBirth sex').lean()
 
         res.json(students)
     } catch (e: any) {

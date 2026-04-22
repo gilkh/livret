@@ -3,7 +3,14 @@ import { useParams, Link } from 'react-router-dom'
 import api from '../api'
 import { useSchoolYear } from '../context/SchoolYearContext'
 
-type Student = { _id: string; firstName: string; lastName: string; dateOfBirth: Date; avatarUrl?: string }
+type Student = {
+    _id: string
+    firstName: string
+    lastName: string
+    dateOfBirth: Date
+    avatarUrl?: string
+    sex?: 'female' | 'male'
+}
 type Assignment = {
     _id: string
     studentId: string
@@ -67,6 +74,12 @@ export default function TeacherClassView() {
     }, [classId])
 
     const activeSemester = activeYear?.activeSemester || 1
+
+    const getSexAccentColor = (sex?: 'female' | 'male') => {
+        if (sex === 'female') return '#ec4899'
+        if (sex === 'male') return '#3b82f6'
+        return '#cbd5e1'
+    }
 
     const isAssignmentCompletedForActiveSemester = (assignment: Assignment) => {
         if (activeSemester === 2) {
@@ -349,8 +362,21 @@ export default function TeacherClassView() {
                                 position: 'relative',
                                 transition: 'all 0.3s ease',
                                 border: '1px solid #e2e8f0',
-                                background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)'
+                                background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
+                                overflow: 'hidden'
                             }}>
+                                <div
+                                    aria-hidden
+                                    style={{
+                                        position: 'absolute',
+                                        left: 0,
+                                        top: 22,
+                                        bottom: 22,
+                                        width: 1,
+                                        borderRadius: 999,
+                                        background: getSexAccentColor(s.sex)
+                                    }}
+                                />
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
                                     {completion.isFullyComplete && (
                                         <div style={{

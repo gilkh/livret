@@ -4,40 +4,18 @@ import StudentSidebar from '../components/students/StudentSidebar'
 import StudentGrid from '../components/students/StudentGrid'
 import StudentDetails from '../components/students/StudentDetails'
 import FileDropZone from '../components/students/FileDropZone'
+import YearManagerModal from '../components/students/YearManagerModal'
+import StudentFormModal from '../components/students/StudentFormModal'
 import { Upload, CheckCircle, Trash2, Search, X, AlertTriangle, ImageOff, Copy, Download } from 'lucide-react'
 import * as XLSX from 'xlsx'
 
-type Student = {
-  _id: string
-  firstName: string
-  lastName: string
-  dateOfBirth: string
-  className?: string
-  classId?: string
-  level?: string
-  avatarUrl?: string
-  avatarHash?: string
-  logicalKey?: string
-  parentName?: string
-  parentPhone?: string
-  fatherName?: string
-  fatherEmail?: string
-  motherEmail?: string
-  studentEmail?: string
-  sex?: 'female' | 'male'
-  status?: string
-}
+import { StudentDoc as Student } from '../types/student'
+import { compareStudentsByLastName } from '../utils/studentUtils'
 
 type Year = { _id: string; name: string; active: boolean }
 type ClassInfo = { _id: string; name: string; level: string; schoolYearId: string }
 
-const compareStudentsByLastName = (a: Student, b: Student) => {
-  const familyNameCompare = (a.firstName || '').localeCompare(b.firstName || '', 'fr', { sensitivity: 'base' })
-  if (familyNameCompare !== 0) return familyNameCompare
-  return (a.lastName || '').localeCompare(b.lastName || '', 'fr', { sensitivity: 'base' })
-}
-
-export default function AdminStudents() {
+export default function AdminStudents({ isTab }: { isTab?: boolean } = {}) {
   // Data State
   const [years, setYears] = useState<Year[]>([])
   const [selectedYearId, setSelectedYearId] = useState<string>('')
@@ -85,6 +63,10 @@ export default function AdminStudents() {
   const [expandedLevels, setExpandedLevels] = useState<Set<string>>(new Set())
   const [selectedClass, setSelectedClass] = useState<string | null>(null)
   const [viewUnassigned, setViewUnassigned] = useState(false)
+  const [viewLeft, setViewLeft] = useState(false)
+  const [leftStudents, setLeftStudents] = useState<Student[]>([])
+  const [showYearManager, setShowYearManager] = useState(false)
+  const [showStudentModal, setShowStudentModal] = useState(false)
   const [batchScope, setBatchScope] = useState<'year' | 'class' | 'level'>('year')
   const [batchLevel, setBatchLevel] = useState<string>('')
   const [batchImporting, setBatchImporting] = useState(false)
@@ -100,6 +82,7 @@ export default function AdminStudents() {
     if (selectedYearId) {
       loadStudents(selectedYearId)
       loadClasses(selectedYearId)
+      loadLeftStudents(selectedYearId)
     }
   }, [selectedYearId])
 
@@ -126,6 +109,72 @@ export default function AdminStudents() {
     const r = await api.get('/students', { params: { schoolYearId: yearId, enrolledOnly: true } })
     setStudents(r.data)
     setLoading(false)
+  }
+
+  const loadLeftStudents = async (yearId: string) => {
+    const r = await api.get('/students', { params: { leftSchoolYearId: yearId } })
+    setLeftStudents(r.data.filter((s: any) => s.status === 'left'))
+  }
+
+  const handleAddSection = async (level: string) => {
+    if (!selectedYearId) return
+    const sections = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K']
+    const levelClasses = classes.filter(c => c.level === level)
+
+    const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const levelPrefix = escapeRegex(level)
+    const parseRe = new RegExp(`^${levelPrefix}[\\s_-]*([A-Z])\\s*(\\d+)?$`, 'i')
+
+    const usedSections = new Set<string>()
+    const suffixCount = new Map<string, number>()
+
+    for (const cls of levelClasses) {
+      const name = String(cls.name || '').trim()
+      const match = name.match(parseRe)
+      if (!match) continue
+
+      const sectionLetter = (match[1] || '').toUpperCase()
+      const suffix = match[2] || ''
+
+      if (sectionLetter) usedSections.add(sectionLetter)
+      if (suffix) suffixCount.set(suffix, (suffixCount.get(suffix) || 0) + 1)
+    }
+
+    let nextSection = ''
+    for (const s of sections) {
+      if (!usedSections.has(s)) {
+        nextSection = s
+        break
+      }
+    }
+
+    if (!nextSection) {
+      alert("Trop de sections pour ce niveau")
+      return
+    }
+
+    // Keep the most common numeric suffix used in this level (e.g. "26").
+    let preferredSuffix = ''
+    let maxCount = 0
+    for (const [suffix, count] of suffixCount.entries()) {
+      if (count > maxCount) {
+        preferredSuffix = suffix
+        maxCount = count
+      }
+    }
+
+    const nextName = `${level} ${nextSection}${preferredSuffix}`
+
+    try {
+      await api.post('/classes', {
+        name: nextName,
+        level,
+        schoolYearId: selectedYearId
+      })
+      loadClasses(selectedYearId)
+    } catch (e: any) {
+      alert("Erreur lors de la création de la classe: " + e.message)
+    }
   }
 
   const computeFileHash = async (file: File): Promise<string> => {
@@ -309,6 +358,32 @@ export default function AdminStudents() {
     return { grouped, unassigned }
   }, [students, search, levels])
 
+  const sidebarGroupedStudents = useMemo(() => {
+    const merged: Record<string, Record<string, Student[]>> = {}
+
+    // Preserve configured levels so they stay visible even before data exists.
+    levels.forEach(level => {
+      merged[level] = {}
+    })
+
+    // Start from current grouped data (already search-filtered and sorted).
+    Object.entries(groupedStudents.grouped).forEach(([level, classesByName]) => {
+      if (!merged[level]) merged[level] = {}
+      Object.entries(classesByName).forEach(([className, classStudents]) => {
+        merged[level][className] = classStudents
+      })
+    })
+
+    // Ensure classes from DB are visible even when they have zero students.
+    classes.forEach((cls) => {
+      const level = cls.level || 'Unknown'
+      if (!merged[level]) merged[level] = {}
+      if (!merged[level][cls.name]) merged[level][cls.name] = []
+    })
+
+    return { grouped: merged, unassigned: groupedStudents.unassigned }
+  }, [groupedStudents, classes, levels])
+
   // Drag & Drop Handlers
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault()
@@ -376,19 +451,8 @@ export default function AdminStudents() {
     }
   }
 
-  const handleUpdateStudent = async (studentId: string, payload: Record<string, any>) => {
-    const r = await api.patch(`/students/${studentId}`, payload)
-    const updated = r.data
-
-    setStudents(prev => prev.map(s => s._id === studentId ? { ...s, ...updated } : s))
-    setPhotoCheckStudents(prev => prev.map(s => s._id === studentId ? { ...s, ...updated } : s))
-    setSelectedStudent(prev => prev?._id === studentId ? { ...prev, ...updated } : prev)
-  }
-
-  const selectStudent = async (s: Student) => {
-    setSelectedStudent(s)
-    // Fetch details
-    const r = await api.get(`/students/${s._id}`)
+  const refreshSelectedStudentDetails = async (studentId: string) => {
+    const r = await api.get(`/students/${studentId}`)
     setSelectedStudent(r.data)
 
     if (r.data.enrollments) {
@@ -400,7 +464,14 @@ export default function AdminStudents() {
         className: e.className || e.classId || '-'
       }))
       setStudentHistory(history)
+    } else {
+      setStudentHistory([])
     }
+  }
+
+  const selectStudent = async (s: Student) => {
+    setSelectedStudent(s)
+    await refreshSelectedStudentDetails(s._id)
   }
 
   const handleDeleteStudent = async (studentId: string) => {
@@ -637,45 +708,49 @@ export default function AdminStudents() {
   // View Helpers
   const currentStudents = viewUnassigned
     ? groupedStudents.unassigned
-    : (selectedClass
-      ? Object.values(groupedStudents.grouped).flatMap(l => l[selectedClass] || [])
-      : [])
+    : viewLeft 
+      ? leftStudents 
+      : (selectedClass
+        ? Object.values(groupedStudents.grouped).flatMap(l => l[selectedClass] || [])
+        : [])
 
   return (
     <div className="container" style={{ maxWidth: 1600, padding: 24, height: 'calc(100vh - 80px)', display: 'flex', flexDirection: 'column' }}>
 
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-        <div>
-          <h2 className="title" style={{ margin: '0 0 4px 0', fontSize: 24 }}>Gestion des Élèves</h2>
-          <p style={{ margin: 0, color: '#64748b', fontSize: 14 }}>Gérez les inscriptions, photos et informations des élèves.</p>
-        </div>
-        <div style={{ display: 'flex', gap: 12 }}>
-          {selectedClass && !viewUnassigned && (
-            <>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, ...(isTab ? { marginTop: 8 } : {}) }}>
+        {!isTab ? (
+          <div>
+            <h2 className="title" style={{ margin: '0 0 4px 0', fontSize: 24 }}>Gestion des Élèves</h2>
+            <p style={{ margin: 0, color: '#64748b', fontSize: 14 }}>Gérez les inscriptions, photos et informations des élèves.</p>
+          </div>
+        ) : <div />}
+        <div className="toolbar" style={{ flexWrap: 'nowrap', marginLeft: 'auto', alignItems: 'center', gap: 6 }}>
+          {selectedClass && !viewUnassigned && !viewLeft && (
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
               <button
                 className="btn"
                 onClick={() => { setShowCompleteConfirm(true); setCompleteResult(null) }}
-                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', background: '#10b981', borderColor: '#10b981' }}
+                style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 10px', background: '#10b981', borderColor: '#10b981', fontSize: 12, whiteSpace: 'nowrap' }}
               >
-                <CheckCircle size={18} />
-                <span>Compléter la classe</span>
+                <CheckCircle size={14} />
+                <span>Compléter ({selectedClass})</span>
               </button>
               <button
-                className="btn"
+                className="btn danger"
                 onClick={openDeleteClassModal}
-                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', background: '#ef4444', borderColor: '#ef4444' }}
+                style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 10px', fontSize: 12, whiteSpace: 'nowrap' }}
               >
-                <Trash2 size={18} />
-                <span>Supprimer la classe</span>
+                <Trash2 size={14} />
+                <span>Supprimer ({selectedClass})</span>
               </button>
-            </>
+            </div>
           )}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: 10, padding: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 10, padding: 3, flexShrink: 0 }}>
             <select
               value={batchScope}
               onChange={e => setBatchScope(e.target.value as 'year' | 'class' | 'level')}
-              style={{ border: '1px solid #cbd5e1', borderRadius: 8, padding: '6px 8px', fontSize: 12, background: '#fff' }}
+              style={{ border: '1px solid #e2e8f0', borderRadius: 6, padding: '4px 8px', fontSize: 12, background: '#fff', color: '#334155', cursor: 'pointer' }}
             >
               <option value="year">Scope: Année</option>
               <option value="level">Scope: Niveau</option>
@@ -685,34 +760,40 @@ export default function AdminStudents() {
               <select
                 value={batchLevel}
                 onChange={e => setBatchLevel(e.target.value)}
-                style={{ border: '1px solid #cbd5e1', borderRadius: 8, padding: '6px 8px', fontSize: 12, background: '#fff', minWidth: 92 }}
+                style={{ border: '1px solid #e2e8f0', borderRadius: 6, padding: '4px 8px', fontSize: 12, background: '#fff', color: '#334155', cursor: 'pointer', minWidth: 92 }}
               >
                 {availableBatchLevels.map(l => (
                   <option key={l} value={l}>{l}</option>
                 ))}
               </select>
             )}
+            {batchScope === 'class' && selectedClass && (
+              <span style={{ fontSize: 12, color: '#4338ca', fontWeight: 600, padding: '2px 8px', background: '#eef2ff', borderRadius: 6, whiteSpace: 'nowrap' }}>
+                {selectedClass}
+              </span>
+            )}
+            <div style={{ width: 1, height: 16, background: '#e2e8f0', margin: '0 2px' }} />
             <button
-              className="btn"
+              className="btn secondary"
               onClick={() => exportBatchRows('csv')}
-              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 10px', fontSize: 12 }}
+              style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 10px', fontSize: 12 }}
             >
               <Download size={14} />
               <span>CSV</span>
             </button>
             <button
-              className="btn"
+              className="btn secondary"
               onClick={() => exportBatchRows('xlsx')}
-              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 10px', fontSize: 12 }}
+              style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 10px', fontSize: 12 }}
             >
               <Download size={14} />
               <span>Excel</span>
             </button>
             <button
-              className="btn"
+              className="btn secondary"
               onClick={() => batchFileInputRef.current?.click()}
               disabled={batchImporting}
-              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 10px', fontSize: 12, opacity: batchImporting ? 0.7 : 1 }}
+              style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 10px', fontSize: 12 }}
             >
               <Upload size={14} />
               <span>{batchImporting ? 'Import...' : 'Importer modifs'}</span>
@@ -725,22 +806,24 @@ export default function AdminStudents() {
               onChange={handleBatchImport}
             />
           </div>
-          <button
-            className="btn"
-            onClick={() => { setShowPhotoImport(true); setImportReport(null) }}
-            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px' }}
-          >
-            <Upload size={18} />
-            <span>Import Photos (Batch)</span>
-          </button>
-          <button
-            className="btn"
-            onClick={checkPhotos}
-            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', background: '#8b5cf6', borderColor: '#8b5cf6' }}
-          >
-            <Search size={18} />
-            <span>Vérifier Photos</span>
-          </button>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
+            <button
+              className="btn"
+              onClick={() => { setShowPhotoImport(true); setImportReport(null) }}
+              style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 10px', fontSize: 12, whiteSpace: 'nowrap' }}
+            >
+              <Upload size={14} />
+              <span>Import Photos</span>
+            </button>
+            <button
+              className="btn"
+              onClick={checkPhotos}
+              style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 10px', fontSize: 12, background: '#8b5cf6', borderColor: '#8b5cf6', whiteSpace: 'nowrap' }}
+            >
+              <Search size={14} />
+              <span>Vérifier Photos</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -757,8 +840,9 @@ export default function AdminStudents() {
         <StudentSidebar
           years={years}
           selectedYearId={selectedYearId}
+          allLevels={levels}
           onYearChange={setSelectedYearId}
-          groupedStudents={groupedStudents}
+          groupedStudents={sidebarGroupedStudents}
           expandedLevels={expandedLevels}
           onToggleLevel={(level) => {
             const next = new Set(expandedLevels)
@@ -768,8 +852,12 @@ export default function AdminStudents() {
           }}
           selectedClass={selectedClass}
           viewUnassigned={viewUnassigned}
-          onSelectClass={(cls) => { setSelectedClass(cls); setViewUnassigned(false) }}
-          onViewUnassigned={() => { setViewUnassigned(true); setSelectedClass(null) }}
+          viewLeft={viewLeft}
+          onSelectClass={(cls) => { setSelectedClass(cls); setViewUnassigned(false); setViewLeft(false); setSelectedStudent(null) }}
+          onViewUnassigned={() => { setViewUnassigned(true); setSelectedClass(null); setViewLeft(false); setSelectedStudent(null) }}
+          onViewLeft={() => { setViewLeft(true); setViewUnassigned(false); setSelectedClass(null); setSelectedStudent(null) }}
+          onManageYears={() => setShowYearManager(true)}
+          onAddClass={handleAddSection}
         />
 
         {/* CENTER: Grid */}
@@ -777,11 +865,15 @@ export default function AdminStudents() {
           students={currentStudents}
           loading={loading}
           viewUnassigned={viewUnassigned}
-          selectedClass={selectedClass}
+          selectedClass={viewLeft ? 'Élèves partis' : selectedClass}
           search={search}
           onSearchChange={setSearch}
           selectedStudentId={selectedStudent?._id}
           onSelectStudent={selectStudent}
+          onCreateStudent={() => {
+            setSelectedStudent(null)
+            setShowStudentModal(true)
+          }}
         />
 
         {/* RIGHT: Details */}
@@ -790,7 +882,7 @@ export default function AdminStudents() {
           history={studentHistory}
           onPhotoUpload={handlePhotoUpload}
           onDelete={handleDeleteStudent}
-          onUpdate={handleUpdateStudent}
+          onEdit={() => setShowStudentModal(true)}
         />
       </div>
 
@@ -1340,6 +1432,8 @@ export default function AdminStudents() {
                     onClick={() => {
                       if (deleteStep === 1) {
                         setShowDeleteClassModal(false)
+                        setDeleteClassResult(null)
+                        setDeleteStep(1)
                       } else {
                         setDeleteStep(deleteStep - 1)
                       }
@@ -1404,7 +1498,11 @@ export default function AdminStudents() {
                   </div>
                 )}
                 <button
-                  onClick={() => setShowDeleteClassModal(false)}
+                  onClick={() => {
+                    setShowDeleteClassModal(false)
+                    setDeleteClassResult(null)
+                    setDeleteStep(1)
+                  }}
                   style={{
                     width: '100%',
                     padding: '12px 16px',
@@ -1423,6 +1521,29 @@ export default function AdminStudents() {
           </div>
         </div>
       )}
+
+      {/* Modals for new features */}
+      <YearManagerModal
+        isOpen={showYearManager}
+        onClose={() => setShowYearManager(false)}
+        years={years}
+        onYearsChanged={loadYears}
+      />
+      
+      <StudentFormModal
+        isOpen={showStudentModal}
+        onClose={() => setShowStudentModal(false)}
+        student={selectedStudent}
+        classes={classes}
+        selectedClassId={selectedClass ? classes.find(c => c.name === selectedClass)?._id : undefined}
+        onSuccess={async () => {
+          await loadStudents(selectedYearId)
+          if (selectedStudent?._id) {
+            await refreshSelectedStudentDetails(selectedStudent._id)
+          }
+        }}
+      />
     </div>
   )
 }
+

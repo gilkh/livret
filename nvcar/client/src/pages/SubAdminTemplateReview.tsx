@@ -17,7 +17,16 @@ import { Download, Sparkles } from 'lucide-react'
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
 type Template = { _id?: string; name: string; pages: Page[]; signingPage?: number }
-type Student = { _id: string; firstName: string; lastName: string; level?: string; className?: string; dateOfBirth?: Date | string; avatarUrl?: string }
+type Student = {
+    _id: string
+    firstName: string
+    lastName: string
+    level?: string
+    className?: string
+    dateOfBirth?: Date | string
+    avatarUrl?: string
+    sex?: 'female' | 'male'
+}
 type TeacherStatusCategory = {
     teachers: { id: string; name: string }[]
     doneSem1: boolean
@@ -115,6 +124,12 @@ export default function SubAdminTemplateReview() {
     const { levels } = useLevels()
     const { activeYear } = useSchoolYear()
     const socket = useSocket()
+
+    const getSexAccentColor = (sex?: 'female' | 'male') => {
+        if (sex === 'female') return '#ec4899'
+        if (sex === 'male') return '#3b82f6'
+        return '#cbd5e1'
+    }
 
     // Helper function to check if an item's level is at or below the student's current level
     // This allows sub-admins to edit toggles for PS, MS, GS based on student's current level
@@ -1008,7 +1023,26 @@ export default function SubAdminTemplateReview() {
             <div className="card">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
                     <div>
-                        <h2 className="title" style={{ fontSize: 28, marginBottom: 8, color: '#1e293b' }}>📝 Examen du carnet - {student ? `${student.firstName} ${student.lastName}` : 'Élève'}</h2>
+                        <div style={{
+                            position: 'relative',
+                            paddingLeft: 12,
+                            marginBottom: 8,
+                            display: 'inline-block'
+                        }}>
+                            <div
+                                aria-hidden
+                                style={{
+                                    position: 'absolute',
+                                    left: 0,
+                                    top: 4,
+                                    height: 84,
+                                    width: 1.5,
+                                    borderRadius: 999,
+                                    background: getSexAccentColor(student?.sex)
+                                }}
+                            />
+                            <h2 className="title" style={{ fontSize: 28, marginBottom: 0, color: '#1e293b' }}>📝 Examen du carnet - {student ? `${student.firstName} ${student.lastName}` : 'Élève'}</h2>
+                        </div>
                         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
                             <button className="btn secondary" onClick={() => navigate(dashboardPath)} style={{
                                 display: 'inline-flex',
@@ -1018,7 +1052,8 @@ export default function SubAdminTemplateReview() {
                                 color: '#475569',
                                 fontWeight: 500,
                                 border: '1px solid #e2e8f0',
-                                padding: '8px 12px'
+                                padding: '8px 12px',
+                                marginLeft: 8
                             }}>← Retour au tableau de bord</button>
                         </div>
                     </div>

@@ -9,7 +9,7 @@ import TeacherDashboard from './pages/TeacherDashboard'
 import StudentPage from './pages/StudentPage'
 import Users from './pages/Users'
 import Templates from './pages/Templates'
-import AdminResources from './pages/AdminResources'
+import AdminStudents from './pages/AdminStudents'
 import TemplateBuilder from './pages/TemplateBuilder'
 import NavBar from './components/NavBar'
 import ImpersonationBanner from './components/ImpersonationBanner'
@@ -33,7 +33,6 @@ import AdminAuditLogs from './pages/AdminAuditLogs'
 import AdminSuggestions from './pages/AdminSuggestions'
 import AdminClasses from './pages/AdminClasses'
 import AdminSchoolYears from './pages/AdminSchoolYears'
-import AdminStudents from './pages/AdminStudents'
 import AdminAnalytics from './pages/AdminAnalytics'
 import AdminSettings from './pages/AdminSettings'
 import CarnetPrint from './pages/CarnetPrint'
@@ -281,7 +280,7 @@ export default function App() {
           path="/admin/ressource"
           element={
             <RequireAuth>
-              <AdminResources />
+              <AdminStudents />
             </RequireAuth>
           }
         />
@@ -384,9 +383,7 @@ export default function App() {
         <Route
           path="/admin/students"
           element={
-            <RequireAuth>
-              <AdminStudents />
-            </RequireAuth>
+            <Navigate to="/admin/ressource?tab=students" replace />
           }
         />
         <Route

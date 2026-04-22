@@ -1,24 +1,18 @@
-import { User, Calendar, Hash, Phone, Clock, Trash2, Mail } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { User, Calendar, Hash, Phone, Clock, Trash2, Mail, Edit2 } from 'lucide-react'
+import { useRef, useState } from 'react'
 
 interface StudentDetailsProps {
   student: any
   history: any[]
   onPhotoUpload: (e: React.ChangeEvent<HTMLInputElement>) => void
   onDelete?: (studentId: string) => void
-  onUpdate?: (studentId: string, payload: Record<string, any>) => Promise<void>
+  onEdit?: () => void
 }
 
-export default function StudentDetails({ student, history, onPhotoUpload, onDelete, onUpdate }: StudentDetailsProps) {
+export default function StudentDetails({ student, history, onPhotoUpload, onDelete, onEdit }: StudentDetailsProps) {
   const photoInputRef = useRef<HTMLInputElement>(null)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
-  const [sex, setSex] = useState('')
-  const [savingSex, setSavingSex] = useState(false)
-
-  useEffect(() => {
-    setSex(student?.sex || '')
-  }, [student?._id, student?.sex])
 
   if (!student) {
     return (
@@ -43,18 +37,6 @@ export default function StudentDetails({ student, history, onPhotoUpload, onDele
       console.error('Delete failed:', e)
     } finally {
       setDeleting(false)
-    }
-  }
-
-  const handleSaveSex = async () => {
-    if (!onUpdate || !student?._id) return
-    setSavingSex(true)
-    try {
-      await onUpdate(student._id, { sex })
-    } catch (e) {
-      console.error('Sex update failed:', e)
-    } finally {
-      setSavingSex(false)
     }
   }
 
@@ -85,7 +67,14 @@ export default function StudentDetails({ student, history, onPhotoUpload, onDele
             MODIFIER
           </div>
         </div>
-        <h2 style={{ margin: '0 0 4px', fontSize: 20, color: '#1e293b' }}>{student.firstName} {student.lastName}</h2>
+        <h2 style={{ margin: '0 0 4px', fontSize: 20, color: '#1e293b', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+          {student.firstName} {student.lastName}
+          {onEdit && (
+            <button onClick={onEdit} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#3b82f6', padding: 4 }} title="Modifier les infos">
+              <Edit2 size={16} />
+            </button>
+          )}
+        </h2>
         <div style={{ color: '#64748b', fontWeight: 500 }}>{student.className || 'Non assigné'}</div>
 
         <input type="file" ref={photoInputRef} style={{ display: 'none' }} accept="image/*" onChange={onPhotoUpload} />
@@ -94,7 +83,30 @@ export default function StudentDetails({ student, history, onPhotoUpload, onDele
       <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 20 }}>
         {/* Info Card */}
         <div>
-          <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 12, letterSpacing: '0.05em' }}>Informations</div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Informations</div>
+            {onEdit && (
+              <button
+                onClick={onEdit}
+                style={{
+                  border: '1px solid #cbd5e1',
+                  background: '#fff',
+                  color: '#334155',
+                  borderRadius: 8,
+                  padding: '6px 10px',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6
+                }}
+              >
+                <Edit2 size={14} />
+                Modifier
+              </button>
+            )}
+          </div>
           <div style={{ background: '#f8fafc', borderRadius: 12, padding: 16, border: '1px solid #e2e8f0' }}>
             <div style={{ display: 'grid', gap: 16 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -136,49 +148,15 @@ export default function StudentDetails({ student, history, onPhotoUpload, onDele
                 </div>
               </div>
 
-              {onUpdate && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <div style={{ background: 'white', padding: 8, borderRadius: 8, boxShadow: '0 1px 2px 0 rgba(0,0,0,0.05)' }}><User size={16} color="#6c5ce7" /></div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 11, color: '#64748b', marginBottom: 6 }}>Sexe</div>
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      <select
-                        value={sex}
-                        onChange={e => setSex(e.target.value)}
-                        style={{
-                          flex: 1,
-                          border: '1px solid #cbd5e1',
-                          borderRadius: 8,
-                          padding: '8px 10px',
-                          fontSize: 13,
-                          color: '#1e293b',
-                          background: '#fff'
-                        }}
-                      >
-                        <option value="">Non renseigné</option>
-                        <option value="female">Fille</option>
-                        <option value="male">Garcon</option>
-                      </select>
-                      <button
-                        onClick={handleSaveSex}
-                        disabled={savingSex || (sex || '') === (student.sex || '')}
-                        style={{
-                          border: '1px solid #3b82f6',
-                          background: '#3b82f6',
-                          color: '#fff',
-                          borderRadius: 8,
-                          padding: '8px 10px',
-                          fontSize: 12,
-                          cursor: savingSex ? 'not-allowed' : 'pointer',
-                          opacity: savingSex || (sex || '') === (student.sex || '') ? 0.7 : 1
-                        }}
-                      >
-                        {savingSex ? '...' : 'Enregistrer'}
-                      </button>
-                    </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ background: 'white', padding: 8, borderRadius: 8, boxShadow: '0 1px 2px 0 rgba(0,0,0,0.05)' }}><User size={16} color="#6c5ce7" /></div>
+                <div>
+                  <div style={{ fontSize: 11, color: '#64748b' }}>Sexe</div>
+                  <div style={{ fontSize: 14, fontWeight: 500, color: '#1e293b' }}>
+                    {student.sex === 'female' ? 'Fille' : student.sex === 'male' ? 'Garcon' : 'Non renseigne'}
                   </div>
                 </div>
-              )}
+              </div>
             </div>
           </div>
         </div>

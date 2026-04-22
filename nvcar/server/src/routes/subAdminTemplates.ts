@@ -555,7 +555,7 @@ subAdminTemplatesRouter.get('/pending-signatures', requireAuth(['SUBADMIN', 'AEF
                 isCompletedSem2: (assignment as any).isCompletedSem2 || false,
                 completedAt: assignment.completedAt,
                 template: template ? { name: template.name } : undefined,
-                student: student ? { firstName: student.firstName, lastName: student.lastName, avatarUrl: student.avatarUrl } : undefined,
+                student: student ? { firstName: student.firstName, lastName: student.lastName, avatarUrl: student.avatarUrl, sex: student.sex } : undefined,
                 signatures: {
                     standard: standardSig ? { signedAt: standardSig.signedAt, subAdminId: standardSig.subAdminId } : null,
                     final: finalSig ? { signedAt: finalSig.signedAt, subAdminId: finalSig.subAdminId } : null

@@ -54,13 +54,10 @@ type StudentDoc = {
   leftSchoolYearName?: string;
 }
 
-const compareStudentsByLastName = (a: StudentDoc, b: StudentDoc) => {
-  const familyNameCompare = (a.firstName || '').localeCompare(b.firstName || '', 'fr', { sensitivity: 'base' })
-  if (familyNameCompare !== 0) return familyNameCompare
-  return (a.lastName || '').localeCompare(b.lastName || '', 'fr', { sensitivity: 'base' })
-}
+import { StudentDoc } from '../types/student'
+import { compareStudentsByLastName, getInitials } from '../utils/studentUtils'
 
-export default function AdminResources() {
+export default function AdminResources({ isTab }: { isTab?: boolean } = {}) {
   const navigate = useNavigate()
   const { activeYearId, refetchYears } = useSchoolYear()
   const { levels } = useLevels()
@@ -481,10 +478,6 @@ export default function AdminResources() {
     }
   }
 
-  const getInitials = (firstName: string, lastName: string) => {
-    return `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase()
-  }
-
   const selectedClass = classes.find(c => c._id === selectedClassId)
 
   return (
@@ -492,17 +485,19 @@ export default function AdminResources() {
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 
       {/* Header */}
-      <header className="resources-header">
-        <div className="resources-header-left">
-          <div className="resources-header-icon-wrapper">
-            <School className="resources-header-icon" />
+      <header className="resources-header" style={isTab ? { padding: '16px 24px', minHeight: 'auto', marginBottom: 16 } : {}}>
+        {!isTab && (
+          <div className="resources-header-left">
+            <div className="resources-header-icon-wrapper">
+              <School className="resources-header-icon" />
+            </div>
+            <div className="resources-header-text">
+              <h1>Ressources Scolaires</h1>
+              <p>Gestion globale des années, classes et affectations</p>
+            </div>
           </div>
-          <div className="resources-header-text">
-            <h1>Ressources Scolaires</h1>
-            <p>Gestion globale des années, classes et affectations</p>
-          </div>
-        </div>
-        <div className="resources-header-actions">
+        )}
+        <div className="resources-header-actions" style={isTab ? { width: '100%', justifyContent: 'flex-end' } : {}}>
           <button
             className="feature-btn"
             onClick={() => setShowImportModal(true)}
@@ -511,13 +506,15 @@ export default function AdminResources() {
             <Upload className="btn-icon" size={18} />
             <span>Importer élèves</span>
           </button>
-          <button
-            className="feature-btn"
-            onClick={() => navigate('/admin/students')}
-          >
-            <Users className="btn-icon" size={18} />
-            <span>Tous les élèves</span>
-          </button>
+          {!isTab && (
+            <button
+              className="feature-btn"
+              onClick={() => navigate('/admin/students')}
+            >
+              <Users className="btn-icon" size={18} />
+              <span>Tous les élèves</span>
+            </button>
+          )}
         </div>
       </header>
 

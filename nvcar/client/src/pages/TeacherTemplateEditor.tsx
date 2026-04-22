@@ -13,7 +13,16 @@ import { formatDdMonthYyyy } from '../utils/dateFormat'
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
 type Template = { _id?: string; name: string; pages: Page[]; signingPage?: number }
-type Student = { _id: string; firstName: string; lastName: string; level?: string; className?: string; dateOfBirth?: Date; avatarUrl?: string }
+type Student = {
+    _id: string
+    firstName: string
+    lastName: string
+    level?: string
+    className?: string
+    dateOfBirth?: Date
+    avatarUrl?: string
+    sex?: 'female' | 'male'
+}
 type Assignment = {
     _id: string
     status: string
@@ -65,6 +74,12 @@ export default function TeacherTemplateEditor() {
     const { levels } = useLevels()
     const { activeYear } = useSchoolYear()
     const socket = useSocket()
+
+    const getSexAccentColor = (sex?: 'female' | 'male') => {
+        if (sex === 'female') return '#ec4899'
+        if (sex === 'male') return '#3b82f6'
+        return '#cbd5e1'
+    }
 
     // Helper function to check if an item's level is at or below the student's current level
     // This allows teachers to edit toggles for PS, MS, GS based on student's current level
@@ -666,7 +681,25 @@ export default function TeacherTemplateEditor() {
 
                 <div style={{ marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
                     <div>
-                        <h2 className="title" style={{ fontSize: 28, marginBottom: 8, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <div style={{
+                            position: 'relative',
+                            paddingLeft: 12,
+                            marginBottom: 8,
+                            display: 'inline-block'
+                        }}>
+                            <div
+                                aria-hidden
+                                style={{
+                                    position: 'absolute',
+                                    left: 0,
+                                    top: 4,
+                                    height: 84,
+                                    width: 1.5,
+                                    borderRadius: 999,
+                                    background: getSexAccentColor(student?.sex)
+                                }}
+                            />
+                            <h2 className="title" style={{ fontSize: 28, marginBottom: 0, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 12 }}>
                             <span>✏️ Édition du carnet - {student ? `${student.firstName} ${student.lastName}` : 'Élève'}</span>
                             {student?.level && (
                                 <span style={{
@@ -703,8 +736,9 @@ export default function TeacherTemplateEditor() {
                             }}>
                                 S{activeSemester}
                             </span>
-                        </h2>
-                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 6, fontSize: 13, fontWeight: 500, background: assignment?.status === 'signed' ? '#d1fae5' : assignment?.status === 'completed' ? '#dbeafe' : '#fef3c7', color: assignment?.status === 'signed' ? '#065f46' : assignment?.status === 'completed' ? '#1e40af' : '#92400e', border: `1px solid ${assignment?.status === 'signed' ? '#6ee7b7' : assignment?.status === 'completed' ? '#93c5fd' : '#fcd34d'}` }}>
+                            </h2>
+                        </div>
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 12px', borderRadius: 6, fontSize: 13, fontWeight: 500, background: assignment?.status === 'signed' ? '#d1fae5' : assignment?.status === 'completed' ? '#dbeafe' : '#fef3c7', color: assignment?.status === 'signed' ? '#065f46' : assignment?.status === 'completed' ? '#1e40af' : '#92400e', border: `1px solid ${assignment?.status === 'signed' ? '#6ee7b7' : assignment?.status === 'completed' ? '#93c5fd' : '#fcd34d'}`, marginLeft: 20, position: 'relative', top: -4 }}>
                             {assignment?.status === 'draft' && '📝 Brouillon'}
                             {assignment?.status === 'in_progress' && '🔄 En cours'}
                             {assignment?.status === 'completed' && '✅ Terminé'}

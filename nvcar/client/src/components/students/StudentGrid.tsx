@@ -9,6 +9,7 @@ interface StudentGridProps {
   onSearchChange: (val: string) => void
   selectedStudentId?: string
   onSelectStudent: (student: any) => void
+  onCreateStudent?: () => void
 }
 
 export default function StudentGrid({
@@ -19,7 +20,8 @@ export default function StudentGrid({
   search,
   onSearchChange,
   selectedStudentId,
-  onSelectStudent
+  onSelectStudent,
+  onCreateStudent
 }: StudentGridProps) {
   
   const title = viewUnassigned 
@@ -34,6 +36,18 @@ export default function StudentGrid({
         <div style={{ fontSize: 18, fontWeight: 600, color: '#1e293b' }}>
           {title}
         </div>
+        {onCreateStudent && (selectedClass || viewUnassigned) && (
+          <button 
+            onClick={onCreateStudent}
+            style={{ 
+              display: 'flex', alignItems: 'center', gap: 6, 
+              padding: '6px 12px', background: '#3b82f6', color: 'white', 
+              border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 500 
+            }}
+          >
+            <User size={14} /> Ajouter un élève
+          </button>
+        )}
         <div style={{ flex: 1 }} />
         <div style={{ position: 'relative' }}>
           <Search size={16} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
