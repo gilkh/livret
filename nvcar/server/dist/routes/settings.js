@@ -58,7 +58,7 @@ exports.settingsRouter.get('/status', (0, auth_1.requireAuth)(['ADMIN']), async 
 });
 exports.settingsRouter.get('/public', async (req, res) => {
     const settings = await Setting_1.Setting.find({
-        key: { $in: ['login_enabled_microsoft', 'school_name', 'nav_permissions', 'teacher_quick_grading_enabled', 'mobile_block_enabled', 'mobile_min_width', 'block_visibility', 'block_visibility_instances', 'block_visibility_settings', 'previous_year_dropdown_editable', 'previous_year_dropdown_editable_PS', 'previous_year_dropdown_editable_MS', 'previous_year_dropdown_editable_GS'] }
+        key: { $in: ['login_enabled_microsoft', 'login_enabled_aefe', 'school_name', 'nav_permissions', 'teacher_quick_grading_enabled', 'mobile_block_enabled', 'mobile_min_width', 'block_visibility', 'block_visibility_instances', 'block_visibility_settings', 'previous_year_dropdown_editable', 'previous_year_dropdown_editable_PS', 'previous_year_dropdown_editable_MS', 'previous_year_dropdown_editable_GS'] }
     }).lean();
     const settingsMap = {};
     settings.forEach(s => {
@@ -67,6 +67,8 @@ exports.settingsRouter.get('/public', async (req, res) => {
     // Defaults
     if (settingsMap.login_enabled_microsoft === undefined)
         settingsMap.login_enabled_microsoft = true;
+    if (settingsMap.login_enabled_aefe === undefined)
+        settingsMap.login_enabled_aefe = true;
     if (settingsMap.school_name === undefined)
         settingsMap.school_name = '';
     if (settingsMap.nav_permissions === undefined)

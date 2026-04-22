@@ -660,6 +660,11 @@ export default function SubAdminTemplateReview() {
     }
 
     const handleUnsign = async () => {
+        if (activeSemester === 2) {
+            showToast('La signature du semestre 1 est verrouillee lorsque le semestre 2 est actif.', 'info')
+            return
+        }
+
         try {
             setUnsigning(true)
             await api.delete(`${apiPrefix}/templates/${assignmentId}/sign`)
@@ -670,7 +675,8 @@ export default function SubAdminTemplateReview() {
             setIsSignedByMe(r.data.isSignedByMe)
             showToast('Signature annulée', 'success')
         } catch (e: any) {
-            showToast('Échec de la suppression de signature', 'error')
+            const errorMsg = e.response?.data?.message || e.response?.data?.error || 'Échec de la suppression de signature'
+            showToast(errorMsg, 'error')
             console.error(e)
         } finally {
             setUnsigning(false)
@@ -1136,11 +1142,13 @@ export default function SubAdminTemplateReview() {
                                     ✅ Signé le {new Date(signature.signedAt).toLocaleString('fr-FR')}
                                 </div>
                                 <button className="btn" style={{
-                                    background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                                    background: activeSemester === 2 ? '#cbd5e1' : 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
                                     fontWeight: 500,
                                     padding: '12px 20px',
-                                    boxShadow: '0 2px 8px rgba(245, 158, 11, 0.3)'
-                                }} onClick={handleUnsign} disabled={unsigning}>
+                                    boxShadow: activeSemester === 2 ? 'none' : '0 2px 8px rgba(245, 158, 11, 0.3)',
+                                    cursor: activeSemester === 2 ? 'not-allowed' : 'pointer'
+                                }} onClick={handleUnsign} disabled={unsigning || activeSemester === 2}
+                                    title={activeSemester === 2 ? "La signature du semestre 1 est verrouillée lorsque le semestre 2 est actif" : ''}>
                                     {unsigning ? '⏳ Annulation...' : '🔄 Annuler la signature'}
                                 </button>
                             </>

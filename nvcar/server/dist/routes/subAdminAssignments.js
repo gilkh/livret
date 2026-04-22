@@ -451,6 +451,7 @@ exports.subAdminAssignmentsRouter.get('/teacher-progress-detailed', (0, auth_1.r
         if (!activeYear) {
             return res.status(400).json({ error: 'no_active_year' });
         }
+        const activeSemester = activeYear?.activeSemester || 1;
         // Find classes
         const classes = await Class_1.ClassModel.find({
             level: { $in: levels },
@@ -483,6 +484,42 @@ exports.subAdminAssignmentsRouter.get('/teacher-progress-detailed', (0, auth_1.r
         const templateIds = [...new Set(assignments.map(a => a.templateId))];
         const templates = (await Promise.all(templateIds.map(id => (0, cache_1.withCache)(`template-${id}`, () => GradebookTemplate_1.GradebookTemplate.findById(id).lean())))).filter((t) => !!t);
         const templateMap = new Map(templates.map(t => [String(t._id), t]));
+        const normalizeLanguageCode = (value) => {
+            const code = String(value || '').trim().toLowerCase();
+            if (!code)
+                return '';
+            if (code === 'ar' || code === 'lb' || code === 'ara' || code === 'arab')
+                return 'ar';
+            if (code === 'en' || code === 'eng' || code === 'uk' || code === 'gb')
+                return 'en';
+            if (code === 'fr' || code === 'fra')
+                return 'fr';
+            return code;
+        };
+        const isArabicLanguage = (codeRaw, labelRaw) => {
+            const code = normalizeLanguageCode(codeRaw);
+            const label = String(labelRaw || '').toLowerCase();
+            return code === 'ar' || label.includes('arabe') || label.includes('arabic') || label.includes('العربية');
+        };
+        const isEnglishLanguage = (codeRaw, labelRaw) => {
+            const code = normalizeLanguageCode(codeRaw);
+            const label = String(labelRaw || '').toLowerCase();
+            return code === 'en' || label.includes('anglais') || label.includes('english');
+        };
+        const isTeacherResponsibleForCategory = (ta, category) => {
+            const langs = (ta.languages || []).map((tl) => String(tl || '').toLowerCase());
+            if (category === 'Arabe') {
+                if (langs.length === 0)
+                    return !ta.isProfPolyvalent;
+                return langs.some((v) => isArabicLanguage(v, v));
+            }
+            if (category === 'Anglais') {
+                if (langs.length === 0)
+                    return !ta.isProfPolyvalent;
+                return langs.some((v) => isEnglishLanguage(v, v));
+            }
+            return ta.isProfPolyvalent || (langs.length === 0 && !ta.isProfPolyvalent);
+        };
         // Build result
         const result = classes.map(cls => {
             const clsId = String(cls._id);
@@ -510,8 +547,7 @@ exports.subAdminAssignmentsRouter.get('/teacher-progress-detailed', (0, auth_1.r
                             if (!entryLevel || entryLevel !== normalizedCurrentLevel)
                                 return;
                         }
-                        const codeRaw = String(entry?.code || '').toLowerCase();
-                        const normalized = codeRaw === 'lb' || codeRaw === 'ar' ? 'ar' : (codeRaw === 'en' || codeRaw === 'uk' || codeRaw === 'gb') ? 'en' : codeRaw === 'fr' ? 'fr' : codeRaw;
+                        const normalized = normalizeLanguageCode(entry?.code);
                         if (!normalized)
                             return;
                         languageCompletionMap[normalized] = { ...(entry || {}), code: normalized };
@@ -562,20 +598,24 @@ exports.subAdminAssignmentsRouter.get('/teacher-progress-detailed', (0, auth_1.r
                                     const code = (item.code || '').toLowerCase();
                                     const isActive = item.active === true || item.active === 'true';
                                     const isCategoryCompleted = () => {
-                                        const l = lang;
-                                        const isArabic = code === 'ar' || code === 'lb' || l.includes('arabe') || l.includes('arabic') || l.includes('العربية');
-                                        const isEnglish = code === 'en' || code === 'uk' || code === 'gb' || l.includes('anglais') || l.includes('english');
+                                        const isArabic = isArabicLanguage(code, lang);
+                                        const isEnglish = isEnglishLanguage(code, lang);
                                         const normalized = isArabic ? 'ar' : isEnglish ? 'en' : 'fr';
                                         const lc = languageCompletionMap[normalized];
-                                        return !!(lc && (lc.completedSem1 || lc.completedSem2 || lc.completed));
+                                        if (!lc)
+                                            return false;
+                                        if (activeSemester === 1) {
+                                            return !!(lc.completedSem1 || lc.completed);
+                                        }
+                                        return !!(lc.completedSem2);
                                     };
-                                    const completed = isActive || isCategoryCompleted();
-                                    if (code === 'ar' || code === 'lb' || lang.includes('arabe') || lang.includes('arabic') || lang.includes('العربية')) {
+                                    const completed = isCategoryCompleted();
+                                    if (isArabicLanguage(code, lang)) {
                                         arabicTotal++;
                                         if (completed)
                                             arabicFilled++;
                                     }
-                                    else if (code === 'en' || code === 'uk' || code === 'gb' || lang.includes('anglais') || lang.includes('english')) {
+                                    else if (isEnglishLanguage(code, lang)) {
                                         englishTotal++;
                                         if (completed)
                                             englishFilled++;
@@ -600,7 +640,13 @@ exports.subAdminAssignmentsRouter.get('/teacher-progress-detailed', (0, auth_1.r
                     polyvalent: polyvalentTotal > 0 && polyvalentTotal === polyvalentFilled,
                     hasArabic: arabicTotal > 0,
                     hasEnglish: englishTotal > 0,
-                    hasPolyvalent: polyvalentTotal > 0
+                    hasPolyvalent: polyvalentTotal > 0,
+                    arabicFilledCount: arabicFilled,
+                    arabicTotalCount: arabicTotal,
+                    englishFilledCount: englishFilled,
+                    englishTotalCount: englishTotal,
+                    polyvalentFilledCount: polyvalentFilled,
+                    polyvalentTotalCount: polyvalentTotal
                 };
             }).filter(Boolean);
             // Sort students by last name
@@ -640,6 +686,7 @@ exports.subAdminAssignmentsRouter.get('/teacher-progress', (0, auth_1.requireAut
         if (!activeYear) {
             return res.status(400).json({ error: 'no_active_year' });
         }
+        const activeSemester = activeYear?.activeSemester || 1;
         // Find classes
         const classes = await Class_1.ClassModel.find({
             level: { $in: levels },
@@ -707,6 +754,42 @@ exports.subAdminAssignmentsRouter.get('/teacher-progress', (0, auth_1.requireAut
             // ...
             return new Set();
         };
+        const normalizeLanguageCode = (value) => {
+            const code = String(value || '').trim().toLowerCase();
+            if (!code)
+                return '';
+            if (code === 'ar' || code === 'lb' || code === 'ara' || code === 'arab')
+                return 'ar';
+            if (code === 'en' || code === 'eng' || code === 'uk' || code === 'gb')
+                return 'en';
+            if (code === 'fr' || code === 'fra')
+                return 'fr';
+            return code;
+        };
+        const isArabicLanguage = (codeRaw, labelRaw) => {
+            const code = normalizeLanguageCode(codeRaw);
+            const label = String(labelRaw || '').toLowerCase();
+            return code === 'ar' || label.includes('arabe') || label.includes('arabic') || label.includes('العربية');
+        };
+        const isEnglishLanguage = (codeRaw, labelRaw) => {
+            const code = normalizeLanguageCode(codeRaw);
+            const label = String(labelRaw || '').toLowerCase();
+            return code === 'en' || label.includes('anglais') || label.includes('english');
+        };
+        const isTeacherResponsibleForCategory = (ta, category) => {
+            const langs = (ta.languages || []).map((tl) => String(tl || '').toLowerCase());
+            if (category === 'Arabe') {
+                if (langs.length === 0)
+                    return !ta.isProfPolyvalent;
+                return langs.some((v) => isArabicLanguage(v, v));
+            }
+            if (category === 'Anglais') {
+                if (langs.length === 0)
+                    return !ta.isProfPolyvalent;
+                return langs.some((v) => isEnglishLanguage(v, v));
+            }
+            return ta.isProfPolyvalent || (langs.length === 0 && !ta.isProfPolyvalent);
+        };
         // Build result per class
         const result = classes.map(cls => {
             const clsId = String(cls._id);
@@ -720,138 +803,138 @@ exports.subAdminAssignmentsRouter.get('/teacher-progress', (0, auth_1.requireAut
             let totalCompetencies = 0;
             let filledCompetencies = 0;
             const categoryStats = {};
-            clsAssignments.forEach(assignment => {
-                const templateId = assignment.templateId;
-                const template = templates.find(t => String(t._id) === templateId);
-                if (!template)
-                    return;
-                const assignmentData = assignment.data || {};
-                // Level was previously defined here but removed in previous refactor
-                // Restore it using class level
+            const classTeacherAssignments = teacherAssignments.filter((ta) => String(ta.classId) === clsId);
+            const getCategoryTeachers = (category) => {
+                const assignedTeachers = classTeacherAssignments
+                    .filter((ta) => isTeacherResponsibleForCategory(ta, category))
+                    .map((ta) => resolveTeacherName(ta.teacherId))
+                    .filter((name) => !!name);
+                return Array.from(new Set(assignedTeachers));
+            };
+            clsEnrollments.forEach(enrollment => {
+                const studentAssignments = clsAssignments.filter(a => a.studentId === enrollment.studentId);
                 const level = cls.level;
                 const normalizedCurrentLevel = String(level || '').trim().toUpperCase();
-                // Determine completion status for categories based on teacher completion
-                const languageCompletions = assignment.languageCompletions || [];
-                const languageCompletionMap = {};
-                (Array.isArray(languageCompletions) ? languageCompletions : []).forEach((entry) => {
-                    const entryLevel = String(entry?.level || '').trim().toUpperCase();
-                    if (normalizedCurrentLevel) {
-                        if (!entryLevel || entryLevel !== normalizedCurrentLevel)
-                            return;
-                    }
-                    const codeRaw = String(entry?.code || '').toLowerCase();
-                    const normalized = codeRaw === 'lb' || codeRaw === 'ar' ? 'ar' : (codeRaw === 'en' || codeRaw === 'uk' || codeRaw === 'gb') ? 'en' : codeRaw === 'fr' ? 'fr' : codeRaw;
-                    if (!normalized)
+                let arabicTotal = 0, arabicFilled = 0;
+                let englishTotal = 0, englishFilled = 0;
+                let polyvalentTotal = 0, polyvalentFilled = 0;
+                studentAssignments.forEach(assignment => {
+                    const templateId = assignment.templateId;
+                    const template = templates.find(t => String(t._id) === templateId);
+                    if (!template)
                         return;
-                    languageCompletionMap[normalized] = { ...(entry || {}), code: normalized };
-                });
-                // Helper to check if a category is "done" by checking if any assigned teacher for that category has completed
-                const isCategoryCompleted = (categoryName, langCode) => {
-                    const l = categoryName.toLowerCase();
-                    const code = (langCode || '').toLowerCase();
-                    const isArabic = code === 'ar' || code === 'lb' || l.includes('arabe') || l.includes('arabic') || l.includes('العربية');
-                    const isEnglish = code === 'en' || code === 'uk' || code === 'gb' || l.includes('anglais') || l.includes('english');
-                    const normalized = isArabic ? 'ar' : isEnglish ? 'en' : 'fr';
-                    const lc = languageCompletionMap[normalized];
-                    if (lc && (lc.completedSem1 || lc.completedSem2 || lc.completed))
-                        return true;
-                    return false;
-                };
-                template.pages.forEach((page, pageIdx) => {
-                    (page.blocks || []).forEach((block, blockIdx) => {
-                        let itemsToProcess = [];
-                        if (['language_toggle', 'language_toggle_v2'].includes(block.type)) {
-                            const blockId = typeof block?.props?.blockId === 'string' && block.props.blockId.trim() ? block.props.blockId.trim() : null;
-                            const keyStable = blockId ? `language_toggle_${blockId}` : null;
-                            const keyLegacy = `language_toggle_${pageIdx}_${blockIdx}`;
-                            const overrideItems = (keyStable ? assignmentData[keyStable] : null) || assignmentData[keyLegacy];
-                            itemsToProcess = overrideItems || block.props.items || [];
+                    const assignmentData = assignment.data || {};
+                    const languageCompletions = assignment.languageCompletions || [];
+                    const languageCompletionMap = {};
+                    (Array.isArray(languageCompletions) ? languageCompletions : []).forEach((entry) => {
+                        const entryLevel = String(entry?.level || '').trim().toUpperCase();
+                        if (normalizedCurrentLevel) {
+                            if (!entryLevel || entryLevel !== normalizedCurrentLevel)
+                                return;
                         }
-                        else if (block.type === 'table' && block.props.expandedRows) {
-                            const rows = block.props.cells || [];
-                            const expandedLanguages = block.props.expandedLanguages || [];
-                            const rowLanguages = block.props.rowLanguages || {};
-                            const rowIds = Array.isArray(block?.props?.rowIds) ? block.props.rowIds : [];
-                            const blockId = typeof block?.props?.blockId === 'string' && block.props.blockId.trim() ? block.props.blockId.trim() : null;
-                            rows.forEach((_, ri) => {
-                                const rowId = typeof rowIds?.[ri] === 'string' && rowIds[ri].trim() ? rowIds[ri].trim() : null;
-                                const keyStable = blockId && rowId ? `table_${blockId}_row_${rowId}` : null;
-                                const keyLegacy1 = `table_${pageIdx}_${blockIdx}_row_${ri}`;
-                                const keyLegacy2 = `table_${blockIdx}_row_${ri}`;
-                                const rowLangs = rowLanguages[ri] || expandedLanguages;
-                                const currentItems = (keyStable ? assignmentData[keyStable] : null) || assignmentData[keyLegacy1] || assignmentData[keyLegacy2] || rowLangs || [];
-                                if (Array.isArray(currentItems)) {
-                                    itemsToProcess.push(...currentItems);
+                        const normalized = normalizeLanguageCode(entry?.code);
+                        if (!normalized)
+                            return;
+                        languageCompletionMap[normalized] = { ...(entry || {}), code: normalized };
+                    });
+                    const isCategoryCompleted = (categoryName, langCode) => {
+                        const l = categoryName.toLowerCase();
+                        const isArabic = isArabicLanguage(langCode, l);
+                        const isEnglish = isEnglishLanguage(langCode, l);
+                        const normalized = isArabic ? 'ar' : isEnglish ? 'en' : 'fr';
+                        const lc = languageCompletionMap[normalized];
+                        if (!lc)
+                            return false;
+                        if (activeSemester === 1) {
+                            return !!(lc.completedSem1 || lc.completed);
+                        }
+                        return !!(lc.completedSem2);
+                    };
+                    template.pages.forEach((page, pageIdx) => {
+                        (page.blocks || []).forEach((block, blockIdx) => {
+                            let itemsToProcess = [];
+                            if (['language_toggle', 'language_toggle_v2'].includes(block.type)) {
+                                const blockId = typeof block?.props?.blockId === 'string' && block.props.blockId.trim() ? block.props.blockId.trim() : null;
+                                const keyStable = blockId ? `language_toggle_${blockId}` : null;
+                                const keyLegacy = `language_toggle_${pageIdx}_${blockIdx}`;
+                                const overrideItems = (keyStable ? assignmentData[keyStable] : null) || assignmentData[keyLegacy];
+                                itemsToProcess = overrideItems || block.props.items || [];
+                            }
+                            else if (block.type === 'table' && block.props.expandedRows) {
+                                const rows = block.props.cells || [];
+                                const expandedLanguages = block.props.expandedLanguages || [];
+                                const rowLanguages = block.props.rowLanguages || {};
+                                const rowIds = Array.isArray(block?.props?.rowIds) ? block.props.rowIds : [];
+                                const blockId = typeof block?.props?.blockId === 'string' && block.props.blockId.trim() ? block.props.blockId.trim() : null;
+                                rows.forEach((_, ri) => {
+                                    const rowId = typeof rowIds?.[ri] === 'string' && rowIds[ri].trim() ? rowIds[ri].trim() : null;
+                                    const keyStable = blockId && rowId ? `table_${blockId}_row_${rowId}` : null;
+                                    const keyLegacy1 = `table_${pageIdx}_${blockIdx}_row_${ri}`;
+                                    const keyLegacy2 = `table_${blockIdx}_row_${ri}`;
+                                    const rowLangs = rowLanguages[ri] || expandedLanguages;
+                                    const currentItems = (keyStable ? assignmentData[keyStable] : null) || assignmentData[keyLegacy1] || assignmentData[keyLegacy2] || rowLangs || [];
+                                    if (Array.isArray(currentItems)) {
+                                        itemsToProcess.push(...currentItems);
+                                    }
+                                });
+                            }
+                            if (itemsToProcess.length === 0)
+                                return;
+                            itemsToProcess.forEach((item) => {
+                                let isAssigned = true;
+                                let itemLevels = item.levels && Array.isArray(item.levels) ? item.levels : [];
+                                if (itemLevels.length === 0 && item.level)
+                                    itemLevels = [item.level];
+                                if (itemLevels.length > 0) {
+                                    if (!level || !itemLevels.some((l) => l.trim() === level)) {
+                                        isAssigned = false;
+                                    }
+                                }
+                                if (!isAssigned)
+                                    return;
+                                const code = (item.code || '').toLowerCase();
+                                const lang = (item.type || item.label || 'Autre').toLowerCase();
+                                const completed = isCategoryCompleted(lang, code);
+                                if (isArabicLanguage(code, lang)) {
+                                    arabicTotal++;
+                                    if (completed)
+                                        arabicFilled++;
+                                }
+                                else if (isEnglishLanguage(code, lang)) {
+                                    englishTotal++;
+                                    if (completed)
+                                        englishFilled++;
+                                }
+                                else {
+                                    polyvalentTotal++;
+                                    if (completed)
+                                        polyvalentFilled++;
                                 }
                             });
-                        }
-                        if (itemsToProcess.length === 0)
-                            return;
-                        itemsToProcess.forEach((item) => {
-                            // Check level
-                            let isAssigned = true;
-                            let itemLevels = item.levels && Array.isArray(item.levels) ? item.levels : [];
-                            if (itemLevels.length === 0 && item.level)
-                                itemLevels = [item.level];
-                            if (itemLevels.length > 0) {
-                                if (!level || !itemLevels.includes(level)) {
-                                    isAssigned = false;
-                                }
-                            }
-                            if (isAssigned) {
-                                const code = (item.code || '').toLowerCase();
-                                const rawLang = item.type || item.label || '';
-                                const lang = (() => {
-                                    const ll = rawLang.toLowerCase();
-                                    if (code === 'fr' || ll.includes('français') || ll.includes('french'))
-                                        return 'Polyvalent';
-                                    if (code === 'ar' || code === 'lb' || ll.includes('arabe') || ll.includes('arabic') || ll.includes('العربية'))
-                                        return 'Arabe';
-                                    if (code === 'en' || code === 'uk' || code === 'gb' || ll.includes('anglais') || ll.includes('english'))
-                                        return 'Anglais';
-                                    return 'Autre';
-                                })();
-                                if (!categoryStats[lang]) {
-                                    // Determine assigned teachers
-                                    const assignedTeachers = teacherAssignments
-                                        .filter((ta) => String(ta.classId) === clsId)
-                                        .filter((ta) => {
-                                        const l = lang.toLowerCase();
-                                        const isArabic = code === 'ar' || code === 'lb' || l.includes('arabe') || l.includes('arabic') || l.includes('العربية');
-                                        const isEnglish = code === 'en' || code === 'uk' || code === 'gb' || l.includes('anglais') || l.includes('english');
-                                        const langs = (ta.languages || []).map((tl) => tl.toLowerCase());
-                                        if (isArabic) {
-                                            // Polyvalent teachers with empty languages are NOT responsible for Arabic
-                                            if (langs.length === 0)
-                                                return !ta.isProfPolyvalent;
-                                            return langs.some((v) => v === 'ar' || v === 'lb' || v.includes('arabe') || v.includes('arabic'));
-                                        }
-                                        if (isEnglish) {
-                                            // Polyvalent teachers with empty languages are NOT responsible for English
-                                            if (langs.length === 0)
-                                                return !ta.isProfPolyvalent;
-                                            return langs.some((v) => v === 'en' || v === 'uk' || v === 'gb' || v.includes('anglais') || v.includes('english'));
-                                        }
-                                        // Default/Polyvalent: include teachers who are explicitly polyvalent OR assigned to all languages (empty languages)
-                                        return ta.isProfPolyvalent || (langs.length === 0 && !ta.isProfPolyvalent);
-                                    })
-                                        .map((ta) => resolveTeacherName(ta.teacherId))
-                                        .filter((name) => !!name);
-                                    const uniqueAssignedTeachers = Array.from(new Set(assignedTeachers));
-                                    categoryStats[lang] = { total: 0, filled: 0, name: lang, teachers: uniqueAssignedTeachers };
-                                }
-                                categoryStats[lang].total++;
-                                totalCompetencies++;
-                                // Check if the category is completed by the teacher
-                                // OR if the item is individually checked (fallback)
-                                if (isCategoryCompleted(lang, code) || item.active) {
-                                    categoryStats[lang].filled++;
-                                    filledCompetencies++;
-                                }
-                            }
                         });
                     });
                 });
+                const applyCategory = (name, total, filled) => {
+                    if (total <= 0)
+                        return;
+                    if (!categoryStats[name]) {
+                        categoryStats[name] = {
+                            total: 0,
+                            filled: 0,
+                            name,
+                            teachers: getCategoryTeachers(name)
+                        };
+                    }
+                    categoryStats[name].total++;
+                    totalCompetencies++;
+                    if (filled === total) {
+                        categoryStats[name].filled++;
+                        filledCompetencies++;
+                    }
+                };
+                applyCategory('Arabe', arabicTotal, arabicFilled);
+                applyCategory('Anglais', englishTotal, englishFilled);
+                applyCategory('Polyvalent', polyvalentTotal, polyvalentFilled);
             });
             return {
                 classId: clsId,

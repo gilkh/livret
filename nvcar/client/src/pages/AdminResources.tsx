@@ -38,6 +38,7 @@ type StudentDoc = {
   firstName: string;
   lastName: string;
   dateOfBirth: string;
+  sex?: 'female' | 'male';
   parentName?: string;
   parentPhone?: string;
   fatherName?: string;
@@ -87,6 +88,7 @@ export default function AdminResources() {
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
   const [dateOfBirth, setDateOfBirth] = useState('')
+  const [sex, setSex] = useState('')
   const [fatherName, setFatherName] = useState('')
   const [fatherEmail, setFatherEmail] = useState('')
   const [motherEmail, setMotherEmail] = useState('')
@@ -404,6 +406,7 @@ export default function AdminResources() {
     setFirstName(s.firstName)
     setLastName(s.lastName)
     setDateOfBirth(s.dateOfBirth ? String(s.dateOfBirth).slice(0, 10) : '')
+    setSex(s.sex || '')
     setFatherName(s.fatherName || s.parentName || '')
     setFatherEmail(s.fatherEmail || '')
     setMotherEmail(s.motherEmail || '')
@@ -419,6 +422,7 @@ export default function AdminResources() {
         firstName,
         lastName,
         dateOfBirth,
+        sex,
         fatherName,
         fatherEmail,
         motherEmail,
@@ -430,6 +434,7 @@ export default function AdminResources() {
         firstName,
         lastName,
         dateOfBirth,
+        sex,
         fatherName,
         fatherEmail,
         motherEmail,
@@ -446,6 +451,7 @@ export default function AdminResources() {
     setFirstName('')
     setLastName('')
     setDateOfBirth('')
+    setSex('')
     setFatherName('')
     setFatherEmail('')
     setMotherEmail('')
@@ -775,6 +781,19 @@ export default function AdminResources() {
                       onChange={e => setDateOfBirth(e.target.value)}
                       title="Date de naissance"
                     />
+                    <select
+                      className="clean-select"
+                      value={sex}
+                      onChange={e => setSex(e.target.value)}
+                      title="Sexe"
+                    >
+                      <option value="">Sexe</option>
+                      <option value="female">Fille</option>
+                      <option value="male">Garcon</option>
+                    </select>
+                  </div>
+
+                  <div className="student-form-row">
                     <input
                       className="clean-input"
                       placeholder="Nom du père"
@@ -796,16 +815,12 @@ export default function AdminResources() {
                       value={motherEmail}
                       onChange={e => setMotherEmail(e.target.value)}
                     />
-                  </div>
-
-                  <div className="student-form-row">
                     <input
                       className="clean-input"
                       placeholder="Email de l'élève"
                       value={studentEmail}
                       onChange={e => setStudentEmail(e.target.value)}
                     />
-                    <div />
                   </div>
 
                   {/* Class select only if creating new/editing */}
@@ -1077,7 +1092,7 @@ function ImportStudentsModal({ isOpen, onClose, onSuccess }: { isOpen: boolean; 
 
   useEffect(() => {
     if (isOpen) {
-      setCsv('FirstName,LastName,level,section,DateOfBirth,FatherName,FatherEmail,MotherEmail,StudentEmail\n')
+      setCsv('FirstName,LastName,level,section,DateOfBirth,Sex,FatherName,FatherEmail,MotherEmail,StudentEmail\n')
       setReport(null)
       setLoading(false)
     }
@@ -1101,7 +1116,7 @@ function ImportStudentsModal({ isOpen, onClose, onSuccess }: { isOpen: boolean; 
       if (lines.length > 0) {
         const firstLine = lines[0].toLowerCase()
         if (!firstLine.includes('firstname') && !firstLine.includes('nom') && !firstLine.includes('prenom')) {
-          lines = ['FirstName,LastName,level,section,DateOfBirth,FatherName,FatherEmail,MotherEmail,StudentEmail', ...lines]
+          lines = ['FirstName,LastName,level,section,DateOfBirth,Sex,FatherName,FatherEmail,MotherEmail,StudentEmail', ...lines]
         }
       }
 
@@ -1192,12 +1207,12 @@ function ImportStudentsModal({ isOpen, onClose, onSuccess }: { isOpen: boolean; 
             value={csv}
             onChange={e => setCsv(e.target.value)}
             rows={8}
-            placeholder="FirstName,LastName,level,section,DateOfBirth,FatherName,FatherEmail,MotherEmail,StudentEmail"
+            placeholder="FirstName,LastName,level,section,DateOfBirth,Sex,FatherName,FatherEmail,MotherEmail,StudentEmail"
           />
 
           <div className="format-hint">
             <AlertCircle size={14} />
-            Format attendu: <code>FirstName,LastName,level,section,DateOfBirth,FatherName,FatherEmail,MotherEmail,StudentEmail</code> (DateOfBirth: <code>dd-mm-yyyy</code>, colonnes optionnelles: <code>StudentId,LogicalKey</code>)
+            Format attendu: <code>FirstName,LastName,level,section,DateOfBirth,Sex,FatherName,FatherEmail,MotherEmail,StudentEmail</code> (DateOfBirth: <code>dd-mm-yyyy</code>, Sex: <code>female|male</code>, colonnes optionnelles: <code>StudentId,LogicalKey</code>)
           </div>
 
           <div className="format-hint" style={{ marginTop: '8px', color: 'var(--success-color)' }}>

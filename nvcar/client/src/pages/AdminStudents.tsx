@@ -1,10 +1,11 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import api from '../api'
 import StudentSidebar from '../components/students/StudentSidebar'
 import StudentGrid from '../components/students/StudentGrid'
 import StudentDetails from '../components/students/StudentDetails'
 import FileDropZone from '../components/students/FileDropZone'
-import { Upload, CheckCircle, Trash2, Search, X, AlertTriangle, ImageOff, Copy } from 'lucide-react'
+import { Upload, CheckCircle, Trash2, Search, X, AlertTriangle, ImageOff, Copy, Download } from 'lucide-react'
+import * as XLSX from 'xlsx'
 
 type Student = {
   _id: string
@@ -23,6 +24,7 @@ type Student = {
   fatherEmail?: string
   motherEmail?: string
   studentEmail?: string
+  sex?: 'female' | 'male'
   status?: string
 }
 
@@ -83,6 +85,11 @@ export default function AdminStudents() {
   const [expandedLevels, setExpandedLevels] = useState<Set<string>>(new Set())
   const [selectedClass, setSelectedClass] = useState<string | null>(null)
   const [viewUnassigned, setViewUnassigned] = useState(false)
+  const [batchScope, setBatchScope] = useState<'year' | 'class' | 'level'>('year')
+  const [batchLevel, setBatchLevel] = useState<string>('')
+  const [batchImporting, setBatchImporting] = useState(false)
+  const [batchSyncReport, setBatchSyncReport] = useState<{ success: number; updated: number; classUpdates: number; errors: any[] } | null>(null)
+  const batchFileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     loadYears()
@@ -369,6 +376,15 @@ export default function AdminStudents() {
     }
   }
 
+  const handleUpdateStudent = async (studentId: string, payload: Record<string, any>) => {
+    const r = await api.patch(`/students/${studentId}`, payload)
+    const updated = r.data
+
+    setStudents(prev => prev.map(s => s._id === studentId ? { ...s, ...updated } : s))
+    setPhotoCheckStudents(prev => prev.map(s => s._id === studentId ? { ...s, ...updated } : s))
+    setSelectedStudent(prev => prev?._id === studentId ? { ...prev, ...updated } : prev)
+  }
+
   const selectStudent = async (s: Student) => {
     setSelectedStudent(s)
     // Fetch details
@@ -448,6 +464,176 @@ export default function AdminStudents() {
     setDeleteClassResult(null)
   }
 
+  useEffect(() => {
+    setBatchSyncReport(null)
+  }, [selectedClass, viewUnassigned, selectedYearId, batchScope, batchLevel])
+
+  const selectedClassMeta = useMemo(
+    () => classes.find(c => c.name === selectedClass) || null,
+    [classes, selectedClass]
+  )
+  const selectedLevelName = selectedClassMeta?.level || ''
+  const selectedYearName = useMemo(() => {
+    const y = years.find(v => v._id === selectedYearId)
+    return y?.name || ''
+  }, [years, selectedYearId])
+
+  const availableBatchLevels = useMemo(() => {
+    const fromStudents = Array.from(new Set(students.map(s => String(s.level || '').trim()).filter(Boolean)))
+    const fromLevelConfig = levels.filter(Boolean)
+    const all = Array.from(new Set([...fromLevelConfig, ...fromStudents]))
+    return all.sort((a, b) => a.localeCompare(b, 'fr', { sensitivity: 'base' }))
+  }, [levels, students])
+
+  useEffect(() => {
+    if (selectedLevelName) {
+      setBatchLevel(selectedLevelName)
+      return
+    }
+    if (!batchLevel && availableBatchLevels.length > 0) {
+      setBatchLevel(availableBatchLevels[0])
+    }
+  }, [selectedLevelName, batchLevel, availableBatchLevels])
+
+  const formatDateForExport = (value?: string) => {
+    if (!value) return ''
+    const d = new Date(value)
+    if (isNaN(d.getTime())) return String(value).slice(0, 10)
+    return d.toISOString().slice(0, 10)
+  }
+
+  const getBatchScopeStudents = (scope: 'year' | 'class' | 'level') => {
+    if (scope === 'year') {
+      return students
+    }
+    if (scope === 'class') {
+      if (!selectedClass) return []
+      return students.filter(s => s.className === selectedClass)
+    }
+    if (!batchLevel) return []
+    return students.filter(s => (s.level || '') === batchLevel)
+  }
+
+  const buildBatchRows = (scope: 'year' | 'class' | 'level') => {
+    return getBatchScopeStudents(scope).map(s => ({
+      StudentId: s._id,
+      LogicalKey: s.logicalKey || '',
+      FirstName: s.firstName || '',
+      LastName: s.lastName || '',
+      DateOfBirth: formatDateForExport(s.dateOfBirth),
+      Sex: s.sex || '',
+      ParentName: s.parentName || '',
+      ParentPhone: s.parentPhone || '',
+      FatherName: s.fatherName || '',
+      FatherEmail: s.fatherEmail || '',
+      MotherEmail: s.motherEmail || '',
+      StudentEmail: s.studentEmail || '',
+      Level: s.level || '',
+      ClassName: s.className || '',
+      SchoolYearId: selectedYearId || ''
+    }))
+  }
+
+  const sanitizeFilePart = (value: string) => value.replace(/[^a-z0-9_-]+/gi, '_').replace(/^_+|_+$/g, '')
+
+  const exportBatchRows = (format: 'csv' | 'xlsx') => {
+    if (batchScope === 'class' && !selectedClass) {
+      alert('Sélectionnez une classe pour exporter en scope classe.')
+      return
+    }
+    if (batchScope === 'level' && !batchLevel) {
+      alert('Sélectionnez un niveau pour exporter en scope niveau.')
+      return
+    }
+
+    const rows = buildBatchRows(batchScope)
+    if (!rows.length) {
+      alert('Aucun élève à exporter pour ce scope.')
+      return
+    }
+
+    const scopeLabel = batchScope === 'year'
+      ? (selectedYearName || 'annee')
+      : batchScope === 'class'
+        ? (selectedClass || 'classe')
+        : (batchLevel || 'niveau')
+    const filenameBase = `students_${batchScope}_${sanitizeFilePart(scopeLabel) || 'selection'}`
+
+    if (format === 'csv') {
+      const headers = Object.keys(rows[0])
+      const csvContent = [
+        headers.join(','),
+        ...rows.map(row => headers.map(h => `"${String((row as any)[h] ?? '').replace(/"/g, '""')}"`).join(','))
+      ].join('\n')
+
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.setAttribute('download', `${filenameBase}.csv`)
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+      return
+    }
+
+    const ws = XLSX.utils.json_to_sheet(rows)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Students')
+    XLSX.writeFile(wb, `${filenameBase}.xlsx`)
+  }
+
+  const parseBatchFile = async (file: File): Promise<Record<string, any>[]> => {
+    const buffer = await file.arrayBuffer()
+    const workbook = XLSX.read(buffer, { type: 'array' })
+    const firstSheetName = workbook.SheetNames[0]
+    if (!firstSheetName) return []
+    const sheet = workbook.Sheets[firstSheetName]
+    return XLSX.utils.sheet_to_json(sheet, { defval: '' }) as Record<string, any>[]
+  }
+
+  const handleBatchImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+
+    const lower = file.name.toLowerCase()
+    if (!lower.endsWith('.csv') && !lower.endsWith('.xlsx') && !lower.endsWith('.xls')) {
+      alert('Format non supporté. Utilisez CSV ou Excel.')
+      return
+    }
+
+    if (!selectedYearId) {
+      alert('Aucune année scolaire sélectionnée.')
+      return
+    }
+
+    try {
+      setBatchImporting(true)
+      setBatchSyncReport(null)
+
+      const rows = await parseBatchFile(file)
+      if (!rows.length) {
+        alert('Aucune ligne exploitable dans le fichier.')
+        return
+      }
+
+      const r = await api.post('/students/bulk-upsert', { rows, schoolYearId: selectedYearId })
+      setBatchSyncReport(r.data)
+
+      await loadStudents(selectedYearId)
+      await loadClasses(selectedYearId)
+
+      const errorCount = r.data?.errors?.length || 0
+      alert(`Import terminé: ${r.data?.success || 0} lignes traitées, ${errorCount} erreur(s).`)
+    } catch (err: any) {
+      alert('Erreur lors de l\'import batch: ' + (err.response?.data?.error || err.message))
+    } finally {
+      setBatchImporting(false)
+    }
+  }
+
   // View Helpers
   const currentStudents = viewUnassigned
     ? groupedStudents.unassigned
@@ -485,6 +671,60 @@ export default function AdminStudents() {
               </button>
             </>
           )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: 10, padding: 6 }}>
+            <select
+              value={batchScope}
+              onChange={e => setBatchScope(e.target.value as 'year' | 'class' | 'level')}
+              style={{ border: '1px solid #cbd5e1', borderRadius: 8, padding: '6px 8px', fontSize: 12, background: '#fff' }}
+            >
+              <option value="year">Scope: Année</option>
+              <option value="level">Scope: Niveau</option>
+              <option value="class" disabled={!selectedClass}>Scope: Classe</option>
+            </select>
+            {batchScope === 'level' && (
+              <select
+                value={batchLevel}
+                onChange={e => setBatchLevel(e.target.value)}
+                style={{ border: '1px solid #cbd5e1', borderRadius: 8, padding: '6px 8px', fontSize: 12, background: '#fff', minWidth: 92 }}
+              >
+                {availableBatchLevels.map(l => (
+                  <option key={l} value={l}>{l}</option>
+                ))}
+              </select>
+            )}
+            <button
+              className="btn"
+              onClick={() => exportBatchRows('csv')}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 10px', fontSize: 12 }}
+            >
+              <Download size={14} />
+              <span>CSV</span>
+            </button>
+            <button
+              className="btn"
+              onClick={() => exportBatchRows('xlsx')}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 10px', fontSize: 12 }}
+            >
+              <Download size={14} />
+              <span>Excel</span>
+            </button>
+            <button
+              className="btn"
+              onClick={() => batchFileInputRef.current?.click()}
+              disabled={batchImporting}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 10px', fontSize: 12, opacity: batchImporting ? 0.7 : 1 }}
+            >
+              <Upload size={14} />
+              <span>{batchImporting ? 'Import...' : 'Importer modifs'}</span>
+            </button>
+            <input
+              ref={batchFileInputRef}
+              type="file"
+              accept=".csv,.xlsx,.xls"
+              style={{ display: 'none' }}
+              onChange={handleBatchImport}
+            />
+          </div>
           <button
             className="btn"
             onClick={() => { setShowPhotoImport(true); setImportReport(null) }}
@@ -503,6 +743,12 @@ export default function AdminStudents() {
           </button>
         </div>
       </div>
+
+      {batchSyncReport && (
+        <div style={{ marginBottom: 16, padding: '10px 14px', borderRadius: 10, border: '1px solid #bfdbfe', background: '#eff6ff', color: '#1e3a8a', fontSize: 13 }}>
+          Batch import: {batchSyncReport.success} ligne(s) traitée(s), {batchSyncReport.updated} élève(s) mis à jour, {batchSyncReport.classUpdates} affectation(s) de classe, {batchSyncReport.errors?.length || 0} erreur(s).
+        </div>
+      )}
 
       {/* Main Layout - 3 Columns */}
       <div style={{ display: 'grid', gridTemplateColumns: '280px minmax(0, 1fr) 380px', gap: 24, flex: 1, minHeight: 0 }}>
@@ -544,6 +790,7 @@ export default function AdminStudents() {
           history={studentHistory}
           onPhotoUpload={handlePhotoUpload}
           onDelete={handleDeleteStudent}
+          onUpdate={handleUpdateStudent}
         />
       </div>
 

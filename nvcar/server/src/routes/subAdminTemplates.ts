@@ -1291,7 +1291,20 @@ subAdminTemplatesRouter.delete('/templates/:templateAssignmentId/sign', requireA
             return res.status(403).json({ error: 'not_authorized' })
         }
 
-        const type = req.body.type || req.query.type || 'standard'
+        const activeSemester = (activeSchoolYear as any)?.activeSemester === 2 ? 2 : 1
+        const requestedType = String(req.body?.type || req.query?.type || 'standard').trim()
+        const requestedSemester = Number(req.body?.semester || req.query?.semester || 0)
+        const type: 'standard' | 'end_of_year' =
+            requestedType === 'end_of_year' || requestedSemester === 2
+                ? 'end_of_year'
+                : 'standard'
+
+        if (activeSemester === 2 && type === 'standard') {
+            return res.status(403).json({
+                error: 'sem1_signature_locked',
+                message: 'La signature du semestre 1 ne peut pas etre annulee lorsque le semestre 2 est actif.'
+            })
+        }
 
         // Get student level for signature scoping
         let signatureLevel = ''
@@ -2068,6 +2081,13 @@ subAdminTemplatesRouter.post('/templates/unsign-class/:classId', requireAuth(['S
                     : activeSemester === 2
                         ? 'end_of_year'
                         : 'standard'
+
+        if (activeSemester === 2 && type === 'standard') {
+            return res.status(403).json({
+                error: 'sem1_signature_locked',
+                message: 'La signature du semestre 1 ne peut pas etre annulee lorsque le semestre 2 est actif.'
+            })
+        }
 
         let signaturePeriodId = ''
         if (type === 'end_of_year') {

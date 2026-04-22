@@ -1,17 +1,24 @@
 import { User, Calendar, Hash, Phone, Clock, Trash2, Mail } from 'lucide-react'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 interface StudentDetailsProps {
   student: any
   history: any[]
   onPhotoUpload: (e: React.ChangeEvent<HTMLInputElement>) => void
   onDelete?: (studentId: string) => void
+  onUpdate?: (studentId: string, payload: Record<string, any>) => Promise<void>
 }
 
-export default function StudentDetails({ student, history, onPhotoUpload, onDelete }: StudentDetailsProps) {
+export default function StudentDetails({ student, history, onPhotoUpload, onDelete, onUpdate }: StudentDetailsProps) {
   const photoInputRef = useRef<HTMLInputElement>(null)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [sex, setSex] = useState('')
+  const [savingSex, setSavingSex] = useState(false)
+
+  useEffect(() => {
+    setSex(student?.sex || '')
+  }, [student?._id, student?.sex])
 
   if (!student) {
     return (
@@ -36,6 +43,18 @@ export default function StudentDetails({ student, history, onPhotoUpload, onDele
       console.error('Delete failed:', e)
     } finally {
       setDeleting(false)
+    }
+  }
+
+  const handleSaveSex = async () => {
+    if (!onUpdate || !student?._id) return
+    setSavingSex(true)
+    try {
+      await onUpdate(student._id, { sex })
+    } catch (e) {
+      console.error('Sex update failed:', e)
+    } finally {
+      setSavingSex(false)
     }
   }
 
@@ -116,6 +135,50 @@ export default function StudentDetails({ student, history, onPhotoUpload, onDele
                   </div>
                 </div>
               </div>
+
+              {onUpdate && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div style={{ background: 'white', padding: 8, borderRadius: 8, boxShadow: '0 1px 2px 0 rgba(0,0,0,0.05)' }}><User size={16} color="#6c5ce7" /></div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 11, color: '#64748b', marginBottom: 6 }}>Sexe</div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <select
+                        value={sex}
+                        onChange={e => setSex(e.target.value)}
+                        style={{
+                          flex: 1,
+                          border: '1px solid #cbd5e1',
+                          borderRadius: 8,
+                          padding: '8px 10px',
+                          fontSize: 13,
+                          color: '#1e293b',
+                          background: '#fff'
+                        }}
+                      >
+                        <option value="">Non renseigné</option>
+                        <option value="female">Fille</option>
+                        <option value="male">Garcon</option>
+                      </select>
+                      <button
+                        onClick={handleSaveSex}
+                        disabled={savingSex || (sex || '') === (student.sex || '')}
+                        style={{
+                          border: '1px solid #3b82f6',
+                          background: '#3b82f6',
+                          color: '#fff',
+                          borderRadius: 8,
+                          padding: '8px 10px',
+                          fontSize: 12,
+                          cursor: savingSex ? 'not-allowed' : 'pointer',
+                          opacity: savingSex || (sex || '') === (student.sex || '') ? 0.7 : 1
+                        }}
+                      >
+                        {savingSex ? '...' : 'Enregistrer'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>

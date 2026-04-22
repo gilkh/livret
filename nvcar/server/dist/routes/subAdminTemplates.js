@@ -1200,7 +1200,18 @@ exports.subAdminTemplatesRouter.delete('/templates/:templateAssignmentId/sign', 
         if (!authorized) {
             return res.status(403).json({ error: 'not_authorized' });
         }
-        const type = req.body.type || req.query.type || 'standard';
+        const activeSemester = activeSchoolYear?.activeSemester === 2 ? 2 : 1;
+        const requestedType = String(req.body?.type || req.query?.type || 'standard').trim();
+        const requestedSemester = Number(req.body?.semester || req.query?.semester || 0);
+        const type = requestedType === 'end_of_year' || requestedSemester === 2
+            ? 'end_of_year'
+            : 'standard';
+        if (activeSemester === 2 && type === 'standard') {
+            return res.status(403).json({
+                error: 'sem1_signature_locked',
+                message: 'La signature du semestre 1 ne peut pas etre annulee lorsque le semestre 2 est actif.'
+            });
+        }
         // Get student level for signature scoping
         let signatureLevel = '';
         const studentForSig = await Student_1.Student.findById(assignment.studentId).lean();
@@ -1473,9 +1484,9 @@ exports.subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', (
                                 const raw = String(item.type || item.label || '');
                                 const code = String(item.code || '').toLowerCase();
                                 const l = raw.toLowerCase();
-                                if (code === 'ar' || l.includes('arabe') || l.includes('arabic') || l.includes('العربية'))
+                                if (code === 'ar' || code === 'lb' || code === 'ara' || code === 'arab' || l.includes('arabe') || l.includes('arabic') || l.includes('العربية'))
                                     categoriesRequired.add('ar');
-                                else if (code === 'en' || l.includes('anglais') || l.includes('english'))
+                                else if (code === 'en' || code === 'eng' || code === 'uk' || code === 'gb' || l.includes('anglais') || l.includes('english'))
                                     categoriesRequired.add('en');
                                 else
                                     categoriesRequired.add('poly');
@@ -1545,9 +1556,28 @@ exports.subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', (
         const teacherCompletions = assignment.teacherCompletions || [];
         const languageCompletions = assignment.languageCompletions || [];
         const languageCompletionMap = {};
-        (Array.isArray(languageCompletions) ? languageCompletions : []).forEach((entry) => {
-            const codeRaw = String(entry?.code || '').toLowerCase();
-            const normalized = codeRaw === 'lb' || codeRaw === 'ar' ? 'ar' : (codeRaw === 'en' || codeRaw === 'uk' || codeRaw === 'gb') ? 'en' : codeRaw === 'fr' ? 'fr' : codeRaw;
+        const normalizeLanguageCode = (value) => {
+            const code = String(value || '').trim().toLowerCase();
+            if (!code)
+                return '';
+            if (code === 'lb' || code === 'ar' || code === 'ara' || code === 'arab')
+                return 'ar';
+            if (code === 'en' || code === 'eng' || code === 'uk' || code === 'gb')
+                return 'en';
+            if (code === 'fr' || code === 'fra')
+                return 'fr';
+            return code;
+        };
+        const normalizedCurrentLevel = String(level || '').trim().toUpperCase();
+        const allLanguageCompletions = Array.isArray(languageCompletions) ? languageCompletions : [];
+        const scopedLanguageCompletions = allLanguageCompletions.filter((entry) => {
+            const entryLevel = String(entry?.level || '').trim().toUpperCase();
+            return !!normalizedCurrentLevel && !!entryLevel && entryLevel === normalizedCurrentLevel;
+        });
+        const fallbackLanguageCompletions = allLanguageCompletions.filter((entry) => !String(entry?.level || '').trim());
+        const languageCompletionsToUse = scopedLanguageCompletions.length > 0 ? scopedLanguageCompletions : fallbackLanguageCompletions;
+        languageCompletionsToUse.forEach((entry) => {
+            const normalized = normalizeLanguageCode(entry?.code);
             if (!normalized)
                 return;
             languageCompletionMap[normalized] = { ...(entry || {}), code: normalized };
@@ -1597,8 +1627,8 @@ exports.subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', (
             if (langs.length === 0)
                 return !ta.isProfPolyvalent;
             if (category === 'ar')
-                return langMatch(langs, ['ar', 'arabe', 'arabic', 'العربية']);
-            return langMatch(langs, ['en', 'uk', 'gb', 'anglais', 'english']);
+                return langMatch(langs, ['ar', 'lb', 'ara', 'arab', 'arabe', 'arabic', 'العربية']);
+            return langMatch(langs, ['en', 'eng', 'uk', 'gb', 'anglais', 'english']);
         };
         const arabicTeacherIds = (teacherAssignments || [])
             .filter((ta) => isResponsibleTeacherFor(ta, 'ar'))
@@ -1830,10 +1860,7 @@ exports.subAdminTemplatesRouter.post('/templates/sign-class/:classId', (0, auth_
                     level: classLevelForBulk,
                     signaturePeriodId: signaturePeriodIdForBulk || undefined,
                     signatureSchoolYearId: signatureSchoolYearIdForBulk || undefined,
-                    // The pre-filter query already verified completion eligibility;
-                    // skip the redundant per-assignment check to avoid false rejections
-                    // when isCompletedSem1 is missing but isCompleted/status is set.
-                    skipCompletionCheck: true
+                    skipCompletionCheck: canBypass
                 });
                 createdCount++;
             }
@@ -1900,6 +1927,12 @@ exports.subAdminTemplatesRouter.post('/templates/unsign-class/:classId', (0, aut
                 : activeSemester === 2
                     ? 'end_of_year'
                     : 'standard';
+        if (activeSemester === 2 && type === 'standard') {
+            return res.status(403).json({
+                error: 'sem1_signature_locked',
+                message: 'La signature du semestre 1 ne peut pas etre annulee lorsque le semestre 2 est actif.'
+            });
+        }
         let signaturePeriodId = '';
         if (type === 'end_of_year') {
             const periodInfo = await (0, readinessUtils_1.resolveEndOfYearSignaturePeriod)().catch(() => null);

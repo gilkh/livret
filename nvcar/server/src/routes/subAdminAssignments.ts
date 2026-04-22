@@ -533,6 +533,8 @@ subAdminAssignmentsRouter.get('/teacher-progress-detailed', requireAuth(['SUBADM
             return res.status(400).json({ error: 'no_active_year' })
         }
 
+        const activeSemester = (activeYear as any)?.activeSemester || 1
+
         // Find classes
         const classes = await ClassModel.find({
             level: { $in: levels },
@@ -696,10 +698,14 @@ subAdminAssignmentsRouter.get('/teacher-progress-detailed', requireAuth(['SUBADM
                                         const isEnglish = isEnglishLanguage(code, lang)
                                         const normalized = isArabic ? 'ar' : isEnglish ? 'en' : 'fr'
                                         const lc = languageCompletionMap[normalized]
-                                        return !!(lc && (lc.completedSem1 || lc.completedSem2 || lc.completed))
+                                        if (!lc) return false
+                                        if (activeSemester === 1) {
+                                            return !!(lc.completedSem1 || lc.completed)
+                                        }
+                                        return !!(lc.completedSem2)
                                     }
 
-                                    const completed = isActive || isCategoryCompleted()
+                                    const completed = isCategoryCompleted()
 
                                     if (isArabicLanguage(code, lang)) {
                                         arabicTotal++
@@ -780,6 +786,8 @@ subAdminAssignmentsRouter.get('/teacher-progress', requireAuth(['SUBADMIN', 'AEF
         if (!activeYear) {
             return res.status(400).json({ error: 'no_active_year' })
         }
+
+        const activeSemester = (activeYear as any)?.activeSemester || 1
 
         // Find classes
         const classes = await ClassModel.find({
@@ -954,7 +962,11 @@ subAdminAssignmentsRouter.get('/teacher-progress', requireAuth(['SUBADMIN', 'AEF
                         const isEnglish = isEnglishLanguage(langCode, l)
                         const normalized = isArabic ? 'ar' : isEnglish ? 'en' : 'fr'
                         const lc = languageCompletionMap[normalized]
-                        return !!(lc && (lc.completedSem1 || lc.completedSem2 || lc.completed))
+                        if (!lc) return false
+                        if (activeSemester === 1) {
+                            return !!(lc.completedSem1 || lc.completed)
+                        }
+                        return !!(lc.completedSem2)
                     }
 
                     template.pages.forEach((page: any, pageIdx: number) => {
@@ -1004,8 +1016,7 @@ subAdminAssignmentsRouter.get('/teacher-progress', requireAuth(['SUBADMIN', 'AEF
 
                                 const code = (item.code || '').toLowerCase()
                                 const lang = (item.type || item.label || 'Autre').toLowerCase()
-                                const isActive = item.active === true || item.active === 'true'
-                                const completed = isActive || isCategoryCompleted(lang, code)
+                                const completed = isCategoryCompleted(lang, code)
 
                                 if (isArabicLanguage(code, lang)) {
                                     arabicTotal++

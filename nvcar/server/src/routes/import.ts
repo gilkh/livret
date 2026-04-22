@@ -13,6 +13,15 @@ export const importRouter = Router()
 
 const normalizeText = (v: any) => String(v ?? '').trim().toLowerCase()
 
+const parseSexInput = (value: any): { valid: boolean; value?: 'female' | 'male' | null } => {
+  const raw = String(value ?? '').trim().toLowerCase()
+  if (!raw) return { valid: true, value: undefined }
+  if (['f', 'female', 'fille', 'femme', 'girl', 'woman'].includes(raw)) return { valid: true, value: 'female' }
+  if (['m', 'male', 'garcon', 'homme', 'boy', 'man'].includes(raw)) return { valid: true, value: 'male' }
+  if (['none', 'null', 'unknown', 'na', 'n/a', '-'].includes(raw)) return { valid: true, value: null }
+  return { valid: false, value: undefined }
+}
+
 const parseDateValue = (value: any) => {
   const raw = String(value ?? '').trim()
   if (!raw) return new Date('')
@@ -64,8 +73,11 @@ importRouter.post('/students', requireAuth(['ADMIN', 'SUBADMIN']), async (req, r
         const studentId = col('studentId', 'StudentId')
         const logicalKey = col('logicalKey', 'LogicalKey')
         const fatherName = col('fatherName', 'FatherName')
+        const sex = col('sex', 'Sex')
 
         if (isNaN(dob.getTime())) throw new Error('invalid_dateOfBirth')
+        const parsedSex = parseSexInput(sex)
+        if (!parsedSex.valid) throw new Error('invalid_sex')
 
         let existing: any = null
         if (studentId) {
@@ -121,8 +133,11 @@ importRouter.post('/students', requireAuth(['ADMIN', 'SUBADMIN']), async (req, r
         const fatherEmail = col('fatherEmail', 'FatherEmail')
         const motherEmail = col('motherEmail', 'MotherEmail')
         const studentEmail = col('studentEmail', 'StudentEmail')
+        const sex = col('sex', 'Sex')
 
         if (isNaN(dob.getTime())) throw new Error('invalid_dateOfBirth')
+        const parsedSex = parseSexInput(sex)
+        if (!parsedSex.valid) throw new Error('invalid_sex')
 
         let existing: any = null
         if (studentId) {
@@ -153,7 +168,8 @@ importRouter.post('/students', requireAuth(['ADMIN', 'SUBADMIN']), async (req, r
               fatherName: fatherName || parentName,
               fatherEmail,
               motherEmail,
-              studentEmail
+              studentEmail,
+              ...(parsedSex.value === 'female' || parsedSex.value === 'male' ? { sex: parsedSex.value } : {})
             },
             { new: true, session }
           )
@@ -180,7 +196,8 @@ importRouter.post('/students', requireAuth(['ADMIN', 'SUBADMIN']), async (req, r
             fatherName: fatherName || parentName,
             fatherEmail,
             motherEmail,
-            studentEmail
+            studentEmail,
+            ...(parsedSex.value === 'female' || parsedSex.value === 'male' ? { sex: parsedSex.value } : {})
           }], { session })
           student = created[0]
           added += 1

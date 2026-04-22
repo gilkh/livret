@@ -8,6 +8,7 @@ const express_1 = require("express");
 const axios_1 = __importDefault(require("axios"));
 const OutlookUser_1 = require("../models/OutlookUser");
 const User_1 = require("../models/User");
+const Setting_1 = require("../models/Setting");
 const auth_1 = require("../auth");
 const auditLogger_1 = require("../utils/auditLogger");
 exports.microsoftRouter = (0, express_1.Router)();
@@ -23,6 +24,21 @@ const ALLOWED_REDIRECT_URIS = [
     'https://livret.champville.com'
 ];
 const TENANT = process.env.MICROSOFT_TENANT || 'common'; // 'common' allows any Microsoft account
+async function isRoleLoginEnabled(role) {
+    if (role === 'TEACHER') {
+        const s = await Setting_1.Setting.findOne({ key: 'login_enabled_teacher' });
+        return !(s && s.value === false);
+    }
+    if (role === 'SUBADMIN') {
+        const s = await Setting_1.Setting.findOne({ key: 'login_enabled_subadmin' });
+        return !(s && s.value === false);
+    }
+    if (role === 'AEFE') {
+        const s = await Setting_1.Setting.findOne({ key: 'login_enabled_aefe' });
+        return !(s && s.value === false);
+    }
+    return true;
+}
 // Generate authorization URL
 exports.microsoftRouter.get('/auth-url', (req, res) => {
     if (!CLIENT_ID) {
@@ -126,6 +142,13 @@ exports.microsoftRouter.post('/callback', async (req, res) => {
                 user.displayName = displayName;
             }
             await user.save();
+        }
+        const loginEnabled = await isRoleLoginEnabled(authRole);
+        if (!loginEnabled) {
+            return res.status(403).json({
+                error: 'login_disabled',
+                message: 'L\'accès est actuellement désactivé. Si vous avez besoin d\'accéder, contactez l\'administrateur.'
+            });
         }
         // Generate JWT token using the OutlookUser's ID (if from whitelist) or User's ID
         const token = (0, auth_1.signToken)({ userId: authUserId, role: authRole, tokenVersion: authTokenVersion });
