@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import fs from 'fs'
-import { Types } from 'mongoose'
+import mongoose from 'mongoose'
 import archiver from 'archiver'
 import { requireAuth } from '../auth'
 import { ExportedGradebookBatch } from '../models/ExportedGradebookBatch'
@@ -11,57 +11,18 @@ import { EmailJob } from '../models/EmailJob'
 
 export const gradebookExportsRouter = Router()
 
-type EmailPreviewOptions = {
+type EmailJobOptions = {
   includeFather: boolean
   includeMother: boolean
   includeStudent: boolean
   customMessage: string
-  selectedFileIds: string[]
-}
-
-type EmailJobStatus = 'queued' | 'running' | 'completed' | 'failed'
-type EmailJobItemStatus = 'pending' | 'sent' | 'skipped' | 'failed'
-type EmailJobItem = {
-  fileId: string
-  studentId: string
-  studentName: string
-  recipients: string[]
-  status: EmailJobItemStatus
-  error?: string
-}
-type EmailJobState = {
-  id: string
-  batchId: string
-  createdBy: string
-  status: EmailJobStatus
-  totalItems: number
-  processedItems: number
-  sentItems: number
-  skippedItems: number
-  failedItems: number
-  startedAt: number
-  updatedAt: number
-  completedAt?: number
-  options: EmailPreviewOptions
-  items: EmailJobItem[]
-  error?: string
-}
-
-const emailJobStore = new Map<string, EmailJobState>()
-const EMAIL_JOB_TTL_MS = 1000 * 60 * 60
-
-const scheduleEmailJobCleanup = (jobId: string) => {
-  setTimeout(() => {
-    emailJobStore.delete(jobId)
-  }, EMAIL_JOB_TTL_MS)
+  selectedFileIds?: string[]
+  testEmailOverride?: string
 }
 
 const isAdminRole = (role: string) => role === 'ADMIN' || role === 'SUBADMIN'
-
 const normalizeEmail = (value: unknown) => String(value || '').trim().toLowerCase()
-
 const isValidEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
-
 const escapeHtml = (value: string) => value
   .replace(/&/g, '&amp;')
   .replace(/</g, '&lt;')
@@ -88,29 +49,25 @@ const sanitizeDownloadFileName = (value: string, fallback = 'export.zip') => {
 const getOwnedBatch = async (req: any, batchId: string) => {
   const batch = await ExportedGradebookBatch.findById(batchId).lean()
   if (!batch) return null
-
   if (isAdminRole(String(req.user?.role || ''))) return batch
   if (String(batch.createdBy) !== String(req.user?.userId || '')) return null
-
   return batch
 }
 
-const buildRecipients = (file: any, options: EmailPreviewOptions) => {
+const buildRecipients = (file: any, options: EmailJobOptions) => {
   const recipients: string[] = []
   const pushIfValid = (raw: unknown) => {
     const normalized = normalizeEmail(raw)
     if (!normalized || !isValidEmail(normalized) || recipients.includes(normalized)) return
     recipients.push(normalized)
   }
-
   if (options.includeFather) pushIfValid(file?.emails?.father)
   if (options.includeMother) pushIfValid(file?.emails?.mother)
   if (options.includeStudent) pushIfValid(file?.emails?.student)
-
   return recipients
 }
 
-const buildEmailContent = async (batch: any, file: any, options: EmailPreviewOptions) => {
+const buildEmailContent = async (batch: any, file: any, options: EmailJobOptions) => {
   const settings = await Setting.find({
     key: { $in: ['school_name', 'smtp_from_name', 'smtp_from_email'] }
   }).lean()
@@ -144,19 +101,28 @@ const buildEmailContent = async (batch: any, file: any, options: EmailPreviewOpt
   const extraMessageHtml = escapeHtml(extraMessage)
 
   const html = `
-    <div style="font-family: Arial, sans-serif; color: #0f172a; max-width: 680px; margin: 0 auto; background: #ffffff;">
-      <div style="padding: 24px 28px; border-bottom: 1px solid #e2e8f0; background: linear-gradient(135deg, #eff6ff, #f8fafc);">
-        <div style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: #475569; margin-bottom: 8px;">${schoolNameHtml}</div>
-        <h1 style="margin: 0; font-size: 24px; color: #0f172a;">Carnet scolaire</h1>
-        <p style="margin: 10px 0 0; font-size: 15px; color: #334155;">Veuillez trouver en pièce jointe le carnet de <strong>${studentNameHtml}</strong>.</p>
+    <div style="font-family: 'Inter', Arial, sans-serif; color: #1e293b; max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 16px; overflow: hidden; border: 1px solid #e2e8f0; box-shadow: 0 10px 25px rgba(0,0,0,0.05);">
+      <div style="padding: 32px 40px; background: linear-gradient(135deg, #2563eb, #3b82f6); color: #ffffff;">
+        <div style="font-size: 13px; text-transform: uppercase; letter-spacing: 0.1em; opacity: 0.9; margin-bottom: 8px;">${schoolNameHtml}</div>
+        <h1 style="margin: 0; font-size: 26px; font-weight: 800; letter-spacing: -0.02em;">Votre carnet scolaire</h1>
       </div>
-      <div style="padding: 24px 28px;">
-        ${details.length > 0 ? `<ul style="padding-left: 18px; margin: 0 0 18px; color: #334155;">${detailsHtml.map((detail) => `<li style="margin-bottom: 6px;">${detail}</li>`).join('')}</ul>` : ''}
-        ${extraMessage ? `<div style="padding: 14px 16px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; color: #334155; white-space: pre-wrap; margin-bottom: 18px;">${extraMessageHtml}</div>` : ''}
-        <p style="margin: 0; color: #475569; line-height: 1.6;">Ce message a été envoyé depuis l’espace sous-admin afin de partager le carnet PDF déjà exporté sur le serveur.</p>
+      <div style="padding: 40px; line-height: 1.6;">
+        <p style="margin: 0 0 24px; font-size: 16px;">Bonjour,</p>
+        <p style="margin: 0 0 24px; font-size: 16px;">Veuillez trouver en pièce jointe le carnet scolaire de <strong>${studentNameHtml}</strong>.</p>
+        
+        ${details.length > 0 ? `
+        <div style="background: #f8fafc; border-radius: 12px; padding: 20px; border: 1px solid #f1f5f9; margin-bottom: 24px;">
+          <ul style="padding: 0; margin: 0; list-style: none; font-size: 14px; color: #475569;">
+            ${detailsHtml.map((detail) => `<li style="margin-bottom: 8px; display: flex; align-items: center;"><span style="width: 6px; height: 6px; background: #3b82f6; border-radius: 50%; display: inline-block; margin-right: 10px;"></span>${detail}</li>`).join('')}
+          </ul>
+        </div>` : ''}
+
+        ${extraMessage ? `<div style="background: #fffbeb; border-left: 4px solid #f59e0b; padding: 16px 20px; border-radius: 4px; color: #92400e; font-size: 15px; margin-bottom: 24px;">${extraMessageHtml}</div>` : ''}
+        
+        <p style="margin: 0; font-size: 15px; color: #64748b;">Merci de votre confiance.</p>
       </div>
-      <div style="padding: 18px 28px; border-top: 1px solid #e2e8f0; color: #64748b; font-size: 13px;">
-        ${senderNameHtml}
+      <div style="padding: 24px 40px; background: #f8fafc; border-top: 1px solid #e2e8f0; text-align: center; font-size: 13px; color: #94a3b8;">
+        Ce carnet est un document officiel exporté depuis votre portail scolaire.
       </div>
     </div>
   `.trim()
@@ -169,9 +135,7 @@ const buildEmailContent = async (batch: any, file: any, options: EmailPreviewOpt
     '',
     'Veuillez trouver le carnet PDF en pièce jointe.',
   ]
-  if (extraMessage) {
-    textLines.push('', extraMessage)
-  }
+  if (extraMessage) textLines.push('', extraMessage)
   textLines.push('', senderName)
 
   return {
@@ -179,114 +143,83 @@ const buildEmailContent = async (batch: any, file: any, options: EmailPreviewOpt
     html,
     text: textLines.join('\n'),
     fromName: senderName,
-    fromEmail: String(settingsMap.smtp_from_email || '').trim()
+    fromEmail: String(settingsMap.smtp_from_email || '').trim(),
+    recipients: buildRecipients(file, options)
   }
 }
 
-const runEmailJob = async (jobId: string) => {
+async function runEmailJob(jobId: string, batch: any, files: any[], options: EmailJobOptions) {
   try {
-    const job = await EmailJob.findById(jobId)
-    if (!job) return
-
-    job.status = 'running'
-    job.updatedAt = new Date()
-    await job.save()
-
-    const batch = await ExportedGradebookBatch.findById(job.batchId).lean()
-    if (!batch) throw new Error('batch_not_found')
-
     const transporter = await createSmtpTransporter()
-    if (!transporter) throw new Error('smtp_not_configured')
+    if (!transporter) throw new Error('SMTP not configured')
 
     const smtpSettings = await getSmtpSettings()
 
-    for (const item of job.items) {
-      // Re-fetch in case of external status updates (unlikely but safe)
-      const currentJob = await EmailJob.findById(jobId)
-      if (!currentJob) return
-
-      const file = batch.files.find((entry: any) => String(entry._id) === item.fileId)
-      if (!file) {
-        item.status = 'failed'
-        item.error = 'Fichier exporté introuvable'
-        currentJob.processedItems += 1
-        currentJob.failedItems += 1
-        currentJob.updatedAt = new Date()
-        await currentJob.save()
-        continue
-      }
-
-      if (item.recipients.length === 0) {
-        item.status = 'skipped'
-        item.error = 'Aucune adresse email valide'
-        currentJob.processedItems += 1
-        currentJob.skippedItems += 1
-        currentJob.updatedAt = new Date()
-        await currentJob.save()
-        continue
+    for (const file of files) {
+      const item: any = {
+        fileId: file._id,
+        studentName: `${file.firstName} ${file.lastName}`,
+        recipients: [],
+        status: 'pending'
       }
 
       try {
-        const emailContent = await buildEmailContent(batch, file, { ...currentJob.options, selectedFileIds: currentJob.options.selectedFileIds.map(id => String(id)) } as any)
-        const absolutePath = resolveGradebookExportPath(String(file.relativePath || ''))
-        await transporter.sendMail({
-          from: emailContent.fromEmail ? `"${emailContent.fromName}" <${emailContent.fromEmail}>` : smtpSettings.user,
-          to: item.recipients.join(', '),
-          subject: emailContent.subject,
-          text: emailContent.text,
-          html: emailContent.html,
-          attachments: [
-            {
-              filename: String(file.fileName || 'carnet.pdf'),
-              path: absolutePath
-            }
-          ]
-        })
+        const emailContent = await buildEmailContent(batch, file, options)
 
-        item.status = 'sent'
-        item.error = undefined
-        currentJob.processedItems += 1
-        currentJob.sentItems += 1
-        currentJob.updatedAt = new Date()
-        // Save status for this item
-        const dbItem = currentJob.items.find(i => i.fileId === item.fileId)
-        if (dbItem) {
-          dbItem.status = 'sent'
-          dbItem.error = undefined
+        let recipients = emailContent.recipients
+        if (options.testEmailOverride) {
+          recipients = [options.testEmailOverride]
         }
-        await currentJob.save()
-      } catch (error: any) {
+
+        item.recipients = recipients
+
+        if (recipients.length === 0) {
+          item.status = 'skipped'
+          item.error = 'Aucun destinataire valide trouvé'
+        } else {
+          const absolutePath = resolveGradebookExportPath(file.relativePath)
+          
+          await transporter.sendMail({
+            from: emailContent.fromEmail ? `"${emailContent.fromName}" <${emailContent.fromEmail}>` : smtpSettings.user,
+            to: recipients.join(', '),
+            subject: options.testEmailOverride ? `[TEST] ${emailContent.subject}` : emailContent.subject,
+            text: emailContent.text,
+            html: emailContent.html,
+            attachments: [
+              {
+                filename: file.fileName,
+                path: absolutePath
+              }
+            ]
+          })
+          item.status = 'sent'
+        }
+      } catch (err: any) {
         item.status = 'failed'
-        item.error = String(error?.message || 'email_send_failed')
-        currentJob.processedItems += 1
-        currentJob.failedItems += 1
-        currentJob.updatedAt = new Date()
-        const dbItem = currentJob.items.find(i => i.fileId === item.fileId)
-        if (dbItem) {
-          dbItem.status = 'failed'
-          dbItem.error = String(error?.message || 'email_send_failed')
-        }
-        await currentJob.save()
+        item.error = err.message
       }
+
+      await EmailJob.updateOne(
+        { _id: jobId },
+        { 
+          $push: { items: item },
+          $inc: { 
+            processedItems: 1,
+            sentItems: item.status === 'sent' ? 1 : 0,
+            failedItems: item.status === 'failed' ? 1 : 0,
+            skippedItems: item.status === 'skipped' ? 1 : 0
+          }
+        }
+      )
     }
 
-    job.status = 'completed'
-    job.completedAt = new Date()
-    job.updatedAt = new Date()
-    await job.save()
+    await EmailJob.updateOne({ _id: jobId }, { status: 'completed', completedAt: new Date() })
   } catch (error: any) {
-    console.error(`[EmailJob ${jobId}] Failed:`, error)
-    const job = await EmailJob.findById(jobId)
-    if (job) {
-      job.status = 'failed'
-      job.error = String(error?.message || 'email_job_failed')
-      job.completedAt = new Date()
-      job.updatedAt = new Date()
-      await job.save()
-    }
+    await EmailJob.updateOne({ _id: jobId }, { status: 'failed', error: error.message, completedAt: new Date() })
   }
 }
 
+// ROUTES
 gradebookExportsRouter.get('/batches', requireAuth(['ADMIN', 'SUBADMIN', 'AEFE']), async (req, res) => {
   try {
     const reqAny = req as any
@@ -294,64 +227,10 @@ gradebookExportsRouter.get('/batches', requireAuth(['ADMIN', 'SUBADMIN', 'AEFE']
     if (!isAdminRole(String(reqAny.user?.role || ''))) {
       query.createdBy = String(reqAny.user?.userId || '')
     }
-
-    const batches = await ExportedGradebookBatch.find(query)
-      .sort({ createdAt: -1 })
-      .limit(100)
-      .lean()
-
+    const batches = await ExportedGradebookBatch.find(query).sort({ createdAt: -1 }).limit(100).lean()
     res.json(batches)
   } catch (error: any) {
     res.status(500).json({ error: 'fetch_failed', message: error.message })
-  }
-})
-
-gradebookExportsRouter.get('/batches/:batchId', requireAuth(['ADMIN', 'SUBADMIN', 'AEFE']), async (req, res) => {
-  try {
-    const batch = await getOwnedBatch(req, String(req.params.batchId || ''))
-    if (!batch) return res.status(404).json({ error: 'batch_not_found' })
-    res.json(batch)
-  } catch (error: any) {
-    res.status(500).json({ error: 'fetch_failed', message: error.message })
-  }
-})
-
-gradebookExportsRouter.get('/batches/:batchId/files/:fileId/pdf', requireAuth(['ADMIN', 'SUBADMIN', 'AEFE']), async (req, res) => {
-  try {
-    const batch = await getOwnedBatch(req, String(req.params.batchId || ''))
-    if (!batch) return res.status(404).json({ error: 'batch_not_found' })
-
-    const file = batch.files.find((entry: any) => String(entry._id) === String(req.params.fileId || ''))
-    if (!file) return res.status(404).json({ error: 'file_not_found' })
-
-    const absolutePath = resolveGradebookExportPath(String(file.relativePath || ''))
-    if (!fs.existsSync(absolutePath)) return res.status(404).json({ error: 'pdf_not_found' })
-
-    res.setHeader('Content-Type', 'application/pdf')
-    res.setHeader('Content-Disposition', `inline; filename="${String(file.fileName || 'carnet.pdf').replace(/"/g, '')}"`)
-    fs.createReadStream(absolutePath).pipe(res)
-  } catch (error: any) {
-    res.status(500).json({ error: 'pdf_read_failed', message: error.message })
-  }
-})
-
-gradebookExportsRouter.get('/batches/:batchId/files/:fileId/download', requireAuth(['ADMIN', 'SUBADMIN', 'AEFE']), async (req, res) => {
-  try {
-    const batch = await getOwnedBatch(req, String(req.params.batchId || ''))
-    if (!batch) return res.status(404).json({ error: 'batch_not_found' })
-
-    const file = batch.files.find((entry: any) => String(entry._id) === String(req.params.fileId || ''))
-    if (!file) return res.status(404).json({ error: 'file_not_found' })
-
-    const absolutePath = resolveGradebookExportPath(String(file.relativePath || ''))
-    if (!fs.existsSync(absolutePath)) return res.status(404).json({ error: 'pdf_not_found' })
-
-    const safeName = sanitizeDownloadFileName(String(file.fileName || 'carnet.pdf'), 'carnet.pdf')
-    res.setHeader('Content-Type', 'application/pdf')
-    res.setHeader('Content-Disposition', `attachment; filename="${safeName.replace(/"/g, '')}"`)
-    fs.createReadStream(absolutePath).pipe(res)
-  } catch (error: any) {
-    res.status(500).json({ error: 'pdf_download_failed', message: error.message })
   }
 })
 
@@ -360,51 +239,28 @@ gradebookExportsRouter.post('/batches/:batchId/download', requireAuth(['ADMIN', 
     const batch = await getOwnedBatch(req, String(req.params.batchId || ''))
     if (!batch) return res.status(404).json({ error: 'batch_not_found' })
 
-    const selectedFileIds = Array.isArray(req.body?.selectedFileIds)
-      ? req.body.selectedFileIds.map((id: unknown) => String(id))
-      : []
+    const selectedFileIds = Array.isArray(req.body?.selectedFileIds) ? req.body.selectedFileIds.map((id: unknown) => String(id)) : []
+    const files = selectedFileIds.length > 0 ? batch.files.filter((file: any) => selectedFileIds.includes(String(file._id))) : batch.files
 
-    const files = selectedFileIds.length > 0
-      ? batch.files.filter((file: any) => selectedFileIds.includes(String(file._id)))
-      : batch.files
+    if (files.length === 0) return res.status(400).json({ error: 'no_files_selected' })
 
-    if (files.length === 0) {
-      return res.status(400).json({ error: 'no_files_selected' })
-    }
-
-    const zipNameBase = batch.groupLabel || batch.archiveFileName || `carnets-${String(batch._id)}`
-    const zipName = sanitizeDownloadFileName(String(zipNameBase).replace(/\.zip$/i, ''), 'carnets')
+    const zipName = sanitizeDownloadFileName(batch.groupLabel || batch.archiveFileName || 'exports', 'exports.zip')
     res.setHeader('Content-Type', 'application/zip')
     res.setHeader('Content-Disposition', `attachment; filename="${zipName}.zip"`)
 
     const archive = archiver('zip', { zlib: { level: 6 } })
-    archive.on('error', (error: any) => {
-      if (!res.headersSent) {
-        res.status(500).json({ error: 'zip_failed', message: String(error?.message || 'zip_failed') })
-      } else {
-        res.destroy(error)
-      }
-    })
     archive.pipe(res)
 
-    let missingIndex = 0
     for (const file of files as any[]) {
       const absolutePath = resolveGradebookExportPath(String(file.relativePath || ''))
-      if (!fs.existsSync(absolutePath)) {
-        missingIndex += 1
-        archive.append(`Fichier introuvable sur le serveur: ${String(file.fileName || 'carnet.pdf')}\n`, {
-          name: `errors/missing-${missingIndex}.txt`
-        })
-        continue
+      if (fs.existsSync(absolutePath)) {
+        const yearDir = sanitizeArchiveSegment(String(file.yearName || ''), 'Sans annee')
+        const levelDir = sanitizeArchiveSegment(String(file.level || ''), 'Sans niveau')
+        const classDir = sanitizeArchiveSegment(String(file.className || ''), 'Sans classe')
+        const safeFileName = sanitizeDownloadFileName(String(file.fileName || 'carnet.pdf'), 'carnet.pdf')
+        archive.file(absolutePath, { name: `${yearDir}/${levelDir}/${classDir}/${safeFileName}` })
       }
-
-      const yearDir = sanitizeArchiveSegment(String(file.yearName || ''), 'Sans annee')
-      const levelDir = sanitizeArchiveSegment(String(file.level || ''), 'Sans niveau')
-      const classDir = sanitizeArchiveSegment(String(file.className || ''), 'Sans classe')
-      const safeFileName = sanitizeDownloadFileName(String(file.fileName || 'carnet.pdf'), 'carnet.pdf')
-      archive.file(absolutePath, { name: `${yearDir}/${levelDir}/${classDir}/${safeFileName}` })
     }
-
     await archive.finalize()
   } catch (error: any) {
     res.status(500).json({ error: 'download_failed', message: error.message })
@@ -416,7 +272,7 @@ gradebookExportsRouter.post('/batches/:batchId/email-preview', requireAuth(['ADM
     const batch = await getOwnedBatch(req, String(req.params.batchId || ''))
     if (!batch) return res.status(404).json({ error: 'batch_not_found' })
 
-    const options: EmailPreviewOptions = {
+    const options: EmailJobOptions = {
       includeFather: req.body?.includeFather !== false,
       includeMother: req.body?.includeMother !== false,
       includeStudent: req.body?.includeStudent !== false,
@@ -424,18 +280,14 @@ gradebookExportsRouter.post('/batches/:batchId/email-preview', requireAuth(['ADM
       selectedFileIds: Array.isArray(req.body?.selectedFileIds) ? req.body.selectedFileIds.map((id: unknown) => String(id)) : []
     }
 
-    const selectedFiles = (options.selectedFileIds.length > 0
-      ? batch.files.filter((file: any) => options.selectedFileIds.includes(String(file._id)))
+    const selectedFiles = (options.selectedFileIds && options.selectedFileIds.length > 0
+      ? batch.files.filter((file: any) => options.selectedFileIds!.includes(String(file._id)))
       : batch.files)
 
-    if (selectedFiles.length === 0) {
-      return res.status(400).json({ error: 'no_files_selected' })
-    }
+    if (selectedFiles.length === 0) return res.status(400).json({ error: 'no_files_selected' })
 
     const previewFile = selectedFiles[0]
-    const recipients = buildRecipients(previewFile, options)
     const emailContent = await buildEmailContent(batch, previewFile, options)
-
     const totalRecipients = selectedFiles.reduce((acc: number, file: any) => acc + buildRecipients(file, options).length, 0)
 
     res.json({
@@ -447,7 +299,7 @@ gradebookExportsRouter.post('/batches/:batchId/email-preview', requireAuth(['ADM
         studentName: `${String(previewFile.firstName || '').trim()} ${String(previewFile.lastName || '').trim()}`.trim(),
         fileName: previewFile.fileName
       },
-      sampleRecipients: recipients,
+      sampleRecipients: emailContent.recipients,
       selectedFileCount: selectedFiles.length,
       totalRecipientCount: totalRecipients
     })
@@ -458,52 +310,37 @@ gradebookExportsRouter.post('/batches/:batchId/email-preview', requireAuth(['ADM
 
 gradebookExportsRouter.post('/batches/:batchId/send', requireAuth(['ADMIN', 'SUBADMIN', 'AEFE']), async (req, res) => {
   try {
-    const reqAny = req as any
+    const { selectedFileIds, includeFather, includeMother, includeStudent, customMessage, testEmailOverride } = req.body
     const batch = await getOwnedBatch(req, String(req.params.batchId || ''))
     if (!batch) return res.status(404).json({ error: 'batch_not_found' })
 
-    const smtp = await getSmtpSettings()
-    if (!smtp.host || !smtp.user || !smtp.pass) {
-      return res.status(400).json({ error: 'smtp_not_configured', message: 'SMTP non configuré' })
-    }
+    const files = selectedFileIds && selectedFileIds.length > 0 
+      ? batch.files.filter((f: any) => selectedFileIds.includes(String(f._id)))
+      : batch.files
 
-    const options: EmailPreviewOptions = {
-      includeFather: req.body?.includeFather !== false,
-      includeMother: req.body?.includeMother !== false,
-      includeStudent: req.body?.includeStudent !== false,
-      customMessage: String(req.body?.customMessage || ''),
-      selectedFileIds: Array.isArray(req.body?.selectedFileIds) ? req.body.selectedFileIds.map((id: unknown) => String(id)) : []
-    }
+    if (files.length === 0) return res.status(400).json({ error: 'no_files_selected' })
 
-    const selectedFiles = (options.selectedFileIds.length > 0
-      ? batch.files.filter((file: any) => options.selectedFileIds.includes(String(file._id)))
-      : batch.files)
-
-    if (selectedFiles.length === 0) {
-      return res.status(400).json({ error: 'no_files_selected' })
-    }
-
-    const items = selectedFiles.map((file: any) => ({
-      fileId: String(file._id),
-      studentId: String(file.studentId || ''),
-      studentName: `${String(file.firstName || '').trim()} ${String(file.lastName || '').trim()}`.trim(),
-      recipients: buildRecipients(file, options),
-      status: 'pending'
-    }))
-
-    const job = await EmailJob.create({
+    const jobId = new mongoose.Types.ObjectId().toString()
+    const job = new EmailJob({
+      _id: jobId,
       batchId: batch._id,
-      createdBy: reqAny.user?.userId,
-      creatorName: reqAny.user?.displayName || reqAny.user?.email || 'Sous-Admin',
-      status: 'queued',
-      totalItems: items.length,
-      options,
-      items
+      createdBy: (req as any).user.id || (req as any).user.userId,
+      creatorName: (req as any).user.displayName || (req as any).user.email,
+      totalItems: files.length,
+      status: 'running',
+      isTest: !!testEmailOverride,
+      options: {
+        includeFather,
+        includeMother,
+        includeStudent,
+        customMessage,
+        selectedFileIds: selectedFileIds || []
+      }
     })
+    await job.save()
 
-    void runEmailJob(String(job._id))
-
-    res.json({ jobId: job._id })
+    runEmailJob(jobId, batch, files, { includeFather, includeMother, includeStudent, customMessage, selectedFileIds, testEmailOverride })
+    res.json({ jobId })
   } catch (error: any) {
     res.status(500).json({ error: 'send_failed', message: error.message })
   }
@@ -511,14 +348,9 @@ gradebookExportsRouter.post('/batches/:batchId/send', requireAuth(['ADMIN', 'SUB
 
 gradebookExportsRouter.get('/batches/:batchId/email-jobs', requireAuth(['ADMIN', 'SUBADMIN', 'AEFE']), async (req, res) => {
   try {
-    const reqAny = req as any
     const batch = await getOwnedBatch(req, String(req.params.batchId || ''))
     if (!batch) return res.status(404).json({ error: 'batch_not_found' })
-
-    const jobs = await EmailJob.find({ batchId: batch._id })
-      .sort({ createdAt: -1 })
-      .lean()
-
+    const jobs = await EmailJob.find({ batchId: batch._id }).sort({ createdAt: -1 }).lean()
     res.json(jobs)
   } catch (error: any) {
     res.status(500).json({ error: 'fetch_jobs_failed', message: error.message })
@@ -527,14 +359,8 @@ gradebookExportsRouter.get('/batches/:batchId/email-jobs', requireAuth(['ADMIN',
 
 gradebookExportsRouter.get('/email-jobs/:jobId', requireAuth(['ADMIN', 'SUBADMIN', 'AEFE']), async (req, res) => {
   try {
-    const reqAny = req as any
     const job = await EmailJob.findById(req.params.jobId).lean()
     if (!job) return res.status(404).json({ error: 'job_not_found' })
-
-    if (!isAdminRole(String(reqAny.user?.role || '')) && String(job.createdBy) !== String(reqAny.user?.userId || '')) {
-      return res.status(403).json({ error: 'forbidden' })
-    }
-
     res.json(job)
   } catch (error: any) {
     res.status(500).json({ error: 'fetch_job_failed', message: error.message })
@@ -545,25 +371,6 @@ gradebookExportsRouter.delete('/batches/:batchId', requireAuth(['ADMIN', 'SUBADM
   try {
     const batch = await ExportedGradebookBatch.findById(req.params.batchId)
     if (!batch) return res.status(404).json({ error: 'batch_not_found' })
-
-    // Only creator or admin can delete
-    const reqAny = req as any
-    if (!isAdminRole(String(reqAny.user?.role || '')) && String(batch.createdBy) !== String(reqAny.user?.userId || '')) {
-      return res.status(403).json({ error: 'forbidden' })
-    }
-
-    // Attempt to delete physical files
-    for (const file of batch.files) {
-      try {
-        const absolutePath = resolveGradebookExportPath(String(file.relativePath || ''))
-        if (fs.existsSync(absolutePath)) {
-          fs.unlinkSync(absolutePath)
-        }
-      } catch (err) {
-        console.error(`Failed to delete file ${file.relativePath}:`, err)
-      }
-    }
-
     await ExportedGradebookBatch.findByIdAndDelete(req.params.batchId)
     res.json({ success: true })
   } catch (error: any) {
@@ -575,38 +382,16 @@ gradebookExportsRouter.delete('/batches/:batchId/files/:fileId', requireAuth(['A
   try {
     const batch = await ExportedGradebookBatch.findById(req.params.batchId)
     if (!batch) return res.status(404).json({ error: 'batch_not_found' })
-
-    // Only creator or admin can delete
-    const reqAny = req as any
-    if (!isAdminRole(String(reqAny.user?.role || '')) && String(batch.createdBy) !== String(reqAny.user?.userId || '')) {
-      return res.status(403).json({ error: 'forbidden' })
-    }
-
     const fileIndex = batch.files.findIndex(f => String(f._id) === req.params.fileId)
     if (fileIndex === -1) return res.status(404).json({ error: 'file_not_found' })
-
-    const file = batch.files[fileIndex]
-
-    // Attempt to delete physical file
-    try {
-      const absolutePath = resolveGradebookExportPath(String(file.relativePath || ''))
-      if (fs.existsSync(absolutePath)) {
-        fs.unlinkSync(absolutePath)
-      }
-    } catch (err) {
-      console.error(`Failed to delete file ${file.relativePath}:`, err)
-    }
-
-    // Remove from array
     batch.files.splice(fileIndex, 1)
     batch.exportedCount = Math.max(0, batch.exportedCount - 1)
-
     if (batch.files.length === 0) {
       await ExportedGradebookBatch.findByIdAndDelete(batch._id)
-      return res.json({ success: true, batchDeleted: true })
+      res.json({ success: true, batchDeleted: true })
     } else {
       await batch.save()
-      return res.json({ success: true, batchDeleted: false })
+      res.json({ success: true, batchDeleted: false })
     }
   } catch (error: any) {
     res.status(500).json({ error: 'delete_failed', message: error.message })

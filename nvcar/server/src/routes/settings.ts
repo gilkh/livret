@@ -41,7 +41,11 @@ export async function createSmtpTransporter() {
     auth: {
       user: smtp.user,
       pass: smtp.pass
-    }
+    },
+    tls: {
+      rejectUnauthorized: false
+    },
+    requireTLS: true
   })
 }
 
@@ -132,7 +136,11 @@ settingsRouter.post('/smtp/test', requireAuth(['ADMIN']), async (req, res) => {
       host,
       port: parseInt(port) || 587,
       secure: secure === true,
-      auth: { user, pass }
+      auth: { user, pass },
+      tls: {
+        rejectUnauthorized: false
+      },
+      requireTLS: true
     })
 
     // Verify connection
@@ -255,4 +263,3 @@ settingsRouter.delete('/mobile-access-logs', requireAuth(['ADMIN']), async (req,
     res.status(500).json({ error: 'failed_to_clear' })
   }
 })
-

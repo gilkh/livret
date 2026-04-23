@@ -30,6 +30,7 @@ export interface IEmailJob extends Document {
     selectedFileIds: string[]
   }
   items: IEmailJobItem[]
+  isTest?: boolean
   error?: string
 }
 
@@ -61,6 +62,7 @@ const emailJobSchema = new Schema<IEmailJob>({
     status: { type: String, enum: ['pending', 'sent', 'skipped', 'failed'], default: 'pending' },
     error: { type: String }
   }],
+  isTest: { type: Boolean, default: false },
   error: { type: String }
 }, {
   timestamps: true
