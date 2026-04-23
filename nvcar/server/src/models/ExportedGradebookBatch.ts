@@ -22,6 +22,8 @@ const exportedGradebookBatchSchema = new Schema({
   createdBy: { type: String, required: true, index: true },
   creatorRole: { type: String, enum: ['ADMIN', 'SUBADMIN', 'AEFE'], required: true },
   groupLabel: { type: String, default: '' },
+  yearName: { type: String, default: '' },
+  semester: { type: String, default: '' },
   archiveFileName: { type: String, required: true },
   totalAssignmentsRequested: { type: Number, required: true, default: 0 },
   exportedCount: { type: Number, required: true, default: 0 },

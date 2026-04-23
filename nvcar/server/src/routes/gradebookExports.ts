@@ -7,6 +7,7 @@ import { ExportedGradebookBatch } from '../models/ExportedGradebookBatch'
 import { createSmtpTransporter, getSmtpSettings } from './settings'
 import { Setting } from '../models/Setting'
 import { resolveGradebookExportPath } from '../utils/gradebookExportStorage'
+import { EmailJob } from '../models/EmailJob'
 
 export const gradebookExportsRouter = Router()
 
@@ -183,13 +184,14 @@ const buildEmailContent = async (batch: any, file: any, options: EmailPreviewOpt
 }
 
 const runEmailJob = async (jobId: string) => {
-  const job = emailJobStore.get(jobId)
-  if (!job) return
-
-  job.status = 'running'
-  job.updatedAt = Date.now()
-
   try {
+    const job = await EmailJob.findById(jobId)
+    if (!job) return
+
+    job.status = 'running'
+    job.updatedAt = new Date()
+    await job.save()
+
     const batch = await ExportedGradebookBatch.findById(job.batchId).lean()
     if (!batch) throw new Error('batch_not_found')
 
@@ -199,30 +201,33 @@ const runEmailJob = async (jobId: string) => {
     const smtpSettings = await getSmtpSettings()
 
     for (const item of job.items) {
-      const liveJob = emailJobStore.get(jobId)
-      if (!liveJob) return
+      // Re-fetch in case of external status updates (unlikely but safe)
+      const currentJob = await EmailJob.findById(jobId)
+      if (!currentJob) return
 
       const file = batch.files.find((entry: any) => String(entry._id) === item.fileId)
       if (!file) {
         item.status = 'failed'
         item.error = 'Fichier exporté introuvable'
-        liveJob.processedItems += 1
-        liveJob.failedItems += 1
-        liveJob.updatedAt = Date.now()
+        currentJob.processedItems += 1
+        currentJob.failedItems += 1
+        currentJob.updatedAt = new Date()
+        await currentJob.save()
         continue
       }
 
       if (item.recipients.length === 0) {
         item.status = 'skipped'
         item.error = 'Aucune adresse email valide'
-        liveJob.processedItems += 1
-        liveJob.skippedItems += 1
-        liveJob.updatedAt = Date.now()
+        currentJob.processedItems += 1
+        currentJob.skippedItems += 1
+        currentJob.updatedAt = new Date()
+        await currentJob.save()
         continue
       }
 
       try {
-        const emailContent = await buildEmailContent(batch, file, liveJob.options)
+        const emailContent = await buildEmailContent(batch, file, { ...currentJob.options, selectedFileIds: currentJob.options.selectedFileIds.map(id => String(id)) } as any)
         const absolutePath = resolveGradebookExportPath(String(file.relativePath || ''))
         await transporter.sendMail({
           from: emailContent.fromEmail ? `"${emailContent.fromName}" <${emailContent.fromEmail}>` : smtpSettings.user,
@@ -239,29 +244,46 @@ const runEmailJob = async (jobId: string) => {
         })
 
         item.status = 'sent'
-        delete item.error
-        liveJob.processedItems += 1
-        liveJob.sentItems += 1
-        liveJob.updatedAt = Date.now()
+        item.error = undefined
+        currentJob.processedItems += 1
+        currentJob.sentItems += 1
+        currentJob.updatedAt = new Date()
+        // Save status for this item
+        const dbItem = currentJob.items.find(i => i.fileId === item.fileId)
+        if (dbItem) {
+          dbItem.status = 'sent'
+          dbItem.error = undefined
+        }
+        await currentJob.save()
       } catch (error: any) {
         item.status = 'failed'
         item.error = String(error?.message || 'email_send_failed')
-        liveJob.processedItems += 1
-        liveJob.failedItems += 1
-        liveJob.updatedAt = Date.now()
+        currentJob.processedItems += 1
+        currentJob.failedItems += 1
+        currentJob.updatedAt = new Date()
+        const dbItem = currentJob.items.find(i => i.fileId === item.fileId)
+        if (dbItem) {
+          dbItem.status = 'failed'
+          dbItem.error = String(error?.message || 'email_send_failed')
+        }
+        await currentJob.save()
       }
     }
 
-    job.status = job.failedItems > 0 ? 'completed' : 'completed'
-    job.completedAt = Date.now()
-    job.updatedAt = Date.now()
-    scheduleEmailJobCleanup(jobId)
+    job.status = 'completed'
+    job.completedAt = new Date()
+    job.updatedAt = new Date()
+    await job.save()
   } catch (error: any) {
-    job.status = 'failed'
-    job.error = String(error?.message || 'email_job_failed')
-    job.completedAt = Date.now()
-    job.updatedAt = Date.now()
-    scheduleEmailJobCleanup(jobId)
+    console.error(`[EmailJob ${jobId}] Failed:`, error)
+    const job = await EmailJob.findById(jobId)
+    if (job) {
+      job.status = 'failed'
+      job.error = String(error?.message || 'email_job_failed')
+      job.completedAt = new Date()
+      job.updatedAt = new Date()
+      await job.save()
+    }
   }
 }
 
@@ -461,8 +483,7 @@ gradebookExportsRouter.post('/batches/:batchId/send', requireAuth(['ADMIN', 'SUB
       return res.status(400).json({ error: 'no_files_selected' })
     }
 
-    const jobId = new Types.ObjectId().toString()
-    const items: EmailJobItem[] = selectedFiles.map((file: any) => ({
+    const items = selectedFiles.map((file: any) => ({
       fileId: String(file._id),
       studentId: String(file.studentId || ''),
       studentName: `${String(file.firstName || '').trim()} ${String(file.lastName || '').trim()}`.trim(),
@@ -470,39 +491,124 @@ gradebookExportsRouter.post('/batches/:batchId/send', requireAuth(['ADMIN', 'SUB
       status: 'pending'
     }))
 
-    const jobState: EmailJobState = {
-      id: jobId,
-      batchId: String(batch._id),
-      createdBy: String(reqAny.user?.userId || ''),
+    const job = await EmailJob.create({
+      batchId: batch._id,
+      createdBy: reqAny.user?.userId,
+      creatorName: reqAny.user?.displayName || reqAny.user?.email || 'Sous-Admin',
       status: 'queued',
       totalItems: items.length,
-      processedItems: 0,
-      sentItems: 0,
-      skippedItems: 0,
-      failedItems: 0,
-      startedAt: Date.now(),
-      updatedAt: Date.now(),
       options,
       items
-    }
+    })
 
-    emailJobStore.set(jobId, jobState)
-    void runEmailJob(jobId)
+    void runEmailJob(String(job._id))
 
-    res.json({ jobId })
+    res.json({ jobId: job._id })
   } catch (error: any) {
     res.status(500).json({ error: 'send_failed', message: error.message })
   }
 })
 
-gradebookExportsRouter.get('/email-jobs/:jobId', requireAuth(['ADMIN', 'SUBADMIN', 'AEFE']), async (req, res) => {
-  const reqAny = req as any
-  const job = emailJobStore.get(String(req.params.jobId || ''))
-  if (!job) return res.status(404).json({ error: 'job_not_found' })
+gradebookExportsRouter.get('/batches/:batchId/email-jobs', requireAuth(['ADMIN', 'SUBADMIN', 'AEFE']), async (req, res) => {
+  try {
+    const reqAny = req as any
+    const batch = await getOwnedBatch(req, String(req.params.batchId || ''))
+    if (!batch) return res.status(404).json({ error: 'batch_not_found' })
 
-  if (!isAdminRole(String(reqAny.user?.role || '')) && String(job.createdBy) !== String(reqAny.user?.userId || '')) {
-    return res.status(403).json({ error: 'forbidden' })
+    const jobs = await EmailJob.find({ batchId: batch._id })
+      .sort({ createdAt: -1 })
+      .lean()
+
+    res.json(jobs)
+  } catch (error: any) {
+    res.status(500).json({ error: 'fetch_jobs_failed', message: error.message })
   }
+})
 
-  res.json(job)
+gradebookExportsRouter.get('/email-jobs/:jobId', requireAuth(['ADMIN', 'SUBADMIN', 'AEFE']), async (req, res) => {
+  try {
+    const reqAny = req as any
+    const job = await EmailJob.findById(req.params.jobId).lean()
+    if (!job) return res.status(404).json({ error: 'job_not_found' })
+
+    if (!isAdminRole(String(reqAny.user?.role || '')) && String(job.createdBy) !== String(reqAny.user?.userId || '')) {
+      return res.status(403).json({ error: 'forbidden' })
+    }
+
+    res.json(job)
+  } catch (error: any) {
+    res.status(500).json({ error: 'fetch_job_failed', message: error.message })
+  }
+})
+
+gradebookExportsRouter.delete('/batches/:batchId', requireAuth(['ADMIN', 'SUBADMIN', 'AEFE']), async (req, res) => {
+  try {
+    const batch = await ExportedGradebookBatch.findById(req.params.batchId)
+    if (!batch) return res.status(404).json({ error: 'batch_not_found' })
+
+    // Only creator or admin can delete
+    const reqAny = req as any
+    if (!isAdminRole(String(reqAny.user?.role || '')) && String(batch.createdBy) !== String(reqAny.user?.userId || '')) {
+      return res.status(403).json({ error: 'forbidden' })
+    }
+
+    // Attempt to delete physical files
+    for (const file of batch.files) {
+      try {
+        const absolutePath = resolveGradebookExportPath(String(file.relativePath || ''))
+        if (fs.existsSync(absolutePath)) {
+          fs.unlinkSync(absolutePath)
+        }
+      } catch (err) {
+        console.error(`Failed to delete file ${file.relativePath}:`, err)
+      }
+    }
+
+    await ExportedGradebookBatch.findByIdAndDelete(req.params.batchId)
+    res.json({ success: true })
+  } catch (error: any) {
+    res.status(500).json({ error: 'delete_failed', message: error.message })
+  }
+})
+
+gradebookExportsRouter.delete('/batches/:batchId/files/:fileId', requireAuth(['ADMIN', 'SUBADMIN', 'AEFE']), async (req, res) => {
+  try {
+    const batch = await ExportedGradebookBatch.findById(req.params.batchId)
+    if (!batch) return res.status(404).json({ error: 'batch_not_found' })
+
+    // Only creator or admin can delete
+    const reqAny = req as any
+    if (!isAdminRole(String(reqAny.user?.role || '')) && String(batch.createdBy) !== String(reqAny.user?.userId || '')) {
+      return res.status(403).json({ error: 'forbidden' })
+    }
+
+    const fileIndex = batch.files.findIndex(f => String(f._id) === req.params.fileId)
+    if (fileIndex === -1) return res.status(404).json({ error: 'file_not_found' })
+
+    const file = batch.files[fileIndex]
+
+    // Attempt to delete physical file
+    try {
+      const absolutePath = resolveGradebookExportPath(String(file.relativePath || ''))
+      if (fs.existsSync(absolutePath)) {
+        fs.unlinkSync(absolutePath)
+      }
+    } catch (err) {
+      console.error(`Failed to delete file ${file.relativePath}:`, err)
+    }
+
+    // Remove from array
+    batch.files.splice(fileIndex, 1)
+    batch.exportedCount = Math.max(0, batch.exportedCount - 1)
+
+    if (batch.files.length === 0) {
+      await ExportedGradebookBatch.findByIdAndDelete(batch._id)
+      return res.json({ success: true, batchDeleted: true })
+    } else {
+      await batch.save()
+      return res.json({ success: true, batchDeleted: false })
+    }
+  } catch (error: any) {
+    res.status(500).json({ error: 'delete_failed', message: error.message })
+  }
 })

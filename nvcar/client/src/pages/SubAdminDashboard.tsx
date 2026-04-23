@@ -178,7 +178,7 @@ export default function SubAdminDashboard() {
 
         // Use the new progress page in a new tab for batch exports
         const base = (api.defaults.baseURL || '').replace(/\/$/, '')
-        openBatchPdfExport(base, assignmentIds, group, `Carnets - ${group}`, {}, highQuality, batchExportOptions)
+        openBatchPdfExport(base, assignmentIds, group, `Carnets - ${group}`, { yearName: activeYear?.name, semester: activeSemesterLabel }, highQuality, batchExportOptions)
     }
 
     const getClassAssignmentIds = (level: string, className: string): string[] => {
@@ -191,7 +191,7 @@ export default function SubAdminDashboard() {
         if (assignmentIds.length === 0) return
 
         const base = (api.defaults.baseURL || '').replace(/\/$/, '')
-        openBatchPdfExport(base, assignmentIds, `${level}-${className}`, `Carnets - ${className}`, {}, highQuality, batchExportOptions)
+        openBatchPdfExport(base, assignmentIds, `${level}-${className}`, `Carnets - ${className}`, { yearName: activeYear?.name, semester: activeSemesterLabel }, highQuality, batchExportOptions)
     }
 
     const getLevelAssignmentIds = (level: string): string[] => {
@@ -389,7 +389,7 @@ export default function SubAdminDashboard() {
             assignmentIds,
             `niveau-${level}`,
             `Carnets - Niveau ${level}`,
-            { assignmentFolderMap },
+            { assignmentFolderMap, yearName: activeYear?.name, semester: activeSemesterLabel },
             highQuality,
             batchExportOptions
         )

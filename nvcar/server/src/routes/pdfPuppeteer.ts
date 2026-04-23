@@ -733,6 +733,9 @@ pdfPuppeteerRouter.post('/assignments/zip', requireAuth(['ADMIN', 'SUBADMIN', 'A
         return acc
       }, {} as Record<string, string>)
 
+    const semester = String(req.body?.semester || '').trim()
+    const yearName = String(req.body?.yearName || '').trim()
+
     if (assignmentIds.length === 0) {
       return res.status(400).json({ error: 'missing_assignment_ids' })
     }
@@ -1079,6 +1082,8 @@ pdfPuppeteerRouter.post('/assignments/zip', requireAuth(['ADMIN', 'SUBADMIN', 'A
         createdBy: currentUser.userId,
         creatorRole: currentUser.role,
         groupLabel,
+        yearName: yearName || activeYearName,
+        semester,
         archiveFileName,
         totalAssignmentsRequested: assignmentIds.length,
         exportedCount: savedFilesForBatch.length,
@@ -1094,6 +1099,8 @@ pdfPuppeteerRouter.post('/assignments/zip', requireAuth(['ADMIN', 'SUBADMIN', 'A
           createdBy: currentUser.userId,
           creatorRole: currentUser.role,
           groupLabel,
+          yearName: yearName || activeYearName,
+          semester,
           archiveFileName,
           totalAssignmentsRequested: assignmentIds.length,
           exportedCount: 0,

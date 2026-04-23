@@ -440,3 +440,26 @@
   margin-bottom: 16px;
   opacity: 0.5;
 }
+
+.btn-delete-small {
+  background: #fee2e2;
+  color: #ef4444;
+  border: none;
+  padding: 6px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.btn-delete-small:hover {
+  background: #fecaca;
+  color: #dc2626;
+  transform: scale(1.05);
+}
+
+.btn-delete-small:active {
+  transform: scale(0.95);
+}
