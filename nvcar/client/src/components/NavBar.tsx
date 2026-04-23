@@ -74,6 +74,7 @@ export default function NavBar() {
             {canShow('SUBADMIN', 'teacher-progress') && <Link to="/subadmin/teacher-progress" className={`nav-link ${isActive('/subadmin/teacher-progress') ? 'active' : ''}`}>Suivi Enseignants</Link>}
             {canShow('SUBADMIN', 'my-teachers') && <Link to="/subadmin/my-teachers" className={`nav-link ${isActive('/subadmin/my-teachers') ? 'active' : ''}`}>Mes Enseignants</Link>}
             {canShow('SUBADMIN', 'gradebooks') && <Link to="/subadmin/gradebooks" className={`nav-link ${isActive('/subadmin/gradebooks') ? 'active' : ''}`}>Carnet</Link>}
+            <Link to="/subadmin/exports" className={`nav-link ${isActive('/subadmin/exports') ? 'active' : ''}`}>Exports PDF</Link>
             {canShow('SUBADMIN', 'eleves') && <Link to="/subadmin/eleves" className={`nav-link ${isActive('/subadmin/eleves') ? 'active' : ''}`}>Élèves</Link>}
             {canShow('SUBADMIN', 'signature') && <Link to="/subadmin/signature" className={`nav-link ${isActive('/subadmin/signature') ? 'active' : ''}`}>Ma signature</Link>}
             <Link to="/subadmin/suggestion" className={`nav-link ${isActive('/subadmin/suggestion') ? 'active' : ''}`}>Suggestion</Link>
@@ -85,6 +86,7 @@ export default function NavBar() {
             {canShow('AEFE', 'progress') && <Link to="/aefe/progress" className={`nav-link ${isActive('/aefe/progress') ? 'active' : ''}`}>Progression</Link>}
             {canShow('AEFE', 'teacher-progress') && <Link to="/aefe/teacher-progress" className={`nav-link ${isActive('/aefe/teacher-progress') ? 'active' : ''}`}>Suivi Enseignants</Link>}
             {canShow('AEFE', 'my-teachers') && <Link to="/aefe/my-teachers" className={`nav-link ${isActive('/aefe/my-teachers') ? 'active' : ''}`}>Mes Enseignants</Link>}
+            <Link to="/aefe/exports" className={`nav-link ${isActive('/aefe/exports') ? 'active' : ''}`}>Exports PDF</Link>
             <Link to="/aefe/suggestion" className={`nav-link ${isActive('/aefe/suggestion') ? 'active' : ''}`}>Suggestion</Link>
           </>
         )}

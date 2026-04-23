@@ -54,6 +54,7 @@ const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
 const dateFormat_1 = require("../utils/dateFormat");
 const signatureService_1 = require("../services/signatureService");
+const dropdownAppreciations_1 = require("../utils/dropdownAppreciations");
 // eslint-disable-next-line
 const archiver = require('archiver');
 const auth_1 = require("../auth");
@@ -869,7 +870,12 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
                 const blockId = typeof b?.props?.blockId === 'string' && b.props.blockId.trim() ? b.props.blockId.trim() : null;
                 const stableKey = blockId ? `dropdown_${blockId}` : null;
                 const legacyKey = dropdownNum ? `dropdown_${dropdownNum}` : (b.props?.variableName ? b.props.variableName : null);
-                const selectedValue = (stableKey ? assignmentData[stableKey] : undefined) ?? (legacyKey ? assignmentData[legacyKey] : undefined) ?? '';
+                const rawSelectedValue = (stableKey ? assignmentData[stableKey] : undefined) ?? (legacyKey ? assignmentData[legacyKey] : undefined) ?? '';
+                const selectedValue = (0, dropdownAppreciations_1.resolveDropdownDisplayValue)({
+                    dropdownBlock: b,
+                    rawValue: rawSelectedValue,
+                    studentSex: student?.sex,
+                });
                 // Skip rendering if no value is selected
                 if (!selectedValue)
                     return;
@@ -904,7 +910,11 @@ exports.pdfRouter.get('/student/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMI
                 const stableKey = blockId ? `dropdown_${blockId}` : null;
                 const legacyKey = dropdownNum ? `dropdown_${dropdownNum}` : null;
                 const raw = (stableKey ? assignmentData[stableKey] : undefined) ?? (legacyKey ? assignmentData[legacyKey] : undefined);
-                const selectedValue = typeof raw === 'string' ? raw.trim() : raw;
+                const selectedValue = (0, dropdownAppreciations_1.resolveDropdownDisplayValue)({
+                    dropdownBlock: (0, dropdownAppreciations_1.findDropdownBlockByReference)(tpl?.pages || [], { dropdownNumber: dropdownNum }),
+                    rawValue: typeof raw === 'string' ? raw.trim() : raw,
+                    studentSex: student?.sex,
+                });
                 if (!selectedValue)
                     return;
                 if (b.props?.color)

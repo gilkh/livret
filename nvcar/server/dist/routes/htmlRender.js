@@ -8,6 +8,7 @@ const TemplateAssignment_1 = require("../models/TemplateAssignment");
 const auth_1 = require("../auth");
 const dateFormat_1 = require("../utils/dateFormat");
 const signatureService_1 = require("../services/signatureService");
+const dropdownAppreciations_1 = require("../utils/dropdownAppreciations");
 exports.htmlRenderRouter = (0, express_1.Router)();
 // Helper function to compute next school year name
 function computeNextSchoolYearName(year) {
@@ -170,7 +171,7 @@ exports.htmlRenderRouter.get('/carnet/:assignmentId', (0, auth_1.requireAuth)(['
   <div class="page-container">
     ${template.pages.map((page, pageIdx) => `
       <div class="page" style="background: ${page.bgColor || '#fff'};">
-        ${(page.blocks || []).sort((a, b) => (a.props?.z ?? 0) - (b.props?.z ?? 0)).map((block) => renderBlock(block, student, assignmentData)).join('')}
+        ${(page.blocks || []).sort((a, b) => (a.props?.z ?? 0) - (b.props?.z ?? 0)).map((block) => renderBlock(block, student, assignmentData, template.pages || [])).join('')}
       </div>
     `).join('')}
   </div>
@@ -185,7 +186,7 @@ exports.htmlRenderRouter.get('/carnet/:assignmentId', (0, auth_1.requireAuth)(['
         res.status(500).send('Error rendering HTML');
     }
 });
-function renderBlock(block, student, assignmentData) {
+function renderBlock(block, student, assignmentData, templatePages = []) {
     const props = block.props || {};
     const style = `left: ${props.x || 0}px; top: ${props.y || 0}px; z-index: ${props.z ?? 0};`;
     const getSemesterNumber = () => {
@@ -272,7 +273,12 @@ function renderBlock(block, student, assignmentData) {
             const blockId = typeof props?.blockId === 'string' && props.blockId.trim() ? props.blockId.trim() : null;
             const stableKey = blockId ? `dropdown_${blockId}` : null;
             const legacyKey = dropdownNum ? `dropdown_${dropdownNum}` : (props?.variableName ? props.variableName : null);
-            const selectedValue = (stableKey ? assignmentData[stableKey] : undefined) ?? (legacyKey ? assignmentData[legacyKey] : undefined) ?? '';
+            const rawSelectedValue = (stableKey ? assignmentData[stableKey] : undefined) ?? (legacyKey ? assignmentData[legacyKey] : undefined) ?? '';
+            const selectedValue = (0, dropdownAppreciations_1.resolveDropdownDisplayValue)({
+                dropdownBlock: { type: 'dropdown', props },
+                rawValue: rawSelectedValue,
+                studentSex: student?.sex,
+            });
             return `<div class="block" style="${style}">
         <div class="dropdown-box" style="width: ${props.width || 200}px; min-height: ${props.height || 40}px; font-size: ${props.fontSize || 12}px; color: ${props.color || '#333'};">
           ${props.label ? `<div class="dropdown-label">${props.label}</div>` : ''}
@@ -285,7 +291,12 @@ function renderBlock(block, student, assignmentData) {
             const refBlockId = typeof props?.blockId === 'string' && props.blockId.trim() ? props.blockId.trim() : null;
             const refStableKey = refBlockId ? `dropdown_${refBlockId}` : null;
             const refLegacyKey = refDropdownNum ? `dropdown_${refDropdownNum}` : null;
-            const refValue = (refStableKey ? assignmentData[refStableKey] : undefined) ?? (refLegacyKey ? assignmentData[refLegacyKey] : undefined) ?? `[Dropdown #${refDropdownNum}]`;
+            const refRawValue = (refStableKey ? assignmentData[refStableKey] : undefined) ?? (refLegacyKey ? assignmentData[refLegacyKey] : undefined) ?? `[Dropdown #${refDropdownNum}]`;
+            const refValue = (0, dropdownAppreciations_1.resolveDropdownDisplayValue)({
+                dropdownBlock: (0, dropdownAppreciations_1.findDropdownBlockByReference)(templatePages, { dropdownNumber: refDropdownNum }),
+                rawValue: refRawValue,
+                studentSex: student?.sex,
+            }) || `[Dropdown #${refDropdownNum}]`;
             return `<div class="block" style="${style} color: ${props.color || '#333'}; font-size: ${props.fontSize || 12}px; width: ${props.width || 200}px; white-space: pre-wrap; word-wrap: break-word;">${refValue}</div>`;
         case 'promotion_info':
             const targetLevel = props.targetLevel;

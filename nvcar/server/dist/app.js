@@ -77,6 +77,7 @@ const simulations_1 = require("./routes/simulations");
 const templatePropagation_1 = require("./routes/templatePropagation");
 const errorLogs_1 = require("./routes/errorLogs");
 const integrity_1 = require("./routes/integrity");
+const gradebookExports_1 = require("./routes/gradebookExports");
 const compression_1 = __importDefault(require("compression"));
 const createApp = () => {
     const app = (0, express_1.default)();
@@ -128,6 +129,7 @@ const createApp = () => {
     app.use('/template-propagation', templatePropagation_1.templatePropagationRouter);
     app.use('/error-logs', errorLogs_1.errorLogsRouter);
     app.use('/integrity', integrity_1.integrityRouter);
+    app.use('/gradebook-exports', gradebookExports_1.gradebookExportsRouter);
     app.use('/uploads', express_1.default.static(path_1.default.join(__dirname, '../public/uploads')));
     app.get('/health', (_, res) => res.json({ ok: true }));
     (0, db_1.connectDb)()

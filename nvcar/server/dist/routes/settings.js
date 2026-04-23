@@ -16,7 +16,7 @@ exports.settingsRouter = (0, express_1.Router)();
 // Helper to get SMTP settings from database
 async function getSmtpSettings() {
     const settings = await Setting_1.Setting.find({
-        key: { $in: ['smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass', 'smtp_secure'] }
+        key: { $in: ['smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass', 'smtp_secure', 'smtp_from_name', 'smtp_from_email'] }
     }).lean();
     const map = {};
     settings.forEach(s => { map[s.key] = s.value; });
@@ -25,7 +25,9 @@ async function getSmtpSettings() {
         port: parseInt(map.smtp_port) || 587,
         user: map.smtp_user || '',
         pass: map.smtp_pass || '',
-        secure: map.smtp_secure === true
+        secure: map.smtp_secure === true,
+        fromName: map.smtp_from_name || '',
+        fromEmail: map.smtp_from_email || ''
     };
 }
 // Helper to create nodemailer transporter

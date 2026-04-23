@@ -17,6 +17,9 @@ const puppeteer_1 = __importDefault(require("puppeteer"));
 const archiver_1 = __importDefault(require("archiver"));
 const fs_1 = __importDefault(require("fs"));
 const pdfkit_1 = __importDefault(require("pdfkit"));
+const path_1 = __importDefault(require("path"));
+const ExportedGradebookBatch_1 = require("../models/ExportedGradebookBatch");
+const gradebookExportStorage_1 = require("../utils/gradebookExportStorage");
 exports.pdfPuppeteerRouter = (0, express_1.Router)();
 const sanitizeFilename = (name) => {
     const base = String(name || 'file')
@@ -636,6 +639,7 @@ exports.pdfPuppeteerRouter.post('/assignments/zip', (0, auth_1.requireAuth)(['AD
         const groupLabel = String(req.body?.groupLabel || '').trim();
         const hideSignatures = req.body?.hideSignatures === true;
         const highQuality = req.body?.highQuality === true;
+        const saveToServerOnly = req.body?.saveToServerOnly === true;
         const progressToken = String(req.body?.progressToken || '').trim();
         const rawAssignmentFolderMap = req.body?.assignmentFolderMap && typeof req.body.assignmentFolderMap === 'object'
             ? req.body.assignmentFolderMap
@@ -648,6 +652,16 @@ exports.pdfPuppeteerRouter.post('/assignments/zip', (0, auth_1.requireAuth)(['AD
             if (!sanitizedFolder)
                 return acc;
             acc[assignmentId] = sanitizedFolder;
+            return acc;
+        }, {});
+        const assignmentFolderDisplayMap = Object.entries(rawAssignmentFolderMap)
+            .reduce((acc, [assignmentId, folder]) => {
+            if (typeof assignmentId !== 'string')
+                return acc;
+            const displayFolder = String(folder || '').trim();
+            if (!displayFolder)
+                return acc;
+            acc[assignmentId] = displayFolder;
             return acc;
         }, {});
         if (assignmentIds.length === 0) {
@@ -668,45 +682,49 @@ exports.pdfPuppeteerRouter.post('/assignments/zip', (0, auth_1.requireAuth)(['AD
                 message: err.message
             });
         }
-        const archiveFileName = sanitizeFileName(groupLabel ? `carnets-${groupLabel}.zip` : 'carnets.zip');
-        res.set({
-            'Content-Type': 'application/zip',
-            'Content-Disposition': buildContentDisposition(String(archiveFileName || 'archive.zip'))
-        });
-        const zipCompressionLevelRaw = Number(process.env.PDF_ZIP_COMPRESSION_LEVEL || '0');
-        const zipCompressionLevel = Number.isFinite(zipCompressionLevelRaw)
-            ? Math.min(9, Math.max(0, Math.round(zipCompressionLevelRaw)))
-            : 1;
-        archive = (0, archiver_1.default)('zip', { zlib: { level: zipCompressionLevel } });
         let aborted = false;
-        res.on('close', () => {
-            if (res.writableEnded)
-                return;
-            aborted = true;
-            try {
-                archive?.abort();
-            }
-            catch { }
-        });
-        archive.on('error', (err) => {
-            // INPUTSTEAMBUFFERREQUIRED and QUEUECLOSED are per-entry errors that we
-            // already handle at the worker level – don't destroy the whole response.
-            const code = String(err?.code || '');
-            if (code === 'INPUTSTEAMBUFFERREQUIRED' || code === 'QUEUECLOSED') {
-                console.warn('[PDF ZIP] Archiver non-fatal error (handled):', code, err?.data?.name || '');
-                return;
-            }
-            console.error('[PDF ZIP] Archiver fatal error:', err);
-            aborted = true;
-            res.destroy(err);
-        });
-        archive.on('warning', (err) => {
-            console.warn('[PDF ZIP] Archiver warning:', err);
-        });
-        archive.pipe(res);
+        const archiveFileName = sanitizeFileName(groupLabel ? `carnets-${groupLabel}.zip` : 'carnets.zip');
+        if (!saveToServerOnly) {
+            res.set({
+                'Content-Type': 'application/zip',
+                'Content-Disposition': buildContentDisposition(String(archiveFileName || 'archive.zip'))
+            });
+            const zipCompressionLevelRaw = Number(process.env.PDF_ZIP_COMPRESSION_LEVEL || '0');
+            const zipCompressionLevel = Number.isFinite(zipCompressionLevelRaw)
+                ? Math.min(9, Math.max(0, Math.round(zipCompressionLevelRaw)))
+                : 1;
+            archive = (0, archiver_1.default)('zip', { zlib: { level: zipCompressionLevel } });
+            res.on('close', () => {
+                if (res.writableEnded)
+                    return;
+                aborted = true;
+                try {
+                    archive?.abort();
+                }
+                catch { }
+            });
+            archive.on('error', (err) => {
+                // INPUTSTEAMBUFFERREQUIRED and QUEUECLOSED are per-entry errors that we
+                // already handle at the worker level - don't destroy the whole response.
+                const code = String(err?.code || '');
+                if (code === 'INPUTSTEAMBUFFERREQUIRED' || code === 'QUEUECLOSED') {
+                    console.warn('[PDF ZIP] Archiver non-fatal error (handled):', code, err?.data?.name || '');
+                    return;
+                }
+                console.error('[PDF ZIP] Archiver fatal error:', err);
+                aborted = true;
+                res.destroy(err);
+            });
+            archive.on('warning', (err) => {
+                console.warn('[PDF ZIP] Archiver warning:', err);
+            });
+            archive.pipe(res);
+        }
         const zipStart = Date.now();
         console.log(`[PDF ZIP] Starting zip generation for ${assignmentIds.length} assignments, group="${groupLabel}", highQuality=${highQuality}`);
-        archive.append(`Archive started at ${new Date().toISOString()}\n`, { name: 'info.txt' });
+        if (archive) {
+            archive.append(`Archive started at ${new Date().toISOString()}\n`, { name: 'info.txt' });
+        }
         // Parallelize generation with a worker pool to reduce wall-clock
         // Default concurrency=3: screenshot-based PDF is heavy on CDP calls; too many workers cause protocol timeouts
         const concurrency = Math.min(Math.max(1, Number(process.env.PDF_CONCURRENCY || '3')), assignmentIds.length);
@@ -715,6 +733,7 @@ exports.pdfPuppeteerRouter.post('/assignments/zip', (0, auth_1.requireAuth)(['AD
             getActiveSchoolYear(),
             TemplateAssignment_1.TemplateAssignment.find({ _id: { $in: assignmentIds } }, '_id studentId templateId').lean()
         ]);
+        const currentUser = req.user;
         const activeYearId = activeYear?._id ? String(activeYear._id) : '';
         const activeYearName = String(activeYear?.name || '').trim();
         const assignmentById = new Map(assignmentDocs.map((assignment) => [String(assignment._id), assignment]));
@@ -723,24 +742,24 @@ exports.pdfPuppeteerRouter.post('/assignments/zip', (0, auth_1.requireAuth)(['AD
         const foundAssignments = orderedAssignments.filter((entry) => !!entry.assignment);
         const studentIds = Array.from(new Set(foundAssignments.map((entry) => String(entry.assignment.studentId || '')).filter(Boolean)));
         const students = studentIds.length
-            ? await Student_1.Student.find({ _id: { $in: studentIds } }, '_id firstName lastName level schoolYearId').lean()
+            ? await Student_1.Student.find({ _id: { $in: studentIds } }, '_id firstName lastName level schoolYearId fatherEmail motherEmail studentEmail').lean()
             : [];
         const studentById = new Map(students.map((student) => [String(student._id), student]));
         const needsFallbackYear = !activeYearName;
         const studentYearIds = needsFallbackYear
             ? Array.from(new Set(students.map((student) => String(student.schoolYearId || '')).filter(Boolean)))
             : [];
-        const studentIdsNeedingLevel = students
-            .filter((student) => !String(student.level || '').trim())
-            .map((student) => String(student._id));
+        const studentIdsForEnrollmentLookup = students
+            .map((student) => String(student._id))
+            .filter(Boolean);
         const [schoolYears, enrollments] = await Promise.all([
             studentYearIds.length
                 ? SchoolYear_1.SchoolYear.find({ _id: { $in: studentYearIds } }, '_id name').lean()
                 : Promise.resolve([]),
-            studentIdsNeedingLevel.length
+            studentIdsForEnrollmentLookup.length
                 ? Enrollment_1.Enrollment.find(activeYearId
-                    ? { studentId: { $in: studentIdsNeedingLevel }, schoolYearId: activeYearId, status: 'active' }
-                    : { studentId: { $in: studentIdsNeedingLevel }, status: 'active' }, '_id studentId classId').lean()
+                    ? { studentId: { $in: studentIdsForEnrollmentLookup }, schoolYearId: activeYearId, status: 'active' }
+                    : { studentId: { $in: studentIdsForEnrollmentLookup }, status: 'active' }, '_id studentId classId').lean()
                 : Promise.resolve([])
         ]);
         const schoolYearNameById = new Map(schoolYears.map((schoolYear) => [String(schoolYear._id), String(schoolYear.name || '').trim()]));
@@ -752,8 +771,11 @@ exports.pdfPuppeteerRouter.post('/assignments/zip', (0, auth_1.requireAuth)(['AD
             enrollmentByStudentId.set(studentId, enrollment);
         }
         const classIds = Array.from(new Set(enrollments.map((enrollment) => String(enrollment.classId || '')).filter(Boolean)));
-        const classes = classIds.length ? await Class_1.ClassModel.find({ _id: { $in: classIds } }, '_id level').lean() : [];
+        const classes = classIds.length ? await Class_1.ClassModel.find({ _id: { $in: classIds } }, '_id level name').lean() : [];
         const classById = new Map(classes.map((classDoc) => [String(classDoc._id), classDoc]));
+        const exportBatchKey = (0, gradebookExportStorage_1.sanitizeGradebookExportSegment)(`${new Date().toISOString().replace(/[:.]/g, '-')}-${groupLabel || 'carnets'}`);
+        await (0, gradebookExportStorage_1.ensureGradebookExportRoot)();
+        const savedFilesForBatch = [];
         const studentResolvedLevelById = new Map();
         for (const student of students) {
             const studentId = String(student._id);
@@ -805,6 +827,9 @@ exports.pdfPuppeteerRouter.post('/assignments/zip', (0, auth_1.requireAuth)(['AD
                     const studentFirst = student?.firstName || '';
                     const yearName = activeYearName || schoolYearNameById.get(String(student?.schoolYearId || '')) || '';
                     const level = studentResolvedLevelById.get(String(student?._id || '')) || '';
+                    const enrollment = enrollmentByStudentId.get(String(student?._id || ''));
+                    const classDoc = enrollment?.classId ? classById.get(String(enrollment.classId)) : null;
+                    const className = assignmentFolderDisplayMap[assignmentId] || String(classDoc?.name || '').trim() || 'Sans classe';
                     const pdfName = buildStudentPdfFilename({
                         level,
                         firstName: studentFirst,
@@ -893,6 +918,38 @@ exports.pdfPuppeteerRouter.post('/assignments/zip', (0, auth_1.requireAuth)(['AD
                             console.error(`[PDF ZIP] (worker ${workerIdx}) Failed to append ${archiveName}:`, appendErr?.message || appendErr);
                         }
                     }
+                    try {
+                        const relativeDir = (0, gradebookExportStorage_1.buildGradebookExportRelativeDir)({
+                            yearName,
+                            level,
+                            className,
+                            batchKey: exportBatchKey
+                        });
+                        const relativePath = path_1.default.join(relativeDir, pdfName);
+                        const absolutePath = path_1.default.resolve(gradebookExportStorage_1.GRADEBOOK_EXPORT_ROOT, relativePath);
+                        await fs_1.default.promises.mkdir(path_1.default.dirname(absolutePath), { recursive: true });
+                        await fs_1.default.promises.writeFile(absolutePath, pdfBuffer);
+                        savedFilesForBatch.push({
+                            assignmentId,
+                            studentId: String(assignment?.studentId || student?._id || 'unknown-student'),
+                            firstName: studentFirst,
+                            lastName: studentLast,
+                            yearName,
+                            level,
+                            className,
+                            fileName: pdfName,
+                            relativePath,
+                            emails: {
+                                father: String(student?.fatherEmail || '').trim(),
+                                mother: String(student?.motherEmail || '').trim(),
+                                student: String(student?.studentEmail || '').trim(),
+                            },
+                            exportedAt: new Date()
+                        });
+                    }
+                    catch (saveError) {
+                        console.error(`[PDF ZIP] (worker ${workerIdx}) Failed to save ${pdfName} on server:`, saveError?.message || saveError);
+                    }
                     if (progressToken) {
                         updateZipProgress(progressToken, (current) => {
                             const next = {
@@ -935,13 +992,61 @@ exports.pdfPuppeteerRouter.post('/assignments/zip', (0, auth_1.requireAuth)(['AD
         await Promise.all(workers);
         // finalize archive after all workers finish
         console.log('[PDF ZIP] All workers completed, finalizing archive');
-        await archive.finalize();
+        let batchPersisted = false;
+        try {
+            await ExportedGradebookBatch_1.ExportedGradebookBatch.create({
+                createdBy: currentUser.userId,
+                creatorRole: currentUser.role,
+                groupLabel,
+                archiveFileName,
+                totalAssignmentsRequested: assignmentIds.length,
+                exportedCount: savedFilesForBatch.length,
+                failedCount: Math.max(0, assignmentIds.length - savedFilesForBatch.length),
+                files: savedFilesForBatch,
+                createdAt: new Date()
+            });
+            batchPersisted = true;
+        }
+        catch (saveBatchError) {
+            console.error('[PDF ZIP] Failed to persist exported batch metadata:', saveBatchError?.message || saveBatchError);
+            try {
+                await ExportedGradebookBatch_1.ExportedGradebookBatch.create({
+                    createdBy: currentUser.userId,
+                    creatorRole: currentUser.role,
+                    groupLabel,
+                    archiveFileName,
+                    totalAssignmentsRequested: assignmentIds.length,
+                    exportedCount: 0,
+                    failedCount: assignmentIds.length,
+                    files: [],
+                    createdAt: new Date()
+                });
+                batchPersisted = true;
+            }
+            catch (fallbackSaveError) {
+                console.error('[PDF ZIP] Fallback metadata persist failed:', fallbackSaveError?.message || fallbackSaveError);
+            }
+        }
+        if (archive) {
+            await archive.finalize();
+        }
         if (progressToken) {
             updateZipProgress(progressToken, {
                 status: 'completed',
                 etaSeconds: 0
             });
             scheduleZipProgressCleanup(progressToken);
+        }
+        if (saveToServerOnly && !res.headersSent) {
+            return res.json({
+                success: true,
+                mode: 'server-only',
+                batchPersisted,
+                archiveFileName,
+                totalAssignmentsRequested: assignmentIds.length,
+                exportedCount: savedFilesForBatch.length,
+                failedCount: Math.max(0, assignmentIds.length - savedFilesForBatch.length)
+            });
         }
     }
     catch (e) {

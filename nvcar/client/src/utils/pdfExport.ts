@@ -90,13 +90,19 @@ export function openBatchPdfExport(
     groupLabel: string,
     displayName: string,
     requestBody: Record<string, unknown> = {},
-    highQuality: boolean = false
+    highQuality: boolean = false,
+    options?: {
+        downloadAfterExport?: boolean
+        exportsPagePath?: string
+    }
 ): void {
     // Generate unique export ID
     const exportId = `batch-${Date.now()}-${Math.random().toString(36).substring(7)}`
 
     // Store batch data in sessionStorage
     const progressToken = `progress-${Date.now()}-${Math.random().toString(36).substring(2, 10)}`
+
+    const downloadAfterExport = options?.downloadAfterExport !== false
 
     const batchData = {
         type: 'batch',
@@ -106,15 +112,18 @@ export function openBatchPdfExport(
         assignmentIds,
         groupLabel,
         highQuality,
+        downloadAfterExport,
+        exportsPagePath: options?.exportsPagePath || '/subadmin/exports',
         requestBody: {
             ...requestBody,
             progressToken,
-            highQuality
+            highQuality,
+            saveToServerOnly: !downloadAfterExport
         },
         displayName,
         count: assignmentIds.length
     }
-    sessionStorage.setItem(`pdf-export-${exportId}`, JSON.stringify(batchData))
+    localStorage.setItem(`pdf-export-${exportId}`, JSON.stringify(batchData))
 
     // Build progress page URL
     const progressUrl = new URL('/export-progress', window.location.origin)

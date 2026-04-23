@@ -50,6 +50,7 @@ export default function SubAdminDashboard() {
     const isAefeUser = location.pathname.includes('/aefe')
     const apiPrefix = isAefeUser ? '/aefe' : '/subadmin'
     const routePrefix = isAefeUser ? '/aefe' : '/subadmin'
+    const batchExportOptions = { downloadAfterExport: false, exportsPagePath: `${routePrefix}/exports` }
     const { activeYear, isLoading: schoolYearLoading } = useSchoolYear()
     const [teachers, setTeachers] = useState<Teacher[]>([])
     const [pending, setPending] = useState<PendingTemplate[]>([])
@@ -177,7 +178,7 @@ export default function SubAdminDashboard() {
 
         // Use the new progress page in a new tab for batch exports
         const base = (api.defaults.baseURL || '').replace(/\/$/, '')
-        openBatchPdfExport(base, assignmentIds, group, `Carnets - ${group}`, {}, highQuality)
+        openBatchPdfExport(base, assignmentIds, group, `Carnets - ${group}`, {}, highQuality, batchExportOptions)
     }
 
     const getClassAssignmentIds = (level: string, className: string): string[] => {
@@ -190,7 +191,7 @@ export default function SubAdminDashboard() {
         if (assignmentIds.length === 0) return
 
         const base = (api.defaults.baseURL || '').replace(/\/$/, '')
-        openBatchPdfExport(base, assignmentIds, `${level}-${className}`, `Carnets - ${className}`, {}, highQuality)
+        openBatchPdfExport(base, assignmentIds, `${level}-${className}`, `Carnets - ${className}`, {}, highQuality, batchExportOptions)
     }
 
     const getLevelAssignmentIds = (level: string): string[] => {
@@ -389,7 +390,8 @@ export default function SubAdminDashboard() {
             `niveau-${level}`,
             `Carnets - Niveau ${level}`,
             { assignmentFolderMap },
-            highQuality
+            highQuality,
+            batchExportOptions
         )
     }
 
@@ -583,7 +585,25 @@ export default function SubAdminDashboard() {
                         )}
                     </div>
 
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                        <Link
+                            to={`${routePrefix}/exports`}
+                            style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 8,
+                                padding: '8px 12px',
+                                fontSize: 13,
+                                fontWeight: 700,
+                                borderRadius: 10,
+                                textDecoration: 'none',
+                                background: '#dbeafe',
+                                color: '#1d4ed8',
+                                border: '1px solid #93c5fd'
+                            }}
+                        >
+                            Bibliothèque PDF
+                        </Link>
                         <span style={{
                             display: 'inline-flex',
                             alignItems: 'center',

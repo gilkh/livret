@@ -256,7 +256,7 @@ exports.teacherTemplatesRouter.get('/classes/:classId/students', (0, auth_1.requ
         // Get students in class
         const enrollments = await Enrollment_1.Enrollment.find({ classId }).lean();
         const studentIds = enrollments.map(e => e.studentId);
-        const students = await Student_1.Student.find({ _id: { $in: studentIds } }).select('firstName lastName avatarUrl dateOfBirth').lean();
+        const students = await Student_1.Student.find({ _id: { $in: studentIds } }).select('firstName lastName avatarUrl dateOfBirth sex').lean();
         res.json(students);
     }
     catch (e) {

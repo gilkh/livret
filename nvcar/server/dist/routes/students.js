@@ -61,6 +61,58 @@ const normalizeHeaderKey = (v) => String(v ?? '')
     .trim()
     .toLowerCase()
     .replace(/\s+/g, '');
+const normalizeObjectKey = (v) => String(v ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, '');
+const parseSexInput = (value) => {
+    const raw = String(value ?? '').trim().toLowerCase();
+    if (!raw)
+        return { valid: true, value: undefined };
+    if (['f', 'female', 'fille', 'femme', 'girl', 'woman'].includes(raw))
+        return { valid: true, value: 'female' };
+    if (['m', 'male', 'garcon', 'homme', 'boy', 'man'].includes(raw))
+        return { valid: true, value: 'male' };
+    if (['none', 'null', 'unknown', 'na', 'n/a', '-'].includes(raw))
+        return { valid: true, value: null };
+    return { valid: false, value: undefined };
+};
+const parseDateInput = (value) => {
+    const raw = String(value ?? '').trim();
+    if (!raw)
+        return null;
+    const match = raw.match(/^(\d{2})[\/-](\d{2})[\/-](\d{4})$/);
+    if (match) {
+        const day = Number(match[1]);
+        const month = Number(match[2]);
+        const year = Number(match[3]);
+        return new Date(Date.UTC(year, month - 1, day));
+    }
+    const parsed = new Date(raw);
+    if (isNaN(parsed.getTime()))
+        return null;
+    return parsed;
+};
+const dobUtcDayRange = (dob) => {
+    const y = dob.getUTCFullYear();
+    const m = dob.getUTCMonth();
+    const d = dob.getUTCDate();
+    const start = new Date(Date.UTC(y, m, d));
+    const end = new Date(Date.UTC(y, m, d + 1));
+    return { start, end };
+};
+const getRowValue = (row, aliases) => {
+    const keyMap = new Map();
+    for (const k of Object.keys(row || {}))
+        keyMap.set(normalizeObjectKey(k), k);
+    for (const alias of aliases) {
+        const mapped = keyMap.get(normalizeObjectKey(alias));
+        if (mapped)
+            return row[mapped];
+    }
+    return undefined;
+};
+const hasValue = (v) => String(v ?? '').trim() !== '';
 const coerceBulkAssignRecords = (csvText) => {
     const rows = (0, sync_1.parse)(stripBom(csvText), {
         columns: false,
@@ -429,6 +481,171 @@ exports.studentsRouter.post('/:id/assign-section', (0, auth_1.requireAuth)(['ADM
     await (0, templateUtils_1.checkAndAssignTemplates)(id, level, schoolYearId, String(cls._id), req.user.userId);
     res.json({ ok: true });
 });
+exports.studentsRouter.post('/bulk-upsert', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN']), async (req, res) => {
+    const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+    const fallbackSchoolYearId = String(req.body?.schoolYearId || '').trim();
+    if (!rows.length)
+        return res.status(400).json({ error: 'missing_rows' });
+    const results = {
+        success: 0,
+        updated: 0,
+        classUpdates: 0,
+        errors: []
+    };
+    for (let idx = 0; idx < rows.length; idx++) {
+        const row = rows[idx] && typeof rows[idx] === 'object' ? rows[idx] : {};
+        const rowNumber = idx + 2;
+        try {
+            const studentIdRaw = String(getRowValue(row, ['studentid', 'id', '_id']) ?? '').trim();
+            const logicalKeyRaw = String(getRowValue(row, ['logicalkey']) ?? '').trim();
+            let student = null;
+            if (studentIdRaw) {
+                if (!/^[a-f\d]{24}$/i.test(studentIdRaw)) {
+                    throw new Error('invalid_student_id');
+                }
+                student = await Student_1.Student.findById(studentIdRaw);
+            }
+            else if (logicalKeyRaw) {
+                student = await Student_1.Student.findOne({ logicalKey: logicalKeyRaw });
+            }
+            else {
+                const firstNameRaw = String(getRowValue(row, ['firstname', 'prenom']) ?? '').trim();
+                const lastNameRaw = String(getRowValue(row, ['lastname', 'nom']) ?? '').trim();
+                const dobRaw = getRowValue(row, ['dateofbirth', 'dob', 'birthdate']);
+                const dob = parseDateInput(dobRaw);
+                if (firstNameRaw && lastNameRaw && dob) {
+                    const { start, end } = dobUtcDayRange(dob);
+                    const matches = await Student_1.Student.find({
+                        firstName: firstNameRaw,
+                        lastName: lastNameRaw,
+                        dateOfBirth: { $gte: start, $lt: end }
+                    }).limit(2);
+                    if (matches.length === 1)
+                        student = matches[0];
+                    if (matches.length > 1)
+                        throw new Error('ambiguous_student_match');
+                }
+            }
+            if (!student)
+                throw new Error('student_not_found');
+            const updateSet = {};
+            const updateUnset = {};
+            const firstNameVal = getRowValue(row, ['firstname', 'prenom']);
+            const lastNameVal = getRowValue(row, ['lastname', 'nom']);
+            const parentNameVal = getRowValue(row, ['parentname']);
+            const parentPhoneVal = getRowValue(row, ['parentphone']);
+            const fatherNameVal = getRowValue(row, ['fathername']);
+            const fatherEmailVal = getRowValue(row, ['fatheremail']);
+            const motherEmailVal = getRowValue(row, ['motheremail']);
+            const studentEmailVal = getRowValue(row, ['studentemail']);
+            const dobVal = getRowValue(row, ['dateofbirth', 'dob', 'birthdate']);
+            const sexVal = getRowValue(row, ['sex', 'gender', 'sexe']);
+            if (hasValue(firstNameVal))
+                updateSet.firstName = String(firstNameVal).trim();
+            if (hasValue(lastNameVal))
+                updateSet.lastName = String(lastNameVal).trim();
+            if (hasValue(parentNameVal))
+                updateSet.parentName = String(parentNameVal).trim();
+            if (hasValue(parentPhoneVal))
+                updateSet.parentPhone = String(parentPhoneVal).trim();
+            if (hasValue(fatherNameVal))
+                updateSet.fatherName = String(fatherNameVal).trim();
+            if (hasValue(fatherEmailVal))
+                updateSet.fatherEmail = String(fatherEmailVal).trim();
+            if (hasValue(motherEmailVal))
+                updateSet.motherEmail = String(motherEmailVal).trim();
+            if (hasValue(studentEmailVal))
+                updateSet.studentEmail = String(studentEmailVal).trim();
+            if (hasValue(dobVal)) {
+                const parsedDob = parseDateInput(dobVal);
+                if (!parsedDob)
+                    throw new Error('invalid_dateOfBirth');
+                updateSet.dateOfBirth = parsedDob;
+            }
+            if (sexVal !== undefined) {
+                const parsedSex = parseSexInput(sexVal);
+                if (!parsedSex.valid)
+                    throw new Error('invalid_sex');
+                if (parsedSex.value === 'female' || parsedSex.value === 'male')
+                    updateSet.sex = parsedSex.value;
+                if (parsedSex.value === null || parsedSex.value === undefined)
+                    updateUnset.sex = 1;
+            }
+            const effectiveSchoolYearId = String(getRowValue(row, ['schoolyearid']) ?? fallbackSchoolYearId).trim();
+            const classIdVal = String(getRowValue(row, ['classid']) ?? '').trim();
+            const classNameVal = String(getRowValue(row, ['classname', 'class', 'classe', 'nextclass']) ?? '').trim();
+            const levelVal = String(getRowValue(row, ['level', 'targetlevel', 'niveau']) ?? '').trim();
+            const sectionVal = String(getRowValue(row, ['section']) ?? '').trim();
+            const needsClassUpdate = Boolean(classIdVal || classNameVal || (levelVal && sectionVal));
+            if (needsClassUpdate) {
+                if (!effectiveSchoolYearId)
+                    throw new Error('missing_school_year_for_class_update');
+                let cls = null;
+                if (classIdVal) {
+                    if (!/^[a-f\d]{24}$/i.test(classIdVal))
+                        throw new Error('invalid_class_id');
+                    cls = await Class_1.ClassModel.findById(classIdVal);
+                    if (!cls)
+                        throw new Error('class_not_found');
+                }
+                else {
+                    const className = classNameVal || `${levelVal} ${sectionVal}`.trim();
+                    if (!className)
+                        throw new Error('invalid_class_name');
+                    cls = await Class_1.ClassModel.findOne({ schoolYearId: effectiveSchoolYearId, name: className });
+                    if (!cls) {
+                        cls = await Class_1.ClassModel.create({
+                            name: className,
+                            level: levelVal || className.split(' ')[0] || '',
+                            schoolYearId: effectiveSchoolYearId
+                        });
+                    }
+                }
+                let enrollment = await Enrollment_1.Enrollment.findOne({
+                    studentId: String(student._id),
+                    schoolYearId: effectiveSchoolYearId,
+                    status: { $ne: 'promoted' }
+                });
+                if (enrollment) {
+                    enrollment.classId = String(cls._id);
+                    enrollment.status = 'active';
+                    await enrollment.save();
+                }
+                else {
+                    await Enrollment_1.Enrollment.create({
+                        studentId: String(student._id),
+                        schoolYearId: effectiveSchoolYearId,
+                        classId: String(cls._id),
+                        status: 'active'
+                    });
+                }
+                if (cls.level) {
+                    await (0, templateUtils_1.checkAndAssignTemplates)(String(student._id), String(cls.level), effectiveSchoolYearId, String(cls._id), req.user.userId);
+                }
+                results.classUpdates += 1;
+            }
+            const updateDoc = {};
+            if (Object.keys(updateSet).length)
+                updateDoc.$set = updateSet;
+            if (Object.keys(updateUnset).length)
+                updateDoc.$unset = updateUnset;
+            if (Object.keys(updateDoc).length) {
+                await Student_1.Student.findByIdAndUpdate(student._id, updateDoc);
+                results.updated += 1;
+            }
+            results.success += 1;
+        }
+        catch (e) {
+            results.errors.push({
+                row: rowNumber,
+                error: e?.message || 'bulk_update_failed',
+                studentId: String(getRowValue(row, ['studentid', 'id', '_id']) || ''),
+                logicalKey: String(getRowValue(row, ['logicalkey']) || '')
+            });
+        }
+    }
+    res.json(results);
+});
 exports.studentsRouter.get('/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN', 'TEACHER']), async (req, res) => {
     const { id } = req.params;
     const student = await Student_1.Student.findById(id).lean();
@@ -480,9 +697,12 @@ exports.studentsRouter.get('/by-class/:classId', (0, auth_1.requireAuth)(['ADMIN
     res.json(students);
 });
 exports.studentsRouter.post('/', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN']), async (req, res) => {
-    const { firstName, lastName, dateOfBirth, parentName, parentPhone, fatherName, fatherEmail, motherEmail, studentEmail, classId } = req.body;
+    const { firstName, lastName, dateOfBirth, parentName, parentPhone, fatherName, fatherEmail, motherEmail, studentEmail, sex, classId } = req.body;
     if (!firstName || !lastName || !classId)
         return res.status(400).json({ error: 'missing_payload' });
+    const parsedSex = parseSexInput(sex);
+    if (!parsedSex.valid)
+        return res.status(400).json({ error: 'invalid_sex' });
     const dob = dateOfBirth ? new Date(dateOfBirth) : new Date('2000-01-01');
     // Get the school year from the class to determine the join year
     const clsDoc = await Class_1.ClassModel.findById(classId).lean();
@@ -517,7 +737,8 @@ exports.studentsRouter.post('/', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN']),
         fatherName: fatherName ?? parentName,
         fatherEmail,
         motherEmail,
-        studentEmail
+        studentEmail,
+        ...(parsedSex.value === 'female' || parsedSex.value === 'male' ? { sex: parsedSex.value } : {})
     });
     const existsEnroll = await Enrollment_1.Enrollment.findOne({ studentId: String(student._id), classId });
     if (!existsEnroll) {
@@ -531,11 +752,30 @@ exports.studentsRouter.post('/', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN']),
 exports.studentsRouter.patch('/:id', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN']), async (req, res) => {
     const { id } = req.params;
     const data = { ...req.body };
+    const requestedClassId = req.body.classId ? String(req.body.classId) : '';
+    delete data.classId;
+    const updateDoc = {};
     if (data.dateOfBirth)
         data.dateOfBirth = new Date(data.dateOfBirth);
-    const updated = await Student_1.Student.findByIdAndUpdate(id, data, { new: true });
-    if (req.body.classId) {
-        const classId = String(req.body.classId);
+    if (Object.prototype.hasOwnProperty.call(req.body, 'sex')) {
+        const parsedSex = parseSexInput(req.body.sex);
+        if (!parsedSex.valid)
+            return res.status(400).json({ error: 'invalid_sex' });
+        if (parsedSex.value === 'female' || parsedSex.value === 'male') {
+            updateDoc.$set = { ...(updateDoc.$set || {}), sex: parsedSex.value };
+        }
+        else {
+            updateDoc.$unset = { ...(updateDoc.$unset || {}), sex: 1 };
+        }
+    }
+    if (Object.keys(data).length) {
+        updateDoc.$set = { ...(updateDoc.$set || {}), ...data };
+    }
+    const updated = Object.keys(updateDoc).length
+        ? await Student_1.Student.findByIdAndUpdate(id, updateDoc, { new: true })
+        : await Student_1.Student.findById(id);
+    if (requestedClassId) {
+        const classId = requestedClassId;
         const clsDoc = await Class_1.ClassModel.findById(classId).lean();
         if (!clsDoc)
             return res.status(404).json({ error: 'class_not_found' });

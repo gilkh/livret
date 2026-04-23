@@ -17,7 +17,8 @@ export default function PdfExportProgress() {
     const [downloadSpeedBps, setDownloadSpeedBps] = useState<number | null>(null)
     const [serverProcessedAssignments, setServerProcessedAssignments] = useState<number | null>(null)
     const [serverTotalAssignments, setServerTotalAssignments] = useState<number | null>(null)
-    const [serverGenerationDone, setServerGenerationDone] = useState(false)
+    const [downloadAfterExport, setDownloadAfterExport] = useState(true)
+    const [exportsPagePath, setExportsPagePath] = useState('/subadmin/exports')
     const startTimeRef = useRef<number>(Date.now())
     const downloadStartRef = useRef<number | null>(null)
     const statusRef = useRef<ExportStatus>('preparing')
@@ -70,12 +71,17 @@ export default function PdfExportProgress() {
         // For batch exports, we need to get data from sessionStorage
         let batchData: any = null
         if (exportType === 'batch' && exportId) {
-            const storedData = sessionStorage.getItem(`pdf-export-${exportId}`)
+            const storedData = localStorage.getItem(`pdf-export-${exportId}`)
             if (storedData) {
                 try {
                     batchData = JSON.parse(storedData)
-                    // Clean up sessionStorage after reading
-                    sessionStorage.removeItem(`pdf-export-${exportId}`)
+                    // Clean up localStorage after reading
+                    localStorage.removeItem(`pdf-export-${exportId}`)
+                    const shouldDownload = batchData.downloadAfterExport !== false
+                    setDownloadAfterExport(shouldDownload)
+                    setExportsPagePath(typeof batchData.exportsPagePath === 'string' && batchData.exportsPagePath
+                        ? batchData.exportsPagePath
+                        : '/subadmin/exports')
                 } catch {
                     setStatus('error')
                     setErrorMessage('Données d\'export invalides')
@@ -104,6 +110,7 @@ export default function PdfExportProgress() {
 
                 const token = localStorage.getItem('token') || sessionStorage.getItem('token')
                 const origin = window.location.origin
+                const shouldDownloadToDevice = !(exportType === 'batch' && batchData?.downloadAfterExport === false)
 
                 let response: Response
                 let progressInterval: ReturnType<typeof setInterval> | null = null
@@ -154,7 +161,6 @@ export default function PdfExportProgress() {
                             }
 
                             if (payload?.status === 'completed') {
-                                setServerGenerationDone(true)
                                 if (statusRef.current === 'generating') {
                                     setStatus('downloading')
                                 }
@@ -229,6 +235,16 @@ export default function PdfExportProgress() {
                 if (exportType === 'batch') {
                     // For batch: stay in 'generating' status until server reports all PDFs done
                     // The polling callback will transition to 'downloading' when server is complete
+                    if (!shouldDownloadToDevice) {
+                        const contentType = String(response.headers.get('content-type') || '').toLowerCase()
+                        if (contentType.includes('application/json')) {
+                            setEstimatedTime(null)
+                            setProgress(100)
+                            setStatus('complete')
+                            stopProgressPolling()
+                            return
+                        }
+                    }
                 } else {
                     setStatus('downloading')
                     setProgress(0)
@@ -265,7 +281,9 @@ export default function PdfExportProgress() {
                     const { done, value } = await reader.read()
                     if (done) break
 
-                    chunks.push(value)
+                    if (shouldDownloadToDevice) {
+                        chunks.push(value)
+                    }
                     receivedLength += value.length
                     setReceivedBytes(receivedLength)
 
@@ -281,38 +299,40 @@ export default function PdfExportProgress() {
                     }
                 }
 
-                // Combine chunks into a single Blob
-                let totalLength = 0
-                for (const chunk of chunks) {
-                    totalLength += chunk.length
-                }
-                const combined = new Uint8Array(totalLength)
-                let offset = 0
-                for (const chunk of chunks) {
-                    combined.set(chunk, offset)
-                    offset += chunk.length
-                }
-                const contentType = response.headers.get('content-type') || (exportType === 'batch' ? 'application/zip' : 'application/pdf')
-                const blob = new Blob([combined.buffer], { type: contentType })
-
                 stopProgressPolling()
                 setProgress(100)
                 setStatus('complete')
 
-                // Trigger download
-                const url = window.URL.createObjectURL(blob)
-                const a = document.createElement('a')
-                a.href = url
-                a.download = downloadFileName
-                document.body.appendChild(a)
-                a.click()
-                document.body.removeChild(a)
-                window.URL.revokeObjectURL(url)
+                if (shouldDownloadToDevice) {
+                    // Combine chunks into a single Blob
+                    let totalLength = 0
+                    for (const chunk of chunks) {
+                        totalLength += chunk.length
+                    }
+                    const combined = new Uint8Array(totalLength)
+                    let offset = 0
+                    for (const chunk of chunks) {
+                        combined.set(chunk, offset)
+                        offset += chunk.length
+                    }
+                    const contentType = response.headers.get('content-type') || (exportType === 'batch' ? 'application/zip' : 'application/pdf')
+                    const blob = new Blob([combined.buffer], { type: contentType })
 
-                // Auto-close after a short delay
-                setTimeout(() => {
-                    window.close()
-                }, 2500)
+                    // Trigger download
+                    const url = window.URL.createObjectURL(blob)
+                    const a = document.createElement('a')
+                    a.href = url
+                    a.download = downloadFileName
+                    document.body.appendChild(a)
+                    a.click()
+                    document.body.removeChild(a)
+                    window.URL.revokeObjectURL(url)
+
+                    // Auto-close after a short delay
+                    setTimeout(() => {
+                        window.close()
+                    }, 2500)
+                }
 
             } catch (error: any) {
                 stopProgressPolling()
@@ -352,6 +372,10 @@ export default function PdfExportProgress() {
         window.close()
     }
 
+    const handleOpenExports = () => {
+        window.location.href = exportsPagePath || '/subadmin/exports'
+    }
+
     const formatTime = (seconds: number) => {
         if (seconds < 60) return `${seconds}s`
         const mins = Math.floor(seconds / 60)
@@ -386,10 +410,15 @@ export default function PdfExportProgress() {
                 return 'Génération du PDF...'
             case 'downloading':
                 if (exportType === 'batch') {
-                    return 'Finalisation du téléchargement...'
+                    return downloadAfterExport
+                        ? 'Finalisation du téléchargement...'
+                        : 'Finalisation de la sauvegarde serveur...'
                 }
                 return 'Téléchargement en cours...'
             case 'complete':
+                if (exportType === 'batch' && !downloadAfterExport) {
+                    return 'Export sauvegardé sur le serveur'
+                }
                 return 'Export terminé !'
             case 'error':
                 return 'Une erreur est survenue'
@@ -471,7 +500,7 @@ export default function PdfExportProgress() {
                                         <span>2</span>
                                     )}
                                 </div>
-                                <span className="batch-step-label">Téléchargement</span>
+                                <span className="batch-step-label">{downloadAfterExport ? 'Téléchargement' : 'Sauvegarde serveur'}</span>
                             </div>
                         </div>
                     )}
@@ -590,12 +619,23 @@ export default function PdfExportProgress() {
                             </button>
                         </>
                     ) : status === 'complete' ? (
-                        <button className="btn-close success" onClick={handleClose}>
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                <polyline points="20 6 9 17 4 12" />
-                            </svg>
-                            Fermer (auto dans 2s)
-                        </button>
+                        downloadAfterExport ? (
+                            <button className="btn-close success" onClick={handleClose}>
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <polyline points="20 6 9 17 4 12" />
+                                </svg>
+                                Fermer (auto dans 2s)
+                            </button>
+                        ) : (
+                            <>
+                                <button className="btn-retry" onClick={handleOpenExports}>
+                                    Ouvrir la bibliothèque PDF
+                                </button>
+                                <button className="btn-close success" onClick={handleClose}>
+                                    Fermer
+                                </button>
+                            </>
+                        )
                     ) : (
                         <button className="btn-cancel" onClick={handleCancel}>
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -623,7 +663,11 @@ export default function PdfExportProgress() {
                     <line x1="12" y1="16" x2="12" y2="12" />
                     <line x1="12" y1="8" x2="12.01" y2="8" />
                 </svg>
-                <span>Cette fenêtre se fermera automatiquement une fois le téléchargement terminé</span>
+                <span>
+                    {downloadAfterExport
+                        ? 'Cette fenêtre se fermera automatiquement une fois le téléchargement terminé'
+                        : 'Les PDF sont sauvegardés sur le serveur, puis consultables dans la bibliothèque des exports'}
+                </span>
             </div>
         </div>
     )

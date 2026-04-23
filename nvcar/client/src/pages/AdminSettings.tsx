@@ -191,6 +191,8 @@ export default function AdminSettings() {
   const [smtpUser, setSmtpUser] = useState('')
   const [smtpPass, setSmtpPass] = useState('')
   const [smtpSecure, setSmtpSecure] = useState(false)
+  const [smtpFromName, setSmtpFromName] = useState('')
+  const [smtpFromEmail, setSmtpFromEmail] = useState('')
   const [smtpTestEmail, setSmtpTestEmail] = useState('')
   const [smtpTesting, setSmtpTesting] = useState(false)
   const [smtpTestResult, setSmtpTestResult] = useState<{ success: boolean; message: string } | null>(null)
@@ -247,7 +249,7 @@ export default function AdminSettings() {
       const res = await api.get('/settings')
       setTeacherLogin(res.data.login_enabled_teacher !== false)
       setSubAdminLogin(res.data.login_enabled_subadmin !== false)
-+      setAefeLogin(res.data.login_enabled_aefe !== false)
+      setAefeLogin(res.data.login_enabled_aefe !== false)
       setMicrosoftLogin(res.data.login_enabled_microsoft !== false)
       setSubAdminRestriction(res.data.subadmin_restriction_enabled !== false)
       setSubAdminExemptStandard(res.data.subadmin_restriction_exempt_standard === true)
@@ -260,6 +262,8 @@ export default function AdminSettings() {
       setSmtpUser(res.data.smtp_user || '')
       setSmtpPass(res.data.smtp_pass || '')
       setSmtpSecure(res.data.smtp_secure === true)
+      setSmtpFromName(res.data.smtp_from_name || '')
+      setSmtpFromEmail(res.data.smtp_from_email || '')
       // Mobile blocking
       setMobileBlockEnabled(res.data.mobile_block_enabled === true)
       setMobileMinWidth(res.data.mobile_min_width || 1024)
@@ -523,7 +527,8 @@ export default function AdminSettings() {
   const saveSmtpSettings = async () => {
     const results = await Promise.all([
       saveSetting('smtp_host', smtpHost), saveSetting('smtp_port', smtpPort),
-      saveSetting('smtp_user', smtpUser), saveSetting('smtp_pass', smtpPass), saveSetting('smtp_secure', smtpSecure)
+      saveSetting('smtp_user', smtpUser), saveSetting('smtp_pass', smtpPass), saveSetting('smtp_secure', smtpSecure),
+      saveSetting('smtp_from_name', smtpFromName), saveSetting('smtp_from_email', smtpFromEmail)
     ])
     if (results.every(r => r)) showMsg('Configuration SMTP sauvegardée')
   }
@@ -1025,6 +1030,16 @@ export default function AdminSettings() {
               <div className="settings-form-group">
                 <label>Mot de passe</label>
                 <input type="password" className="settings-input" value={smtpPass} onChange={e => setSmtpPass(e.target.value)} placeholder="••••••••" />
+              </div>
+            </div>
+            <div className="settings-form-row">
+              <div className="settings-form-group">
+                <label>Nom de l'expéditeur</label>
+                <input type="text" className="settings-input" value={smtpFromName} onChange={e => setSmtpFromName(e.target.value)} placeholder="École / Sous-admin" />
+              </div>
+              <div className="settings-form-group">
+                <label>Email expéditeur affiché</label>
+                <input type="email" className="settings-input" value={smtpFromEmail} onChange={e => setSmtpFromEmail(e.target.value)} placeholder="notifications@ecole.com" />
               </div>
             </div>
             <div className="setting-item" style={{ marginTop: '1rem' }}>

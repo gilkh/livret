@@ -12,6 +12,14 @@ import puppeteer, { Browser } from 'puppeteer'
 import archiver from 'archiver'
 import fs from 'fs'
 import PDFDocument from 'pdfkit'
+import path from 'path'
+import { ExportedGradebookBatch } from '../models/ExportedGradebookBatch'
+import {
+  buildGradebookExportRelativeDir,
+  ensureGradebookExportRoot,
+  GRADEBOOK_EXPORT_ROOT,
+  sanitizeGradebookExportSegment,
+} from '../utils/gradebookExportStorage'
 
 export const pdfPuppeteerRouter = Router()
 
@@ -703,6 +711,7 @@ pdfPuppeteerRouter.post('/assignments/zip', requireAuth(['ADMIN', 'SUBADMIN', 'A
     const groupLabel = String(req.body?.groupLabel || '').trim()
     const hideSignatures = req.body?.hideSignatures === true
     const highQuality = req.body?.highQuality === true
+    const saveToServerOnly = req.body?.saveToServerOnly === true
     const progressToken = String(req.body?.progressToken || '').trim()
     const rawAssignmentFolderMap = req.body?.assignmentFolderMap && typeof req.body.assignmentFolderMap === 'object'
       ? req.body.assignmentFolderMap
@@ -713,6 +722,14 @@ pdfPuppeteerRouter.post('/assignments/zip', requireAuth(['ADMIN', 'SUBADMIN', 'A
         const sanitizedFolder = sanitizeArchiveFolder(String(folder || ''))
         if (!sanitizedFolder) return acc
         acc[assignmentId] = sanitizedFolder
+        return acc
+      }, {} as Record<string, string>)
+    const assignmentFolderDisplayMap: Record<string, string> = Object.entries(rawAssignmentFolderMap)
+      .reduce((acc, [assignmentId, folder]) => {
+        if (typeof assignmentId !== 'string') return acc
+        const displayFolder = String(folder || '').trim()
+        if (!displayFolder) return acc
+        acc[assignmentId] = displayFolder
         return acc
       }, {} as Record<string, string>)
 
@@ -737,45 +754,49 @@ pdfPuppeteerRouter.post('/assignments/zip', requireAuth(['ADMIN', 'SUBADMIN', 'A
       })
     }
 
-    const archiveFileName = sanitizeFileName(groupLabel ? `carnets-${groupLabel}.zip` : 'carnets.zip')
-    res.set({
-      'Content-Type': 'application/zip',
-      'Content-Disposition': buildContentDisposition(String(archiveFileName || 'archive.zip'))
-    })
-
-    const zipCompressionLevelRaw = Number(process.env.PDF_ZIP_COMPRESSION_LEVEL || '0')
-    const zipCompressionLevel = Number.isFinite(zipCompressionLevelRaw)
-      ? Math.min(9, Math.max(0, Math.round(zipCompressionLevelRaw)))
-      : 1
-    archive = archiver('zip', { zlib: { level: zipCompressionLevel } })
     let aborted = false
-    res.on('close', () => {
-      if (res.writableEnded) return
-      aborted = true
-      try { archive?.abort() } catch { }
-    })
-    archive.on('error', (err: any) => {
-      // INPUTSTEAMBUFFERREQUIRED and QUEUECLOSED are per-entry errors that we
-      // already handle at the worker level – don't destroy the whole response.
-      const code = String(err?.code || '')
-      if (code === 'INPUTSTEAMBUFFERREQUIRED' || code === 'QUEUECLOSED') {
-        console.warn('[PDF ZIP] Archiver non-fatal error (handled):', code, err?.data?.name || '')
-        return
-      }
-      console.error('[PDF ZIP] Archiver fatal error:', err)
-      aborted = true
-      res.destroy(err)
-    })
-    archive.on('warning', (err) => {
-      console.warn('[PDF ZIP] Archiver warning:', err)
-    })
+    const archiveFileName = sanitizeFileName(groupLabel ? `carnets-${groupLabel}.zip` : 'carnets.zip')
+    if (!saveToServerOnly) {
+      res.set({
+        'Content-Type': 'application/zip',
+        'Content-Disposition': buildContentDisposition(String(archiveFileName || 'archive.zip'))
+      })
 
-    archive.pipe(res)
+      const zipCompressionLevelRaw = Number(process.env.PDF_ZIP_COMPRESSION_LEVEL || '0')
+      const zipCompressionLevel = Number.isFinite(zipCompressionLevelRaw)
+        ? Math.min(9, Math.max(0, Math.round(zipCompressionLevelRaw)))
+        : 1
+      archive = archiver('zip', { zlib: { level: zipCompressionLevel } })
+      res.on('close', () => {
+        if (res.writableEnded) return
+        aborted = true
+        try { archive?.abort() } catch { }
+      })
+      archive.on('error', (err: any) => {
+        // INPUTSTEAMBUFFERREQUIRED and QUEUECLOSED are per-entry errors that we
+        // already handle at the worker level - don't destroy the whole response.
+        const code = String(err?.code || '')
+        if (code === 'INPUTSTEAMBUFFERREQUIRED' || code === 'QUEUECLOSED') {
+          console.warn('[PDF ZIP] Archiver non-fatal error (handled):', code, err?.data?.name || '')
+          return
+        }
+        console.error('[PDF ZIP] Archiver fatal error:', err)
+        aborted = true
+        res.destroy(err)
+      })
+      archive.on('warning', (err) => {
+        console.warn('[PDF ZIP] Archiver warning:', err)
+      })
+
+      archive.pipe(res)
+    }
 
     const zipStart = Date.now()
     console.log(`[PDF ZIP] Starting zip generation for ${assignmentIds.length} assignments, group="${groupLabel}", highQuality=${highQuality}`)
 
-    archive.append(`Archive started at ${new Date().toISOString()}\n`, { name: 'info.txt' })
+    if (archive) {
+      archive.append(`Archive started at ${new Date().toISOString()}\n`, { name: 'info.txt' })
+    }
 
     // Parallelize generation with a worker pool to reduce wall-clock
     // Default concurrency=3: screenshot-based PDF is heavy on CDP calls; too many workers cause protocol timeouts
@@ -786,6 +807,7 @@ pdfPuppeteerRouter.post('/assignments/zip', requireAuth(['ADMIN', 'SUBADMIN', 'A
       getActiveSchoolYear(),
       TemplateAssignment.find({ _id: { $in: assignmentIds } }, '_id studentId templateId').lean()
     ])
+    const currentUser = (req as any).user as { userId: string; role: 'ADMIN' | 'SUBADMIN' | 'AEFE' }
     const activeYearId = activeYear?._id ? String(activeYear._id) : ''
     const activeYearName = String(activeYear?.name || '').trim()
     const assignmentById = new Map(assignmentDocs.map((assignment: any) => [String(assignment._id), assignment]))
@@ -796,7 +818,7 @@ pdfPuppeteerRouter.post('/assignments/zip', requireAuth(['ADMIN', 'SUBADMIN', 'A
     const foundAssignments = orderedAssignments.filter((entry: OrderedAssignmentEntry) => !!entry.assignment)
     const studentIds = Array.from(new Set(foundAssignments.map((entry: OrderedAssignmentEntry) => String((entry.assignment as any).studentId || '')).filter(Boolean)))
     const students = studentIds.length
-      ? await Student.find({ _id: { $in: studentIds } }, '_id firstName lastName level schoolYearId').lean()
+      ? await Student.find({ _id: { $in: studentIds } }, '_id firstName lastName level schoolYearId fatherEmail motherEmail studentEmail').lean()
       : []
     const studentById = new Map(students.map((student: any) => [String(student._id), student]))
 
@@ -805,19 +827,19 @@ pdfPuppeteerRouter.post('/assignments/zip', requireAuth(['ADMIN', 'SUBADMIN', 'A
       ? Array.from(new Set(students.map((student: any) => String(student.schoolYearId || '')).filter(Boolean)))
       : []
 
-    const studentIdsNeedingLevel = students
-      .filter((student: any) => !String(student.level || '').trim())
+    const studentIdsForEnrollmentLookup = students
       .map((student: any) => String(student._id))
+      .filter(Boolean)
 
     const [schoolYears, enrollments] = await Promise.all([
       studentYearIds.length
         ? SchoolYear.find({ _id: { $in: studentYearIds } }, '_id name').lean()
         : Promise.resolve([]),
-      studentIdsNeedingLevel.length
+      studentIdsForEnrollmentLookup.length
         ? Enrollment.find(
           activeYearId
-            ? { studentId: { $in: studentIdsNeedingLevel }, schoolYearId: activeYearId, status: 'active' }
-            : { studentId: { $in: studentIdsNeedingLevel }, status: 'active' },
+            ? { studentId: { $in: studentIdsForEnrollmentLookup }, schoolYearId: activeYearId, status: 'active' }
+            : { studentId: { $in: studentIdsForEnrollmentLookup }, status: 'active' },
           '_id studentId classId'
         ).lean()
         : Promise.resolve([])
@@ -832,8 +854,14 @@ pdfPuppeteerRouter.post('/assignments/zip', requireAuth(['ADMIN', 'SUBADMIN', 'A
     }
 
     const classIds = Array.from(new Set((enrollments as any[]).map((enrollment) => String(enrollment.classId || '')).filter(Boolean)))
-    const classes = classIds.length ? await ClassModel.find({ _id: { $in: classIds } }, '_id level').lean() : []
+    const classes = classIds.length ? await ClassModel.find({ _id: { $in: classIds } }, '_id level name').lean() : []
     const classById = new Map(classes.map((classDoc: any) => [String(classDoc._id), classDoc]))
+
+    const exportBatchKey = sanitizeGradebookExportSegment(
+      `${new Date().toISOString().replace(/[:.]/g, '-')}-${groupLabel || 'carnets'}`
+    )
+    await ensureGradebookExportRoot()
+    const savedFilesForBatch: Array<Record<string, unknown>> = []
 
     const studentResolvedLevelById = new Map<string, string>()
     for (const student of students as any[]) {
@@ -888,6 +916,9 @@ pdfPuppeteerRouter.post('/assignments/zip', requireAuth(['ADMIN', 'SUBADMIN', 'A
           const studentFirst = student?.firstName || ''
           const yearName = activeYearName || schoolYearNameById.get(String(student?.schoolYearId || '')) || ''
           const level = studentResolvedLevelById.get(String(student?._id || '')) || ''
+          const enrollment = enrollmentByStudentId.get(String(student?._id || ''))
+          const classDoc = enrollment?.classId ? classById.get(String(enrollment.classId)) : null
+          const className = assignmentFolderDisplayMap[assignmentId] || String((classDoc as any)?.name || '').trim() || 'Sans classe'
           const pdfName = buildStudentPdfFilename({
             level,
             firstName: studentFirst,
@@ -969,6 +1000,39 @@ pdfPuppeteerRouter.post('/assignments/zip', requireAuth(['ADMIN', 'SUBADMIN', 'A
               console.error(`[PDF ZIP] (worker ${workerIdx}) Failed to append ${archiveName}:`, appendErr?.message || appendErr)
             }
           }
+
+          try {
+            const relativeDir = buildGradebookExportRelativeDir({
+              yearName,
+              level,
+              className,
+              batchKey: exportBatchKey
+            })
+            const relativePath = path.join(relativeDir, pdfName)
+            const absolutePath = path.resolve(GRADEBOOK_EXPORT_ROOT, relativePath)
+            await fs.promises.mkdir(path.dirname(absolutePath), { recursive: true })
+            await fs.promises.writeFile(absolutePath, pdfBuffer)
+            savedFilesForBatch.push({
+              assignmentId,
+              studentId: String((assignment as any)?.studentId || student?._id || 'unknown-student'),
+              firstName: studentFirst,
+              lastName: studentLast,
+              yearName,
+              level,
+              className,
+              fileName: pdfName,
+              relativePath,
+              emails: {
+                father: String((student as any)?.fatherEmail || '').trim(),
+                mother: String((student as any)?.motherEmail || '').trim(),
+                student: String((student as any)?.studentEmail || '').trim(),
+              },
+              exportedAt: new Date()
+            })
+          } catch (saveError: any) {
+            console.error(`[PDF ZIP] (worker ${workerIdx}) Failed to save ${pdfName} on server:`, saveError?.message || saveError)
+          }
+
           if (progressToken) {
             updateZipProgress(progressToken, (current) => {
               const next: ZipProgressState = {
@@ -1009,13 +1073,59 @@ pdfPuppeteerRouter.post('/assignments/zip', requireAuth(['ADMIN', 'SUBADMIN', 'A
 
     // finalize archive after all workers finish
     console.log('[PDF ZIP] All workers completed, finalizing archive')
-    await archive.finalize()
+    let batchPersisted = false
+    try {
+      await ExportedGradebookBatch.create({
+        createdBy: currentUser.userId,
+        creatorRole: currentUser.role,
+        groupLabel,
+        archiveFileName,
+        totalAssignmentsRequested: assignmentIds.length,
+        exportedCount: savedFilesForBatch.length,
+        failedCount: Math.max(0, assignmentIds.length - savedFilesForBatch.length),
+        files: savedFilesForBatch,
+        createdAt: new Date()
+      })
+      batchPersisted = true
+    } catch (saveBatchError: any) {
+      console.error('[PDF ZIP] Failed to persist exported batch metadata:', saveBatchError?.message || saveBatchError)
+      try {
+        await ExportedGradebookBatch.create({
+          createdBy: currentUser.userId,
+          creatorRole: currentUser.role,
+          groupLabel,
+          archiveFileName,
+          totalAssignmentsRequested: assignmentIds.length,
+          exportedCount: 0,
+          failedCount: assignmentIds.length,
+          files: [],
+          createdAt: new Date()
+        })
+        batchPersisted = true
+      } catch (fallbackSaveError: any) {
+        console.error('[PDF ZIP] Fallback metadata persist failed:', fallbackSaveError?.message || fallbackSaveError)
+      }
+    }
+    if (archive) {
+      await archive.finalize()
+    }
     if (progressToken) {
       updateZipProgress(progressToken, {
         status: 'completed',
         etaSeconds: 0
       })
       scheduleZipProgressCleanup(progressToken)
+    }
+    if (saveToServerOnly && !res.headersSent) {
+      return res.json({
+        success: true,
+        mode: 'server-only',
+        batchPersisted,
+        archiveFileName,
+        totalAssignmentsRequested: assignmentIds.length,
+        exportedCount: savedFilesForBatch.length,
+        failedCount: Math.max(0, assignmentIds.length - savedFilesForBatch.length)
+      })
     }
   } catch (e: any) {
     console.error('[PDF ZIP] Failed:', e)

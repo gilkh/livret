@@ -10,7 +10,7 @@ export const settingsRouter = Router()
 // Helper to get SMTP settings from database
 export async function getSmtpSettings() {
   const settings = await Setting.find({
-    key: { $in: ['smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass', 'smtp_secure'] }
+    key: { $in: ['smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass', 'smtp_secure', 'smtp_from_name', 'smtp_from_email'] }
   }).lean()
 
   const map: Record<string, any> = {}
@@ -21,7 +21,9 @@ export async function getSmtpSettings() {
     port: parseInt(map.smtp_port) || 587,
     user: map.smtp_user || '',
     pass: map.smtp_pass || '',
-    secure: map.smtp_secure === true
+    secure: map.smtp_secure === true,
+    fromName: map.smtp_from_name || '',
+    fromEmail: map.smtp_from_email || ''
   }
 }
 
