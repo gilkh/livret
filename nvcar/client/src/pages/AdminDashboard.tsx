@@ -17,7 +17,8 @@ import {
   GraduationCap,
   Activity,
   UserPlus,
-  ToggleLeft
+  ToggleLeft,
+  MessageSquareText
 } from 'lucide-react'
 import DashboardCard from '../components/DashboardCard'
 import './AdminDashboard.css'
@@ -181,6 +182,14 @@ export default function AdminDashboard() {
               to="/admin/media"
               color="#fdf4ff"
               iconColor="#c026d3"
+            />
+            <DashboardCard
+              title="ApprÃ©ciations"
+              description="Versions F/G des dropdowns."
+              icon={MessageSquareText}
+              to="/admin/appreciations"
+              color="#ecfccb"
+              iconColor="#3f6212"
             />
           </div>
         </section>

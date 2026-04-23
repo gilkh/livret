@@ -5,6 +5,7 @@ import { TemplateAssignment } from '../models/TemplateAssignment'
 import { requireAuth } from '../auth'
 import { formatDdMmYyyyColon, formatDdMonthYyyy } from '../utils/dateFormat'
 import { populateSignatures } from '../services/signatureService'
+import { findDropdownBlockByReference, resolveDropdownDisplayValue } from '../utils/dropdownAppreciations'
 
 export const htmlRenderRouter = Router()
 
@@ -169,7 +170,7 @@ htmlRenderRouter.get('/carnet/:assignmentId', requireAuth(['ADMIN', 'SUBADMIN', 
   <div class="page-container">
     ${template.pages.map((page: any, pageIdx: number) => `
       <div class="page" style="background: ${page.bgColor || '#fff'};">
-        ${(page.blocks || []).sort((a: any, b: any) => (a.props?.z ?? 0) - (b.props?.z ?? 0)).map((block: any) => renderBlock(block, student, assignmentData)).join('')}
+        ${(page.blocks || []).sort((a: any, b: any) => (a.props?.z ?? 0) - (b.props?.z ?? 0)).map((block: any) => renderBlock(block, student, assignmentData, template.pages || [])).join('')}
       </div>
     `).join('')}
   </div>
@@ -186,7 +187,7 @@ htmlRenderRouter.get('/carnet/:assignmentId', requireAuth(['ADMIN', 'SUBADMIN', 
   }
 })
 
-function renderBlock(block: any, student: any, assignmentData: any): string {
+function renderBlock(block: any, student: any, assignmentData: any, templatePages: any[] = []): string {
   const props = block.props || {}
   const style = `left: ${props.x || 0}px; top: ${props.y || 0}px; z-index: ${props.z ?? 0};`
 
@@ -280,7 +281,12 @@ function renderBlock(block: any, student: any, assignmentData: any): string {
       const blockId = typeof props?.blockId === 'string' && props.blockId.trim() ? props.blockId.trim() : null
       const stableKey = blockId ? `dropdown_${blockId}` : null
       const legacyKey = dropdownNum ? `dropdown_${dropdownNum}` : (props?.variableName ? props.variableName : null)
-      const selectedValue = (stableKey ? assignmentData[stableKey] : undefined) ?? (legacyKey ? assignmentData[legacyKey] : undefined) ?? ''
+      const rawSelectedValue = (stableKey ? assignmentData[stableKey] : undefined) ?? (legacyKey ? assignmentData[legacyKey] : undefined) ?? ''
+      const selectedValue = resolveDropdownDisplayValue({
+        dropdownBlock: { type: 'dropdown', props },
+        rawValue: rawSelectedValue,
+        studentSex: student?.sex,
+      })
       return `<div class="block" style="${style}">
         <div class="dropdown-box" style="width: ${props.width || 200}px; min-height: ${props.height || 40}px; font-size: ${props.fontSize || 12}px; color: ${props.color || '#333'};">
           ${props.label ? `<div class="dropdown-label">${props.label}</div>` : ''}
@@ -294,7 +300,12 @@ function renderBlock(block: any, student: any, assignmentData: any): string {
       const refBlockId = typeof props?.blockId === 'string' && props.blockId.trim() ? props.blockId.trim() : null
       const refStableKey = refBlockId ? `dropdown_${refBlockId}` : null
       const refLegacyKey = refDropdownNum ? `dropdown_${refDropdownNum}` : null
-      const refValue = (refStableKey ? assignmentData[refStableKey] : undefined) ?? (refLegacyKey ? assignmentData[refLegacyKey] : undefined) ?? `[Dropdown #${refDropdownNum}]`
+      const refRawValue = (refStableKey ? assignmentData[refStableKey] : undefined) ?? (refLegacyKey ? assignmentData[refLegacyKey] : undefined) ?? `[Dropdown #${refDropdownNum}]`
+      const refValue = resolveDropdownDisplayValue({
+        dropdownBlock: findDropdownBlockByReference(templatePages, { dropdownNumber: refDropdownNum }),
+        rawValue: refRawValue,
+        studentSex: student?.sex,
+      }) || `[Dropdown #${refDropdownNum}]`
       return `<div class="block" style="${style} color: ${props.color || '#333'}; font-size: ${props.fontSize || 12}px; width: ${props.width || 200}px; white-space: pre-wrap; word-wrap: break-word;">${refValue}</div>`
 
     case 'promotion_info':

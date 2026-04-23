@@ -5,12 +5,13 @@ import { useLevels } from '../context/LevelContext'
 import { GradebookPocket } from '../components/GradebookPocket'
 import { CroppedImage } from '../components/CroppedImage'
 import { formatDdMonthYyyy, formatDdMmYyyyColon } from '../utils/dateFormat'
+import { findDropdownBlockByReference, resolveDropdownDisplayValue } from '../utils/dropdownAppreciations'
 // Block visibility is now controlled entirely by admin settings (block_visibility_settings)
 
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
 type Template = { _id?: string; name: string; pages: Page[] }
-type Student = { _id: string; firstName: string; lastName: string; level?: string; dateOfBirth?: Date | string; className?: string; avatarUrl?: string }
+type Student = { _id: string; firstName: string; lastName: string; level?: string; dateOfBirth?: Date | string; className?: string; avatarUrl?: string; sex?: 'female' | 'male' }
 type Assignment = { _id: string; status: string; data?: any }
 
 const pageWidth = 800
@@ -1047,9 +1048,14 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
 
                                     {b.type === 'dropdown' && (() => {
                                         // Only render if a value is selected
-                                        const currentValue = b.props.dropdownNumber
+                                        const rawValue = b.props.dropdownNumber
                                             ? assignment?.data?.[`dropdown_${b.props.dropdownNumber}`]
                                             : b.props.variableName ? assignment?.data?.[b.props.variableName] : ''
+                                        const currentValue = resolveDropdownDisplayValue({
+                                            dropdownBlock: b,
+                                            rawValue,
+                                            studentSex: student?.sex,
+                                        })
                                         if (!currentValue) return null
                                         return (
                                             <div style={{ width: b.props.width || 200 }}>
@@ -1074,7 +1080,11 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
 
                                     {b.type === 'dropdown_reference' && (() => {
                                         const dropdownNum = b.props.dropdownNumber || 1
-                                        const value = assignment?.data?.[`dropdown_${dropdownNum}`]
+                                        const value = resolveDropdownDisplayValue({
+                                            dropdownBlock: findDropdownBlockByReference(template?.pages || [], { dropdownNumber: dropdownNum }),
+                                            rawValue: assignment?.data?.[`dropdown_${dropdownNum}`],
+                                            studentSex: student?.sex,
+                                        })
                                         // Don't render if no value
                                         if (!value) return null
                                         return (

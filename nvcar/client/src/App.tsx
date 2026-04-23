@@ -46,6 +46,7 @@ import AdminGlobalPermissions from './pages/AdminGlobalPermissions'
 import AdminNavigationVisibility from './pages/AdminNavigationVisibility'
 import AdminBlockVisibility from './pages/AdminBlockVisibility'
 import AdminStudentPromotions from './pages/AdminStudentPromotions'
+import AdminAppreciations from './pages/AdminAppreciations'
 import AdminPsOnboarding from './pages/AdminPsOnboarding'
 import AdminSkillAnalytics from './pages/AdminSkillAnalytics'
 import SubAdminSemesterRequest from './pages/SubAdminSemesterRequest'
@@ -663,6 +664,14 @@ export default function App() {
           element={
             <RequireAuth>
               <AdminStudentPromotions />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/admin/appreciations"
+          element={
+            <RequireAuth>
+              <AdminAppreciations />
             </RequireAuth>
           }
         />

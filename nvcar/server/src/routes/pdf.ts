@@ -15,6 +15,7 @@ import path from 'path'
 import fs from 'fs'
 import { formatDdMmYyyyColon } from '../utils/dateFormat'
 import { populateSignatures } from '../services/signatureService'
+import { findDropdownBlockByReference, resolveDropdownDisplayValue } from '../utils/dropdownAppreciations'
 // eslint-disable-next-line
 const archiver = require('archiver')
 import { requireAuth } from '../auth'
@@ -730,7 +731,12 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), asy
         const blockId = typeof b?.props?.blockId === 'string' && b.props.blockId.trim() ? b.props.blockId.trim() : null
         const stableKey = blockId ? `dropdown_${blockId}` : null
         const legacyKey = dropdownNum ? `dropdown_${dropdownNum}` : (b.props?.variableName ? b.props.variableName : null)
-        const selectedValue = (stableKey ? assignmentData[stableKey] : undefined) ?? (legacyKey ? assignmentData[legacyKey] : undefined) ?? ''
+        const rawSelectedValue = (stableKey ? assignmentData[stableKey] : undefined) ?? (legacyKey ? assignmentData[legacyKey] : undefined) ?? ''
+        const selectedValue = resolveDropdownDisplayValue({
+          dropdownBlock: b,
+          rawValue: rawSelectedValue,
+          studentSex: student?.sex,
+        })
 
         // Skip rendering if no value is selected
         if (!selectedValue) return
@@ -770,7 +776,11 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), asy
         const stableKey = blockId ? `dropdown_${blockId}` : null
         const legacyKey = dropdownNum ? `dropdown_${dropdownNum}` : null
         const raw = (stableKey ? assignmentData[stableKey] : undefined) ?? (legacyKey ? assignmentData[legacyKey] : undefined)
-        const selectedValue = typeof raw === 'string' ? raw.trim() : raw
+        const selectedValue = resolveDropdownDisplayValue({
+          dropdownBlock: findDropdownBlockByReference((tpl as any)?.pages || [], { dropdownNumber: dropdownNum }),
+          rawValue: typeof raw === 'string' ? raw.trim() : raw,
+          studentSex: student?.sex,
+        })
         if (!selectedValue) return
 
         if (b.props?.color) doc.fillColor(b.props.color)
