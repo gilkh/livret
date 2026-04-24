@@ -1,9 +1,9 @@
 import { StudentDoc } from '../types/student';
 
 export const compareStudentsByLastName = (a: StudentDoc, b: StudentDoc) => {
-  const familyNameCompare = (a.firstName || '').localeCompare(b.firstName || '', 'fr', { sensitivity: 'base' })
-  if (familyNameCompare !== 0) return familyNameCompare
-  return (a.lastName || '').localeCompare(b.lastName || '', 'fr', { sensitivity: 'base' })
+  const lastNameCompare = (a.lastName || '').localeCompare(b.lastName || '', 'fr', { sensitivity: 'base' })
+  if (lastNameCompare !== 0) return lastNameCompare
+  return (a.firstName || '').localeCompare(b.firstName || '', 'fr', { sensitivity: 'base' })
 };
 
 export const getInitials = (firstName: string, lastName: string) => {

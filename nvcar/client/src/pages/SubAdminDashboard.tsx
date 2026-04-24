@@ -4,7 +4,7 @@ import api from '../api'
 import ProgressionChart from '../components/ProgressionChart'
 import { useSchoolYear } from '../context/SchoolYearContext'
 import { openBatchPdfExport } from '../utils/pdfExport'
-import { AlertTriangle, CheckCircle2, Download, PenTool, RotateCcw, TrendingUp, Users, BookOpen, Lightbulb, ArrowRight, Sparkles } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Download, PenTool, RotateCcw, TrendingUp, Users, BookOpen, Lightbulb, ArrowRight, Sparkles, Minus, Check, X, CircleSlash } from 'lucide-react'
 
 type Teacher = { _id: string; email: string; displayName: string }
 type PendingTemplate = {
@@ -212,10 +212,10 @@ export default function SubAdminDashboard() {
 
     const executeExport = (assignmentIds: string[], groupLabel: string, displayName: string, highQuality: boolean, versionMode: 'replace' | 'new' = 'new') => {
         const base = (api.defaults.baseURL || '').replace(/\/$/, '')
-        openBatchPdfExport(base, assignmentIds, groupLabel, displayName, { 
-            yearName: activeYear?.name, 
+        openBatchPdfExport(base, assignmentIds, groupLabel, displayName, {
+            yearName: activeYear?.name,
             semester: activeSemesterLabel,
-            versionMode 
+            versionMode
         }, highQuality, batchExportOptions)
     }
 
@@ -252,6 +252,35 @@ export default function SubAdminDashboard() {
         }
 
         executeExport(assignmentIds, `${level}-${className}`, `Carnets - ${className}`, highQuality)
+    }
+
+    const downloadSingleStudent = async (studentName: string, assignmentIds: string[], highQuality = false) => {
+        if (assignmentIds.length === 0) return
+
+        try {
+            const checkRes = await api.post(`${apiPrefix}/gradebook-exports/check-existing`, {
+                assignmentIds,
+                yearName: activeYear?.name,
+                semester: activeSemesterLabel,
+                highQuality
+            })
+
+            if (checkRes.data.exists) {
+                setVersionConfirm({
+                    assignmentIds,
+                    groupLabel: studentName,
+                    displayName: `Carnet - ${studentName}`,
+                    highQuality,
+                    existingCount: checkRes.data.totalCount,
+                    studentNames: checkRes.data.studentNames
+                })
+                return
+            }
+        } catch (e) {
+            console.error('Check existing failed', e)
+        }
+
+        executeExport(assignmentIds, studentName, `Carnet - ${studentName}`, highQuality)
     }
 
     const getLevelAssignmentIds = (level: string): string[] => {
@@ -1337,9 +1366,11 @@ export default function SubAdminDashboard() {
                                                                     return acc
                                                                 }, {} as Record<string, PendingTemplate[]>)
                                                             ).sort((a, b) => {
-                                                                const nameA = a[0]?.student ? `${a[0].student.lastName} ${a[0].student.firstName}` : ''
-                                                                const nameB = b[0]?.student ? `${b[0].student.lastName} ${b[0].student.firstName}` : ''
-                                                                return nameA.localeCompare(nameB)
+                                                                const sA = a[0]?.student
+                                                                const sB = b[0]?.student
+                                                                const nameA = `${(sA?.lastName || '').trim()} ${(sA?.firstName || '').trim()}`.toLowerCase()
+                                                                const nameB = `${(sB?.lastName || '').trim()} ${(sB?.firstName || '').trim()}`.toLowerCase()
+                                                                return nameA.localeCompare(nameB, 'fr')
                                                             }).map(studentTemplates => {
                                                                 const student = studentTemplates[0].student
                                                                 const isPromoted = studentTemplates.some(t => t.isPromoted)
@@ -1381,35 +1412,75 @@ export default function SubAdminDashboard() {
                                                                                         }}
                                                                                     />
                                                                                 )}
-                                                                                <h3 style={{ fontSize: 18, color: '#1e293b', fontWeight: 700, margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                                                                    {student ? `${student.firstName} ${student.lastName}` : 'Élève Inconnu'}
+                                                                                <h3 style={{ fontSize: 18, color: '#1e293b', fontWeight: 700, margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>
+                                                                                    {student ? `${(student.lastName || '').toUpperCase()} ${student.firstName || ''}` : 'Élève Inconnu'}
                                                                                 </h3>
-                                                                                {isPromoted ? (
-                                                                                    <span style={{
-                                                                                        fontSize: 10,
-                                                                                        background: '#166534',
-                                                                                        color: '#fff',
-                                                                                        padding: '2px 8px',
-                                                                                        borderRadius: 12,
-                                                                                        fontWeight: 600,
-                                                                                        whiteSpace: 'nowrap'
-                                                                                    }}>
-                                                                                        Promu
-                                                                                    </span>
-                                                                                ) : (
-                                                                                    <span style={{
-                                                                                        fontSize: 10,
-                                                                                        background: '#f1f5f9',
-                                                                                        color: '#64748b',
-                                                                                        padding: '2px 8px',
-                                                                                        borderRadius: 12,
-                                                                                        fontWeight: 600,
-                                                                                        whiteSpace: 'nowrap',
-                                                                                        border: '1px solid #cbd5e1'
-                                                                                    }}>
-                                                                                        Non promu
-                                                                                    </span>
-                                                                                )}
+
+                                                                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 'auto' }}>
+                                                                                    {isPromoted ? (
+                                                                                        <div 
+                                                                                            title="Élève promu"
+                                                                                            style={{
+                                                                                                display: 'flex',
+                                                                                                alignItems: 'center',
+                                                                                                justifyContent: 'center',
+                                                                                                width: 20,
+                                                                                                height: 20,
+                                                                                                background: '#dcfce7',
+                                                                                                color: '#166534',
+                                                                                                borderRadius: '50%',
+                                                                                                border: '1px solid #bbf7d0',
+                                                                                                flexShrink: 0
+                                                                                            }}
+                                                                                        >
+                                                                                            <CheckCircle2 size={14} strokeWidth={2.5} />
+                                                                                        </div>
+                                                                                    ) : (
+                                                                                        <div 
+                                                                                            title="Non promu"
+                                                                                            style={{
+                                                                                                display: 'flex',
+                                                                                                alignItems: 'center',
+                                                                                                justifyContent: 'center',
+                                                                                                width: 20,
+                                                                                                height: 20,
+                                                                                                background: '#f8fafc',
+                                                                                                color: '#94a3b8',
+                                                                                                borderRadius: '50%',
+                                                                                                border: '1px solid #e2e8f0',
+                                                                                                flexShrink: 0
+                                                                                            }}
+                                                                                        >
+                                                                                            <CircleSlash size={14} strokeWidth={2.5} />
+                                                                                        </div>
+                                                                                    )}
+
+                                                                                    <button
+                                                                                        onClick={(e) => {
+                                                                                            e.stopPropagation()
+                                                                                            const sName = student ? `${student.firstName} ${student.lastName}` : 'Eleve'
+                                                                                            const ids = studentTemplates.map(t => t._id).filter(Boolean) as string[]
+                                                                                            promptExportQuality((hq) => downloadSingleStudent(sName, ids, hq))
+                                                                                        }}
+                                                                                        style={{
+                                                                                            background: 'transparent',
+                                                                                            border: 'none',
+                                                                                            cursor: 'pointer',
+                                                                                            color: '#64748b',
+                                                                                            padding: 4,
+                                                                                            borderRadius: 4,
+                                                                                            display: 'flex',
+                                                                                            alignItems: 'center',
+                                                                                            justifyContent: 'center',
+                                                                                            transition: 'all 0.2s'
+                                                                                        }}
+                                                                                        onMouseEnter={(e) => e.currentTarget.style.color = '#7c3aed'}
+                                                                                        onMouseLeave={(e) => e.currentTarget.style.color = '#64748b'}
+                                                                                        title="Exporter le carnet de cet élève"
+                                                                                    >
+                                                                                        <Download size={14} />
+                                                                                    </button>
+                                                                                </div>
                                                                             </div>
                                                                         </div>
 
@@ -1663,7 +1734,7 @@ export default function SubAdminDashboard() {
                                 Exports déjà existants
                             </h3>
                         </div>
-                        
+
                         <p style={{ margin: '0 0 16px', fontSize: 14, color: '#64748b', lineHeight: 1.5 }}>
                             <strong>{versionConfirm.existingCount}</strong> élève(s) ont déjà un carnet exporté pour <strong>{activeSemesterLabel}</strong>.
                             {versionConfirm.studentNames.length > 0 && (
