@@ -8,6 +8,7 @@ import { createSmtpTransporter, getSmtpSettings } from './settings'
 import { Setting } from '../models/Setting'
 import { resolveGradebookExportPath } from '../utils/gradebookExportStorage'
 import { EmailJob } from '../models/EmailJob'
+import { EmailTemplate } from '../models/EmailTemplate'
 
 export const gradebookExportsRouter = Router()
 
@@ -18,6 +19,7 @@ type EmailJobOptions = {
   customMessage: string
   selectedFileIds?: string[]
   testEmailOverride?: string
+  templateId?: string
 }
 
 const isAdminRole = (role: string) => role === 'ADMIN' || role === 'SUBADMIN'
@@ -98,49 +100,98 @@ const buildEmailContent = async (batch: any, file: any, options: EmailJobOptions
   const senderNameHtml = escapeHtml(senderName)
   const studentNameHtml = escapeHtml(studentName)
   const detailsHtml = details.map((detail) => escapeHtml(detail))
-  const extraMessageHtml = escapeHtml(extraMessage)
 
-  const html = `
-    <div style="font-family: 'Inter', Arial, sans-serif; color: #1e293b; max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 16px; overflow: hidden; border: 1px solid #e2e8f0; box-shadow: 0 10px 25px rgba(0,0,0,0.05);">
-      <div style="padding: 32px 40px; background: linear-gradient(135deg, #2563eb, #3b82f6); color: #ffffff;">
-        <div style="font-size: 13px; text-transform: uppercase; letter-spacing: 0.1em; opacity: 0.9; margin-bottom: 8px;">${schoolNameHtml}</div>
-        <h1 style="margin: 0; font-size: 26px; font-weight: 800; letter-spacing: -0.02em;">Votre carnet scolaire</h1>
+  // Find a matching template
+  let matchingTemplate = null
+  
+  if (options.templateId) {
+    matchingTemplate = await EmailTemplate.findById(options.templateId).lean()
+  }
+
+  if (!matchingTemplate) {
+    matchingTemplate = await EmailTemplate.findOne({
+      $or: [
+        { linkedLevels: level },
+        { linkedClasses: className }
+      ]
+    }).lean()
+  }
+
+  if (!matchingTemplate) {
+    matchingTemplate = await EmailTemplate.findOne({
+      linkedLevels: { $size: 0 },
+      linkedClasses: { $size: 0 }
+    }).lean()
+  }
+
+  let finalSubject = subject
+  let finalHtml = ''
+
+  if (matchingTemplate) {
+    const replacements: Record<string, string> = {
+      '{{studentName}}': studentNameHtml,
+      '{{yearName}}': escapeHtml(yearName),
+      '{{level}}': escapeHtml(level),
+      '{{className}}': escapeHtml(className),
+      '{{schoolName}}': schoolNameHtml,
+    }
+
+    finalSubject = matchingTemplate.subject
+    finalHtml = matchingTemplate.bodyHtml
+
+    for (const [key, val] of Object.entries(replacements)) {
+      finalSubject = finalSubject.replace(new RegExp(key, 'g'), val)
+      finalHtml = finalHtml.replace(new RegExp(key, 'g'), val)
+    }
+  } else {
+    finalHtml = `
+    <div style="font-family: Arial, sans-serif; color: #334155; max-width: 600px; margin: 0 auto; padding: 20px;">
+      <div style="border-bottom: 2px solid #f1f5f9; padding-bottom: 20px; margin-bottom: 30px;">
+        <div style="font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; color: #4f46e5; margin-bottom: 8px;">${schoolNameHtml}</div>
+        <h1 style="margin: 0; font-size: 24px; font-weight: 800; color: #1e293b;">Carnet Scolaire</h1>
       </div>
-      <div style="padding: 40px; line-height: 1.6;">
-        <p style="margin: 0 0 24px; font-size: 16px;">Bonjour,</p>
-        <p style="margin: 0 0 24px; font-size: 16px;">Veuillez trouver en pièce jointe le carnet scolaire de <strong>${studentNameHtml}</strong>.</p>
+      
+      <div style="line-height: 1.6;">
+        <p style="margin: 0 0 20px; font-size: 16px;">Bonjour,</p>
+        <p style="margin: 0 0 25px; font-size: 16px;">Nous vous prions de trouver ci-joint le carnet scolaire de :<br/>
+          <strong style="font-size: 18px; color: #1e293b; display: block; margin-top: 5px;">${studentNameHtml}</strong>
+        </p>
         
         ${details.length > 0 ? `
-        <div style="background: #f8fafc; border-radius: 12px; padding: 20px; border: 1px solid #f1f5f9; margin-bottom: 24px;">
-          <ul style="padding: 0; margin: 0; list-style: none; font-size: 14px; color: #475569;">
-            ${detailsHtml.map((detail) => `<li style="margin-bottom: 8px; display: flex; align-items: center;"><span style="width: 6px; height: 6px; background: #3b82f6; border-radius: 50%; display: inline-block; margin-right: 10px;"></span>${detail}</li>`).join('')}
-          </ul>
+        <div style="background-color: #f8fafc; border-radius: 10px; padding: 20px; border: 1px solid #e2e8f0; margin-bottom: 25px;">
+          <table style="width: 100%; border-collapse: collapse;">
+            ${details.map((_, idx) => `
+              <tr>
+                <td style="padding: 5px 0; font-size: 14px; color: #64748b; width: 130px;">${details[idx].split(' : ')[0]}</td>
+                <td style="padding: 5px 0; font-size: 14px; font-weight: 700; color: #1e293b;">${details[idx].split(' : ')[1]}</td>
+              </tr>
+            `).join('')}
+          </table>
         </div>` : ''}
 
-        ${extraMessage ? `<div style="background: #fffbeb; border-left: 4px solid #f59e0b; padding: 16px 20px; border-radius: 4px; color: #92400e; font-size: 15px; margin-bottom: 24px;">${extraMessageHtml}</div>` : ''}
-        
-        <p style="margin: 0; font-size: 15px; color: #64748b;">Merci de votre confiance.</p>
-      </div>
-      <div style="padding: 24px 40px; background: #f8fafc; border-top: 1px solid #e2e8f0; text-align: center; font-size: 13px; color: #94a3b8;">
-        Ce carnet est un document officiel exporté depuis votre portail scolaire.
+        ${extraMessage ? `
+        <div style="margin-bottom: 25px; padding: 15px; background-color: #f5f3ff; border-left: 4px solid #4f46e5; color: #4338ca; font-size: 15px;">
+          ${escapeHtml(extraMessage)}
+        </div>` : ''}
       </div>
     </div>
   `.trim()
+  }
 
   const textLines = [
-    schoolName,
-    '',
     `Carnet scolaire de ${studentName}`,
-    ...details,
     '',
-    'Veuillez trouver le carnet PDF en pièce jointe.',
+    `Bonjour,`,
+    '',
+    `Veuillez trouver ci-joint le carnet scolaire de ${studentName}.`,
+    '',
+    ...details,
   ]
   if (extraMessage) textLines.push('', extraMessage)
-  textLines.push('', senderName)
 
   return {
-    subject,
-    html,
+    subject: finalSubject,
+    html: finalHtml,
     text: textLines.join('\n'),
     fromName: senderName,
     fromEmail: String(settingsMap.smtp_from_email || '').trim(),
@@ -234,6 +285,53 @@ gradebookExportsRouter.get('/batches', requireAuth(['ADMIN', 'SUBADMIN', 'AEFE']
   }
 })
 
+gradebookExportsRouter.post('/zip-files', requireAuth(['ADMIN', 'SUBADMIN', 'AEFE']), async (req, res) => {
+  try {
+    const { selectedFileIds, label } = req.body
+    if (!Array.isArray(selectedFileIds) || selectedFileIds.length === 0) {
+      return res.status(400).json({ error: 'no_files_selected' })
+    }
+
+    const batches = await ExportedGradebookBatch.find({
+      'files._id': { $in: selectedFileIds }
+    }).lean()
+
+    const filesToZip: any[] = []
+    selectedFileIds.forEach(id => {
+      for (const batch of batches) {
+        const f = batch.files.find((file: any) => String(file._id) === String(id))
+        if (f) {
+          filesToZip.push(f)
+          break
+        }
+      }
+    })
+
+    if (filesToZip.length === 0) return res.status(404).json({ error: 'files_not_found' })
+
+    const zipName = sanitizeDownloadFileName(label || 'exports', 'exports.zip')
+    res.setHeader('Content-Type', 'application/zip')
+    res.setHeader('Content-Disposition', `attachment; filename="${zipName}.zip"`)
+
+    const archive = archiver('zip', { zlib: { level: 6 } })
+    archive.pipe(res)
+
+    for (const file of filesToZip) {
+      const absolutePath = resolveGradebookExportPath(String(file.relativePath || ''))
+      if (fs.existsSync(absolutePath)) {
+        const yearDir = sanitizeArchiveSegment(String(file.yearName || ''), 'Sans annee')
+        const levelDir = sanitizeArchiveSegment(String(file.level || ''), 'Sans niveau')
+        const classDir = sanitizeArchiveSegment(String(file.className || ''), 'Sans classe')
+        const safeFileName = sanitizeDownloadFileName(String(file.fileName || 'carnet.pdf'), 'carnet.pdf')
+        archive.file(absolutePath, { name: `${yearDir}/${levelDir}/${classDir}/${safeFileName}` })
+      }
+    }
+    await archive.finalize()
+  } catch (error: any) {
+    res.status(500).json({ error: 'download_failed', message: error.message })
+  }
+})
+
 gradebookExportsRouter.post('/batches/:batchId/download', requireAuth(['ADMIN', 'SUBADMIN', 'AEFE']), async (req, res) => {
   try {
     const batch = await getOwnedBatch(req, String(req.params.batchId || ''))
@@ -262,6 +360,23 @@ gradebookExportsRouter.post('/batches/:batchId/download', requireAuth(['ADMIN', 
       }
     }
     await archive.finalize()
+  } catch (error: any) {
+    res.status(500).json({ error: 'download_failed', message: error.message })
+  }
+})
+
+gradebookExportsRouter.get('/batches/:batchId/files/:fileId/download', requireAuth(['ADMIN', 'SUBADMIN', 'AEFE']), async (req, res) => {
+  try {
+    const batch = await getOwnedBatch(req, String(req.params.batchId || ''))
+    if (!batch) return res.status(404).json({ error: 'batch_not_found' })
+
+    const file = batch.files.find((f: any) => String(f._id) === req.params.fileId)
+    if (!file) return res.status(404).json({ error: 'file_not_found' })
+
+    const absolutePath = resolveGradebookExportPath(String(file.relativePath || ''))
+    if (!fs.existsSync(absolutePath)) return res.status(404).json({ error: 'file_missing_on_disk' })
+
+    res.download(absolutePath, file.fileName)
   } catch (error: any) {
     res.status(500).json({ error: 'download_failed', message: error.message })
   }
@@ -310,7 +425,7 @@ gradebookExportsRouter.post('/batches/:batchId/email-preview', requireAuth(['ADM
 
 gradebookExportsRouter.post('/batches/:batchId/send', requireAuth(['ADMIN', 'SUBADMIN', 'AEFE']), async (req, res) => {
   try {
-    const { selectedFileIds, includeFather, includeMother, includeStudent, customMessage, testEmailOverride } = req.body
+    const { selectedFileIds, includeFather, includeMother, includeStudent, customMessage, testEmailOverride, templateId } = req.body
     const batch = await getOwnedBatch(req, String(req.params.batchId || ''))
     if (!batch) return res.status(404).json({ error: 'batch_not_found' })
 
@@ -334,15 +449,68 @@ gradebookExportsRouter.post('/batches/:batchId/send', requireAuth(['ADMIN', 'SUB
         includeMother,
         includeStudent,
         customMessage,
-        selectedFileIds: selectedFileIds || []
+        selectedFileIds: selectedFileIds || [],
+        testEmailOverride
       }
     })
     await job.save()
 
-    runEmailJob(jobId, batch, files, { includeFather, includeMother, includeStudent, customMessage, selectedFileIds, testEmailOverride })
+    runEmailJob(jobId, batch, files, { includeFather, includeMother, includeStudent, customMessage, selectedFileIds, testEmailOverride, templateId })
     res.json({ jobId })
   } catch (error: any) {
     res.status(500).json({ error: 'send_failed', message: error.message })
+  }
+})
+
+gradebookExportsRouter.post('/check-existing', requireAuth(['ADMIN', 'SUBADMIN', 'AEFE']), async (req, res) => {
+  try {
+    const { assignmentIds, yearName, semester, highQuality } = req.body
+    const targetQuality = highQuality ? 'high' : 'compressed'
+    
+    if (!Array.isArray(assignmentIds) || assignmentIds.length === 0) {
+      return res.json({ exists: false, count: 0 })
+    }
+
+    // Find all batches for this year/semester
+    const batches = await ExportedGradebookBatch.find({
+      yearName,
+      semester
+    }).lean()
+
+    const existingStudentIds: string[] = []
+    const studentNames: string[] = []
+
+    for (const batch of batches) {
+      for (const file of batch.files) {
+        if (assignmentIds.includes(String(file.assignmentId))) {
+          // If quality matches, we have a direct collision
+          if ((file as any).quality === targetQuality) {
+            const name = `${file.firstName} ${file.lastName}`
+            if (!studentNames.includes(name)) {
+              studentNames.push(name)
+            }
+          }
+        }
+      }
+    }
+
+    res.json({
+      exists: studentNames.length > 0,
+      count: studentNames.length,
+      studentNames: studentNames.slice(0, 10), // Limit for UI preview
+      totalCount: studentNames.length
+    })
+  } catch (error: any) {
+    res.status(500).json({ error: 'check_failed', message: error.message })
+  }
+})
+
+gradebookExportsRouter.get('/email-jobs', requireAuth(['ADMIN', 'SUBADMIN']), async (req, res) => {
+  try {
+    const jobs = await EmailJob.find().sort({ createdAt: -1 }).limit(100).lean()
+    res.json(jobs)
+  } catch (error: any) {
+    res.status(500).json({ error: 'fetch_all_jobs_failed', message: error.message })
   }
 })
 

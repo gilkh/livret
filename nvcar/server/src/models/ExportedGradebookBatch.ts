@@ -15,6 +15,8 @@ const exportedGradebookFileSchema = new Schema({
     mother: { type: String, default: '' },
     student: { type: String, default: '' },
   },
+  version: { type: Number, default: 1 },
+  quality: { type: String, enum: ['high', 'compressed'], default: 'high' },
   exportedAt: { type: Date, default: Date.now },
 }, { _id: true })
 

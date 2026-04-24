@@ -18,7 +18,8 @@ import {
   Activity,
   UserPlus,
   ToggleLeft,
-  MessageSquareText
+  MessageSquareText,
+  Mail
 } from 'lucide-react'
 import DashboardCard from '../components/DashboardCard'
 import './AdminDashboard.css'
@@ -190,6 +191,14 @@ export default function AdminDashboard() {
               to="/admin/appreciations"
               color="#ecfccb"
               iconColor="#3f6212"
+            />
+            <DashboardCard
+              title="Formats Emails"
+              description="Modèles d'emails de distribution."
+              icon={Mail}
+              to="/admin/email-templates"
+              color="#fef2f2"
+              iconColor="#ef4444"
             />
           </div>
         </section>

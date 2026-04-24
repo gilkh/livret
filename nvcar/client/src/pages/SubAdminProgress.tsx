@@ -1,4 +1,6 @@
 import { useEffect, useState, useMemo } from 'react'
+import * as XLSX from 'xlsx'
+import { FileDown, Search, LayoutGrid, List, BarChart3, Users, BookOpen, CheckCircle2 } from 'lucide-react'
 import api from '../api'
 import './SubAdminProgress.css'
 
@@ -213,16 +215,70 @@ export default function SubAdminProgress() {
         })
     }
 
+    const exportToExcel = () => {
+        if (!filteredStudents.length) return
+
+        const rows = filteredStudents.map(student => {
+            const levelData = student.levelsData.find(l => l.level === student.currentLevel) || student.levelsData[0]
+            const row: any = {
+                'Nom': student.lastName,
+                'Prénom': student.firstName,
+                'Niveau': student.currentLevel,
+                'Classe': student.className || 'Sans classe',
+                'Progression Globale (%)': (levelData?.percentage || 0)
+            }
+
+            // Add category details
+            if (levelData && Array.isArray(levelData.byCategory)) {
+                levelData.byCategory.forEach(cat => {
+                    row[`${cat.name} (%)`] = cat.percentage
+                    row[`${cat.name} (Compte)`] = `${cat.filled}/${cat.total}`
+                })
+            }
+
+            return row
+        })
+
+        const worksheet = XLSX.utils.json_to_sheet(rows)
+        const workbook = XLSX.utils.book_new()
+        XLSX.utils.book_append_sheet(workbook, worksheet, 'Progression')
+        
+        // Auto-size columns
+        const cols = Object.keys(rows[0] || {}).map(key => {
+            let maxLen = key.length
+            rows.forEach(row => {
+                const val = String(row[key] || '')
+                if (val.length > maxLen) maxLen = val.length
+            })
+            return { wch: maxLen + 2 }
+        })
+        worksheet['!cols'] = cols
+
+        XLSX.writeFile(workbook, `Progression_Eleves_${new Date().toISOString().split('T')[0]}.xlsx`)
+    }
+
     return (
         <div className="progress-page">
             {/* Header */}
             <header className="progress-header">
                 <div className="progress-header-left">
-                    <div className="progress-header-icon">📊</div>
+                    <div className="progress-header-icon">
+                        <BarChart3 size={32} />
+                    </div>
                     <div className="progress-header-text">
                         <h1>Progression des Élèves</h1>
                         <p>Suivez la progression détaillée de chaque élève par niveau et catégorie</p>
                     </div>
+                </div>
+                <div className="progress-header-right-actions">
+                    <button 
+                        className="btn-export-excel" 
+                        onClick={exportToExcel}
+                        disabled={filteredStudents.length === 0}
+                    >
+                        <FileDown size={18} />
+                        <span>Télécharger Excel</span>
+                    </button>
                 </div>
             </header>
 

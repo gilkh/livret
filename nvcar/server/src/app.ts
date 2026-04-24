@@ -39,6 +39,7 @@ import { templatePropagationRouter } from './routes/templatePropagation'
 import { errorLogsRouter } from './routes/errorLogs'
 import { integrityRouter } from './routes/integrity'
 import { gradebookExportsRouter } from './routes/gradebookExports'
+import { emailTemplatesRouter } from './routes/emailTemplates'
 import compression from 'compression'
 
 export const createApp = () => {
@@ -96,6 +97,7 @@ export const createApp = () => {
   app.use('/error-logs', errorLogsRouter)
   app.use('/integrity', integrityRouter)
   app.use('/gradebook-exports', gradebookExportsRouter)
+  app.use('/email-templates', emailTemplatesRouter)
   app.use('/uploads', express.static(path.join(__dirname, '../public/uploads')))
 
   app.get('/health', (_, res) => res.json({ ok: true }))

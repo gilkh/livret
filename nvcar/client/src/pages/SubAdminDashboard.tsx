@@ -70,6 +70,14 @@ export default function SubAdminDashboard() {
     const [undoingLevel, setUndoingLevel] = useState<Record<string, boolean>>({})
     const [actionMessage, setActionMessage] = useState('')
     const [levelSignConfirm, setLevelSignConfirm] = useState<{ level: string; unsignedCount: number } | null>(null)
+    const [versionConfirm, setVersionConfirm] = useState<{
+        assignmentIds: string[];
+        groupLabel: string;
+        displayName: string;
+        highQuality: boolean;
+        existingCount: number;
+        studentNames: string[];
+    } | null>(null)
 
     const getSexAccentColor = (sex?: 'female' | 'male') => {
         if (sex === 'female') return '#ec4899'
@@ -176,9 +184,39 @@ export default function SubAdminDashboard() {
         const assignmentIds = students.map(s => s.assignmentId).filter(Boolean) as string[]
         if (assignmentIds.length === 0) return
 
-        // Use the new progress page in a new tab for batch exports
+        try {
+            const checkRes = await api.post(`${apiPrefix}/gradebook-exports/check-existing`, {
+                assignmentIds,
+                yearName: activeYear?.name,
+                semester: activeSemesterLabel,
+                highQuality
+            })
+
+            if (checkRes.data.exists) {
+                setVersionConfirm({
+                    assignmentIds,
+                    groupLabel: group,
+                    displayName: `Carnets - ${group}`,
+                    highQuality,
+                    existingCount: checkRes.data.totalCount,
+                    studentNames: checkRes.data.studentNames
+                })
+                return
+            }
+        } catch (e) {
+            console.error('Check existing failed', e)
+        }
+
+        executeExport(assignmentIds, group, `Carnets - ${group}`, highQuality)
+    }
+
+    const executeExport = (assignmentIds: string[], groupLabel: string, displayName: string, highQuality: boolean, versionMode: 'replace' | 'new' = 'new') => {
         const base = (api.defaults.baseURL || '').replace(/\/$/, '')
-        openBatchPdfExport(base, assignmentIds, group, `Carnets - ${group}`, { yearName: activeYear?.name, semester: activeSemesterLabel }, highQuality, batchExportOptions)
+        openBatchPdfExport(base, assignmentIds, groupLabel, displayName, { 
+            yearName: activeYear?.name, 
+            semester: activeSemesterLabel,
+            versionMode 
+        }, highQuality, batchExportOptions)
     }
 
     const getClassAssignmentIds = (level: string, className: string): string[] => {
@@ -186,12 +224,34 @@ export default function SubAdminDashboard() {
         return Array.from(new Set(templates.map(t => t._id).filter(Boolean)))
     }
 
-    const downloadClassZip = (level: string, className: string, highQuality = false) => {
+    const downloadClassZip = async (level: string, className: string, highQuality = false) => {
         const assignmentIds = getClassAssignmentIds(level, className)
         if (assignmentIds.length === 0) return
 
-        const base = (api.defaults.baseURL || '').replace(/\/$/, '')
-        openBatchPdfExport(base, assignmentIds, `${level}-${className}`, `Carnets - ${className}`, { yearName: activeYear?.name, semester: activeSemesterLabel }, highQuality, batchExportOptions)
+        try {
+            const checkRes = await api.post(`${apiPrefix}/gradebook-exports/check-existing`, {
+                assignmentIds,
+                yearName: activeYear?.name,
+                semester: activeSemesterLabel,
+                highQuality
+            })
+
+            if (checkRes.data.exists) {
+                setVersionConfirm({
+                    assignmentIds,
+                    groupLabel: `${level}-${className}`,
+                    displayName: `Carnets - ${className}`,
+                    highQuality,
+                    existingCount: checkRes.data.totalCount,
+                    studentNames: checkRes.data.studentNames
+                })
+                return
+            }
+        } catch (e) {
+            console.error('Check existing failed', e)
+        }
+
+        executeExport(assignmentIds, `${level}-${className}`, `Carnets - ${className}`, highQuality)
     }
 
     const getLevelAssignmentIds = (level: string): string[] => {
@@ -1574,6 +1634,108 @@ export default function SubAdminDashboard() {
                                 }}
                             >
                                 Valider
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Version confirmation modal */}
+            {versionConfirm && (
+                <div
+                    style={{
+                        position: 'fixed', inset: 0, zIndex: 9999,
+                        background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center'
+                    }}
+                    onClick={() => setVersionConfirm(null)}
+                >
+                    <div
+                        style={{
+                            background: 'white', borderRadius: 16, padding: '28px 32px',
+                            boxShadow: '0 20px 60px rgba(0,0,0,0.25)', maxWidth: 480, width: '90%'
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, color: '#d97706' }}>
+                            <AlertTriangle size={24} />
+                            <h3 style={{ margin: 0, fontSize: 18, color: '#1e293b' }}>
+                                Exports déjà existants
+                            </h3>
+                        </div>
+                        
+                        <p style={{ margin: '0 0 16px', fontSize: 14, color: '#64748b', lineHeight: 1.5 }}>
+                            <strong>{versionConfirm.existingCount}</strong> élève(s) ont déjà un carnet exporté pour <strong>{activeSemesterLabel}</strong>.
+                            {versionConfirm.studentNames.length > 0 && (
+                                <span style={{ display: 'block', marginTop: 8, fontSize: 12, fontStyle: 'italic' }}>
+                                    Incluant: {versionConfirm.studentNames.join(', ')}{versionConfirm.existingCount > versionConfirm.studentNames.length ? '...' : ''}
+                                </span>
+                            )}
+                        </p>
+
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                            <button
+                                onClick={() => {
+                                    executeExport(
+                                        versionConfirm.assignmentIds,
+                                        versionConfirm.groupLabel,
+                                        versionConfirm.displayName,
+                                        versionConfirm.highQuality,
+                                        'new'
+                                    )
+                                    setVersionConfirm(null)
+                                }}
+                                style={{
+                                    padding: '14px 18px', borderRadius: 12,
+                                    border: '2px solid #e2e8f0', background: '#f8fafc',
+                                    cursor: 'pointer', textAlign: 'left',
+                                    transition: 'border-color 0.15s, background 0.15s'
+                                }}
+                                onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#3b82f6'; e.currentTarget.style.background = '#eff6ff' }}
+                                onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.background = '#f8fafc' }}
+                            >
+                                <div style={{ fontWeight: 700, fontSize: 15, color: '#1e293b' }}>Ajouter comme nouvelle version</div>
+                                <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+                                    Conserve les anciens fichiers et crée une version V2, V3...
+                                </div>
+                            </button>
+
+                            <button
+                                onClick={() => {
+                                    executeExport(
+                                        versionConfirm.assignmentIds,
+                                        versionConfirm.groupLabel,
+                                        versionConfirm.displayName,
+                                        versionConfirm.highQuality,
+                                        'replace'
+                                    )
+                                    setVersionConfirm(null)
+                                }}
+                                style={{
+                                    padding: '14px 18px', borderRadius: 12,
+                                    border: '2px solid #e2e8f0', background: '#f8fafc',
+                                    cursor: 'pointer', textAlign: 'left',
+                                    transition: 'border-color 0.15s, background 0.15s'
+                                }}
+                                onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#3b82f6'; e.currentTarget.style.background = '#eff6ff' }}
+                                onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.background = '#f8fafc' }}
+                            >
+                                <div style={{ fontWeight: 700, fontSize: 15, color: '#1e293b' }}>Remplacer la version actuelle</div>
+                                <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+                                    Écrase les fichiers existants pour ce semestre.
+                                </div>
+                            </button>
+
+                            <button
+                                onClick={() => setVersionConfirm(null)}
+                                style={{
+                                    marginTop: 8, padding: '10px', borderRadius: 12,
+                                    border: 'none', background: 'transparent',
+                                    color: '#64748b', fontSize: 14, cursor: 'pointer',
+                                    textAlign: 'center'
+                                }}
+                            >
+                                Annuler
                             </button>
                         </div>
                     </div>

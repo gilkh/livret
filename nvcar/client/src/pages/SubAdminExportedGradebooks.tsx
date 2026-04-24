@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { FileDown, RefreshCcw, Mail, Eye, Archive, CheckCircle2, XCircle, AlertCircle, Send, CheckSquare, Square, FolderArchive, MailPlus, Trash2 } from 'lucide-react'
+import { FileDown, RefreshCcw, Mail, Eye, Archive, CheckCircle2, XCircle, AlertCircle, Send, CheckSquare, Square, FolderArchive, MailPlus, Trash2, Users } from 'lucide-react'
 import api from '../api'
 import './SubAdminExportedGradebooks.css'
 
@@ -18,6 +18,8 @@ type ExportedFile = {
     mother?: string
     student?: string
   }
+  version: number
+  quality?: 'high' | 'compressed'
 }
 
 type ExportedBatch = {
@@ -88,38 +90,16 @@ export default function SubAdminExportedGradebooks() {
   const [jobHistory, setJobHistory] = useState<EmailJob[]>([])
   const [historyLoading, setHistoryLoading] = useState(false)
   const [rightTab, setRightTab] = useState<'config' | 'history'>('config')
+  const [showConfirmModal, setShowConfirmModal] = useState(false)
+  const [confirmStep, setConfirmStep] = useState(1)
+  const [selectedGroupKey, setSelectedGroupKey] = useState('')
   const [activeFileForTest, setActiveFileForTest] = useState<string | null>(null)
   const [testEmailValue, setTestEmailValue] = useState('')
   const [testLoading, setTestLoading] = useState(false)
   const [testSuccess, setTestSuccess] = useState(false)
 
   const token = sessionStorage.getItem('token') || localStorage.getItem('token') || ''
-  const selectedBatch = batches.find((batch) => batch._id === selectedBatchId) || null
-  const filteredBatchFiles = selectedBatch
-    ? selectedBatch.files.filter((file) => {
-      if (scopeLevel && String(file.level || '') !== scopeLevel) return false
-      if (scopeClassName && String(file.className || '') !== scopeClassName) return false
-      if (scopeStudentId && String(file._id) !== scopeStudentId) return false
-      return true
-    })
-    : []
-  const levelOptions = selectedBatch
-    ? Array.from(new Set(selectedBatch.files.map((file) => String(file.level || '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b))
-    : []
-  const classOptions = selectedBatch
-    ? Array.from(new Set(selectedBatch.files
-      .filter((file) => !scopeLevel || String(file.level || '') === scopeLevel)
-      .map((file) => String(file.className || '').trim())
-      .filter(Boolean))).sort((a, b) => a.localeCompare(b))
-    : []
-  const studentOptions = selectedBatch
-    ? selectedBatch.files.filter((file) => {
-      if (scopeLevel && String(file.level || '') !== scopeLevel) return false
-      if (scopeClassName && String(file.className || '') !== scopeClassName) return false
-      return true
-    })
-    : []
-
+  
   const loadBatches = async () => {
     try {
       setLoading(true)
@@ -127,7 +107,11 @@ export default function SubAdminExportedGradebooks() {
       const response = await api.get('/gradebook-exports/batches')
       const nextBatches = Array.isArray(response.data) ? response.data : []
       setBatches(nextBatches)
-      if (nextBatches.length > 0 && !selectedBatchId) setSelectedBatchId(nextBatches[0]._id)
+      
+      if (nextBatches.length > 0 && !selectedGroupKey) {
+        const first = nextBatches[0]
+        setSelectedGroupKey(`${first.groupLabel}-${first.yearName}-${first.semester}`)
+      }
     } catch (e: any) {
       setError(e.response?.data?.message || 'Impossible de charger les exports')
     } finally {
@@ -137,17 +121,65 @@ export default function SubAdminExportedGradebooks() {
 
   useEffect(() => { loadBatches() }, [])
 
+  const groupedLots: any[] = []
+  const lotMap = new Map<string, any>()
+  
+  batches.forEach(batch => {
+    const key = `${batch.groupLabel}-${batch.yearName}-${batch.semester}`
+    if (!lotMap.has(key)) {
+      lotMap.set(key, {
+        key,
+        groupLabel: batch.groupLabel,
+        yearName: batch.yearName,
+        semester: batch.semester,
+        batches: [],
+        createdAt: batch.createdAt
+      })
+      groupedLots.push(lotMap.get(key))
+    }
+    const lot = lotMap.get(key)
+    lot.batches.push(batch)
+    if (new Date(batch.createdAt) > new Date(lot.createdAt)) lot.createdAt = batch.createdAt
+  })
+
+  const selectedLot = groupedLots.find(l => l.key === selectedGroupKey) || null
+  
+  const allFilesForLot: ExportedFile[] = selectedLot 
+    ? selectedLot.batches.flatMap((b: any) => b.files.map((f: any) => ({ ...f, batchId: b._id })))
+    : []
+
+  const uniqueFileVersionPairs = Array.from(
+    new Map(allFilesForLot.map(f => [`${f.assignmentId}-${f.version}`, f])).values()
+  )
+
+  const filteredBatchFiles = uniqueFileVersionPairs.filter((file) => {
+    if (scopeLevel && String(file.level || '') !== scopeLevel) return false
+    if (scopeClassName && String(file.className || '') !== scopeClassName) return false
+    if (scopeStudentId && String(file._id) !== scopeStudentId) return false
+    return true
+  })
+
+  const levelOptions = Array.from(new Set(allFilesForLot.map((file) => String(file.level || '').trim()).filter(Boolean))).sort()
+  const classOptions = Array.from(new Set(allFilesForLot
+    .filter((file) => !scopeLevel || String(file.level || '') === scopeLevel)
+    .map((file) => String(file.className || '').trim())
+    .filter(Boolean))).sort()
+  const studentOptions = uniqueFileVersionPairs.filter((file) => {
+    if (scopeLevel && String(file.level || '') !== scopeLevel) return false
+    if (scopeClassName && String(file.className || '') !== scopeClassName) return false
+    return true
+  })
+
   useEffect(() => {
-    if (!selectedBatch) {
+    if (!selectedLot) {
       setSelectedFileIds([])
       setScopeLevel('')
       setScopeClassName('')
       setScopeStudentId('')
       return
     }
-    setSelectedFileIds(selectedBatch.files.map((file) => file._id))
-    loadJobHistory(selectedBatchId)
-  }, [selectedBatchId])
+    loadJobHistory(selectedLot.batches[0]._id)
+  }, [selectedGroupKey])
 
   const loadJobHistory = async (batchId: string) => {
     if (!batchId) { setJobHistory([]); return }
@@ -175,15 +207,15 @@ export default function SubAdminExportedGradebooks() {
   }
 
   const selectScopeFiles = () => {
-    if (!selectedBatch) return
+    if (!selectedLot) return
     setSelectedFileIds(filteredBatchFiles.map((file) => file._id))
   }
 
   const previewEmail = async () => {
-    if (!selectedBatch || selectedFileIds.length === 0) return
+    if (!selectedLot || selectedFileIds.length === 0) return
     try {
       setPreviewLoading(true)
-      const response = await api.post(`/gradebook-exports/batches/${selectedBatch._id}/email-preview`, { selectedFileIds, includeFather, includeMother, includeStudent, customMessage })
+      const response = await api.post(`/gradebook-exports/batches/${selectedLot.batches[0]._id}/email-preview`, { selectedFileIds, includeFather, includeMother, includeStudent, customMessage })
       setEmailPreview(response.data)
     } catch (e: any) {
       setError(e.response?.data?.message || 'Erreur aperçu')
@@ -191,32 +223,41 @@ export default function SubAdminExportedGradebooks() {
   }
 
   const sendEmails = async () => {
-    if (!selectedBatch || selectedFileIds.length === 0) return
+    if (!selectedLot || selectedFileIds.length === 0) return
     try {
       setSendLoading(true)
-      const response = await api.post(`/gradebook-exports/batches/${selectedBatch._id}/send`, { selectedFileIds, includeFather, includeMother, includeStudent, customMessage })
-      setJobId(response.data.jobId)
-      setEmailJob(null)
-      loadJobHistory(selectedBatch._id)
+      setShowConfirmModal(false)
+      const res = await api.post(`/gradebook-exports/batches/${selectedLot.batches[0]._id}/send`, { 
+        selectedFileIds,
+        includeFather,
+        includeMother,
+        includeStudent,
+        customMessage
+      })
+      setJobId(res.data.jobId)
+      setRightTab('history')
     } catch (e: any) { setError(e.response?.data?.message || 'Erreur envoi') } finally { setSendLoading(false) }
   }
 
-  const downloadFileUrl = (fileId: string) => {
+  const downloadFileUrl = (fileId: string, batchId: string) => {
     const base = (api.defaults.baseURL || '').replace(/\/$/, '')
     const query = token ? `?token=${encodeURIComponent(token)}` : ''
-    return `${base}/gradebook-exports/batches/${selectedBatchId}/files/${fileId}/download${query}`
+    return `${base}/gradebook-exports/batches/${batchId}/files/${fileId}/download${query}`
   }
 
-  const downloadSelectedFiles = async () => {
-    if (!selectedBatch || selectedFileIds.length === 0) return
+  const downloadSelectedFiles = async (quality?: 'high' | 'compressed') => {
+    if (!selectedLot || selectedFileIds.length === 0) return
     setZipDownloadLoading(true)
     try {
-      const response = await api.post(`/gradebook-exports/batches/${selectedBatch._id}/download`, { selectedFileIds }, { responseType: 'blob' })
+      const response = await api.post(`/gradebook-exports/batches/${selectedLot.batches[0]._id}/download`, { 
+        selectedFileIds,
+        quality
+      }, { responseType: 'blob' })
       const blob = new Blob([response.data], { type: 'application/zip' })
       const url = window.URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = url
-      link.download = `${selectedBatch.groupLabel || 'exports'}.zip`
+      link.download = `${selectedLot.groupLabel || 'exports'}${quality ? `-${quality.toUpperCase()}` : ''}.zip`
       document.body.appendChild(link)
       link.click()
       document.body.removeChild(link)
@@ -303,29 +344,37 @@ export default function SubAdminExportedGradebooks() {
                   <span>Aucun export</span>
                 </div>
               )}
-              {batches.map((batch) => {
-                const selected = batch._id === selectedBatchId
+              {groupedLots.map((lot) => {
+                const selected = lot.key === selectedGroupKey
+                const totalCount = lot.batches.reduce((sum: number, b: any) => sum + b.exportedCount, 0)
                 return (
-                  <button
-                    key={batch._id}
-                    onClick={() => setSelectedBatchId(batch._id)}
+                  <div
+                    key={lot.key}
+                    onClick={() => setSelectedGroupKey(lot.key)}
                     className={`batch-item compact ${selected ? 'active' : ''}`}
+                    style={{ cursor: 'pointer' }}
                   >
-                    <div className="batch-label">{batch.groupLabel || batch.archiveFileName}</div>
+                    <div className="batch-label">{lot.groupLabel}</div>
                     <div className="batch-meta-row">
-                      {batch.yearName && <span>{batch.yearName}</span>}
-                      {batch.semester && <span>• {batch.semester}</span>}
+                      {lot.yearName && <span>{lot.yearName}</span>}
+                      {lot.semester && <span>• {lot.semester}</span>}
                     </div>
                     <div className="batch-footer">
-                      <span className="batch-date-small">{new Date(batch.createdAt).toLocaleDateString()}</span>
+                      <span className="batch-date-small">{new Date(lot.createdAt).toLocaleDateString()}</span>
                       <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                        <span className="count-tag">{batch.exportedCount}</span>
-                        <button className="btn-delete-xsmall" onClick={(e) => deleteBatch(batch._id, e)}>
+                        <span className="count-tag">{totalCount} files</span>
+                        <button className="btn-delete-xsmall" onClick={(e) => {
+                          e.stopPropagation()
+                          if (window.confirm("Supprimer TOUS les lots de ce groupe ?")) {
+                            Promise.all(lot.batches.map((b: any) => api.delete(`/gradebook-exports/batches/${b._id}`)))
+                              .then(() => loadBatches())
+                          }
+                        }}>
                           <Trash2 size={12} />
                         </button>
                       </div>
                     </div>
-                  </button>
+                  </div>
                 )
               })}
             </div>
@@ -339,29 +388,61 @@ export default function SubAdminExportedGradebooks() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1 }}>
                 <FileDown size={18} />
                 <div className="card-title">Contenu du lot</div>
-                {selectedBatch && (
+                {selectedLot && (
                   <span className="batch-badge-title">
-                    {selectedBatch.groupLabel || selectedBatch.archiveFileName}
+                    {selectedLot.groupLabel}
                   </span>
                 )}
               </div>
-              {selectedBatch && (
+              {selectedLot && (
                 <div style={{ display: 'flex', gap: 6 }}>
-                  <button className="btn-action-small" onClick={() => setSelectedFileIds(selectedBatch.files.map((file) => file._id))} title="Tout sélectionner">
+                  <button className="btn-action-small" onClick={() => setSelectedFileIds(allFilesForLot.map((file) => file._id))} title="Tout sélectionner">
                     <CheckSquare size={14} /> Tout
                   </button>
                   <button className="btn-action-small" onClick={() => setSelectedFileIds([])} title="Tout désélectionner">
                     <Square size={14} /> Aucun
                   </button>
-                  <button className="btn-action-small shiny" onClick={downloadSelectedFiles} disabled={selectedFileIds.length === 0 || zipDownloadLoading}>
-                    <Archive size={14} /> {zipDownloadLoading ? '...' : `ZIP (${selectedFileIds.length})`}
-                  </button>
+                  {(() => {
+                    // Check if all selected items have SD/HD available
+                    const selectedFiles = allFilesForLot.filter(f => selectedFileIds.includes(f._id))
+                    
+                    const allHaveSD = selectedFiles.length > 0 && selectedFiles.every(f => {
+                      const allInstances = batches.flatMap(b => b.files).filter(inst => inst.assignmentId === f.assignmentId && inst.version === f.version)
+                      return allInstances.some(inst => inst.quality === 'compressed')
+                    })
+                    
+                    const allHaveHD = selectedFiles.length > 0 && selectedFiles.every(f => {
+                      const allInstances = batches.flatMap(b => b.files).filter(inst => inst.assignmentId === f.assignmentId && inst.version === f.version)
+                      return allInstances.some(inst => inst.quality === 'high')
+                    })
+
+                    return (
+                      <>
+                        <button 
+                          className="btn-action-small shiny" 
+                          onClick={() => downloadSelectedFiles('compressed')} 
+                          disabled={selectedFileIds.length === 0 || zipDownloadLoading || !allHaveSD}
+                          title={!allHaveSD ? "Certains élèves sélectionnés n'ont pas de version SD" : ""}
+                        >
+                          <Archive size={14} /> {zipDownloadLoading ? '...' : `SD (${selectedFileIds.length})`}
+                        </button>
+                        <button 
+                          className="btn-action-small shiny" 
+                          onClick={() => downloadSelectedFiles('high')} 
+                          disabled={selectedFileIds.length === 0 || zipDownloadLoading || !allHaveHD}
+                          title={!allHaveHD ? "Certains élèves sélectionnés n'ont pas de version HD" : ""}
+                        >
+                          <Archive size={14} /> {zipDownloadLoading ? '...' : `HD (${selectedFileIds.length})`}
+                        </button>
+                      </>
+                    )
+                  })()}
                 </div>
               )}
             </div>
 
             <div className="flex-column" style={{ flex: 1, minHeight: 0 }}>
-              {!selectedBatch ? (
+              {!selectedLot ? (
                 <div className="empty-state">
                   <FolderArchive className="empty-state-icon" />
                   <p>Sélectionnez un lot dans la bibliothèque pour gérer les carnets.</p>
@@ -401,7 +482,10 @@ export default function SubAdminExportedGradebooks() {
                           <div className="file-card-top">
                             <input type="checkbox" className="file-item-checkbox" checked={checked} onChange={() => toggleFileSelection(file._id)} />
                             <div className="file-card-info">
-                              <div className="file-card-name">{`${file.firstName} ${file.lastName}`}</div>
+                              <div className="file-card-name">
+                                {`${file.firstName} ${file.lastName}`}
+                                {file.version > 1 && <span className="version-badge">V{file.version}</span>}
+                              </div>
                               <div className="file-card-meta">
                                 {file.level} • {file.className}
                               </div>
@@ -419,9 +503,33 @@ export default function SubAdminExportedGradebooks() {
                             </div>
                           </div>
                           <div className="file-card-actions">
-                            <a href={downloadFileUrl(file._id)} className="btn-text" download={file.fileName}>
-                              <FileDown size={14} /> Download
-                            </a>
+                            {(() => {
+                              // Find instances for THIS student AND THIS VERSION across all batches
+                              const allInstances = batches.flatMap(b => b.files.map(f => ({ ...f, batchId: b._id }))).filter(f => f.assignmentId === file.assignmentId && f.version === file.version)
+                              const hdInstance = allInstances.find(f => f.quality === 'high')
+                              const sdInstance = allInstances.find(f => f.quality === 'compressed')
+                              
+                              return (
+                                <>
+                                  <a 
+                                    href={sdInstance ? downloadFileUrl(sdInstance._id, sdInstance.batchId) : '#'} 
+                                    className={`btn-text ${!sdInstance ? 'disabled' : ''}`}
+                                    onClick={(e) => !sdInstance && e.preventDefault()}
+                                    title={sdInstance ? "Télécharger SD" : "SD non disponible"}
+                                  >
+                                    <FileDown size={14} /> SD
+                                  </a>
+                                  <a 
+                                    href={hdInstance ? downloadFileUrl(hdInstance._id, hdInstance.batchId) : '#'} 
+                                    className={`btn-text ${!hdInstance ? 'disabled' : ''}`}
+                                    onClick={(e) => !hdInstance && e.preventDefault()}
+                                    title={hdInstance ? "Télécharger HD" : "HD non disponible"}
+                                  >
+                                    <FileDown size={14} /> HD
+                                  </a>
+                                </>
+                              )
+                            })()}
                             <button className="btn-text delete" onClick={() => deleteFile(file._id)}>
                               <Trash2 size={14} /> Supprimer
                             </button>
@@ -475,50 +583,18 @@ export default function SubAdminExportedGradebooks() {
                     </div>
                   </div>
 
-                  <div className="config-section">
-                    <h3 className="section-title">Message personnalisé</h3>
-                    <textarea
-                      className="modern-textarea compact"
-                      style={{ minHeight: 80 }}
-                      value={customMessage}
-                      onChange={(e) => setCustomMessage(e.target.value)}
-                      placeholder="Ajoutez une note personnelle à l'email..."
-                    />
-                  </div>
-
-                  <div className="action-footer">
-                    <button className="btn secondary" onClick={previewEmail} disabled={!selectedBatch || selectedFileIds.length === 0 || previewLoading}>
-                      {previewLoading ? <RefreshCcw size={16} className="spin" /> : <Eye size={16} />} Aperçu
+                  <div className="action-footer" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <button className="btn secondary" style={{ width: '100%' }} onClick={previewEmail} disabled={!selectedLot || selectedFileIds.length === 0 || previewLoading}>
+                      {previewLoading ? <RefreshCcw size={16} className="spin" /> : <Eye size={16} />} Aperçu du modèle d'email
                     </button>
-                    <button className="btn btn-shiny" style={{ flex: 1 }} onClick={sendEmails} disabled={!selectedBatch || selectedFileIds.length === 0 || sendLoading}>
-                      {sendLoading ? <RefreshCcw size={16} className="spin" /> : <Send size={16} />} 
-                      Lancer ({selectedFileIds.length})
+                    <button 
+                      className="btn btn-primary" 
+                      style={{ width: '100%' }} 
+                      onClick={() => { setConfirmStep(1); setShowConfirmModal(true); }} 
+                      disabled={!selectedLot || selectedFileIds.length === 0 || sendLoading}
+                    >
+                      <Send size={18} /> Lancer la distribution ({selectedFileIds.length})
                     </button>
-                  </div>
-
-                  <div className="config-section test-panel">
-                    <h3 className="section-title">Test de distribution</h3>
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      <input 
-                        type="email" 
-                        className="modern-input compact" 
-                        placeholder="Email de destination..." 
-                        value={testEmailValue}
-                        onChange={(e) => setTestEmailValue(e.target.value)}
-                      />
-                      <button 
-                        className="btn secondary compact" 
-                        onClick={sendTestEmails}
-                        disabled={testLoading || !testEmailValue || selectedFileIds.length === 0}
-                      >
-                        {testLoading ? '...' : 'Tester'}
-                      </button>
-                    </div>
-                    {testSuccess && (
-                      <div className="test-success-banner">
-                        <CheckCircle2 size={14} /> Envoi de test initié !
-                      </div>
-                    )}
                   </div>
 
                   {emailPreview && (
@@ -596,7 +672,9 @@ export default function SubAdminExportedGradebooks() {
                             }}
                           >
                             <div className="history-item-top">
-                              <span className="history-user">{job.creatorName}</span>
+                              <span className="history-user" style={{ color: active ? '#4f46e5' : undefined }}>
+                                <Users size={12} style={{ marginRight: 4 }} /> {job.creatorName}
+                              </span>
                               <span className={`history-status-badge ${job.status}`}>{job.status}</span>
                             </div>
                             <div className="history-item-bottom">
@@ -608,12 +686,119 @@ export default function SubAdminExportedGradebooks() {
                       })}
                     </div>
                   )}
+                  
+                  {/* Selected Job Details from History */}
+                  {emailJob && rightTab === 'history' && (
+                    <div className="job-status-card" style={{ marginTop: 24, borderTop: '2px solid #e2e8f0', paddingTop: 20 }}>
+                      <div className="status-header">
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                          <span className="status-title">Détails de l'envoi</span>
+                          <span style={{ fontSize: 11, color: '#64748b' }}>Par {emailJob.creatorName}</span>
+                        </div>
+                        <span className={`status-tag ${emailJob.status}`}>{emailJob.status}</span>
+                      </div>
+                      
+                      <div className="status-stats" style={{ margin: '16px 0' }}>
+                        <span className="stat sent">{emailJob.sentItems} Envoyés</span>
+                        <span className="stat failed">{emailJob.failedItems} Échecs</span>
+                        <span className="stat total">{emailJob.processedItems}/{emailJob.totalItems}</span>
+                      </div>
+
+                      <div className="job-items-list mini scrollable" style={{ maxHeight: 400 }}>
+                        {emailJob.items.map((item) => (
+                          <div key={item.fileId} className={`job-item-row ${item.status}`} style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: '10px 12px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span className="item-name" style={{ fontWeight: 700, fontSize: 13 }}>{item.studentName}</span>
+                              <span className="item-status" style={{ 
+                                color: item.status === 'sent' ? '#16a34a' : item.status === 'failed' ? '#dc2626' : '#64748b',
+                                fontSize: 10, fontWeight: 800
+                              }}>
+                                {item.status.toUpperCase()}
+                              </span>
+                            </div>
+                            <div style={{ fontSize: 11, color: '#64748b', display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                              <Mail size={12} /> {item.recipients && item.recipients.length > 0 ? item.recipients.join(', ') : 'Aucun destinataire'}
+                            </div>
+                            {item.error && <div style={{ fontSize: 10, color: '#dc2626', marginTop: 2 }}>Erreur: {item.error}</div>}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
           </div>
         </aside>
       </div>
+
+      {/* Two-step Confirmation Modal */}
+      {showConfirmModal && (
+        <div 
+          style={{
+            position: 'fixed', inset: 0, zIndex: 10000, 
+            background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center'
+          }}
+          onClick={() => setShowConfirmModal(false)}
+        >
+          <div 
+            style={{
+              background: 'white', borderRadius: 20, padding: 32, width: '90%', maxWidth: 440,
+              boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', border: '1px solid #e2e8f0'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+              <div style={{ 
+                width: 48, height: 48, borderRadius: 12, background: '#fef2f2', 
+                display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#dc2626' 
+              }}>
+                <AlertCircle size={28} />
+              </div>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 18, color: '#1e293b' }}>Confirmation requise</h3>
+                <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>Étape {confirmStep} sur 2</p>
+              </div>
+            </div>
+
+            {confirmStep === 1 ? (
+              <>
+                <p style={{ margin: '0 0 24px', fontSize: 15, color: '#475569', lineHeight: 1.6 }}>
+                  Vous êtes sur le point de lancer l'envoi de <strong>{selectedFileIds.length} carnets</strong> scolaires par email.
+                </p>
+                <div style={{ display: 'flex', gap: 12 }}>
+                  <button className="btn secondary" style={{ flex: 1 }} onClick={() => setShowConfirmModal(false)}>
+                    Annuler
+                  </button>
+                  <button className="btn btn-shiny" style={{ flex: 2 }} onClick={() => setConfirmStep(2)}>
+                    Continuer
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{ background: '#fffbeb', border: '1px solid #fef3c7', borderRadius: 12, padding: 16, marginBottom: 24 }}>
+                  <p style={{ margin: 0, fontSize: 14, color: '#92400e', fontWeight: 600 }}>
+                    ⚠️ Action irréversible
+                  </p>
+                  <p style={{ margin: '4px 0 0', fontSize: 13, color: '#b45309' }}>
+                    Une fois lancé, les emails seront envoyés directement aux parents et élèves sélectionnés.
+                  </p>
+                </div>
+                <div style={{ display: 'flex', gap: 12 }}>
+                  <button className="btn secondary" style={{ flex: 1 }} onClick={() => setConfirmStep(1)}>
+                    Retour
+                  </button>
+                  <button className="btn btn-shiny" style={{ flex: 2, background: '#dc2626' }} onClick={sendEmails}>
+                    Confirmer l'envoi
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
     </div>
   )

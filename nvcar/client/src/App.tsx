@@ -60,6 +60,7 @@ import SimulationLab from './pages/SimulationLab'
 import Toast, { ToastType } from './components/Toast'
 import MobileBlocker from './components/MobileBlocker'
 import PdfExportProgress from './pages/PdfExportProgress'
+import AdminEmailTemplates from './pages/AdminEmailTemplates'
 
 const RequireAuth = ({ children }: { children: JSX.Element }) => {
   const location = useLocation()
@@ -315,6 +316,14 @@ export default function App() {
           element={
             <RequireAuth>
               <TemplateBuilder />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/admin/email-templates"
+          element={
+            <RequireAuth>
+              <AdminEmailTemplates />
             </RequireAuth>
           }
         />

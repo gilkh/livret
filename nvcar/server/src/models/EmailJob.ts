@@ -28,6 +28,7 @@ export interface IEmailJob extends Document {
     includeStudent: boolean
     customMessage: string
     selectedFileIds: string[]
+    testEmailOverride?: string
   }
   items: IEmailJobItem[]
   isTest?: boolean
@@ -52,7 +53,8 @@ const emailJobSchema = new Schema<IEmailJob>({
     includeMother: { type: Boolean, default: true },
     includeStudent: { type: Boolean, default: true },
     customMessage: { type: String },
-    selectedFileIds: [{ type: String }]
+    selectedFileIds: [{ type: String }],
+    testEmailOverride: { type: String }
   },
   items: [{
     fileId: { type: String },

@@ -37,7 +37,7 @@ export default defineConfig({
         ws: true,
         changeOrigin: true
       },
-      '^/(auth|categories|students|levels|import|pdf-v2|reports-v2|files-v2|pdf|reports|files|templates|users|signatures|school-years|classes|media|teacher-assignments|template-assignments|template-propagation|subadmin-assignments|teacher|subadmin|aefe|audit-logs|impersonation|suggestions|settings|admin-extras|microsoft|outlook-users|analytics|backup|saved-gradebooks|uploads|simulations|error-logs|integrity|api|gradebook-exports)': {
+      '^/(auth|categories|students|levels|import|pdf-v2|reports-v2|files-v2|pdf|reports|files|templates|users|signatures|school-years|classes|media|teacher-assignments|template-assignments|template-propagation|subadmin-assignments|teacher|subadmin|aefe|audit-logs|impersonation|suggestions|settings|admin-extras|microsoft|outlook-users|analytics|backup|saved-gradebooks|uploads|simulations|error-logs|integrity|api|gradebook-exports|email-templates)': {
         target: 'https://localhost:4000',
         secure: false,
         changeOrigin: true,
@@ -49,7 +49,8 @@ export default defineConfig({
             req.url.startsWith('/files-v2') ||
             req.url.startsWith('/pdf') ||
             req.url.startsWith('/reports') ||
-            req.url.startsWith('/files')
+            req.url.startsWith('/files') ||
+            req.url.startsWith('/gradebook-exports')
           )) {
             return null
           }
