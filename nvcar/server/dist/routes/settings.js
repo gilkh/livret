@@ -43,7 +43,11 @@ async function createSmtpTransporter() {
         auth: {
             user: smtp.user,
             pass: smtp.pass
-        }
+        },
+        tls: {
+            rejectUnauthorized: false
+        },
+        requireTLS: true
     });
 }
 exports.settingsRouter.get('/status', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
@@ -126,7 +130,11 @@ exports.settingsRouter.post('/smtp/test', (0, auth_1.requireAuth)(['ADMIN']), as
             host,
             port: parseInt(port) || 587,
             secure: secure === true,
-            auth: { user, pass }
+            auth: { user, pass },
+            tls: {
+                rejectUnauthorized: false
+            },
+            requireTLS: true
         });
         // Verify connection
         await transporter.verify();

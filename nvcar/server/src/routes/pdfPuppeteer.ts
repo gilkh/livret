@@ -926,14 +926,21 @@ pdfPuppeteerRouter.post('/assignments/zip', requireAuth(['ADMIN', 'SUBADMIN', 'A
           let version = 1
           
           try {
-            // Find existing files for this assignment in other batches
+            // Find existing files for this assignment in other batches that MATCH our current context
             const existingBatches = await ExportedGradebookBatch.find({
               yearName,
               semester,
-              'files.assignmentId': assignmentId
+              'files.assignmentId': assignmentId,
+              'files.level': level,
+              'files.className': className
             }).lean()
 
-            const allExistingFiles = existingBatches.flatMap(b => b.files).filter(f => String(f.assignmentId) === assignmentId)
+            // Only consider files that match the FULL context (assignment, level, class)
+            const allExistingFiles = existingBatches.flatMap(b => b.files).filter(f => 
+              String(f.assignmentId) === assignmentId && 
+              f.level === level && 
+              f.className === className
+            )
             
             const targetQuality = highQuality ? 'high' : 'compressed'
             const sameQualityFiles = allExistingFiles.filter(f => (f as any).quality === targetQuality)

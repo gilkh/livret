@@ -98,29 +98,99 @@ export default function SubAdminExportedGradebooks() {
   const [testLoading, setTestLoading] = useState(false)
   const [testSuccess, setTestSuccess] = useState(false)
 
+  const [assignedClasses, setAssignedClasses] = useState<any[]>([])
+  const [expandedLevels, setExpandedLevels] = useState<Record<string, boolean>>({})
+  const [expandedClasses, setExpandedClasses] = useState<Record<string, boolean>>({})
+  const [selectedContext, setSelectedContext] = useState<{ level: string; className: string; semester: string } | null>(null)
+  const [schoolYears, setSchoolYears] = useState<any[]>([])
+  const [selectedYearName, setSelectedYearName] = useState<string>('')
+
   const token = sessionStorage.getItem('token') || localStorage.getItem('token') || ''
   
-  const loadBatches = async () => {
+  const loadInitialData = async () => {
     try {
       setLoading(true)
       setError('')
-      const response = await api.get('/gradebook-exports/batches')
-      const nextBatches = Array.isArray(response.data) ? response.data : []
-      setBatches(nextBatches)
+      const [batchesRes, classesRes, yearsRes] = await Promise.all([
+        api.get('/gradebook-exports/batches'),
+        api.get('/subadmin/classes'),
+        api.get('/school-years')
+      ])
       
-      if (nextBatches.length > 0 && !selectedGroupKey) {
+      const nextBatches = Array.isArray(batchesRes.data) ? batchesRes.data : []
+      const nextYears = Array.isArray(yearsRes.data) ? yearsRes.data : []
+      const activeYear = nextYears.find((y: any) => y.active)
+      
+      setBatches(nextBatches)
+      setAssignedClasses(Array.isArray(classesRes.data) ? classesRes.data : [])
+      setSchoolYears(nextYears)
+      
+      if (activeYear && !selectedYearName) {
+        setSelectedYearName(activeYear.name)
+      } else if (nextYears.length > 0 && !selectedYearName) {
+        setSelectedYearName(nextYears[0].name)
+      }
+
+      if (nextBatches.length > 0 && !selectedGroupKey && !selectedContext) {
         const first = nextBatches[0]
         setSelectedGroupKey(`${first.groupLabel}-${first.yearName}-${first.semester}`)
       }
     } catch (e: any) {
-      setError(e.response?.data?.message || 'Impossible de charger les exports')
+      setError(e.response?.data?.message || 'Impossible de charger les données')
     } finally {
       setLoading(false)
     }
   }
 
-  useEffect(() => { loadBatches() }, [])
+  useEffect(() => { loadInitialData() }, [])
 
+  // Build Library Tree structure for the SELECTED YEAR
+  // Level -> Class -> Semester -> { files, batches }
+  const libraryTree: Record<string, Record<string, Record<string, { files: ExportedFile[], batches: ExportedBatch[] }>>> = {}
+
+  // Filter batches by selected year
+  const filteredBatchesByYear = batches.filter(b => b.yearName === selectedYearName)
+
+  // Initialize tree with assigned levels/classes (only if viewing active year, 
+  // otherwise we only show what was actually exported in previous years)
+  const activeYear = schoolYears.find(y => y.active)
+  if (selectedYearName === activeYear?.name) {
+    assignedClasses.forEach(c => {
+      const level = c.level || 'Sans niveau'
+      const className = c.name || 'Sans classe'
+      if (!libraryTree[level]) libraryTree[level] = {}
+      if (!libraryTree[level][className]) libraryTree[level][className] = {
+        'Semestre 1': { files: [], batches: [] },
+        'Semestre 2': { files: [], batches: [] }
+      }
+    })
+  }
+
+  // Then populate with exported data for this year
+  filteredBatchesByYear.forEach(batch => {
+    batch.files.forEach(file => {
+      const level = file.level || 'Sans niveau'
+      const className = file.className || 'Sans classe'
+      const semester = batch.semester || 'Semestre 1'
+
+      if (!libraryTree[level]) libraryTree[level] = {}
+      if (!libraryTree[level][className]) libraryTree[level][className] = {}
+      if (!libraryTree[level][className][semester]) libraryTree[level][className][semester] = { files: [], batches: [] }
+      
+      const context = libraryTree[level][className][semester]
+      
+      if (!context.batches.some(b => b._id === batch._id)) {
+        context.batches.push(batch)
+      }
+      
+      if (!context.files.some(f => f._id === file._id)) {
+        context.files.push(file)
+      }
+    })
+  })
+
+  // Keep the old lots grouping for compatibility or reference if needed, 
+  // but we will primarily use libraryTree now.
   const groupedLots: any[] = []
   const lotMap = new Map<string, any>()
   
@@ -143,14 +213,32 @@ export default function SubAdminExportedGradebooks() {
   })
 
   const selectedLot = groupedLots.find(l => l.key === selectedGroupKey) || null
-  
-  const allFilesForLot: ExportedFile[] = selectedLot 
-    ? selectedLot.batches.flatMap((b: any) => b.files.map((f: any) => ({ ...f, batchId: b._id })))
-    : []
+
+  // Contextual filtering logic
+  let activeBatches: ExportedBatch[] = []
+  let activeFiles: ExportedFile[] = []
+
+  if (selectedContext) {
+    const { level, className, semester } = selectedContext
+    const context = libraryTree[level]?.[className]?.[semester]
+    if (context) {
+      activeBatches = context.batches
+      activeFiles = context.files.map(f => {
+        // Find which batch this file belongs to in this context
+        const batch = context.batches.find(b => b.files.some(bf => bf._id === f._id))
+        return { ...f, batchId: batch?._id }
+      })
+    }
+  } else if (selectedLot) {
+    activeBatches = selectedLot.batches
+    activeFiles = selectedLot.batches.flatMap((b: any) => b.files.map((f: any) => ({ ...f, batchId: b._id })))
+  }
+
+  const allFilesForLot: ExportedFile[] = activeFiles
 
   const uniqueFileVersionPairs = Array.from(
     new Map(allFilesForLot.map(f => [`${f.assignmentId}-${f.version}`, f])).values()
-  )
+  ).sort((a, b) => `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`))
 
   const filteredBatchFiles = uniqueFileVersionPairs.filter((file) => {
     if (scopeLevel && String(file.level || '') !== scopeLevel) return false
@@ -171,15 +259,19 @@ export default function SubAdminExportedGradebooks() {
   })
 
   useEffect(() => {
-    if (!selectedLot) {
+    if (!selectedLot && !selectedContext) {
       setSelectedFileIds([])
       setScopeLevel('')
       setScopeClassName('')
       setScopeStudentId('')
       return
     }
-    loadJobHistory(selectedLot.batches[0]._id)
-  }, [selectedGroupKey])
+    const bId = selectedContext 
+      ? libraryTree[selectedContext.level]?.[selectedContext.className]?.[selectedContext.semester]?.batches[0]?._id
+      : selectedLot?.batches[0]?._id
+    
+    if (bId) loadJobHistory(bId)
+  }, [selectedGroupKey, selectedContext])
 
   const loadJobHistory = async (batchId: string) => {
     if (!batchId) { setJobHistory([]); return }
@@ -212,10 +304,14 @@ export default function SubAdminExportedGradebooks() {
   }
 
   const previewEmail = async () => {
-    if (!selectedLot || selectedFileIds.length === 0) return
+    if ((!selectedLot && !selectedContext) || selectedFileIds.length === 0) return
     try {
       setPreviewLoading(true)
-      const response = await api.post(`/gradebook-exports/batches/${selectedLot.batches[0]._id}/email-preview`, { selectedFileIds, includeFather, includeMother, includeStudent, customMessage })
+      const bId = selectedContext 
+        ? libraryTree[selectedContext.level]?.[selectedContext.className]?.[selectedContext.semester]?.batches[0]?._id
+        : selectedLot?.batches[0]?._id
+      
+      const response = await api.post(`/gradebook-exports/batches/${bId}/email-preview`, { selectedFileIds, includeFather, includeMother, includeStudent, customMessage })
       setEmailPreview(response.data)
     } catch (e: any) {
       setError(e.response?.data?.message || 'Erreur aperçu')
@@ -223,11 +319,15 @@ export default function SubAdminExportedGradebooks() {
   }
 
   const sendEmails = async () => {
-    if (!selectedLot || selectedFileIds.length === 0) return
+    if ((!selectedLot && !selectedContext) || selectedFileIds.length === 0) return
     try {
       setSendLoading(true)
       setShowConfirmModal(false)
-      const res = await api.post(`/gradebook-exports/batches/${selectedLot.batches[0]._id}/send`, { 
+      const bId = selectedContext 
+        ? libraryTree[selectedContext.level]?.[selectedContext.className]?.[selectedContext.semester]?.batches[0]?._id
+        : selectedLot?.batches[0]?._id
+
+      const res = await api.post(`/gradebook-exports/batches/${bId}/send`, { 
         selectedFileIds,
         includeFather,
         includeMother,
@@ -246,10 +346,14 @@ export default function SubAdminExportedGradebooks() {
   }
 
   const downloadSelectedFiles = async (quality?: 'high' | 'compressed') => {
-    if (!selectedLot || selectedFileIds.length === 0) return
+    if ((!selectedLot && !selectedContext) || selectedFileIds.length === 0) return
     setZipDownloadLoading(true)
     try {
-      const response = await api.post(`/gradebook-exports/batches/${selectedLot.batches[0]._id}/download`, { 
+      const bId = selectedContext 
+        ? libraryTree[selectedContext.level]?.[selectedContext.className]?.[selectedContext.semester]?.batches[0]?._id
+        : selectedLot?.batches[0]?._id
+
+      const response = await api.post(`/gradebook-exports/batches/${bId}/download`, { 
         selectedFileIds,
         quality
       }, { responseType: 'blob' })
@@ -257,7 +361,8 @@ export default function SubAdminExportedGradebooks() {
       const url = window.URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = url
-      link.download = `${selectedLot.groupLabel || 'exports'}${quality ? `-${quality.toUpperCase()}` : ''}.zip`
+      const label = selectedContext ? `${selectedContext.className}-${selectedContext.semester}` : selectedLot?.groupLabel
+      link.download = `${label || 'exports'}${quality ? `-${quality.toUpperCase()}` : ''}.zip`
       document.body.appendChild(link)
       link.click()
       document.body.removeChild(link)
@@ -276,12 +381,16 @@ export default function SubAdminExportedGradebooks() {
   const deleteFile = async (fileId: string) => {
     if (!window.confirm('Supprimer ce fichier ?')) return
     try {
-      const res = await api.delete(`/gradebook-exports/batches/${selectedBatchId}/files/${fileId}`)
+      // Find which batch this file belongs to
+      const file = allFilesForLot.find(f => f._id === fileId)
+      const bId = file?.batchId
+      if (!bId) throw new Error('Batch not found')
+
+      const res = await api.delete(`/gradebook-exports/batches/${bId}/files/${fileId}`)
       if (res.data.batchDeleted) {
-        setBatches(current => current.filter(b => b._id !== selectedBatchId))
-        setSelectedBatchId('')
+        setBatches(current => current.filter(b => b._id !== bId))
       } else {
-        setBatches(current => current.map(b => b._id === selectedBatchId ? { ...b, exportedCount: Math.max(0, b.exportedCount - 1), files: b.files.filter(f => f._id !== fileId) } : b))
+        setBatches(current => current.map(b => b._id === bId ? { ...b, exportedCount: Math.max(0, b.exportedCount - 1), files: b.files.filter(f => f._id !== fileId) } : b))
         setSelectedFileIds(current => current.filter(id => id !== fileId))
       }
     } catch (e: any) { setError(e.response?.data?.message || 'Erreur') }
@@ -293,13 +402,18 @@ export default function SubAdminExportedGradebooks() {
       setTestLoading(true)
       setTestSuccess(false)
       // We'll reuse the main send logic but with an override
-      await api.post(`/gradebook-exports/batches/${selectedBatch._id}/send`, {
+      const bId = selectedContext 
+        ? libraryTree[selectedContext.level]?.[selectedContext.className]?.[selectedContext.semester]?.batches[0]?._id
+        : selectedLot?.batches[0]?._id
+      if (!bId) return
+      
+      await api.post(`/gradebook-exports/batches/${bId}/send`, {
         selectedFileIds,
         includeFather,
         includeMother,
         includeStudent,
         customMessage,
-        testEmailOverride: testEmailValue // New parameter
+        testEmailOverride: testEmailValue
       })
       setTestSuccess(true)
       setTimeout(() => setTestSuccess(false), 5000)
@@ -317,7 +431,7 @@ export default function SubAdminExportedGradebooks() {
           <h1 className="exports-title">Centre de Distribution</h1>
           <p className="exports-subtitle">Gérez vos lots exportés et distribuez les carnets par email aux familles.</p>
         </div>
-        <button className="btn btn-icon" onClick={loadBatches} disabled={loading}>
+        <button className="btn btn-icon" onClick={loadInitialData} disabled={loading}>
           <RefreshCcw size={18} className={loading ? 'spin' : ''} /> Actualiser
         </button>
       </div>
@@ -329,51 +443,112 @@ export default function SubAdminExportedGradebooks() {
       )}
 
       <div className="main-workspace-grid">
-        {/* COLUMN 1: NAVIGATION / BATCHES */}
+        {/* COLUMN 1: NAVIGATION / LIBRARY */}
         <aside className="workspace-column sidebar">
-          <div className="glass-card full-height">
+          <div className="glass-card full-height flex-column">
             <div className="card-header">
               <Archive size={18} />
               <div className="card-title">Bibliothèque</div>
             </div>
-            <div className="batch-list scrollable" style={{ padding: 12 }}>
+            
+            <div className="year-selector">
+              {(() => {
+                const activeYear = schoolYears.find(y => y.active)
+                const activeSeq = activeYear?.sequence || 999999
+                
+                return schoolYears
+                  .filter(y => (y.sequence || 0) <= activeSeq)
+                  .sort((a, b) => (b.sequence || 0) - (a.sequence || 0))
+                  .slice(0, 3)
+                  .map((year) => (
+                    <button
+                      key={year._id}
+                      className={`year-pill ${selectedYearName === year.name ? 'active' : ''}`}
+                      onClick={() => {
+                        setSelectedYearName(year.name)
+                        setSelectedContext(null)
+                        setSelectedGroupKey('')
+                      }}
+                    >
+                      {year.name}
+                    </button>
+                  ))
+              })()}
+            </div>
+
+            <div className="library-tree scrollable" style={{ padding: '0 0 12px 0', flex: 1 }}>
               {loading && <div style={{ padding: 24, textAlign: 'center', color: '#64748b' }}>Chargement...</div>}
-              {!loading && batches.length === 0 && (
+              {!loading && batches.length === 0 && assignedClasses.length === 0 && (
                 <div className="empty-state mini">
                   <FolderArchive size={24} style={{ opacity: 0.3, marginBottom: 8 }} />
                   <span>Aucun export</span>
                 </div>
               )}
-              {groupedLots.map((lot) => {
-                const selected = lot.key === selectedGroupKey
-                const totalCount = lot.batches.reduce((sum: number, b: any) => sum + b.exportedCount, 0)
+              
+              {Object.keys(libraryTree).sort().map((level) => {
+                const levelTotalFiles = Object.values(libraryTree[level]).reduce((sum, cls) => 
+                  sum + Object.values(cls).reduce((subSum, sem) => subSum + sem.files.length, 0), 0
+                )
+                
                 return (
-                  <div
-                    key={lot.key}
-                    onClick={() => setSelectedGroupKey(lot.key)}
-                    className={`batch-item compact ${selected ? 'active' : ''}`}
-                    style={{ cursor: 'pointer' }}
-                  >
-                    <div className="batch-label">{lot.groupLabel}</div>
-                    <div className="batch-meta-row">
-                      {lot.yearName && <span>{lot.yearName}</span>}
-                      {lot.semester && <span>• {lot.semester}</span>}
+                  <div key={level} className="tree-node level-node">
+                    <div 
+                      className={`tree-label level-label ${expandedLevels[level] ? 'expanded' : ''}`}
+                      onClick={() => setExpandedLevels(prev => ({ ...prev, [level]: !prev[level] }))}
+                    >
+                      <FolderArchive size={14} />
+                      <span>{level}</span>
+                      <span className="node-count">{levelTotalFiles} carnets</span>
                     </div>
-                    <div className="batch-footer">
-                      <span className="batch-date-small">{new Date(lot.createdAt).toLocaleDateString()}</span>
-                      <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                        <span className="count-tag">{totalCount} files</span>
-                        <button className="btn-delete-xsmall" onClick={(e) => {
-                          e.stopPropagation()
-                          if (window.confirm("Supprimer TOUS les lots de ce groupe ?")) {
-                            Promise.all(lot.batches.map((b: any) => api.delete(`/gradebook-exports/batches/${b._id}`)))
-                              .then(() => loadBatches())
-                          }
-                        }}>
-                          <Trash2 size={12} />
-                        </button>
+                    
+                    {expandedLevels[level] && (
+                      <div className="tree-children">
+                        {Object.keys(libraryTree[level]).sort().map((className) => {
+                          const classTotalFiles = Object.values(libraryTree[level][className]).reduce((sum, sem) => 
+                            sum + sem.files.length, 0
+                          )
+                          
+                          return (
+                            <div key={className} className="tree-node class-node">
+                              <div 
+                                className={`tree-label class-label ${expandedClasses[`${level}-${className}`] ? 'expanded' : ''}`}
+                                onClick={() => setExpandedClasses(prev => ({ ...prev, [`${level}-${className}`]: !prev[`${level}-${className}`] }))}
+                              >
+                                <Users size={14} />
+                                <span>{className}</span>
+                                <span className="node-count">{classTotalFiles} carnets</span>
+                              </div>
+
+                              {expandedClasses[`${level}-${className}`] && (
+                                <div className="tree-children">
+                                  {Object.keys(libraryTree[level][className]).sort().map((semester) => {
+                                    const data = libraryTree[level][className][semester]
+                                    const isSelected = selectedContext?.level === level && 
+                                                    selectedContext?.className === className && 
+                                                    selectedContext?.semester === semester
+                                    return (
+                                      <div 
+                                        key={semester} 
+                                        className={`tree-label semester-label ${isSelected ? 'active' : ''}`}
+                                        onClick={() => {
+                                          setSelectedContext({ level, className, semester })
+                                          setSelectedGroupKey('')
+                                        }}
+                                      >
+                                        <div className="semester-info">
+                                          <span className="semester-name">{semester}</span>
+                                          <span className="semester-count">{data.files.length} carnets</span>
+                                        </div>
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
                       </div>
-                    </div>
+                    )}
                   </div>
                 )
               })}
@@ -387,14 +562,20 @@ export default function SubAdminExportedGradebooks() {
             <div className="card-header sticky">
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1 }}>
                 <FileDown size={18} />
-                <div className="card-title">Contenu du lot</div>
+                <div className="card-title">Contenu</div>
+                {selectedContext && (
+                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span className="batch-badge-title">{selectedContext.className}</span>
+                      <span className="semester-badge">{selectedContext.semester}</span>
+                   </div>
+                )}
                 {selectedLot && (
                   <span className="batch-badge-title">
                     {selectedLot.groupLabel}
                   </span>
                 )}
               </div>
-              {selectedLot && (
+              {(selectedLot || selectedContext) && (
                 <div style={{ display: 'flex', gap: 6 }}>
                   <button className="btn-action-small" onClick={() => setSelectedFileIds(allFilesForLot.map((file) => file._id))} title="Tout sélectionner">
                     <CheckSquare size={14} /> Tout
@@ -407,12 +588,12 @@ export default function SubAdminExportedGradebooks() {
                     const selectedFiles = allFilesForLot.filter(f => selectedFileIds.includes(f._id))
                     
                     const allHaveSD = selectedFiles.length > 0 && selectedFiles.every(f => {
-                      const allInstances = batches.flatMap(b => b.files).filter(inst => inst.assignmentId === f.assignmentId && inst.version === f.version)
+                      const allInstances = activeBatches.flatMap(b => b.files).filter(inst => inst.assignmentId === f.assignmentId && inst.version === f.version)
                       return allInstances.some(inst => inst.quality === 'compressed')
                     })
                     
                     const allHaveHD = selectedFiles.length > 0 && selectedFiles.every(f => {
-                      const allInstances = batches.flatMap(b => b.files).filter(inst => inst.assignmentId === f.assignmentId && inst.version === f.version)
+                      const allInstances = activeBatches.flatMap(b => b.files).filter(inst => inst.assignmentId === f.assignmentId && inst.version === f.version)
                       return allInstances.some(inst => inst.quality === 'high')
                     })
 
@@ -422,7 +603,7 @@ export default function SubAdminExportedGradebooks() {
                           className="btn-action-small shiny" 
                           onClick={() => downloadSelectedFiles('compressed')} 
                           disabled={selectedFileIds.length === 0 || zipDownloadLoading || !allHaveSD}
-                          title={!allHaveSD ? "Certains élèves sélectionnés n'ont pas de version SD" : ""}
+                          title={!allHaveSD ? "Certains élèves sélectionnés n'ont pas de version SD dans ce lot" : ""}
                         >
                           <Archive size={14} /> {zipDownloadLoading ? '...' : `SD (${selectedFileIds.length})`}
                         </button>
@@ -430,7 +611,7 @@ export default function SubAdminExportedGradebooks() {
                           className="btn-action-small shiny" 
                           onClick={() => downloadSelectedFiles('high')} 
                           disabled={selectedFileIds.length === 0 || zipDownloadLoading || !allHaveHD}
-                          title={!allHaveHD ? "Certains élèves sélectionnés n'ont pas de version HD" : ""}
+                          title={!allHaveHD ? "Certains élèves sélectionnés n'ont pas de version HD dans ce lot" : ""}
                         >
                           <Archive size={14} /> {zipDownloadLoading ? '...' : `HD (${selectedFileIds.length})`}
                         </button>
@@ -442,10 +623,10 @@ export default function SubAdminExportedGradebooks() {
             </div>
 
             <div className="flex-column" style={{ flex: 1, minHeight: 0 }}>
-              {!selectedLot ? (
+              {(!selectedLot && !selectedContext) ? (
                 <div className="empty-state">
                   <FolderArchive className="empty-state-icon" />
-                  <p>Sélectionnez un lot dans la bibliothèque pour gérer les carnets.</p>
+                  <p>Sélectionnez un niveau ou un lot dans la bibliothèque pour gérer les carnets.</p>
                 </div>
               ) : (
                 <>
@@ -504,8 +685,8 @@ export default function SubAdminExportedGradebooks() {
                           </div>
                           <div className="file-card-actions">
                             {(() => {
-                              // Find instances for THIS student AND THIS VERSION across all batches
-                              const allInstances = batches.flatMap(b => b.files.map(f => ({ ...f, batchId: b._id }))).filter(f => f.assignmentId === file.assignmentId && f.version === file.version)
+                              // Find instances for THIS student AND THIS VERSION across the ACTIVE batches (same context/lot)
+                              const allInstances = activeBatches.flatMap(b => b.files.map(f => ({ ...f, batchId: b._id }))).filter(f => f.assignmentId === file.assignmentId && f.version === file.version)
                               const hdInstance = allInstances.find(f => f.quality === 'high')
                               const sdInstance = allInstances.find(f => f.quality === 'compressed')
                               
@@ -515,7 +696,7 @@ export default function SubAdminExportedGradebooks() {
                                     href={sdInstance ? downloadFileUrl(sdInstance._id, sdInstance.batchId) : '#'} 
                                     className={`btn-text ${!sdInstance ? 'disabled' : ''}`}
                                     onClick={(e) => !sdInstance && e.preventDefault()}
-                                    title={sdInstance ? "Télécharger SD" : "SD non disponible"}
+                                    title={sdInstance ? "Télécharger SD" : "SD non disponible dans ce lot"}
                                   >
                                     <FileDown size={14} /> SD
                                   </a>
@@ -523,7 +704,7 @@ export default function SubAdminExportedGradebooks() {
                                     href={hdInstance ? downloadFileUrl(hdInstance._id, hdInstance.batchId) : '#'} 
                                     className={`btn-text ${!hdInstance ? 'disabled' : ''}`}
                                     onClick={(e) => !hdInstance && e.preventDefault()}
-                                    title={hdInstance ? "Télécharger HD" : "HD non disponible"}
+                                    title={hdInstance ? "Télécharger HD" : "HD non disponible dans ce lot"}
                                   >
                                     <FileDown size={14} /> HD
                                   </a>

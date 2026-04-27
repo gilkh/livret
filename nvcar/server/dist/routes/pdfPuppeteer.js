@@ -664,6 +664,8 @@ exports.pdfPuppeteerRouter.post('/assignments/zip', (0, auth_1.requireAuth)(['AD
             acc[assignmentId] = displayFolder;
             return acc;
         }, {});
+        const semester = String(req.body?.semester || '').trim();
+        const yearName = String(req.body?.yearName || '').trim();
         if (assignmentIds.length === 0) {
             return res.status(400).json({ error: 'missing_assignment_ids' });
         }
@@ -830,16 +832,56 @@ exports.pdfPuppeteerRouter.post('/assignments/zip', (0, auth_1.requireAuth)(['AD
                     const enrollment = enrollmentByStudentId.get(String(student?._id || ''));
                     const classDoc = enrollment?.classId ? classById.get(String(enrollment.classId)) : null;
                     const className = assignmentFolderDisplayMap[assignmentId] || String(classDoc?.name || '').trim() || 'Sans classe';
-                    const pdfName = buildStudentPdfFilename({
+                    const versionMode = String(req.body?.versionMode || 'new');
+                    let version = 1;
+                    try {
+                        // Find existing files for this assignment in other batches
+                        const existingBatches = await ExportedGradebookBatch_1.ExportedGradebookBatch.find({
+                            yearName,
+                            semester,
+                            'files.assignmentId': assignmentId
+                        }).lean();
+                        const allExistingFiles = existingBatches.flatMap(b => b.files).filter(f => String(f.assignmentId) === assignmentId);
+                        const targetQuality = highQuality ? 'high' : 'compressed';
+                        const sameQualityFiles = allExistingFiles.filter(f => f.quality === targetQuality);
+                        if (sameQualityFiles.length > 0) {
+                            if (versionMode === 'replace') {
+                                // Keep the same max version if replacing
+                                version = Math.max(...sameQualityFiles.map(f => f.version || 1));
+                            }
+                            else {
+                                const maxV = Math.max(...sameQualityFiles.map(f => f.version || 1));
+                                version = maxV + 1;
+                            }
+                        }
+                        else {
+                            // If this quality hasn't been exported yet, it might be syncing with an existing version
+                            // Or starting fresh. The user requested: "same box for the first version of both"
+                            // If there's another quality with max version X, maybe we should match it?
+                            // Let's just use 1 if it's the first time for this quality, unless there's a higher version overall?
+                            // "the v2+ should be there whe the same quality is already set too" -> only increment if same quality is set.
+                            // But what if HD is V2, and SD is first time? If SD is 1, it won't group with HD V2.
+                            // Let's match the max version of ALL files so it groups with the latest box!
+                            const maxOverall = allExistingFiles.length > 0 ? Math.max(...allExistingFiles.map(f => f.version || 1)) : 1;
+                            version = maxOverall;
+                        }
+                    }
+                    catch (vErr) {
+                        console.error('Error computing version:', vErr);
+                    }
+                    let pdfName = buildStudentPdfFilename({
                         level,
                         firstName: studentFirst,
                         lastName: studentLast,
                         yearName
                     });
+                    if (version > 1) {
+                        pdfName = pdfName.replace(/\.pdf$/i, `-V${version}.pdf`);
+                    }
                     const printUrl = `${frontendUrl}/print/carnet/${assignment._id}?token=${token}${hideSignatures ? '&hideSignatures=true' : ''}`;
                     const safePrintUrl = String(printUrl || '').replace(/([?&])token=[^&]*/, '$1token=***');
                     if (process.env.PDF_BATCH_VERBOSE_LOGS === 'true') {
-                        console.log(`[PDF ZIP] (worker ${workerIdx}) Generating PDF for assignment ${assignmentId} (${safePrintUrl})`);
+                        console.log(`[PDF ZIP] (worker ${workerIdx}) Generating PDF for assignment ${assignmentId} (${safePrintUrl}) [V${version}]`);
                     }
                     let pdfBuffer = null;
                     let lastErr = null;
@@ -939,6 +981,8 @@ exports.pdfPuppeteerRouter.post('/assignments/zip', (0, auth_1.requireAuth)(['AD
                             className,
                             fileName: pdfName,
                             relativePath,
+                            version,
+                            quality: highQuality ? 'high' : 'compressed',
                             emails: {
                                 father: String(student?.fatherEmail || '').trim(),
                                 mother: String(student?.motherEmail || '').trim(),
@@ -998,6 +1042,8 @@ exports.pdfPuppeteerRouter.post('/assignments/zip', (0, auth_1.requireAuth)(['AD
                 createdBy: currentUser.userId,
                 creatorRole: currentUser.role,
                 groupLabel,
+                yearName: yearName || activeYearName,
+                semester,
                 archiveFileName,
                 totalAssignmentsRequested: assignmentIds.length,
                 exportedCount: savedFilesForBatch.length,
@@ -1014,6 +1060,8 @@ exports.pdfPuppeteerRouter.post('/assignments/zip', (0, auth_1.requireAuth)(['AD
                     createdBy: currentUser.userId,
                     creatorRole: currentUser.role,
                     groupLabel,
+                    yearName: yearName || activeYearName,
+                    semester,
                     archiveFileName,
                     totalAssignmentsRequested: assignmentIds.length,
                     exportedCount: 0,
