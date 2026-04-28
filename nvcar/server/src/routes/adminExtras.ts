@@ -564,6 +564,87 @@ adminExtrasRouter.get('/all-gradebooks', requireAuth(['ADMIN']), async (req, res
     }
 })
 
+// Admin: Get appreciation usage statistics with gender breakdown and student details
+adminExtrasRouter.get('/appreciations/usage', requireAuth(['ADMIN']), async (req, res) => {
+    try {
+        const activeSchoolYear = await SchoolYear.findOne({ active: true }).lean()
+        if (!activeSchoolYear) return res.json({})
+
+        const enrollments = await Enrollment.find({ schoolYearId: activeSchoolYear._id }).lean()
+        const studentIds = enrollments.map(e => e.studentId)
+        const classIds = enrollments.map(e => e.classId).filter(Boolean)
+
+        const [assignments, students, classes] = await Promise.all([
+            TemplateAssignment.find({
+                studentId: { $in: studentIds }
+            }).select('data studentId').lean(),
+            Student.find({ _id: { $in: studentIds } }).select('firstName lastName sex').lean(),
+            ClassModel.find({ _id: { $in: classIds } }).select('name').lean()
+        ])
+
+        const classMap: Record<string, string> = {}
+        for (const c of classes) classMap[c._id.toString()] = c.name
+
+        const studentMap: Record<string, { name: string; sex: string; className: string }> = {}
+        for (const s of students) {
+            const enrollment = enrollments.find(e => e.studentId === s._id.toString())
+            studentMap[s._id.toString()] = {
+                name: `${s.firstName} ${s.lastName}`,
+                sex: s.sex || 'neutral',
+                className: enrollment && enrollment.classId ? (classMap[enrollment.classId] || '') : ''
+            }
+        }
+
+        const usageMap: Record<string, { 
+            total: number; 
+            male: { count: number; students: any[] }; 
+            female: { count: number; students: any[] }; 
+            neutral: { count: number; students: any[] }; 
+        }> = {}
+
+        for (const assignment of assignments) {
+            const data = (assignment as any).data || {}
+            const studentId = String(assignment.studentId)
+            const studentInfo = studentMap[studentId]
+            if (!studentInfo) continue
+
+            const { name, sex, className } = studentInfo
+            const displayInfo = { name, className }
+
+            for (const key of Object.keys(data)) {
+                if (key.startsWith('dropdown_') || key.startsWith('tpl:')) {
+                    const val = String(data[key] || '').trim()
+                    if (val) {
+                        if (!usageMap[val]) {
+                            usageMap[val] = { 
+                                total: 0, 
+                                male: { count: 0, students: [] }, 
+                                female: { count: 0, students: [] }, 
+                                neutral: { count: 0, students: [] } 
+                            }
+                        }
+                        usageMap[val].total++
+                        if (sex === 'male') {
+                            usageMap[val].male.count++
+                            usageMap[val].male.students.push(displayInfo)
+                        } else if (sex === 'female') {
+                            usageMap[val].female.count++
+                            usageMap[val].female.students.push(displayInfo)
+                        } else {
+                            usageMap[val].neutral.count++
+                            usageMap[val].neutral.students.push(displayInfo)
+                        }
+                    }
+                }
+            }
+        }
+
+        res.json(usageMap)
+    } catch (e: any) {
+        res.status(500).json({ error: 'fetch_failed', message: e.message })
+    }
+})
+
 // Helper: Extract toggle items from a block + assignment data (shared by summary & batch-update)
 function extractToggleItems(block: any, blockIdx: number, pageIdx: number, assignmentData: any): { key: string, items: any[] }[] {
     const results: { key: string, items: any[] }[] = []
