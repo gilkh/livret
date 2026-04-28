@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { FileDown, RefreshCcw, Mail, Eye, Archive, CheckCircle2, XCircle, AlertCircle, Send, CheckSquare, Square, FolderArchive, MailPlus, Trash2, Users } from 'lucide-react'
+import { FileDown, RefreshCcw, Mail, Eye, Archive, CheckCircle2, XCircle, AlertCircle, Send, CheckSquare, Square, FolderArchive, MailPlus, Trash2, Users, X } from 'lucide-react'
 import api from '../api'
 import './SubAdminExportedGradebooks.css'
 
@@ -20,6 +20,7 @@ type ExportedFile = {
   }
   version: number
   quality?: 'high' | 'compressed'
+  semester?: string
 }
 
 type ExportedBatch = {
@@ -101,9 +102,10 @@ export default function SubAdminExportedGradebooks() {
   const [assignedClasses, setAssignedClasses] = useState<any[]>([])
   const [expandedLevels, setExpandedLevels] = useState<Record<string, boolean>>({})
   const [expandedClasses, setExpandedClasses] = useState<Record<string, boolean>>({})
-  const [selectedContext, setSelectedContext] = useState<{ level: string; className: string; semester: string } | null>(null)
+  const [selectedContext, setSelectedContext] = useState<{ level: string; className?: string; semester?: string } | null>(null)
   const [schoolYears, setSchoolYears] = useState<any[]>([])
   const [selectedYearName, setSelectedYearName] = useState<string>('')
+  const [showPreviewModal, setShowPreviewModal] = useState(false)
 
   const token = sessionStorage.getItem('token') || localStorage.getItem('token') || ''
   
@@ -220,18 +222,33 @@ export default function SubAdminExportedGradebooks() {
 
   if (selectedContext) {
     const { level, className, semester } = selectedContext
-    const context = libraryTree[level]?.[className]?.[semester]
-    if (context) {
-      activeBatches = context.batches
-      activeFiles = context.files.map(f => {
-        // Find which batch this file belongs to in this context
-        const batch = context.batches.find(b => b.files.some(bf => bf._id === f._id))
-        return { ...f, batchId: batch?._id }
+    const batches: ExportedBatch[] = []
+    const files: any[] = []
+    
+    // Hierarchy traversal to collect all relevant items
+    const levelsToScan = level ? [level] : Object.keys(libraryTree)
+    levelsToScan.forEach(l => {
+      const classesToScan = className ? [className] : Object.keys(libraryTree[l] || {})
+      classesToScan.forEach(c => {
+        const semestersToScan = semester ? [semester] : Object.keys(libraryTree[l]?.[c] || {})
+        semestersToScan.forEach(s => {
+          const ctx = libraryTree[l]?.[c]?.[s]
+          if (ctx) {
+            batches.push(...ctx.batches)
+            ctx.files.forEach(f => {
+              const batch = ctx.batches.find(b => b.files.some(bf => bf._id === f._id))
+              files.push({ ...f, batchId: batch?._id, semester: s })
+            })
+          }
+        })
       })
-    }
+    })
+    
+    activeBatches = Array.from(new Map(batches.map(b => [b._id, b])).values())
+    activeFiles = files
   } else if (selectedLot) {
     activeBatches = selectedLot.batches
-    activeFiles = selectedLot.batches.flatMap((b: any) => b.files.map((f: any) => ({ ...f, batchId: b._id })))
+    activeFiles = selectedLot.batches.flatMap((b: any) => b.files.map((f: any) => ({ ...f, batchId: b._id, semester: b.semester })))
   }
 
   const allFilesForLot: ExportedFile[] = activeFiles
@@ -258,26 +275,40 @@ export default function SubAdminExportedGradebooks() {
     return true
   })
 
+  // Calculate available emails for current selection
+  const emailStats = (() => {
+    let p = 0, m = 0, e = 0
+    allFilesForLot.forEach(f => {
+      if (f.emails?.father) p++
+      if (f.emails?.mother) m++
+      if (f.emails?.student) e++
+    })
+    return { p, m, e }
+  })()
+
   useEffect(() => {
     if (!selectedLot && !selectedContext) {
       setSelectedFileIds([])
       setScopeLevel('')
       setScopeClassName('')
       setScopeStudentId('')
+      // Fetch global history when no batch is selected
+      loadJobHistory()
       return
     }
     const bId = selectedContext 
       ? libraryTree[selectedContext.level]?.[selectedContext.className]?.[selectedContext.semester]?.batches[0]?._id
       : selectedLot?.batches[0]?._id
     
-    if (bId) loadJobHistory(bId)
+    loadJobHistory(bId)
   }, [selectedGroupKey, selectedContext])
 
-  const loadJobHistory = async (batchId: string) => {
-    if (!batchId) { setJobHistory([]); return }
+  const loadJobHistory = async (batchId?: string) => {
     try {
       setHistoryLoading(true)
-      const res = await api.get(`/gradebook-exports/batches/${batchId}/email-jobs`)
+      // Use the new /mine endpoint for global history, or the batch-specific one
+      const endpoint = batchId ? `/gradebook-exports/batches/${batchId}/email-jobs` : '/gradebook-exports/email-jobs/mine'
+      const res = await api.get(endpoint)
       setJobHistory(res.data)
     } finally { setHistoryLoading(false) }
   }
@@ -299,7 +330,7 @@ export default function SubAdminExportedGradebooks() {
   }
 
   const selectScopeFiles = () => {
-    if (!selectedLot) return
+    if (!selectedLot && !selectedContext) return
     setSelectedFileIds(filteredBatchFiles.map((file) => file._id))
   }
 
@@ -307,12 +338,18 @@ export default function SubAdminExportedGradebooks() {
     if ((!selectedLot && !selectedContext) || selectedFileIds.length === 0) return
     try {
       setPreviewLoading(true)
-      const bId = selectedContext 
+      // Find the batch ID of the first selected file to provide a valid sample
+      const firstFileId = selectedFileIds[0]
+      const firstFile = allFilesForLot.find(f => f._id === firstFileId)
+      const bId = firstFile?.batchId || (selectedContext 
         ? libraryTree[selectedContext.level]?.[selectedContext.className]?.[selectedContext.semester]?.batches[0]?._id
-        : selectedLot?.batches[0]?._id
+        : selectedLot?.batches[0]?._id)
+
+      if (!bId) throw new Error("Lot introuvable")
       
       const response = await api.post(`/gradebook-exports/batches/${bId}/email-preview`, { selectedFileIds, includeFather, includeMother, includeStudent, customMessage })
       setEmailPreview(response.data)
+      setShowPreviewModal(true)
     } catch (e: any) {
       setError(e.response?.data?.message || 'Erreur aperçu')
     } finally { setPreviewLoading(false) }
@@ -323,9 +360,15 @@ export default function SubAdminExportedGradebooks() {
     try {
       setSendLoading(true)
       setShowConfirmModal(false)
-      const bId = selectedContext 
+      
+      // Use the batch ID of the first file for the job association (legacy requirement)
+      const firstFileId = selectedFileIds[0]
+      const firstFile = allFilesForLot.find(f => f._id === firstFileId)
+      const bId = firstFile?.batchId || (selectedContext 
         ? libraryTree[selectedContext.level]?.[selectedContext.className]?.[selectedContext.semester]?.batches[0]?._id
-        : selectedLot?.batches[0]?._id
+        : selectedLot?.batches[0]?._id)
+
+      if (!bId) throw new Error("Lot introuvable")
 
       const res = await api.post(`/gradebook-exports/batches/${bId}/send`, { 
         selectedFileIds,
@@ -349,13 +392,10 @@ export default function SubAdminExportedGradebooks() {
     if ((!selectedLot && !selectedContext) || selectedFileIds.length === 0) return
     setZipDownloadLoading(true)
     try {
-      const bId = selectedContext 
-        ? libraryTree[selectedContext.level]?.[selectedContext.className]?.[selectedContext.semester]?.batches[0]?._id
-        : selectedLot?.batches[0]?._id
-
-      const response = await api.post(`/gradebook-exports/batches/${bId}/download`, { 
+      // Use the multi-batch zip endpoint
+      const response = await api.post(`/gradebook-exports/zip-files`, { 
         selectedFileIds,
-        quality
+        label: selectedContext ? `${selectedContext.className}-${selectedContext.semester}` : selectedLot?.groupLabel
       }, { responseType: 'blob' })
       const blob = new Blob([response.data], { type: 'application/zip' })
       const url = window.URL.createObjectURL(blob)
@@ -366,6 +406,8 @@ export default function SubAdminExportedGradebooks() {
       document.body.appendChild(link)
       link.click()
       document.body.removeChild(link)
+    } catch (e: any) {
+      setError("Erreur lors du téléchargement du ZIP")
     } finally { setZipDownloadLoading(false) }
   }
 
@@ -493,12 +535,23 @@ export default function SubAdminExportedGradebooks() {
                 return (
                   <div key={level} className="tree-node level-node">
                     <div 
-                      className={`tree-label level-label ${expandedLevels[level] ? 'expanded' : ''}`}
+                      className={`tree-label level-label ${expandedLevels[level] ? 'expanded' : ''} ${selectedContext?.level === level && !selectedContext.className ? 'active' : ''}`}
                       onClick={() => setExpandedLevels(prev => ({ ...prev, [level]: !prev[level] }))}
                     >
                       <FolderArchive size={14} />
-                      <span>{level}</span>
+                      <span style={{ flex: 1 }}>{level}</span>
                       <span className="node-count">{levelTotalFiles} carnets</span>
+                      <button 
+                        className="btn-tree-select" 
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setSelectedContext({ level })
+                          setSelectedGroupKey('')
+                        }}
+                        title="Tout voir pour ce niveau"
+                      >
+                        <CheckSquare size={12} />
+                      </button>
                     </div>
                     
                     {expandedLevels[level] && (
@@ -511,12 +564,23 @@ export default function SubAdminExportedGradebooks() {
                           return (
                             <div key={className} className="tree-node class-node">
                               <div 
-                                className={`tree-label class-label ${expandedClasses[`${level}-${className}`] ? 'expanded' : ''}`}
+                                className={`tree-label class-label ${expandedClasses[`${level}-${className}`] ? 'expanded' : ''} ${selectedContext?.level === level && selectedContext.className === className && !selectedContext.semester ? 'active' : ''}`}
                                 onClick={() => setExpandedClasses(prev => ({ ...prev, [`${level}-${className}`]: !prev[`${level}-${className}`] }))}
                               >
                                 <Users size={14} />
-                                <span>{className}</span>
+                                <span style={{ flex: 1 }}>{className}</span>
                                 <span className="node-count">{classTotalFiles} carnets</span>
+                                <button 
+                                  className="btn-tree-select" 
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setSelectedContext({ level, className })
+                                    setSelectedGroupKey('')
+                                  }}
+                                  title="Tout voir pour cette classe"
+                                >
+                                  <CheckSquare size={12} />
+                                </button>
                               </div>
 
                               {expandedClasses[`${level}-${className}`] && (
@@ -666,21 +730,26 @@ export default function SubAdminExportedGradebooks() {
                               <div className="file-card-name">
                                 {`${file.firstName} ${file.lastName}`}
                                 {file.version > 1 && <span className="version-badge">V{file.version}</span>}
+                                {file.semester && (
+                                  <span className={`semester-badge ${file.semester.includes('1') ? 's1' : 's2'}`}>
+                                    {file.semester.includes('1') ? 'S1' : 'S2'}
+                                  </span>
+                                )}
                               </div>
                               <div className="file-card-meta">
                                 {file.level} • {file.className}
                               </div>
                             </div>
                             <div className="email-status-group">
-                              <span className={`status-icon ${file.emails?.father ? 'active' : ''}`} title={file.emails?.father || 'Père: Manquant'}>
+                              <div className={`status-pill p ${file.emails?.father ? 'active' : ''}`} title={file.emails?.father || 'Père: Manquant'}>
                                 P
-                              </span>
-                              <span className={`status-icon ${file.emails?.mother ? 'active' : ''}`} title={file.emails?.mother || 'Mère: Manquant'}>
+                              </div>
+                              <div className={`status-pill m ${file.emails?.mother ? 'active' : ''}`} title={file.emails?.mother || 'Mère: Manquant'}>
                                 M
-                              </span>
-                              <span className={`status-icon ${file.emails?.student ? 'active' : ''}`} title={file.emails?.student || 'Élève: Manquant'}>
+                              </div>
+                              <div className={`status-pill e ${file.emails?.student ? 'active' : ''}`} title={file.emails?.student || 'Élève: Manquant'}>
                                 E
-                              </span>
+                              </div>
                             </div>
                           </div>
                           <div className="file-card-actions">
@@ -748,51 +817,60 @@ export default function SubAdminExportedGradebooks() {
                 <div className="config-pane">
                   <div className="config-section">
                     <h3 className="section-title">Destinataires</h3>
-                    <div className="checkbox-group">
-                      <label className={`checkbox-item ${includeFather ? 'checked' : ''}`}>
-                        <input type="checkbox" checked={includeFather} onChange={(e) => setIncludeFather(e.target.checked)} />
-                        <span>Père</span>
-                      </label>
-                      <label className={`checkbox-item ${includeMother ? 'checked' : ''}`}>
-                        <input type="checkbox" checked={includeMother} onChange={(e) => setIncludeMother(e.target.checked)} />
-                        <span>Mère</span>
-                      </label>
-                      <label className={`checkbox-item ${includeStudent ? 'checked' : ''}`}>
-                        <input type="checkbox" checked={includeStudent} onChange={(e) => setIncludeStudent(e.target.checked)} />
-                        <span>Élève</span>
-                      </label>
+                    <div className="pme-grid">
+                      <div 
+                        className={`pme-card ${includeFather ? 'active' : ''} ${emailStats.p === 0 ? 'disabled' : ''}`}
+                        onClick={() => emailStats.p > 0 && setIncludeFather(!includeFather)}
+                      >
+                        <div className="pme-icon-box"><Users size={16} /></div>
+                        <div className="pme-info">
+                          <span className="pme-label">Père</span>
+                          <span className="pme-count">{emailStats.p} emails</span>
+                        </div>
+                        <div className="pme-check">{includeFather ? <CheckCircle2 size={14} /> : <div className="pme-dot" />}</div>
+                      </div>
+
+                      <div 
+                        className={`pme-card ${includeMother ? 'active' : ''} ${emailStats.m === 0 ? 'disabled' : ''}`}
+                        onClick={() => emailStats.m > 0 && setIncludeMother(!includeMother)}
+                      >
+                        <div className="pme-icon-box"><Users size={16} /></div>
+                        <div className="pme-info">
+                          <span className="pme-label">Mère</span>
+                          <span className="pme-count">{emailStats.m} emails</span>
+                        </div>
+                        <div className="pme-check">{includeMother ? <CheckCircle2 size={14} /> : <div className="pme-dot" />}</div>
+                      </div>
+
+                      <div 
+                        className={`pme-card ${includeStudent ? 'active' : ''} ${emailStats.e === 0 ? 'disabled' : ''}`}
+                        onClick={() => emailStats.e > 0 && setIncludeStudent(!includeStudent)}
+                      >
+                        <div className="pme-icon-box"><MailPlus size={16} /></div>
+                        <div className="pme-info">
+                          <span className="pme-label">Élève</span>
+                          <span className="pme-count">{emailStats.e} emails</span>
+                        </div>
+                        <div className="pme-check">{includeStudent ? <CheckCircle2 size={14} /> : <div className="pme-dot" />}</div>
+                      </div>
                     </div>
                   </div>
 
                   <div className="action-footer" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    <button className="btn secondary" style={{ width: '100%' }} onClick={previewEmail} disabled={!selectedLot || selectedFileIds.length === 0 || previewLoading}>
+                    <button className="btn secondary" style={{ width: '100%' }} onClick={previewEmail} disabled={(!selectedLot && !selectedContext) || selectedFileIds.length === 0 || previewLoading}>
                       {previewLoading ? <RefreshCcw size={16} className="spin" /> : <Eye size={16} />} Aperçu du modèle d'email
                     </button>
                     <button 
                       className="btn btn-primary" 
                       style={{ width: '100%' }} 
                       onClick={() => { setConfirmStep(1); setShowConfirmModal(true); }} 
-                      disabled={!selectedLot || selectedFileIds.length === 0 || sendLoading}
+                      disabled={(!selectedLot && !selectedContext) || selectedFileIds.length === 0 || sendLoading}
                     >
                       <Send size={18} /> Lancer la distribution ({selectedFileIds.length})
                     </button>
                   </div>
 
-                  {emailPreview && (
-                    <div className="preview-mini-card">
-                      <div className="preview-header">
-                        <div className="preview-label">Aperçu du modèle</div>
-                        <div className="preview-subject">{emailPreview.subject}</div>
-                        <div style={{ fontSize: 11, color: '#92400e', marginTop: 4 }}>
-                          <strong>Destinataires:</strong> {emailPreview.sampleRecipients.join(', ') || 'Aucun !'}
-                        </div>
-                      </div>
-                      <div 
-                        className="email-preview-box mini scrollable" 
-                        dangerouslySetInnerHTML={{ __html: emailPreview.html }} 
-                      />
-                    </div>
-                  )}
+                  {/* Removed inline preview, now in modal */}
 
                   {emailJob && (
                     <div className="job-status-card" style={{ marginTop: 12 }}>
@@ -912,6 +990,68 @@ export default function SubAdminExportedGradebooks() {
           </div>
         </aside>
       </div>
+
+      {/* EMAIL PREVIEW MODAL */}
+      {showPreviewModal && emailPreview && (
+        <div className="modal-overlay" onClick={() => setShowPreviewModal(false)}>
+          <div className="modal-content premium email-preview-modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div className="icon-circle">
+                  <Eye size={20} />
+                </div>
+                <div>
+                  <h3 className="modal-title">Aperçu du modèle d'email</h3>
+                  <p className="modal-subtitle">Vérifiez le contenu avant de lancer la distribution</p>
+                </div>
+              </div>
+              <button className="btn-close" onClick={() => setShowPreviewModal(false)}>
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div className="modal-body scrollable" style={{ padding: 24 }}>
+              <div className="preview-meta-grid">
+                <div className="meta-item">
+                  <span className="meta-label">Sujet</span>
+                  <span className="meta-value">{emailPreview.subject}</span>
+                </div>
+                <div className="meta-item">
+                  <span className="meta-label">Exemple de destinataires</span>
+                  <span className="meta-value">{emailPreview.sampleRecipients.join(', ') || 'Aucun (Vérifiez les fiches élèves)'}</span>
+                </div>
+                <div className="meta-item">
+                  <span className="meta-label">Échantillon pour</span>
+                  <span className="meta-value">{emailPreview.previewFile?.studentName}</span>
+                </div>
+              </div>
+
+              <div className="email-preview-container">
+                <div className="email-browser-chrome">
+                  <div className="chrome-dots">
+                    <span></span><span></span><span></span>
+                  </div>
+                  <div className="chrome-address">{emailPreview.subject}</div>
+                </div>
+                <div 
+                  className="email-frame scrollable" 
+                  dangerouslySetInnerHTML={{ __html: emailPreview.html }} 
+                />
+              </div>
+            </div>
+
+            <div className="modal-footer">
+              <button className="btn secondary" onClick={() => setShowPreviewModal(false)}>Fermer</button>
+              <button 
+                className="btn btn-primary" 
+                onClick={() => { setShowPreviewModal(false); setConfirmStep(1); setShowConfirmModal(true); }}
+              >
+                Tout semble correct, continuer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Two-step Confirmation Modal */}
       {showConfirmModal && (

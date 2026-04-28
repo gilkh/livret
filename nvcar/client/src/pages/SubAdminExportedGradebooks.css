@@ -1309,3 +1309,307 @@
   border-color: #1e293b;
   box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
 }
+
+/* Email Preview Modal */
+.email-preview-modal {
+  max-width: 900px !important;
+  width: 90vw;
+  max-height: 90vh;
+}
+
+.preview-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  background: #f8fafc;
+  padding: 16px;
+  border-radius: 12px;
+  margin-bottom: 24px;
+  border: 1px solid #e2e8f0;
+}
+
+.meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.meta-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #94a3b8;
+  letter-spacing: 0.05em;
+}
+
+.meta-value {
+  font-size: 13px;
+  color: #1e293b;
+  font-weight: 600;
+}
+
+.email-preview-container {
+  background: #f1f5f9;
+  padding: 32px;
+  border-radius: 16px;
+  border: 1px solid #e2e8f0;
+}
+
+.email-browser-chrome {
+  background: #e2e8f0;
+  padding: 8px 16px;
+  border-radius: 10px 10px 0 0;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.chrome-dots {
+  display: flex;
+  gap: 6px;
+}
+
+.chrome-dots span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #cbd5e1;
+}
+
+.chrome-address {
+  background: white;
+  flex: 1;
+  padding: 4px 12px;
+  border-radius: 6px;
+  font-size: 11px;
+  color: #64748b;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.email-frame {
+  background: white;
+  border-radius: 0 0 10px 10px;
+  min-height: 400px;
+  max-height: 500px;
+  padding: 0;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.05);
+}
+
+.btn-close {
+  background: none;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 50%;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-close:hover {
+  background: #f1f5f9;
+  color: #1e293b;
+}
+
+.modal-content.premium {
+  border: none;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+}
+
+.icon-circle {
+  width: 40px;
+  height: 40px;
+  background: #eff6ff;
+  color: #3b82f6;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* PME Selection Cards */
+.pme-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.pme-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  user-select: none;
+}
+
+.pme-card:hover:not(.disabled) {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+  transform: translateX(4px);
+}
+
+.pme-card.active {
+  background: #eff6ff;
+  border-color: #3b82f6;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.08);
+}
+
+.pme-card.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  filter: grayscale(1);
+}
+
+.pme-icon-box {
+  width: 36px;
+  height: 36px;
+  background: #f1f5f9;
+  color: #64748b;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.pme-card.active .pme-icon-box {
+  background: #3b82f6;
+  color: white;
+}
+
+.pme-info {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.pme-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.pme-count {
+  font-size: 11px;
+  color: #94a3b8;
+  font-weight: 500;
+}
+
+.pme-card.active .pme-count {
+  color: #3b82f6;
+}
+
+.pme-check {
+  color: #3b82f6;
+}
+
+.pme-dot {
+  width: 14px;
+  height: 14px;
+  border: 2px solid #e2e8f0;
+  border-radius: 50%;
+}
+
+/* Student Card Email Status Pills */
+.email-status-group {
+  display: flex;
+  gap: 4px;
+}
+
+.status-pill {
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 800;
+  background: #f1f5f9;
+  color: #94a3b8;
+  border: 1px solid #e2e8f0;
+  transition: all 0.2s;
+}
+
+.status-pill.active.p {
+  background: #eff6ff;
+  color: #2563eb;
+  border-color: #bfdbfe;
+}
+
+.status-pill.active.m {
+  background: #fdf2f8;
+  color: #db2777;
+  border-color: #fbcfe8;
+}
+
+.status-pill.active.e {
+  background: #f0fdf4;
+  color: #16a34a;
+  border-color: #bbf7d0;
+}
+
+.file-card.selected .status-pill {
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+/* Tree Select Buttons */
+.btn-tree-select {
+  background: transparent;
+  border: 1px solid #e2e8f0;
+  color: #94a3b8;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-left: 8px;
+}
+
+.btn-tree-select:hover {
+  background: white;
+  border-color: #3b82f6;
+  color: #3b82f6;
+  box-shadow: 0 2px 6px rgba(59, 130, 246, 0.1);
+}
+
+.tree-label.active .btn-tree-select {
+  background: #3b82f6;
+  color: white;
+  border-color: #3b82f6;
+}
+
+/* Semester Badges */
+.semester-badge {
+  font-size: 9px;
+  font-weight: 800;
+  padding: 1px 4px;
+  border-radius: 4px;
+  margin-left: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.semester-badge.s1 {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.semester-badge.s2 {
+  background: #fef3c7;
+  color: #92400e;
+}

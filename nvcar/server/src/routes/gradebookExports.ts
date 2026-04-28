@@ -505,6 +505,20 @@ gradebookExportsRouter.post('/check-existing', requireAuth(['ADMIN', 'SUBADMIN',
   }
 })
 
+gradebookExportsRouter.get('/email-jobs/mine', requireAuth(['ADMIN', 'SUBADMIN']), async (req, res) => {
+  try {
+    const reqAny = req as any
+    const query: Record<string, unknown> = {}
+    if (!isAdminRole(String(reqAny.user?.role || ''))) {
+      query.createdBy = String(reqAny.user?.userId || '')
+    }
+    const jobs = await EmailJob.find(query).sort({ createdAt: -1 }).limit(200).lean()
+    res.json(jobs)
+  } catch (error: any) {
+    res.status(500).json({ error: 'fetch_mine_failed', message: error.message })
+  }
+})
+
 gradebookExportsRouter.get('/email-jobs', requireAuth(['ADMIN', 'SUBADMIN']), async (req, res) => {
   try {
     const jobs = await EmailJob.find().sort({ createdAt: -1 }).limit(100).lean()
