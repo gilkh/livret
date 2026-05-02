@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
-import { Plus, Edit2, Trash2, Mail, Save, X, Eye, Image as ImageIcon, Send, RefreshCcw, CheckCircle, AlertCircle, History, Package, FolderArchive, FileDown, Archive, Layout } from 'lucide-react'
+import { Plus, Edit2, Trash2, Mail, Save, X, Eye, Image as ImageIcon, Send, RefreshCcw, CheckCircle, AlertCircle, History, Package, FolderArchive, FileDown, Archive, Layout, CheckSquare, Square, Users, CheckCircle2, XCircle, MailPlus } from 'lucide-react'
 import api from '../api'
 import './AdminEmailTemplates.css'
 import EmailBlockEditor, { DEFAULT_BLOCKS, blocksToHtml, EmailBlock } from '../components/EmailBlockEditor'
@@ -52,6 +52,43 @@ type GroupedLot = {
   createdAt: string
 }
 
+type EmailPreview = {
+  subject: string
+  html: string
+  text: string
+  sampleRecipients: string[]
+  selectedFileCount: number
+  totalRecipientCount: number
+  previewFile?: {
+    fileId: string
+    studentName: string
+    fileName: string
+  }
+}
+
+type EmailJob = {
+  id: string
+  status: 'queued' | 'running' | 'completed' | 'failed'
+  totalItems: number
+  processedItems: number
+  sentItems: number
+  skippedItems: number
+  failedItems: number
+  error?: string
+  items: Array<{
+    fileId: string
+    studentName: string
+    recipients: string[]
+    status: 'pending' | 'sent' | 'skipped' | 'failed'
+    error?: string
+  }>
+  creatorName?: string
+  startedAt?: string
+  createdAt?: string
+  isTest?: boolean
+  options?: any
+}
+
 export default function AdminEmailTemplates() {
   const [activeTab, setActiveTab] = useState<'templates' | 'distribution' | 'history'>('templates')
   const [templates, setTemplates] = useState<EmailTemplate[]>([])
@@ -90,8 +127,27 @@ export default function AdminEmailTemplates() {
   const [zipDownloadLoading, setZipDownloadLoading] = useState(false)
   const [selectedTemplateId, setSelectedTemplateId] = useState('')
   const [preferredQuality, setPreferredQuality] = useState<'compressed' | 'high'>('compressed')
-  const [allJobs, setAllJobs] = useState<any[]>([])
+  const [allJobs, setAllJobs] = useState<EmailJob[]>([])
   const jobInterval = useRef<number | null>(null)
+
+  // Advanced Distribution State (from SubAdminExportedGradebooks)
+  const [selectedYearName, setSelectedYearName] = useState<string>('')
+  const [schoolYears, setSchoolYears] = useState<any[]>([])
+  const [selectedContext, setSelectedContext] = useState<{ level: string; className?: string; semester?: string } | null>(null)
+  const [expandedLevels, setExpandedLevels] = useState<Record<string, boolean>>({})
+  const [expandedClasses, setExpandedClasses] = useState<Record<string, boolean>>({})
+  const [scopeLevel, setScopeLevel] = useState('')
+  const [scopeClassName, setScopeClassName] = useState('')
+  const [scopeStudentId, setScopeStudentId] = useState('')
+  const [rightTab, setRightTab] = useState<'config' | 'history'>('config')
+  const [customMessage, setCustomMessage] = useState('')
+  const [showPreviewModal, setShowPreviewModal] = useState(false)
+  const [showConfirmModal, setShowConfirmModal] = useState(false)
+  const [confirmStep, setConfirmStep] = useState(1)
+  const [batchHistory, setBatchHistory] = useState<EmailJob[]>([])
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [testSuccess, setTestSuccess] = useState(false)
+  const [expandedJobId, setExpandedJobId] = useState<string | null>(null)
 
   // Grouping Logic
   const groupedLots = useMemo(() => {
@@ -124,24 +180,164 @@ export default function AdminEmailTemplates() {
     return groupedLots.find(l => l.key === selectedGroupKey) || null
   }, [groupedLots, selectedGroupKey])
 
-  const uniqueFileVersionPairs = useMemo(() => {
-    if (!selectedLot) return []
-    const allFiles = selectedLot.batches.flatMap(b => b.files || [])
-    const unique = Array.from(
-      new Map(allFiles.map(f => [`${f.assignmentId}-${f.version}`, f])).values()
-    )
-    return unique.sort((a, b) => (a.lastName || '').localeCompare(b.lastName || ''))
-  }, [selectedLot])
 
   useEffect(() => {
     loadTemplatesData()
     if (activeTab === 'distribution') {
       loadBatches()
+      loadYears()
     }
     if (activeTab === 'history') {
       fetchAllJobs()
     }
   }, [activeTab])
+
+  const loadYears = async () => {
+    try {
+      const res = await api.get('/school-years')
+      const years = Array.isArray(res.data) ? res.data : []
+      setSchoolYears(years)
+      
+      const activeYear = years.find((y: any) => y.active)
+      const activeSeq = activeYear?.sequence || 999999
+      const availableYears = years.filter((y: any) => (y.sequence || 0) <= activeSeq)
+
+      if (activeYear && !selectedYearName) {
+        setSelectedYearName(activeYear.name)
+      } else if (availableYears.length > 0 && !selectedYearName) {
+        // Pick the most recent available year
+        const sorted = [...availableYears].sort((a, b) => (b.sequence || 0) - (a.sequence || 0))
+        setSelectedYearName(sorted[0].name)
+      }
+    } catch (err) {
+      console.error(err)
+    }
+  }
+
+  // Build Library Tree (Ported from SubAdminExportedGradebooks)
+  const libraryTree = useMemo(() => {
+    const tree: Record<string, Record<string, Record<string, { files: ExportedFile[], batches: ExportBatch[] }>>> = {}
+    
+    // Filter batches by selected year
+    const filteredBatchesByYear = batches.filter(b => b.yearName === selectedYearName)
+
+    // Initialize tree with available levels/classes from metadata if we're in the current year
+    const activeYear = schoolYears.find(y => y.active)
+    if (selectedYearName === activeYear?.name) {
+      allClasses.forEach(c => {
+        const level = (allLevels.find(l => l.name === c.name) as any)?.level || 'Sans niveau' // This logic might vary depending on how classes/levels are linked
+        // Simplified: using class's own level if available or a default
+        const actualLevel = (c as any).level || 'Sans niveau'
+        if (!tree[actualLevel]) tree[actualLevel] = {}
+        if (!tree[actualLevel][c.name]) tree[actualLevel][c.name] = {
+          'Semestre 1': { files: [], batches: [] },
+          'Semestre 2': { files: [], batches: [] }
+        }
+      })
+    }
+
+    // Populate with exported data
+    filteredBatchesByYear.forEach(batch => {
+      batch.files.forEach(file => {
+        const level = file.level || 'Sans niveau'
+        const className = file.className || 'Sans classe'
+        const semester = batch.semester || 'Semestre 1'
+
+        if (!tree[level]) tree[level] = {}
+        if (!tree[level][className]) tree[level][className] = {}
+        if (!tree[level][className][semester]) tree[level][className][semester] = { files: [], batches: [] }
+        
+        const context = tree[level][className][semester]
+        if (!context.batches.some(b => b._id === batch._id)) context.batches.push(batch)
+        if (!context.files.some(f => f._id === file._id)) context.files.push(file)
+      })
+    })
+
+    return tree
+  }, [batches, selectedYearName, allClasses, allLevels, schoolYears])
+
+  // Contextual filtering logic (Ported)
+  const { activeBatches, activeFiles } = useMemo(() => {
+    let batches: ExportBatch[] = []
+    let files: any[] = []
+
+    if (selectedContext) {
+      const { level, className, semester } = selectedContext
+      const levelsToScan = level ? [level] : Object.keys(libraryTree)
+      levelsToScan.forEach(l => {
+        const classesToScan = className ? [className] : Object.keys(libraryTree[l] || {})
+        classesToScan.forEach(c => {
+          const semestersToScan = semester ? [semester] : Object.keys(libraryTree[l]?.[c] || {})
+          semestersToScan.forEach(s => {
+            const ctx = libraryTree[l]?.[c]?.[s]
+            if (ctx) {
+              batches.push(...ctx.batches)
+              ctx.files.forEach(f => {
+                const batch = ctx.batches.find(b => b.files.some(bf => bf._id === f._id))
+                files.push({ ...f, batchId: batch?._id, semester: s })
+              })
+            }
+          })
+        })
+      })
+    } else if (selectedLot) {
+      batches = selectedLot.batches
+      files = selectedLot.batches.flatMap(b => b.files.map(f => ({ ...f, batchId: b._id, semester: b.semester })))
+    }
+
+    return {
+      activeBatches: Array.from(new Map(batches.map(b => [b._id, b])).values()),
+      activeFiles: files
+    }
+  }, [selectedContext, selectedLot, libraryTree])
+
+  const uniqueFileVersionPairs = useMemo(() => {
+    return Array.from(
+      new Map(activeFiles.map(f => [`${f.assignmentId}-${f.version}`, f])).values()
+    ).sort((a, b) => `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`))
+  }, [activeFiles])
+
+  const filteredBatchFiles = useMemo(() => {
+    return uniqueFileVersionPairs.filter((file) => {
+      if (scopeLevel && String(file.level || '') !== scopeLevel) return false
+      if (scopeClassName && String(file.className || '') !== scopeClassName) return false
+      if (scopeStudentId && String(file._id) !== scopeStudentId) return false
+      return true
+    })
+  }, [uniqueFileVersionPairs, scopeLevel, scopeClassName, scopeStudentId])
+
+  const levelOptions = useMemo(() => Array.from(new Set(activeFiles.map((file) => String(file.level || '').trim()).filter(Boolean))).sort(), [activeFiles])
+  const classOptions = useMemo(() => Array.from(new Set(activeFiles
+    .filter((file) => !scopeLevel || String(file.level || '') === scopeLevel)
+    .map((file) => String(file.className || '').trim())
+    .filter(Boolean))).sort(), [activeFiles, scopeLevel])
+  const studentOptions = useMemo(() => uniqueFileVersionPairs.filter((file) => {
+    if (scopeLevel && String(file.level || '') !== scopeLevel) return false
+    if (scopeClassName && String(file.className || '') !== scopeClassName) return false
+    return true
+  }), [uniqueFileVersionPairs, scopeLevel, scopeClassName])
+
+  useEffect(() => {
+    if (!selectedLot && !selectedContext) {
+      setBatchHistory([])
+      return
+    }
+    const bId = selectedContext 
+      ? (Object.values(Object.values(libraryTree[selectedContext.level] || {})[0] || {})[0] as any)?.batches[0]?._id
+      : selectedLot?.batches[0]?._id
+    
+    if (bId) loadBatchHistory(bId)
+  }, [selectedGroupKey, selectedContext, libraryTree])
+
+  const loadBatchHistory = async (batchId: string) => {
+    try {
+      setHistoryLoading(true)
+      const res = await api.get(`/gradebook-exports/batches/${batchId}/email-jobs`)
+      setBatchHistory(res.data)
+    } catch (err) {
+      console.error(err)
+    } finally { setHistoryLoading(false) }
+  }
 
   const loadTemplatesData = async () => {
     setLoading(true)
@@ -272,16 +468,15 @@ export default function AdminEmailTemplates() {
   }
 
   const toggleAllFiles = () => {
-    if (!selectedLot) return
     if (selectedFileIds.length === uniqueFileVersionPairs.length) setSelectedFileIds([])
     else setSelectedFileIds(uniqueFileVersionPairs.map(f => f._id))
   }
 
   const previewEmail = async () => {
-    if (!selectedLot || selectedFileIds.length === 0) return
+    if (activeBatches.length === 0 || selectedFileIds.length === 0) return
     setPreviewLoading(true)
     try {
-      const res = await api.post(`/gradebook-exports/batches/${selectedLot.batches[0]._id}/email-preview`, {
+      const res = await api.post(`/gradebook-exports/batches/${activeBatches[0]._id}/email-preview`, {
         selectedFileIds,
         includeFather,
         includeMother,
@@ -289,6 +484,7 @@ export default function AdminEmailTemplates() {
         templateId: selectedTemplateId || undefined
       })
       setEmailPreview(res.data)
+      setShowPreviewModal(true)
     } catch (err) {
       console.error(err)
     } finally {
@@ -297,7 +493,7 @@ export default function AdminEmailTemplates() {
   }
 
   const launchDistribution = async (isTest = false) => {
-    if (!selectedLot || selectedFileIds.length === 0) return
+    if (activeBatches.length === 0 || selectedFileIds.length === 0) return
     if (!isTest && !window.confirm(`Voulez-vous vraiment envoyer ces emails à ${selectedFileIds.length} élèves en qualité ${preferredQuality === 'high' ? 'HD' : 'SD'} ?`)) return
 
     setSending(true)
@@ -315,7 +511,7 @@ export default function AdminEmailTemplates() {
 
       // Group targetIds by their parent batch
       const batchGroups: Record<string, string[]> = {}
-      selectedLot.batches.forEach(b => {
+      activeBatches.forEach(b => {
         const matchingIds = targetIds.filter(id => b.files.some(f => String(f._id) === id))
         if (matchingIds.length > 0) {
           batchGroups[b._id] = matchingIds
@@ -328,10 +524,7 @@ export default function AdminEmailTemplates() {
         return
       }
 
-      // If multiple batches, we'll start them all. 
-      // For simplicity in UI, we'll track the last job ID for polling if multiple exist.
       let lastJobId = ''
-
       for (const bId of batchIds) {
         const res = await api.post(`/gradebook-exports/batches/${bId}/send`, {
           selectedFileIds: batchGroups[bId],
@@ -346,6 +539,7 @@ export default function AdminEmailTemplates() {
       
       if (lastJobId) {
         pollJob(lastJobId)
+        if (isTest) setTestSuccess(true)
       }
     } catch (err) {
       console.error(err)
@@ -361,7 +555,7 @@ export default function AdminEmailTemplates() {
   }
 
   const downloadSelectedFiles = async (quality?: 'high' | 'compressed') => {
-    if (!selectedLot || selectedFileIds.length === 0) return
+    if (activeBatches.length === 0 || selectedFileIds.length === 0) return
     setZipDownloadLoading(true)
     try {
       // Resolve IDs for the chosen quality
@@ -374,15 +568,17 @@ export default function AdminEmailTemplates() {
         if (match) targetIds.push(match._id)
       })
 
+      const label = selectedContext ? (selectedContext.className || selectedContext.level) : (selectedLot?.groupLabel || 'exports')
+
       const response = await api.post(`/gradebook-exports/zip-files`, {
         selectedFileIds: targetIds,
-        label: `${selectedLot.groupLabel}_${quality || 'exports'}`
+        label: `${label}_${quality || 'exports'}`
       }, { responseType: 'blob' })
       
       const url = window.URL.createObjectURL(new Blob([response.data]))
       const link = document.createElement('a')
       link.href = url
-      link.setAttribute('download', `${selectedLot.groupLabel}_${quality || 'exports'}.zip`)
+      link.setAttribute('download', `${label}_${quality || 'exports'}.zip`)
       document.body.appendChild(link)
       link.click()
       link.remove()
@@ -412,8 +608,7 @@ export default function AdminEmailTemplates() {
   }
 
   const getStudentInstances = (assignmentId: string, version: number) => {
-    if (!selectedLot) return []
-    return selectedLot.batches.flatMap(b => b.files.map(f => ({ ...f, batchId: b._id }))).filter(f => f.assignmentId === assignmentId && f.version === version)
+    return activeFiles.filter(f => f.assignmentId === assignmentId && f.version === version)
   }
 
   return (
@@ -624,247 +819,386 @@ export default function AdminEmailTemplates() {
       )}
 
       {activeTab === 'distribution' && (
-        <div className="distribution-layout">
-          <div className="batches-sidebar glass-panel">
-            <h3>Bibliothèque</h3>
-            <div className="batches-list">
-              {!loading && groupedLots.length === 0 && (
-                <div className="empty-state mini">
-                  <FolderArchive size={24} style={{ opacity: 0.3, marginBottom: 8 }} />
-                  <span>Aucun export</span>
+        <div className="distribution-workspace-v2">
+          <div className="main-workspace-grid">
+            {/* COLUMN 1: NAVIGATION / LIBRARY */}
+            <aside className="workspace-column sidebar">
+              <div className="glass-card full-height flex-column">
+                <div className="card-header">
+                  <Archive size={18} />
+                  <div className="card-title">Bibliothèque</div>
                 </div>
-              )}
-              {groupedLots.map(lot => {
-                const selected = lot.key === selectedGroupKey
-                const totalCount = lot.batches.reduce((sum, b) => sum + b.exportedCount, 0)
-                return (
-                  <div 
-                    key={lot.key} 
-                    className={`batch-item compact ${selected ? 'active' : ''}`}
-                    onClick={() => {
-                      setSelectedGroupKey(lot.key)
-                      setEmailPreview(null)
+                
+                <div className="year-selector-v2">
+                  <Archive size={16} className="text-muted" />
+                  <select 
+                    value={selectedYearName} 
+                    onChange={(e) => {
+                      setSelectedYearName(e.target.value)
+                      setSelectedContext(null)
+                      setSelectedGroupKey('')
                     }}
+                    className="modern-select transparent"
                   >
-                    <div className="batch-label">{lot.groupLabel}</div>
-                    <div className="batch-meta-row">
-                      {lot.yearName && <span>{lot.yearName}</span>}
-                      {lot.semester && <span> • {lot.semester}</span>}
-                    </div>
-                    <div className="batch-footer">
-                      <span className="batch-date-small">{new Date(lot.createdAt).toLocaleDateString()}</span>
-                      <span className="count-tag">{totalCount} fichiers</span>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-
-          <div className="distribution-main">
-            {selectedLot ? (
-              <div className="glass-card distribution-card">
-                <div className="dist-card-header">
-                  <div style={{ flex: 1 }}>
-                    <h2>{selectedLot.groupLabel}</h2>
-                    <p>{uniqueFileVersionPairs.length} élèves / versions</p>
-                  </div>
-                  <div className="dist-actions">
-                    <button 
-                      className="btn secondary shiny" 
-                      onClick={() => downloadSelectedFiles('compressed')} 
-                      disabled={selectedFileIds.length === 0 || zipDownloadLoading}
-                    >
-                      <Archive size={16} /> SD ({selectedFileIds.length})
-                    </button>
-                    <button 
-                      className="btn secondary shiny" 
-                      onClick={() => downloadSelectedFiles('high')} 
-                      disabled={selectedFileIds.length === 0 || zipDownloadLoading}
-                    >
-                      <Archive size={16} /> HD ({selectedFileIds.length})
-                    </button>
-                    <button className="btn secondary" onClick={previewEmail} disabled={previewLoading || selectedFileIds.length === 0}>
-                      {previewLoading ? <RefreshCcw size={16} className="spin" /> : <Eye size={16} />} Aperçu
-                    </button>
-
-                    <div className="quality-send-selector">
-                      <button 
-                        className={`q-toggle ${preferredQuality === 'compressed' ? 'active' : ''}`}
-                        onClick={() => setPreferredQuality('compressed')}
-                        title="Qualité Standard (Léger)"
-                      >SD</button>
-                      <button 
-                        className={`q-toggle ${preferredQuality === 'high' ? 'active' : ''}`}
-                        onClick={() => setPreferredQuality('high')}
-                        title="Haute Qualité (HD)"
-                      >HD</button>
-                    </div>
-
-                    <button className="btn btn-primary" onClick={() => launchDistribution(false)} disabled={sending || selectedFileIds.length === 0}>
-                      <Send size={18} /> Lancer ({selectedFileIds.length})
-                    </button>
-                  </div>
+                    {schoolYears
+                      .filter(y => {
+                        const activeY = schoolYears.find(sy => sy.active)
+                        return (y.sequence || 0) <= (activeY?.sequence || 999999)
+                      })
+                      .sort((a, b) => (b.sequence || 0) - (a.sequence || 0))
+                      .map(year => (
+                        <option key={year._id} value={year.name}>{year.name}</option>
+                      ))
+                    }
+                  </select>
                 </div>
 
-                <div className="dist-settings glass-panel">
-                  <div className="settings-row">
-                    <div className="check-group">
-                      <label className="checkbox-label">
-                        <input type="checkbox" checked={includeFather} onChange={e => setIncludeFather(e.target.checked)} />
-                        Père
-                      </label>
-                      <label className="checkbox-label">
-                        <input type="checkbox" checked={includeMother} onChange={e => setIncludeMother(e.target.checked)} />
-                        Mère
-                      </label>
-                      <label className="checkbox-label">
-                        <input type="checkbox" checked={includeStudent} onChange={e => setIncludeStudent(e.target.checked)} />
-                        Élève
-                      </label>
+                <div className="library-tree scrollable">
+                  {!loading && batches.length === 0 && (
+                    <div className="empty-state mini">
+                      <FolderArchive size={24} style={{ opacity: 0.3, marginBottom: 8 }} />
+                      <span>Aucun export</span>
                     </div>
-
-                    <div className="template-select-box">
-                      <select 
-                        className="modern-input mini" 
-                        value={selectedTemplateId} 
-                        onChange={e => setSelectedTemplateId(e.target.value)}
-                        style={{ width: '220px' }}
-                      >
-                        <option value="">Sélection automatique</option>
-                        {templates.map(t => (
-                          <option key={t._id} value={t._id}>{t.name}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="test-email-group">
-                      <input 
-                        type="email" 
-                        placeholder="Email de test..." 
-                        className="modern-input mini" 
-                        value={testEmail} 
-                        onChange={e => setTestEmail(e.target.value)} 
-                      />
-                      <button className="btn secondary mini" onClick={() => launchDistribution(true)} disabled={sending || !testEmail}>
-                        Test
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                {emailJob && (
-                  <div className={`job-status-banner ${emailJob.status === 'completed' ? 'success' : emailJob.status === 'failed' ? 'failed' : ''}`}>
-                    <div className="job-info">
-                      <div className="job-status-title">
-                        {emailJob.status === 'running' && <RefreshCcw size={16} className="spin" />}
-                        {emailJob.status === 'completed' && <CheckCircle size={16} />}
-                        {emailJob.status === 'failed' && <AlertCircle size={16} />}
-                        <span>
-                          {emailJob.isTest ? '[TEST] ' : ''}
-                          {emailJob.status === 'running' ? 'Envoi en cours...' : 
-                           emailJob.status === 'completed' ? 'Envoi terminé avec succès' : 
-                           'Échec de l\'envoi'}
-                        </span>
-                      </div>
-                      <span className="job-count">{emailJob.processedItems}/{emailJob.totalItems}</span>
-                    </div>
-
-                    <div className="progress-bar">
-                      <div className="progress-fill" style={{ width: `${(emailJob.processedItems / emailJob.totalItems) * 100}%` }} />
-                    </div>
-
-                    {emailJob.status === 'completed' && (
-                      <div className="job-details-footer">
-                        <div className="detail-item">
-                          <strong>Par :</strong> {emailJob.creatorName || 'Système'}
+                  )}
+                  
+                  {Object.keys(libraryTree).sort().map((level) => {
+                    const levelTotalFiles = Object.values(libraryTree[level]).reduce((sum, cls) => 
+                      sum + Object.values(cls).reduce((subSum, sem) => subSum + sem.files.length, 0), 0
+                    )
+                    
+                    return (
+                      <div key={level} className="tree-node level-node">
+                        <div 
+                          className={`tree-label level-label ${expandedLevels[level] ? 'expanded' : ''} ${selectedContext?.level === level && !selectedContext.className ? 'active' : ''}`}
+                          onClick={() => setExpandedLevels(prev => ({ ...prev, [level]: !prev[level] }))}
+                        >
+                          <FolderArchive size={14} />
+                          <span style={{ flex: 1 }}>{level}</span>
+                          <span className="node-count">{levelTotalFiles}</span>
+                          <button 
+                            className="btn-tree-select" 
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setSelectedContext({ level })
+                              setSelectedGroupKey('')
+                            }}
+                          >
+                            <CheckSquare size={12} />
+                          </button>
                         </div>
-                        {emailJob.isTest && emailJob.options?.testEmailOverride && (
-                          <div className="detail-item">
-                            <strong>Vers :</strong> {emailJob.options.testEmailOverride}
+                        
+                        {expandedLevels[level] && (
+                          <div className="tree-children">
+                            {Object.keys(libraryTree[level]).sort().map((className) => {
+                              const classTotalFiles = Object.values(libraryTree[level][className]).reduce((sum, sem) => 
+                                sum + sem.files.length, 0
+                              )
+                              
+                              return (
+                                <div key={className} className="tree-node class-node">
+                                  <div 
+                                    className={`tree-label class-label ${expandedClasses[`${level}-${className}`] ? 'expanded' : ''} ${selectedContext?.level === level && selectedContext.className === className && !selectedContext.semester ? 'active' : ''}`}
+                                    onClick={() => setExpandedClasses(prev => ({ ...prev, [`${level}-${className}`]: !prev[`${level}-${className}`] }))}
+                                  >
+                                    <Users size={14} />
+                                    <span style={{ flex: 1 }}>{className}</span>
+                                    <span className="node-count">{classTotalFiles}</span>
+                                    <button 
+                                      className="btn-tree-select" 
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        setSelectedContext({ level, className })
+                                        setSelectedGroupKey('')
+                                      }}
+                                    >
+                                      <CheckSquare size={12} />
+                                    </button>
+                                  </div>
+
+                                  {expandedClasses[`${level}-${className}`] && (
+                                    <div className="tree-children">
+                                      {Object.keys(libraryTree[level][className]).sort().map((semester) => {
+                                        const data = libraryTree[level][className][semester]
+                                        const isSelected = selectedContext?.level === level && 
+                                                        selectedContext?.className === className && 
+                                                        selectedContext?.semester === semester
+                                        return (
+                                          <div 
+                                            key={semester} 
+                                            className={`tree-label semester-label ${isSelected ? 'active' : ''}`}
+                                            onClick={() => {
+                                              setSelectedContext({ level, className, semester })
+                                              setSelectedGroupKey('')
+                                            }}
+                                          >
+                                            <div className="semester-info">
+                                              <span className="semester-name">{semester}</span>
+                                              <span className="semester-count">{data.files.length} files</span>
+                                            </div>
+                                          </div>
+                                        )
+                                      })}
+                                    </div>
+                                  )}
+                                </div>
+                              )
+                            })}
                           </div>
                         )}
-                        <div className="detail-item">
-                          <strong>Résumé :</strong> {emailJob.sentItems} envoyés, {emailJob.failedItems} erreurs, {emailJob.skippedItems} ignorés
-                        </div>
                       </div>
-                    )}
-                    
-                    {emailJob.status === 'failed' && emailJob.error && (
-                      <div className="job-error-msg">
-                        {emailJob.error}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {emailPreview && (
-                  <div className="preview-container glass-panel">
-                    <h4>Aperçu du modèle</h4>
-                    <div className="preview-subject-line"><strong>Sujet:</strong> {emailPreview.subject}</div>
-                    <div className="preview-body-frame" dangerouslySetInnerHTML={{ __html: emailPreview.html }} />
-                  </div>
-                )}
-
-                <div className="files-selection">
-                  <div className="selection-header">
-                    <h4>Sélection des élèves</h4>
-                    <button className="btn-text" onClick={toggleAllFiles}>
-                      {selectedFileIds.length === uniqueFileVersionPairs.length ? 'Tout désélectionner' : 'Tout sélectionner'}
-                    </button>
-                  </div>
-                  <div className="files-grid">
-                    {uniqueFileVersionPairs?.map(f => {
-                      const instances = getStudentInstances(f.assignmentId, f.version)
-                      const hd = instances.find(inst => inst.quality === 'high')
-                      const sd = instances.find(inst => inst.quality === 'compressed')
-                      
-                      return (
-                        <div 
-                          key={`${f.assignmentId}-${f.version}`} 
-                          className={`file-item ${selectedFileIds.includes(f._id) ? 'selected' : ''}`}
-                          onClick={() => toggleFile(f._id)}
-                        >
-                          <div className="file-check">
-                            {selectedFileIds.includes(f._id) ? <CheckCircle size={16} /> : <div className="circle-placeholder" />}
-                          </div>
-                          <div className="file-content">
-                            <div className="file-student">
-                              {f.firstName} {f.lastName}
-                              {f.version > 1 && <span className="version-badge">V{f.version}</span>}
-                            </div>
-                            <div className="file-meta">{f.level} • {f.className}</div>
-                            <div className="file-email-dots">
-                              <span className={`email-dot ${f.emails?.father ? 'active' : ''}`} title={f.emails?.father || 'Père: Manquant'}>P</span>
-                              <span className={`email-dot ${f.emails?.mother ? 'active' : ''}`} title={f.emails?.mother || 'Mère: Manquant'}>M</span>
-                              <span className={`email-dot ${f.emails?.student ? 'active' : ''}`} title={f.emails?.student || 'Élève: Manquant'}>E</span>
-                            </div>
-                          </div>
-                          <div className="file-row-actions" onClick={e => e.stopPropagation()}>
-                            {sd && (
-                              <a href={downloadFileUrl(sd._id, sd.batchId)} className="btn-icon-small" title="Télécharger SD">
-                                <FileDown size={14} /> <span className="quality-label">SD</span>
-                              </a>
-                            )}
-                            {hd && (
-                              <a href={downloadFileUrl(hd._id, hd.batchId)} className="btn-icon-small" title="Télécharger HD">
-                                <FileDown size={14} /> <span className="quality-label">HD</span>
-                              </a>
-                            )}
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
+                    )
+                  })}
                 </div>
               </div>
-            ) : (
-              <div className="empty-state">
-                <Send size={48} className="empty-icon" />
-                <p>Sélectionnez un lot dans la bibliothèque pour commencer la distribution.</p>
+            </aside>
+
+            {/* COLUMN 2: CORE CONTENT / FILES */}
+            <main className="workspace-column main-content">
+              <section className="glass-card full-height flex-column">
+                <div className="card-header sticky">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1 }}>
+                    <FileDown size={18} />
+                    <div className="card-title">Contenu</div>
+                    {selectedContext && (
+                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span className="batch-badge-title">{selectedContext.className || selectedContext.level}</span>
+                          {selectedContext.semester && <span className="semester-badge">{selectedContext.semester}</span>}
+                       </div>
+                    )}
+                  </div>
+                  {(selectedLot || selectedContext) && (
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button className="btn-action-small" onClick={() => setSelectedFileIds(uniqueFileVersionPairs.map((file) => file._id))}>
+                        <CheckSquare size={14} /> Tout
+                      </button>
+                      <button className="btn-action-small" onClick={() => setSelectedFileIds([])}>
+                        <Square size={14} /> Aucun
+                      </button>
+                      <button 
+                        className="btn-action-small shiny" 
+                        onClick={() => downloadSelectedFiles('compressed')} 
+                        disabled={selectedFileIds.length === 0 || zipDownloadLoading}
+                      >
+                        <Archive size={14} /> {zipDownloadLoading ? '...' : `SD (${selectedFileIds.length})`}
+                      </button>
+                      <button 
+                        className="btn-action-small shiny" 
+                        onClick={() => downloadSelectedFiles('high')} 
+                        disabled={selectedFileIds.length === 0 || zipDownloadLoading}
+                      >
+                        <Archive size={14} /> {zipDownloadLoading ? '...' : `HD (${selectedFileIds.length})`}
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex-column" style={{ flex: 1, minHeight: 0 }}>
+                  {(!selectedLot && !selectedContext) ? (
+                    <div className="empty-state">
+                      <FolderArchive size={48} className="empty-state-icon" />
+                      <p>Sélectionnez un niveau ou un lot dans la bibliothèque.</p>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="filter-bar">
+                        <select value={scopeLevel} onChange={(e) => { setScopeLevel(e.target.value); setScopeClassName(''); setScopeStudentId('') }} className="modern-select compact">
+                          <option value="">Tous les niveaux</option>
+                          {levelOptions.map((level) => <option key={level} value={level}>{level}</option>)}
+                        </select>
+
+                        <select value={scopeClassName} onChange={(e) => { setScopeClassName(e.target.value); setScopeStudentId('') }} className="modern-select compact">
+                          <option value="">Toutes les classes</option>
+                          {classOptions.map((className) => <option key={className} value={className}>{className}</option>)}
+                        </select>
+
+                        <select value={scopeStudentId} onChange={(e) => setScopeStudentId(e.target.value)} className="modern-select compact">
+                          <option value="">Tous les élèves</option>
+                          {studentOptions.map((file) => <option key={file._id} value={file._id}>{`${file.firstName} ${file.lastName}`.trim()}</option>)}
+                        </select>
+
+                        <button className="btn secondary compact" onClick={() => setSelectedFileIds(filteredBatchFiles.map(f => f._id))} disabled={filteredBatchFiles.length === 0}>
+                          Sélectionner filtrés
+                        </button>
+                      </div>
+
+                      <div className="file-list-grid scrollable">
+                        {filteredBatchFiles.map((file) => {
+                          const checked = selectedFileIds.includes(file._id)
+                          const instances = getStudentInstances(file.assignmentId, file.version)
+                          const hd = instances.find(f => f.quality === 'high')
+                          const sd = instances.find(f => f.quality === 'compressed')
+                          return (
+                            <div key={file._id} className={`file-card ${checked ? 'selected' : ''}`} onClick={() => toggleFile(file._id)}>
+                              <div className="file-card-top">
+                                <input type="checkbox" checked={checked} onChange={(e) => { e.stopPropagation(); toggleFile(file._id); }} />
+                                <div className="file-card-info">
+                                  <div className="file-card-name">
+                                    {`${file.firstName} ${file.lastName}`}
+                                    {file.version > 1 && <span className="version-badge">V{file.version}</span>}
+                                  </div>
+                                  <div className="file-card-meta">
+                                    {file.level} • {file.className}
+                                  </div>
+                                </div>
+                                <div className="email-status-group">
+                                  <div className={`status-pill p ${file.emails?.father ? 'active' : ''}`} title={file.emails?.father || 'Père: Manquant'}>P</div>
+                                  <div className={`status-pill m ${file.emails?.mother ? 'active' : ''}`} title={file.emails?.mother || 'Mère: Manquant'}>M</div>
+                                  <div className={`status-pill e ${file.emails?.student ? 'active' : ''}`} title={file.emails?.student || 'Élève: Manquant'}>E</div>
+                                </div>
+                              </div>
+                              <div className="file-card-actions" onClick={e => e.stopPropagation()}>
+                                <div style={{ display: 'flex', gap: 8 }}>
+                                  {sd && <a href={downloadFileUrl(sd._id, sd.batchId)} className="btn-text" title="SD"><FileDown size={14} /> SD</a>}
+                                  {hd && <a href={downloadFileUrl(hd._id, hd.batchId)} className="btn-text" title="HD"><FileDown size={14} /> HD</a>}
+                                </div>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </>
+                  )}
+                </div>
+              </section>
+            </main>
+
+            {/* COLUMN 3: ACTIONS & HISTORY */}
+            <aside className="workspace-column actions-panel">
+              <div className="glass-card full-height flex-column">
+                <div className="workspace-tabs-v2">
+                  <button className={`w-tab ${rightTab === 'config' ? 'active' : ''}`} onClick={() => setRightTab('config')}>Configuration</button>
+                  <button className={`w-tab ${rightTab === 'history' ? 'active' : ''}`} onClick={() => setRightTab('history')}>Historique Lot</button>
+                </div>
+
+                <div className="tab-content scrollable">
+                  {rightTab === 'config' ? (
+                    <div className="config-pane">
+                      <div className="config-section">
+                        <h4><Users size={16} /> Destinataires</h4>
+                        <div className="checkbox-stack">
+                          <label className={`checkbox-label ${includeFather ? 'checked' : ''}`}>
+                            <input type="checkbox" checked={includeFather} onChange={e => setIncludeFather(e.target.checked)} />
+                            <span>Père</span>
+                          </label>
+                          <label className={`checkbox-label ${includeMother ? 'checked' : ''}`}>
+                            <input type="checkbox" checked={includeMother} onChange={e => setIncludeMother(e.target.checked)} />
+                            <span>Mère</span>
+                          </label>
+                          <label className={`checkbox-label ${includeStudent ? 'checked' : ''}`}>
+                            <input type="checkbox" checked={includeStudent} onChange={e => setIncludeStudent(e.target.checked)} />
+                            <span>Élève</span>
+                          </label>
+                        </div>
+                      </div>
+
+                      <div className="config-section">
+                        <h4><MailPlus size={16} /> Modèle d'email</h4>
+                        <select className="modern-select" value={selectedTemplateId} onChange={e => setSelectedTemplateId(e.target.value)}>
+                          <option value="">Sélection automatique</option>
+                          {templates.map(t => <option key={t._id} value={t._id}>{t.name}</option>)}
+                        </select>
+                      </div>
+
+                      <div className="config-section">
+                        <h4><Layout size={16} /> Qualité de l'envoi</h4>
+                        <div className="quality-selector-v2">
+                          <button className={`q-btn ${preferredQuality === 'compressed' ? 'active' : ''}`} onClick={() => setPreferredQuality('compressed')}>Qualité SD</button>
+                          <button className={`q-btn ${preferredQuality === 'high' ? 'active' : ''}`} onClick={() => setPreferredQuality('high')}>Qualité HD</button>
+                        </div>
+                      </div>
+
+                      <div className="config-section">
+                        <h4>Test d'envoi</h4>
+                        <div className="test-group-v2">
+                          <input type="email" placeholder="Email de test..." className="modern-input" value={testEmail} onChange={e => setTestEmail(e.target.value)} />
+                          <button className="btn secondary" onClick={() => launchDistribution(true)} disabled={sending || !testEmail}>Test</button>
+                        </div>
+                      </div>
+
+                      <div className="action-footer">
+                        <button className="btn secondary full-width" onClick={previewEmail} disabled={previewLoading || selectedFileIds.length === 0}>
+                          {previewLoading ? <RefreshCcw size={16} className="spin" /> : <Eye size={16} />} Aperçu des emails
+                        </button>
+                        <button className="btn btn-primary full-width shiny" onClick={() => launchDistribution(false)} disabled={sending || selectedFileIds.length === 0}>
+                          <Send size={18} /> Lancer la distribution ({selectedFileIds.length})
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="batch-history-pane">
+                      {historyLoading ? (
+                        <div className="loading-placeholder">Chargement...</div>
+                      ) : batchHistory.length === 0 ? (
+                        <div className="empty-state mini">Aucun envoi pour ce lot</div>
+                      ) : (
+                        <div className="history-list-mini">
+                          {batchHistory.map(job => (
+                            <div key={job.id || (job as any)._id} className="history-item-mini">
+                              <div className="history-item-header">
+                                <span className={`status-dot ${job.status}`} />
+                                <span className="history-date">{new Date(job.createdAt || job.startedAt || '').toLocaleString()}</span>
+                                <span className={`type-badge mini ${job.isTest ? 'test' : 'real'}`}>{job.isTest ? 'TEST' : 'RÉEL'}</span>
+                              </div>
+                              <div className="history-item-meta">
+                                <div><strong>Par:</strong> {job.creatorName || 'Système'}</div>
+                                <div><strong>Élèves:</strong> {job.totalItems} • <strong>Envoyés:</strong> {job.sentItems || job.processedItems}</div>
+                                <div className="job-opts-mini">
+                                  {job.options?.includeFather && <span title="Père">P</span>}
+                                  {job.options?.includeMother && <span title="Mère">M</span>}
+                                  {job.options?.includeStudent && <span title="Élève">E</span>}
+                                  <span className="sep">|</span>
+                                  <span>{job.options?.quality === 'high' ? 'HD' : 'SD'}</span>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
-            )}
+            </aside>
           </div>
+
+          {/* Job Banner (Polling) */}
+          {emailJob && (
+            <div className={`job-status-banner-v2 ${emailJob.status}`}>
+              <div className="job-info">
+                <div className="job-status-title">
+                  {emailJob.status === 'running' && <RefreshCcw size={16} className="spin" />}
+                  {emailJob.status === 'completed' && <CheckCircle2 size={16} />}
+                  <span>{emailJob.status === 'running' ? 'Distribution en cours...' : 'Distribution terminée'}</span>
+                </div>
+                <span className="job-count">{emailJob.processedItems}/{emailJob.totalItems}</span>
+              </div>
+              <div className="progress-bar-v2">
+                <div className="progress-fill" style={{ width: `${(emailJob.processedItems / emailJob.totalItems) * 100}%` }} />
+              </div>
+            </div>
+          )}
+
+          {/* Preview Modal */}
+          {showPreviewModal && emailPreview && (
+            <div className="modal-overlay" onClick={() => setShowPreviewModal(false)}>
+              <div className="modal-content glass-card preview-modal" onClick={e => e.stopPropagation()}>
+                <div className="modal-header">
+                  <h3>Aperçu de la distribution</h3>
+                  <button className="btn-icon" onClick={() => setShowPreviewModal(false)}><X size={20} /></button>
+                </div>
+                <div className="modal-body">
+                   <div className="preview-meta">
+                     <p><strong>Destinataires estimés:</strong> {emailPreview.totalRecipientCount}</p>
+                     <p><strong>Sujet:</strong> {emailPreview.subject}</p>
+                   </div>
+                   <div className="preview-frame" dangerouslySetInnerHTML={{ __html: emailPreview.html }} />
+                </div>
+                <div className="modal-footer">
+                  <button className="btn secondary" onClick={() => setShowPreviewModal(false)}>Fermer</button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -878,15 +1212,15 @@ export default function AdminEmailTemplates() {
           </div>
           
           <div className="history-table-wrap">
-            <table className="history-table">
+            <table className="history-table-detailed">
               <thead>
                 <tr>
                   <th>Date</th>
-                  <th>Type</th>
-                  <th>Auteur</th>
-                  <th>Destinataire(s)</th>
+                  <th>Type / Auteur</th>
+                  <th>Configuration</th>
+                  <th>Résultat</th>
                   <th>Statut</th>
-                  <th>Progression</th>
+                  <th>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -895,37 +1229,109 @@ export default function AdminEmailTemplates() {
                     <td colSpan={6} className="empty-history">Aucun historique trouvé</td>
                   </tr>
                 )}
-                {allJobs.map(job => (
-                  <tr key={job._id}>
-                    <td>{new Date(job.createdAt || job.startedAt).toLocaleString()}</td>
-                    <td>
-                      <span className={`type-badge ${job.isTest ? 'test' : 'real'}`}>
-                        {job.isTest ? 'TEST' : 'ENVOI RÉEL'}
-                      </span>
-                    </td>
-                    <td>{job.creatorName || 'Système'}</td>
-                    <td className="recipients-cell">
-                      {job.isTest ? (
-                        <span className="test-email">{job.options?.testEmailOverride}</span>
-                      ) : (
-                        <span>{job.totalItems} élèves</span>
+                {allJobs.map(job => {
+                  const isExpanded = expandedJobId === job._id
+                  const template = templates.find(t => t._id === job.options?.templateId)
+                  return (
+                    <React.Fragment key={job._id}>
+                      <tr className={`history-main-row ${isExpanded ? 'expanded' : ''}`} onClick={() => setExpandedJobId(isExpanded ? null : job._id)}>
+                        <td>
+                          <div className="date-time">
+                            <span className="d">{new Date(job.createdAt || job.startedAt).toLocaleDateString()}</span>
+                            <span className="t">{new Date(job.createdAt || job.startedAt).toLocaleTimeString()}</span>
+                          </div>
+                        </td>
+                        <td>
+                          <div className="job-identity">
+                            <span className={`type-badge ${job.isTest ? 'test' : 'real'}`}>
+                              {job.isTest ? 'TEST' : 'ENVOI RÉEL'}
+                            </span>
+                            <span className="author">{job.creatorName || 'Système'}</span>
+                          </div>
+                        </td>
+                        <td>
+                          <div className="job-config-info">
+                            <div className="recipients-icons">
+                              <span className={`icon-pill ${job.options?.includeFather ? 'active' : ''}`} title="Père">P</span>
+                              <span className={`icon-pill ${job.options?.includeMother ? 'active' : ''}`} title="Mère">M</span>
+                              <span className={`icon-pill ${job.options?.includeStudent ? 'active' : ''}`} title="Élève">E</span>
+                            </div>
+                            <span className="quality-badge">{job.options?.quality === 'high' ? 'HD' : 'SD'}</span>
+                            <span className="tpl-name" title={template?.name || 'Automatique'}>
+                              {template?.name || 'Auto'}
+                            </span>
+                          </div>
+                        </td>
+                        <td>
+                          <div className="job-stats-summary">
+                            <span className="stat total" title="Total">{job.totalItems} <Users size={12} /></span>
+                            <span className="stat sent" title="Envoyés">{job.sentItems} <CheckCircle2 size={12} /></span>
+                            {job.failedItems > 0 && <span className="stat failed" title="Échecs">{job.failedItems} <XCircle size={12} /></span>}
+                            {job.skippedItems > 0 && <span className="stat skipped" title="Ignorés">{job.skippedItems} <AlertCircle size={12} /></span>}
+                          </div>
+                        </td>
+                        <td>
+                          <span className={`status-badge ${job.status}`}>
+                            {job.status === 'completed' ? 'Terminé' : job.status === 'running' ? 'En cours' : 'Échec'}
+                          </span>
+                        </td>
+                        <td>
+                          <button className="btn-icon">
+                            {isExpanded ? <Plus size={16} style={{ transform: 'rotate(45deg)' }} /> : <Eye size={16} />}
+                          </button>
+                        </td>
+                      </tr>
+                      {isExpanded && (
+                        <tr className="history-details-row">
+                          <td colSpan={6}>
+                            <div className="job-details-content">
+                              <div className="details-header">
+                                <h4>Détail de l'envoi</h4>
+                                {job.error && <div className="job-global-error">Erreur globale: {job.error}</div>}
+                              </div>
+                              <div className="items-list-scroll">
+                                <table className="job-items-table">
+                                  <thead>
+                                    <tr>
+                                      <th>Élève</th>
+                                      <th>Destinataires</th>
+                                      <th>Statut</th>
+                                      <th>Détail / Erreur</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {job.items?.map((item, idx) => (
+                                      <tr key={idx}>
+                                        <td>{item.studentName || 'Élève inconnu'}</td>
+                                        <td>
+                                          <div className="item-recipients">
+                                            {item.recipients?.map((r, ri) => (
+                                              <span key={ri} className="recipient-pill" title={r}>{r}</span>
+                                            ))}
+                                            {!item.recipients?.length && <span className="text-muted">Aucun</span>}
+                                          </div>
+                                        </td>
+                                        <td>
+                                          <span className={`status-pill-small ${item.status}`}>
+                                            {item.status === 'sent' ? 'Envoyé' : item.status === 'skipped' ? 'Ignoré' : 'Échec'}
+                                          </span>
+                                        </td>
+                                        <td className="item-error-cell">{item.error || '-'}</td>
+                                      </tr>
+                                    ))}
+                                    {(!job.items || job.items.length === 0) && (
+                                      <tr><td colSpan={4} className="text-center p-4 text-muted">Aucun détail disponible pour cet envoi</td></tr>
+                                    )}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
                       )}
-                    </td>
-                    <td>
-                      <span className={`status-badge ${job.status}`}>
-                        {job.status === 'completed' ? 'Terminé' : job.status === 'running' ? 'En cours' : 'Échec'}
-                      </span>
-                    </td>
-                    <td>
-                      <div className="history-progress">
-                        <div className="progress-mini">
-                          <div className="progress-mini-fill" style={{ width: `${(job.processedItems / job.totalItems) * 100}%` }} />
-                        </div>
-                        <span>{job.processedItems}/{job.totalItems}</span>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                    </React.Fragment>
+                  )
+                })}
               </tbody>
             </table>
           </div>
