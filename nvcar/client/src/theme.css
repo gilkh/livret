@@ -414,7 +414,7 @@ select option:checked {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 4px 24px;
+  padding: 6px 15px;
   background: #ffffffcc;
   backdrop-filter: blur(8px);
   border-bottom: 1px solid #eee;
@@ -425,7 +425,7 @@ select option:checked {
 .nav-right {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
 }
 
 .nav-brand {
@@ -439,6 +439,9 @@ select option:checked {
   text-decoration: none;
   padding: 8px 10px;
   border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 500;
+  white-space: nowrap;
 }
 
 .nav-link:hover {

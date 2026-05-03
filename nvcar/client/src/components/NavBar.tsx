@@ -52,9 +52,9 @@ export default function NavBar() {
             role === 'SUBADMIN' ? '/subadmin/dashboard' :
               role === 'AEFE' ? '/aefe/dashboard' :
                 '/teacher/classes'
-        } className="nav-brand" style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-          <img src="/logosklnav.jpg" alt="Logo SKL" style={{ height: '66px', objectFit: 'contain' }} />
-          <img src="/logoaefenav.jpg" alt="Logo AEFE" style={{ height: '66px', objectFit: 'contain' }} />
+        } className="nav-brand" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <img src="/logosklnav.jpg" alt="Logo SKL" style={{ height: '60px', objectFit: 'contain' }} />
+          <img src="/logoaefenav.jpg" alt="Logo AEFE" style={{ height: '60px', objectFit: 'contain' }} />
         </Link>
       </div>
       <div className="nav-center">
@@ -70,14 +70,14 @@ export default function NavBar() {
         )}
         {role === 'SUBADMIN' && (
           <>
-            {canShow('SUBADMIN', 'dashboard') && <Link to="/subadmin/dashboard" className={`nav-link ${isActive('/subadmin/dashboard') ? 'active' : ''}`}>Tableau de bord</Link>}
+            {canShow('SUBADMIN', 'dashboard') && <Link to="/subadmin/dashboard" className={`nav-link ${isActive('/subadmin/dashboard') ? 'active' : ''}`}>Dashboard</Link>}
             {canShow('SUBADMIN', 'progress') && <Link to="/subadmin/progress" className={`nav-link ${isActive('/subadmin/progress') ? 'active' : ''}`}>Progression</Link>}
-            {canShow('SUBADMIN', 'teacher-progress') && <Link to="/subadmin/teacher-progress" className={`nav-link ${isActive('/subadmin/teacher-progress') ? 'active' : ''}`}>Suivi Enseignants</Link>}
-            {canShow('SUBADMIN', 'my-teachers') && <Link to="/subadmin/my-teachers" className={`nav-link ${isActive('/subadmin/my-teachers') ? 'active' : ''}`}>Mes Enseignants</Link>}
+            {canShow('SUBADMIN', 'teacher-progress') && <Link to="/subadmin/teacher-progress" className={`nav-link ${isActive('/subadmin/teacher-progress') ? 'active' : ''}`}>Suivi Ens.</Link>}
+            {canShow('SUBADMIN', 'my-teachers') && <Link to="/subadmin/my-teachers" className={`nav-link ${isActive('/subadmin/my-teachers') ? 'active' : ''}`}>Mes Ens.</Link>}
             {canShow('SUBADMIN', 'gradebooks') && <Link to="/subadmin/gradebooks" className={`nav-link ${isActive('/subadmin/gradebooks') ? 'active' : ''}`}>Carnet</Link>}
-            <Link to="/subadmin/exports" className={`nav-link ${isActive('/subadmin/exports') ? 'active' : ''}`}>Centre de Distribution</Link>
+            <Link to="/subadmin/exports" className={`nav-link ${isActive('/subadmin/exports') ? 'active' : ''}`}>Distribution</Link>
             {canShow('SUBADMIN', 'eleves') && <Link to="/subadmin/eleves" className={`nav-link ${isActive('/subadmin/eleves') ? 'active' : ''}`}>Élèves</Link>}
-            {canShow('SUBADMIN', 'signature') && <Link to="/subadmin/signature" className={`nav-link ${isActive('/subadmin/signature') ? 'active' : ''}`}>Ma signature</Link>}
+            {canShow('SUBADMIN', 'signature') && <Link to="/subadmin/signature" className={`nav-link ${isActive('/subadmin/signature') ? 'active' : ''}`}>Signature</Link>}
             <Link to="/subadmin/suggestion" className={`nav-link ${isActive('/subadmin/suggestion') ? 'active' : ''}`}>Suggestion</Link>
           </>
         )}
