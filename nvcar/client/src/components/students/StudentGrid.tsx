@@ -128,7 +128,11 @@ export default function StudentGrid({
                   background: '#f1f5f9', overflow: 'hidden',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   border: '3px solid white',
-                  boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+                  boxShadow: s.sex === 'female' 
+                    ? '0 0 0 2px #ec4899, 0 4px 6px -1px rgba(0, 0, 0, 0.1)' 
+                    : s.sex === 'male' 
+                      ? '0 0 0 2px #3b82f6, 0 4px 6px -1px rgba(0, 0, 0, 0.1)' 
+                      : '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
                 }}>
                   {s.avatarUrl ? (
                     <img src={s.avatarUrl} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />

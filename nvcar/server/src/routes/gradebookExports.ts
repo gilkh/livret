@@ -22,7 +22,7 @@ type EmailJobOptions = {
   templateId?: string
 }
 
-const isAdminRole = (role: string) => role === 'ADMIN' || role === 'SUBADMIN'
+const isAdminRole = (role: string) => role === 'ADMIN' || role === 'SUBADMIN' || role === 'AEFE'
 const normalizeEmail = (value: unknown) => String(value || '').trim().toLowerCase()
 const isValidEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
 const escapeHtml = (value: string) => value

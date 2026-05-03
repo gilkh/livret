@@ -281,6 +281,7 @@ subAdminTemplatesRouter.get('/promoted-students', requireAuth(['SUBADMIN', 'AEFE
 subAdminTemplatesRouter.get('/classes', requireAuth(['SUBADMIN', 'AEFE']), async (req, res) => {
     try {
         const subAdminId = (req as any).user.userId
+        const isAefe = (req as any).user.role === 'AEFE'
 
         // Get active school year
         const activeSchoolYear = await withCache('school-years-active', () =>
@@ -288,26 +289,33 @@ subAdminTemplatesRouter.get('/classes', requireAuth(['SUBADMIN', 'AEFE']), async
         )
         if (!activeSchoolYear) return res.json([])
 
-        // Get teachers assigned to this sub-admin
-        const assignments = await SubAdminAssignment.find({ subAdminId }).lean()
-        const teacherIds = assignments.map(a => a.teacherId)
+        let relevantClassIds: string[] = []
 
-        // Get classes assigned to these teachers
-        const teacherClassAssignments = await TeacherClassAssignment.find({
-            teacherId: { $in: teacherIds },
-            schoolYearId: activeSchoolYear._id
-        }).lean()
-        let relevantClassIds = [...new Set(teacherClassAssignments.map(a => a.classId))]
+        if (isAefe) {
+            const allClasses = await ClassModel.find({ schoolYearId: activeSchoolYear._id }).lean()
+            relevantClassIds = allClasses.map(c => String(c._id))
+        } else {
+            // Get teachers assigned to this sub-admin
+            const assignments = await SubAdminAssignment.find({ subAdminId }).lean()
+            const teacherIds = assignments.map(a => a.teacherId)
 
-        // Check RoleScope for level assignments
-        const roleScope = await RoleScope.findOne({ userId: subAdminId }).lean()
-        if (roleScope?.levels?.length) {
-            const levelClasses = await ClassModel.find({
-                level: { $in: roleScope.levels },
+            // Get classes assigned to these teachers
+            const teacherClassAssignments = await TeacherClassAssignment.find({
+                teacherId: { $in: teacherIds },
                 schoolYearId: activeSchoolYear._id
             }).lean()
-            const levelClassIds = levelClasses.map(c => String(c._id))
-            relevantClassIds = [...new Set([...relevantClassIds, ...levelClassIds])]
+            relevantClassIds = [...new Set(teacherClassAssignments.map(a => a.classId))]
+
+            // Check RoleScope for level assignments
+            const roleScope = await RoleScope.findOne({ userId: subAdminId }).lean()
+            if (roleScope?.levels?.length) {
+                const levelClasses = await ClassModel.find({
+                    level: { $in: roleScope.levels },
+                    schoolYearId: activeSchoolYear._id
+                }).lean()
+                const levelClassIds = levelClasses.map(c => String(c._id))
+                relevantClassIds = [...new Set([...relevantClassIds, ...levelClassIds])]
+            }
         }
 
         // Get students in these classes
@@ -420,6 +428,7 @@ subAdminTemplatesRouter.get('/teachers/:teacherId/changes', requireAuth(['SUBADM
 subAdminTemplatesRouter.get('/pending-signatures', requireAuth(['SUBADMIN', 'AEFE']), async (req, res) => {
     try {
         const subAdminId = (req as any).user.userId
+        const isAefe = (req as any).user.role === 'AEFE'
 
         // Get active school year
         const activeSchoolYear = await withCache('school-years-active', () =>
@@ -432,26 +441,33 @@ subAdminTemplatesRouter.get('/pending-signatures', requireAuth(['SUBADMIN', 'AEF
         const standardPeriodId = computeSignaturePeriodId(String(activeSchoolYear._id), 'sem1')
         const endOfYearPeriodId = computeSignaturePeriodId(String(activeSchoolYear._id), 'end_of_year')
 
-        // Get teachers assigned to this sub-admin
-        const assignments = await SubAdminAssignment.find({ subAdminId }).lean()
-        const teacherIds = assignments.map(a => a.teacherId)
+        let classIds: string[] = []
 
-        // Get classes assigned to these teachers
-        const teacherClassAssignments = await TeacherClassAssignment.find({
-            teacherId: { $in: teacherIds },
-            schoolYearId: activeSchoolYear._id
-        }).lean()
-        let classIds = [...new Set(teacherClassAssignments.map(a => a.classId))]
+        if (isAefe) {
+            const allClasses = await ClassModel.find({ schoolYearId: activeSchoolYear._id }).lean()
+            classIds = allClasses.map(c => String(c._id))
+        } else {
+            // Get teachers assigned to this sub-admin
+            const assignments = await SubAdminAssignment.find({ subAdminId }).lean()
+            const teacherIds = assignments.map(a => a.teacherId)
 
-        // Check RoleScope for level assignments
-        const roleScope = await RoleScope.findOne({ userId: subAdminId }).lean()
-        if (roleScope?.levels?.length) {
-            const levelClasses = await ClassModel.find({
-                level: { $in: roleScope.levels },
-                schoolYearId: activeSchoolYear?._id
+            // Get classes assigned to these teachers
+            const teacherClassAssignments = await TeacherClassAssignment.find({
+                teacherId: { $in: teacherIds },
+                schoolYearId: activeSchoolYear._id
             }).lean()
-            const levelClassIds = levelClasses.map(c => String(c._id))
-            classIds = [...new Set([...classIds, ...levelClassIds])]
+            classIds = [...new Set(teacherClassAssignments.map(a => a.classId))]
+
+            // Check RoleScope for level assignments
+            const roleScope = await RoleScope.findOne({ userId: subAdminId }).lean()
+            if (roleScope?.levels?.length) {
+                const levelClasses = await ClassModel.find({
+                    level: { $in: roleScope.levels },
+                    schoolYearId: activeSchoolYear?._id
+                }).lean()
+                const levelClassIds = levelClasses.map(c => String(c._id))
+                classIds = [...new Set([...classIds, ...levelClassIds])]
+            }
         }
 
         // Get students in these classes

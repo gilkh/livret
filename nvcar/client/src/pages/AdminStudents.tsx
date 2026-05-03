@@ -6,6 +6,7 @@ import StudentDetails from '../components/students/StudentDetails'
 import FileDropZone from '../components/students/FileDropZone'
 import YearManagerModal from '../components/students/YearManagerModal'
 import StudentFormModal from '../components/students/StudentFormModal'
+import BatchImportPreviewModal from '../components/students/BatchImportPreviewModal'
 import { Upload, CheckCircle, Trash2, Search, X, AlertTriangle, ImageOff, Copy, Download } from 'lucide-react'
 import * as XLSX from 'xlsx'
 
@@ -72,6 +73,8 @@ export default function AdminStudents({ isTab }: { isTab?: boolean } = {}) {
   const [batchImporting, setBatchImporting] = useState(false)
   const [batchSyncReport, setBatchSyncReport] = useState<{ success: number; updated: number; classUpdates: number; errors: any[] } | null>(null)
   const batchFileInputRef = useRef<HTMLInputElement>(null)
+  const [importPreviewRows, setImportPreviewRows] = useState<any[] | null>(null)
+  const [showImportPreview, setShowImportPreview] = useState(false)
 
   useEffect(() => {
     loadYears()
@@ -687,10 +690,27 @@ export default function AdminStudents({ isTab }: { isTab?: boolean } = {}) {
       const rows = await parseBatchFile(file)
       if (!rows.length) {
         alert('Aucune ligne exploitable dans le fichier.')
+        setBatchImporting(false)
         return
       }
 
-      const r = await api.post('/students/bulk-upsert', { rows, schoolYearId: selectedYearId })
+      setBatchImporting(false)
+      setImportPreviewRows(rows)
+      setShowImportPreview(true)
+    } catch (err: any) {
+      alert('Erreur lors de la lecture du fichier: ' + (err.message))
+      setBatchImporting(false)
+    }
+  }
+
+  const confirmBatchImport = async () => {
+    if (!importPreviewRows) return
+    try {
+      setBatchImporting(true)
+      setBatchSyncReport(null)
+      setShowImportPreview(false)
+
+      const r = await api.post('/students/bulk-upsert', { rows: importPreviewRows, schoolYearId: selectedYearId })
       setBatchSyncReport(r.data)
 
       await loadStudents(selectedYearId)
@@ -702,6 +722,7 @@ export default function AdminStudents({ isTab }: { isTab?: boolean } = {}) {
       alert('Erreur lors de l\'import batch: ' + (err.response?.data?.error || err.message))
     } finally {
       setBatchImporting(false)
+      setImportPreviewRows(null)
     }
   }
 
@@ -1543,6 +1564,15 @@ export default function AdminStudents({ isTab }: { isTab?: boolean } = {}) {
           }
         }}
       />
+      
+      {showImportPreview && importPreviewRows && (
+        <BatchImportPreviewModal 
+          rows={importPreviewRows}
+          students={students}
+          onConfirm={confirmBatchImport}
+          onCancel={() => { setShowImportPreview(false); setImportPreviewRows(null); }}
+        />
+      )}
     </div>
   )
 }
