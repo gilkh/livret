@@ -2,6 +2,7 @@ import React from 'react'
 import { useLevels } from '../context/LevelContext'
 import { useSchoolYear } from '../context/SchoolYearContext'
 import { GradebookPocket } from './GradebookPocket'
+import { findDropdownBlockByReference, resolveDropdownDisplayValue } from '../utils/dropdownAppreciations'
 import { CroppedImage } from './CroppedImage'
 import { formatDdMonthYyyy } from '../utils/dateFormat'
 // Block visibility is now controlled entirely by admin settings (block_visibility_settings)
@@ -619,7 +620,8 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                                         (stableKey ? assignment?.data?.[stableKey] : undefined) ??
                                                         (legacyKey ? assignment?.data?.[legacyKey] : undefined) ??
                                                         ''
-                                                    return currentValue || 'Sélectionner...'
+                                                    const displayValue = resolveDropdownDisplayValue({ dropdownBlock: b, rawValue: currentValue, studentSex: (student as any)?.sex })
+                                                    return displayValue || 'Sélectionner...'
                                                 })()}
                                             </div>
                                         </div>
@@ -634,7 +636,12 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                             (stableKey ? assignment?.data?.[stableKey] : undefined) ??
                                             (legacyKey ? assignment?.data?.[legacyKey] : undefined)
                                         const value = typeof raw === 'string' ? raw.trim() : raw
-                                        if (!value) return null
+                                        const displayValue = resolveDropdownDisplayValue({
+                                            dropdownBlock: findDropdownBlockByReference(template?.pages || [], { dropdownNumber: dropdownNum }),
+                                            rawValue: value,
+                                            studentSex: (student as any)?.sex
+                                        })
+                                        if (!displayValue) return null
                                         return (
                                             <div style={{
                                                 color: b.props.color || '#333',
@@ -644,7 +651,7 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                                 wordWrap: 'break-word',
                                                 whiteSpace: 'pre-wrap'
                                             }}>
-                                                {String(value)}
+                                                {String(displayValue)}
                                             </div>
                                         )
                                     })()}

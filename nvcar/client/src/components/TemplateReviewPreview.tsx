@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useLevels } from '../context/LevelContext'
 import { useSchoolYear } from '../context/SchoolYearContext'
 import { GradebookPocket } from './GradebookPocket'
+import { findDropdownBlockByReference, resolveDropdownDisplayValue } from '../utils/dropdownAppreciations'
 import { CroppedImage } from './CroppedImage'
 import { formatDdMonthYyyy, formatDdMmYyyyColon } from '../utils/dateFormat'
 
@@ -740,7 +741,8 @@ export default function TemplateReviewPreview({ template, student, assignment, s
                                                                 (stableKey ? getScopedData(stableKey, blockLevel) : undefined) ??
                                                                 (legacyKey ? getScopedData(legacyKey, blockLevel) : undefined) ??
                                                                 ''
-                                                            return currentValue || 'Sélectionner...'
+                                                            const displayValue = resolveDropdownDisplayValue({ dropdownBlock: b, rawValue: currentValue, studentSex: student?.sex })
+                                                            return displayValue || 'Sélectionner...'
                                                         })()}
                                                         <div style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>▼</div>
                                                     </div>
@@ -756,7 +758,12 @@ export default function TemplateReviewPreview({ template, student, assignment, s
                                                 (stableKey ? assignment?.data?.[stableKey] : undefined) ??
                                                 (legacyKey ? assignment?.data?.[legacyKey] : undefined)
                                             const value = typeof raw === 'string' ? raw.trim() : raw
-                                            if (!value) return null
+                                            const displayValue = resolveDropdownDisplayValue({
+                                                dropdownBlock: findDropdownBlockByReference(template?.pages || [], { dropdownNumber: dropdownNum }),
+                                                rawValue: value,
+                                                studentSex: student?.sex
+                                            })
+                                            if (!displayValue) return null
                                             return (
                                                 <div style={{
                                                     color: b.props.color || '#333',
@@ -766,7 +773,7 @@ export default function TemplateReviewPreview({ template, student, assignment, s
                                                     wordWrap: 'break-word',
                                                     whiteSpace: 'pre-wrap'
                                                 }}>
-                                                    {String(value)}
+                                                    {String(displayValue)}
                                                 </div>
                                             )
                                         })()}

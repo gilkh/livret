@@ -12,6 +12,7 @@ import ScrollToTopButton from '../components/ScrollToTopButton'
 import ScrollPageDownButton from '../components/ScrollPageDownButton'
 import { openPdfExport, buildStudentPdfUrl, buildSavedGradebookPdfUrl } from '../utils/pdfExport'
 import { formatDdMonthYyyy, formatDdMmYyyyColon } from '../utils/dateFormat'
+import { findDropdownBlockByReference, resolveDropdownDisplayValue } from '../utils/dropdownAppreciations'
 import { Download, Sparkles } from 'lucide-react'
 
 type Block = { type: string; props: any }
@@ -1721,7 +1722,8 @@ export default function SubAdminTemplateReview() {
                                                                     const rawKey = b.props.dropdownNumber ? `dropdown_${b.props.dropdownNumber}` : b.props.variableName
                                                                     const blockLevel = getBlockLevel(b)
                                                                     const currentValue = getScopedData(rawKey || '', blockLevel)
-                                                                    return currentValue || 'Sélectionner...'
+                                                                    const displayValue = resolveDropdownDisplayValue({ dropdownBlock: b, rawValue: currentValue, studentSex: student?.sex })
+                                                                    return displayValue || 'Sélectionner...'
                                                                 })()}
                                                                 <div style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>▼</div>
                                                             </div>
@@ -1804,7 +1806,12 @@ export default function SubAdminTemplateReview() {
                                                     const dropdownNum = b.props.dropdownNumber || 1
                                                     const raw = assignment?.data?.[`dropdown_${dropdownNum}`]
                                                     const value = typeof raw === 'string' ? raw.trim() : raw
-                                                    if (!value) return null
+                                                    const displayValue = resolveDropdownDisplayValue({
+                                                        dropdownBlock: findDropdownBlockByReference(template?.pages || [], { dropdownNumber: dropdownNum }),
+                                                        rawValue: value,
+                                                        studentSex: student?.sex
+                                                    })
+                                                    if (!displayValue) return null
                                                     return (
                                                         <div style={{
                                                             color: b.props.color || '#333',
@@ -1814,7 +1821,7 @@ export default function SubAdminTemplateReview() {
                                                             wordWrap: 'break-word',
                                                             whiteSpace: 'pre-wrap'
                                                         }}>
-                                                            {String(value)}
+                                                            {String(displayValue)}
                                                         </div>
                                                     )
                                                 })()}

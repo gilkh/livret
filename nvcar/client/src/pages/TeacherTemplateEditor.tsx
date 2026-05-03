@@ -8,6 +8,7 @@ import ScrollToTopButton from '../components/ScrollToTopButton'
 import ScrollPageDownButton from '../components/ScrollPageDownButton'
 import { GradebookPocket } from '../components/GradebookPocket'
 import { CroppedImage } from '../components/CroppedImage'
+import { findDropdownBlockByReference, resolveDropdownDisplayValue } from '../utils/dropdownAppreciations'
 import { formatDdMonthYyyy } from '../utils/dateFormat'
 
 type Block = { type: string; props: any }
@@ -1372,7 +1373,8 @@ export default function TeacherTemplateEditor() {
                                                                     const currentValue = b.props.dropdownNumber
                                                                         ? assignment?.data?.[`dropdown_${b.props.dropdownNumber}`]
                                                                         : b.props.variableName ? assignment?.data?.[b.props.variableName] : ''
-                                                                    return currentValue || 'Sélectionner...'
+                                                                    const displayValue = resolveDropdownDisplayValue({ dropdownBlock: b, rawValue: currentValue, studentSex: student?.sex })
+                                                                    return displayValue || 'Sélectionner...'
                                                                 })()}
                                                                 <div style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>▼</div>
                                                             </div>
@@ -1453,7 +1455,7 @@ export default function TeacherTemplateEditor() {
                                                                             onMouseEnter={(e) => e.currentTarget.style.background = '#e8ecf8'}
                                                                             onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}
                                                                         >
-                                                                            {opt}
+                                                                            {resolveDropdownDisplayValue({ dropdownBlock: b, rawValue: opt, studentSex: student?.sex })}
                                                                         </div>
                                                                     ))}
                                                                 </div>
@@ -1464,9 +1466,13 @@ export default function TeacherTemplateEditor() {
                                                 {b.type === 'dropdown_reference' && (() => {
                                                     const dropdownNum = b.props.dropdownNumber || 1
                                                     const raw = assignment?.data?.[`dropdown_${dropdownNum}`]
-                                                    const value = typeof raw === 'string' ? raw.trim() : raw
+                                                    const displayValue = resolveDropdownDisplayValue({
+                                                        dropdownBlock: findDropdownBlockByReference(template?.pages || [], { dropdownNumber: dropdownNum }),
+                                                        rawValue: raw,
+                                                        studentSex: student?.sex
+                                                    })
                                                     // Hide if no value selected (same as SubAdmin view)
-                                                    if (!value) return null
+                                                    if (!displayValue) return null
                                                     return (
                                                         <div style={{
                                                             color: b.props.color || '#333',
@@ -1476,7 +1482,7 @@ export default function TeacherTemplateEditor() {
                                                             wordWrap: 'break-word',
                                                             whiteSpace: 'pre-wrap'
                                                         }}>
-                                                            {String(value)}
+                                                            {String(displayValue)}
                                                         </div>
                                                     )
                                                 })()}
