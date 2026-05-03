@@ -14,7 +14,7 @@ import { OutlookUser } from '../models/OutlookUser'
 import { TemplateSignature } from '../models/TemplateSignature'
 import { Student } from '../models/Student'
 import { AdminSignature } from '../models/AdminSignature'
-import { signTemplateAssignment, unsignTemplateAssignment, populateSignatures } from '../services/signatureService'
+import { signTemplateAssignment, unsignTemplateAssignment, populateSignatures, isAssignmentSigned } from '../services/signatureService'
 import { getVersionedTemplate, mergeAssignmentDataIntoTemplate } from '../utils/templateUtils'
 import { buildSignatureSnapshot } from '../utils/signatureSnapshot'
 import { createAssignmentSnapshot } from '../services/rolloverService'
@@ -542,10 +542,15 @@ adminExtrasRouter.get('/all-gradebooks', requireAuth(['ADMIN']), async (req, res
             const template = await GradebookTemplate.findById(assignment.templateId).lean()
             const student = await Student.findById(assignment.studentId).lean()
             const assignmentSignatures = signatureMap.get(String(assignment._id)) || []
+            
+            // Still provide first signature for backward compatibility or display
             const signature = assignmentSignatures.length > 0 ? assignmentSignatures[0] : null
 
             const classId = studentClassMap.get(String(assignment.studentId))
             const classInfo = classId ? classMap.get(classId) : null
+
+            // New semester-aware check
+            const isSigned = await isAssignmentSigned(String(assignment._id))
 
             return {
                 ...assignment,
@@ -553,6 +558,7 @@ adminExtrasRouter.get('/all-gradebooks', requireAuth(['ADMIN']), async (req, res
                 student,
                 signature,
                 signatures: assignmentSignatures,
+                isSigned, // Add this flag
                 className: classInfo?.name,
                 level: classInfo?.level,
             }
@@ -1419,7 +1425,8 @@ adminExtrasRouter.get('/templates/:templateAssignmentId/review', requireAuth(['A
 
         // Populate signatures into assignment.data.signatures for visibility checks
         const populatedAssignment = await populateSignatures(assignment)
-        
+        const isSigned = await isAssignmentSigned(String(templateAssignmentId))
+
         res.json({
             template: versionedTemplate,
             student: { ...student, level, className },
@@ -1427,6 +1434,7 @@ adminExtrasRouter.get('/templates/:templateAssignmentId/review', requireAuth(['A
             signature,
             finalSignature,
             canEdit: true,
+            isSigned,
             isPromoted,
             isSignedByMe,
             activeSemester

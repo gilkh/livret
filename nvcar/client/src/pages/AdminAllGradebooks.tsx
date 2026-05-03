@@ -9,6 +9,7 @@ type Assignment = {
     template?: { _id?: string; name: string }
     student?: { _id?: string; firstName: string; lastName: string }
     signature?: { signedAt: Date; subAdminId: string }
+    isSigned?: boolean
     className?: string
     level?: string
 }
@@ -41,7 +42,7 @@ export default function AdminAllGradebooks() {
 
     const stats = useMemo(() => {
         const total = assignments.length
-        const signed = assignments.filter(a => !!a.signature).length
+        const signed = assignments.filter(a => !!a.isSigned).length
         const unsigned = total - signed
         return { total, signed, unsigned }
     }, [assignments])
@@ -54,8 +55,8 @@ export default function AdminAllGradebooks() {
 
     const filteredAssignments = useMemo(() => {
         let list = assignments
-        if (filter === 'signed') list = list.filter(a => !!a.signature)
-        if (filter === 'unsigned') list = list.filter(a => !a.signature)
+        if (filter === 'signed') list = list.filter(a => !!a.isSigned)
+        if (filter === 'unsigned') list = list.filter(a => !a.isSigned)
         if (levelFilter) list = list.filter(a => (a.level || '') === levelFilter)
         if (search.trim()) {
             const q = search.trim().toLowerCase()
@@ -73,9 +74,9 @@ export default function AdminAllGradebooks() {
                 return ax.localeCompare(ay)
             })
         } else if (sortBy === 'signed_first') {
-            list = [...list].sort((x, y) => Number(!!y.signature) - Number(!!x.signature))
+            list = [...list].sort((x, y) => Number(!!y.isSigned) - Number(!!x.isSigned))
         } else if (sortBy === 'unsigned_first') {
-            list = [...list].sort((x, y) => Number(!!x.signature) - Number(!!y.signature))
+            list = [...list].sort((x, y) => Number(!!x.isSigned) - Number(!!y.isSigned))
         } else if (sortBy === 'date_desc') {
             list = [...list].sort((x, y) => {
                 const dx = x.signature ? new Date(x.signature.signedAt).getTime() : 0
@@ -189,8 +190,8 @@ export default function AdminAllGradebooks() {
                                         </div>
                                         <div className="cards-grid">
                                             {grouped[level][className].map(assignment => {
-                                                const signed = !!assignment.signature
-                                                const signedDate = signed ? new Date(assignment.signature!.signedAt).toLocaleDateString() : ''
+                                                const signed = !!assignment.isSigned
+                                                const signedDate = assignment.signature ? new Date(assignment.signature.signedAt).toLocaleDateString() : ''
                                                 const pdfUrl = (() => {
                                                     const token = localStorage.getItem('token')
                                                     const base = (api.defaults.baseURL || '').replace(/\/$/, '')

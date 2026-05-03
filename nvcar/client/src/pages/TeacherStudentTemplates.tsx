@@ -16,6 +16,7 @@ type TemplateAssignment = {
     isMyWorkCompleted?: boolean
     isMyWorkCompletedSem1?: boolean
     isMyWorkCompletedSem2?: boolean
+    isSigned?: boolean
 }
 
 export default function TeacherStudentTemplates() {
@@ -144,12 +145,12 @@ export default function TeacherStudentTemplates() {
                                 {a.template?.name || 'Carnet'}
                             </div>
                             <div className="note" style={{ fontSize: 13, color: '#64748b', marginBottom: 4 }}>
-                                Statut: <span style={{ fontWeight: 500 }}>{
-                                    a.status === 'draft' ? '📝 Brouillon' :
-                                        a.status === 'in_progress' ? '🔄 En cours' :
-                                            a.status === 'completed' ? '✅ Terminé' :
-                                                a.status === 'signed' ? '✔️ Signé' : a.status
-                                }</span>
+                                    Statut: <span style={{ fontWeight: 500 }}>{
+                                        a.isSigned ? '✔️ Signé' :
+                                            a.isCompleted ? '✅ Terminé' :
+                                                a.isMyWorkCompleted ? '🟢 Mon travail est fini' :
+                                                    '🔄 En cours'
+                                    }</span>
                             </div>
                             {a.hasChanges && (
                                 <div style={{

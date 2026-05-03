@@ -43,6 +43,7 @@ export default function AdminGradebookReview() {
     const [blockVisibilitySettings, setBlockVisibilitySettings] = useState<any>({})
 
     const [canEdit, setCanEdit] = useState(false)
+    const [isSigned, setIsSigned] = useState(false)
     const [editMode, setEditMode] = useState(false)
     const [openDropdown, setOpenDropdown] = useState<string | null>(null)
     const [suggestionModal, setSuggestionModal] = useState<{
@@ -117,6 +118,7 @@ export default function AdminGradebookReview() {
                 setCanEdit(r.data.canEdit)
                 setIsPromoted(r.data.isPromoted)
                 setIsSignedByMe(r.data.isSignedByMe)
+                setIsSigned(r.data.isSigned)
                 setActiveSemester(r.data.activeSemester || 1)
 
                 // Fallback enrichment if className/level missing
@@ -228,6 +230,7 @@ export default function AdminGradebookReview() {
             setFinalSignature(r.data.finalSignature)
             setAssignment(r.data.assignment)
             setIsSignedByMe(r.data.isSignedByMe)
+            setIsSigned(r.data.isSigned)
         } catch (e: any) {
             setError('Échec de la signature')
             console.error(e)
@@ -247,6 +250,7 @@ export default function AdminGradebookReview() {
             setFinalSignature(r.data.finalSignature)
             setAssignment(r.data.assignment)
             setIsSignedByMe(r.data.isSignedByMe)
+            setIsSigned(r.data.isSigned)
         } catch (e: any) {
             setError('Échec de la suppression de signature')
             console.error(e)
@@ -266,6 +270,7 @@ export default function AdminGradebookReview() {
             setFinalSignature(r.data.finalSignature)
             setAssignment(r.data.assignment)
             setIsSignedByMe(r.data.isSignedByMe)
+            setIsSigned(r.data.isSigned)
         } catch (e: any) {
             setError('Échec de la signature fin d\'année')
             console.error(e)
@@ -285,6 +290,7 @@ export default function AdminGradebookReview() {
             setFinalSignature(r.data.finalSignature)
             setAssignment(r.data.assignment)
             setIsSignedByMe(r.data.isSignedByMe)
+            setIsSigned(r.data.isSigned)
         } catch (e: any) {
             setError('Échec de la suppression de signature fin d\'année')
             console.error(e)
@@ -363,7 +369,7 @@ export default function AdminGradebookReview() {
                     )}
                 </div>
                 <div className="note" style={{ marginTop: 8, fontSize: 13 }}>
-                    <span style={{ fontWeight: 500 }}>Statut:</span> {assignment?.status === 'signed' ? '✔️ Signé ✓' : assignment?.status === 'completed' ? '✅ Terminé' : assignment?.status}
+                    <span style={{ fontWeight: 500 }}>Statut:</span> {isSigned ? '✔️ Signé ✓' : assignment?.status === 'completed' ? '✅ Terminé' : assignment?.status}
                 </div>
                 {error && <div className="note" style={{ marginTop: 12, color: '#dc2626', background: '#fef2f2', padding: 12, borderRadius: 8, border: '1px solid #fecaca' }}>{error}</div>}
 

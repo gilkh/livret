@@ -107,7 +107,8 @@ export default function SubAdminTemplateReview() {
     const [subadminAssignedLevels, setSubadminAssignedLevels] = useState<string[]>([])
     const [zoomLevel, setZoomLevel] = useState(1)
     const [isFitToScreen, setIsFitToScreen] = useState(false)
-    const [blockVisibility, setBlockVisibility] = useState<any>({})
+    const [isSigned, setIsSigned] = useState(false)
+    const [blockVisibility, setBlockVisibility] = useState<any>(null)
     const containerRef = useRef<HTMLDivElement | null>(null)
 
     const computeFitScale = () => {
@@ -253,6 +254,7 @@ export default function SubAdminTemplateReview() {
                 setCanEdit(r.data.canEdit)
                 setIsPromoted(r.data.isPromoted)
                 setIsSignedByMe(r.data.isSignedByMe)
+                setIsSigned(r.data.isSigned)
                 setActiveSemester(r.data.activeSemester || 1)
                 setEligibleForSign(r.data.eligibleForSign === true)
                 setSubadminAssignedLevels(r.data.subadminAssignedLevels || [])
@@ -664,6 +666,7 @@ export default function SubAdminTemplateReview() {
             setFinalSignature(r.data.finalSignature)
             setAssignment(r.data.assignment)
             setIsSignedByMe(r.data.isSignedByMe)
+            setIsSigned(r.data.isSigned)
             setEligibleForSign(r.data.eligibleForSign === true)
             showToast('Carnet signé avec succès', 'success')
         } catch (e: any) {
@@ -689,6 +692,7 @@ export default function SubAdminTemplateReview() {
             setFinalSignature(r.data.finalSignature)
             setAssignment(r.data.assignment)
             setIsSignedByMe(r.data.isSignedByMe)
+            setIsSigned(r.data.isSigned)
             showToast('Signature annulée', 'success')
         } catch (e: any) {
             const errorMsg = e.response?.data?.message || e.response?.data?.error || 'Échec de la suppression de signature'
@@ -719,6 +723,7 @@ export default function SubAdminTemplateReview() {
             setFinalSignature(r.data.finalSignature)
             setAssignment(r.data.assignment)
             setIsSignedByMe(r.data.isSignedByMe)
+            setIsSigned(r.data.isSigned)
             showToast('Carnet signé (fin d\'année) avec succès', 'success')
         } catch (e: any) {
             showToast('Échec de la signature fin d\'année', 'error')
@@ -737,6 +742,7 @@ export default function SubAdminTemplateReview() {
             setFinalSignature(r.data.finalSignature)
             setAssignment(r.data.assignment)
             setIsSignedByMe(r.data.isSignedByMe)
+            setIsSigned(r.data.isSigned)
             showToast('Signature (fin d\'année) annulée', 'success')
         } catch (e: any) {
             showToast('Échec de la suppression de signature fin d\'année', 'error')
@@ -1147,7 +1153,7 @@ export default function SubAdminTemplateReview() {
                     </div>
                 </div>
                 <div className="note" style={{ marginTop: 8, fontSize: 13 }}>
-                    <span style={{ fontWeight: 500 }}>Statut:</span> {assignment?.status === 'signed' ? '✔️ Signé ✓' : assignment?.status === 'completed' ? '✅ Terminé' : assignment?.status}
+                    <span style={{ fontWeight: 500 }}>Statut:</span> {isSigned ? '✔️ Signé ✓' : assignment?.status === 'completed' ? '✅ Terminé' : assignment?.status}
                 </div>
                 {error && <div className="note" style={{ marginTop: 12, color: '#dc2626', background: '#fef2f2', padding: 12, borderRadius: 8, border: '1px solid #fecaca' }}>{error}</div>}
 

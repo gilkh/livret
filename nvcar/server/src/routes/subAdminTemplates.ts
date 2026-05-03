@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { signTemplateAssignment, unsignTemplateAssignment, validateSignatureAuthorization, populateSignatures } from '../services/signatureService'
+import { signTemplateAssignment, unsignTemplateAssignment, validateSignatureAuthorization, populateSignatures, isAssignmentSigned } from '../services/signatureService'
 import { requireAuth } from '../auth'
 import { SubAdminAssignment } from '../models/SubAdminAssignment'
 import { TemplateAssignment } from '../models/TemplateAssignment'
@@ -1559,6 +1559,7 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
         // Use centralized helper for versioning and data merging
         const versionedTemplate = mergeAssignmentDataIntoTemplate(template, assignment)
 
+        const isSigned = await isAssignmentSigned(String(templateAssignmentId))
         const canEdit = authorized && (req as any).user.role !== 'AEFE'
 
         // Reuse previously fetched activeSchoolYear (declared above)
@@ -1843,6 +1844,7 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
 
         // Populate signatures into assignment.data.signatures for visibility checks
         const populatedAssignment = await populateSignatures(assignment)
+        const isSignedLocal = await isAssignmentSigned(String(assignment._id))
 
         res.json({
             assignment: populatedAssignment,
@@ -1851,6 +1853,7 @@ subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', requireAu
             signature: signature || null,
             finalSignature: finalSignature || null,
             isSignedByMe: isSignedByMe || false,
+            isSigned: isSignedLocal,
             canEdit,
             isPromoted,
             activeSemester,

@@ -63,6 +63,7 @@ export default function TeacherTemplateEditor() {
     const [isFitToScreen, setIsFitToScreen] = useState(false)
     const [quickGradingEnabled, setQuickGradingEnabled] = useState(true)
     const [blockVisibility, setBlockVisibility] = useState<any>({})
+    const [isSigned, setIsSigned] = useState(false)
     const [previousYearDropdownEditable, setPreviousYearDropdownEditable] = useState(false)
     const containerRef = useRef<HTMLDivElement | null>(null)
 
@@ -285,6 +286,7 @@ export default function TeacherTemplateEditor() {
                 setIsMyWorkCompleted(r.data.isMyWorkCompleted || false)
                 setIsMyWorkCompletedSem1(r.data.isMyWorkCompletedSem1 || false)
                 setIsMyWorkCompletedSem2(r.data.isMyWorkCompletedSem2 || false)
+                setIsSigned(r.data.isSigned || false)
                 setActiveSemester(r.data.activeSemester || 1)
 
                 // Check if quick grading is enabled
@@ -739,12 +741,26 @@ export default function TeacherTemplateEditor() {
                             </span>
                             </h2>
                         </div>
-                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 12px', borderRadius: 6, fontSize: 13, fontWeight: 500, background: assignment?.status === 'signed' ? '#d1fae5' : assignment?.status === 'completed' ? '#dbeafe' : '#fef3c7', color: assignment?.status === 'signed' ? '#065f46' : assignment?.status === 'completed' ? '#1e40af' : '#92400e', border: `1px solid ${assignment?.status === 'signed' ? '#6ee7b7' : assignment?.status === 'completed' ? '#93c5fd' : '#fcd34d'}`, marginLeft: 20, position: 'relative', top: -4 }}>
-                            {assignment?.status === 'draft' && '📝 Brouillon'}
-                            {assignment?.status === 'in_progress' && '🔄 En cours'}
-                            {assignment?.status === 'completed' && '✅ Terminé'}
-                            {assignment?.status === 'signed' && '✔️ Signé'}
-                            {!['draft', 'in_progress', 'completed', 'signed'].includes(assignment?.status || '') && assignment?.status}
+                        <div style={{ 
+                            display: 'inline-flex', 
+                            alignItems: 'center', 
+                            gap: 6, 
+                            padding: '5px 12px', 
+                            borderRadius: 6, 
+                            fontSize: 13, 
+                            fontWeight: 500, 
+                            background: isSigned ? '#d1fae5' : isActiveSemesterClosed ? '#dbeafe' : '#fef3c7',
+                            color: isSigned ? '#065f46' : isActiveSemesterClosed ? '#1e40af' : '#92400e',
+                            border: `1px solid ${isSigned ? '#6ee7b7' : isActiveSemesterClosed ? '#93c5fd' : '#fcd34d'}`,
+                            marginLeft: 20, 
+                            position: 'relative', 
+                            top: -4 
+                        }}>
+                            {isSigned ? '✔️ Signé' : (
+                                <>
+                                    {isActiveSemesterClosed ? '✅ Terminé' : '🔄 En cours'}
+                                </>
+                            )}
                         </div>
                     </div>
                     {canEdit && (
@@ -2039,7 +2055,7 @@ export default function TeacherTemplateEditor() {
                                                         fontSize: 10,
                                                         color: '#999',
                                                     }}>
-                                                        {assignment?.status === 'signed' ? '✓ Signé Fin Année' : b.props.label || 'Signature Fin Année'}
+                                                        {assignment?.data?.signatures?.some((s: any) => s.type === 'end_of_year') ? '✓ Signé Fin Année' : b.props.label || 'Signature Fin Année'}
                                                     </div>
                                                 )}
                                                 {b.type === 'final_signature_info' && (
@@ -2052,7 +2068,7 @@ export default function TeacherTemplateEditor() {
                                                         alignItems: 'center',
                                                         justifyContent: b.props.align || 'flex-start'
                                                     }}>
-                                                        {assignment?.status === 'signed' ? (
+                                                        {assignment?.data?.signatures?.some((s: any) => s.type === 'end_of_year') ? (
                                                             <>
                                                                 {b.props.field === 'year' && (
                                                                     <span>
@@ -2087,7 +2103,7 @@ export default function TeacherTemplateEditor() {
                                                         fontSize: 10,
                                                         color: '#999',
                                                     }}>
-                                                        {assignment?.status === 'signed' ? '✓ Signé' : b.props.label || 'Signature'}
+                                                        {isSigned ? '✓ Signé' : b.props.label || 'Signature'}
                                                     </div>
                                                 )}
                                             </div>
