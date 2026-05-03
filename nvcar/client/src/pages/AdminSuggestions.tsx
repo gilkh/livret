@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import api from '../api'
+import { Clock, Calendar, RotateCcw, FileText } from 'lucide-react'
 
 type Suggestion = {
     _id: string
     subAdminId: string
-    type?: 'template_edit' | 'semester_request' | 'next_year_request'
+    type?: 'template_edit' | 'semester_request' | 'next_year_request' | 'reopen_request'
     templateId?: string
     pageIndex?: number
     blockIndex?: number
@@ -109,18 +110,21 @@ export default function AdminSuggestions() {
                                 <div>
                                     <div style={{ fontWeight: 600, color: '#1e293b' }}>
                                         {s.type === 'semester_request' ? (
-                                            <span style={{ color: '#3b82f6' }}>📅 Passage au Semestre 2</span>
+                                            <span style={{ color: '#3b82f6', display: 'flex', alignItems: 'center', gap: 6 }}><Clock size={16} /> 📅 Passage au Semestre 2</span>
                                         ) : s.type === 'next_year_request' ? (
-                                            <span style={{ color: '#8b5cf6' }}>🎓 Passage à l'Année Suivante</span>
+                                            <span style={{ color: '#8b5cf6', display: 'flex', alignItems: 'center', gap: 6 }}><Calendar size={16} /> 🎓 Passage à l'Année Suivante</span>
+                                        ) : s.type === 'reopen_request' ? (
+                                            <span style={{ color: '#f59e0b', display: 'flex', alignItems: 'center', gap: 6 }}><RotateCcw size={16} /> 🔓 Demande de Réouverture</span>
                                         ) : (
-                                            <>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                <FileText size={16} color="#64748b" />
                                                 {s.template?.name || 'Template inconnu'}
                                                 {s.pageIndex !== undefined && (
-                                                    <span style={{ fontWeight: 400, color: '#64748b', marginLeft: 8, fontSize: '0.9em' }}>
+                                                    <span style={{ fontWeight: 400, color: '#64748b', marginLeft: 4, fontSize: '0.9em' }}>
                                                         • Page {s.pageIndex + 1}
                                                     </span>
                                                 )}
-                                            </>
+                                            </div>
                                         )}
                                     </div>
                                     <div style={{ fontSize: 13, color: '#64748b' }}>

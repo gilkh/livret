@@ -1368,7 +1368,3 @@ export default function TeacherQuickGrading() {
         </div>
     )
 }
-            </div >
-        </div >
-    )
-}
