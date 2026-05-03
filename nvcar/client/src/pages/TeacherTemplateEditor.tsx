@@ -703,58 +703,58 @@ export default function TeacherTemplateEditor() {
                                 }}
                             />
                             <h2 className="title" style={{ fontSize: 28, marginBottom: 0, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 12 }}>
-                            <span>✏️ Édition du carnet - {student ? `${student.firstName} ${student.lastName}` : 'Élève'}</span>
-                            {student?.level && (
+                                <span>✏️ Édition du carnet - {student ? `${student.firstName} ${student.lastName}` : 'Élève'}</span>
+                                {student?.level && (
+                                    <span style={{
+                                        fontSize: 14,
+                                        background: '#e0e7ff',
+                                        color: '#4338ca',
+                                        padding: '4px 10px',
+                                        borderRadius: 16,
+                                        fontWeight: 600
+                                    }}>
+                                        {student.level}
+                                    </span>
+                                )}
+                                {student?.className && (
+                                    <span style={{
+                                        fontSize: 14,
+                                        background: '#f1f5f9',
+                                        color: '#475569',
+                                        padding: '4px 10px',
+                                        borderRadius: 16,
+                                        fontWeight: 600
+                                    }}>
+                                        {student.className}
+                                    </span>
+                                )}
                                 <span style={{
                                     fontSize: 14,
-                                    background: '#e0e7ff',
-                                    color: '#4338ca',
+                                    background: activeSemester === 2 ? '#dbeafe' : '#fef3c7',
+                                    color: activeSemester === 2 ? '#1e40af' : '#92400e',
                                     padding: '4px 10px',
                                     borderRadius: 16,
-                                    fontWeight: 600
+                                    fontWeight: 700,
+                                    border: `1px solid ${activeSemester === 2 ? '#93c5fd' : '#fcd34d'}`
                                 }}>
-                                    {student.level}
+                                    S{activeSemester}
                                 </span>
-                            )}
-                            {student?.className && (
-                                <span style={{
-                                    fontSize: 14,
-                                    background: '#f1f5f9',
-                                    color: '#475569',
-                                    padding: '4px 10px',
-                                    borderRadius: 16,
-                                    fontWeight: 600
-                                }}>
-                                    {student.className}
-                                </span>
-                            )}
-                            <span style={{
-                                fontSize: 14,
-                                background: activeSemester === 2 ? '#dbeafe' : '#fef3c7',
-                                color: activeSemester === 2 ? '#1e40af' : '#92400e',
-                                padding: '4px 10px',
-                                borderRadius: 16,
-                                fontWeight: 700,
-                                border: `1px solid ${activeSemester === 2 ? '#93c5fd' : '#fcd34d'}`
-                            }}>
-                                S{activeSemester}
-                            </span>
                             </h2>
                         </div>
-                        <div style={{ 
-                            display: 'inline-flex', 
-                            alignItems: 'center', 
-                            gap: 6, 
-                            padding: '5px 12px', 
-                            borderRadius: 6, 
-                            fontSize: 13, 
-                            fontWeight: 500, 
+                        <div style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            padding: '5px 12px',
+                            borderRadius: 6,
+                            fontSize: 13,
+                            fontWeight: 500,
                             background: isSigned ? '#d1fae5' : isActiveSemesterClosed ? '#dbeafe' : '#fef3c7',
                             color: isSigned ? '#065f46' : isActiveSemesterClosed ? '#1e40af' : '#92400e',
                             border: `1px solid ${isSigned ? '#6ee7b7' : isActiveSemesterClosed ? '#93c5fd' : '#fcd34d'}`,
-                            marginLeft: 20, 
-                            position: 'relative', 
-                            top: -4 
+                            marginLeft: 20,
+                            position: 'relative',
+                            top: -4
                         }}>
                             {isSigned ? '✔️ Signé' : (
                                 <>
