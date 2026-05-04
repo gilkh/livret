@@ -1,12 +1,12 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.teacherTemplatesRouter = void 0;
+const scopeUtils_1 = require("../utils/scopeUtils");
 const express_1 = require("express");
 const auth_1 = require("../auth");
 const TeacherClassAssignment_1 = require("../models/TeacherClassAssignment");
 const TemplateAssignment_1 = require("../models/TemplateAssignment");
 const TemplateChangeLog_1 = require("../models/TemplateChangeLog");
-const TemplateSignature_1 = require("../models/TemplateSignature");
 const GradebookTemplate_1 = require("../models/GradebookTemplate");
 const Student_1 = require("../models/Student");
 const Enrollment_1 = require("../models/Enrollment");
@@ -16,6 +16,7 @@ const StudentAcquiredSkill_1 = require("../models/StudentAcquiredSkill");
 const auditLogger_1 = require("../utils/auditLogger");
 const templateUtils_1 = require("../utils/templateUtils");
 const cache_1 = require("../utils/cache");
+const Setting_1 = require("../models/Setting");
 exports.teacherTemplatesRouter = (0, express_1.Router)();
 const normalizeLevel = (v) => String(v || '').trim().toUpperCase();
 // For maternelle, allow teachers to edit toggles for previous levels.
@@ -166,52 +167,7 @@ const findEnrollmentForStudent = async (studentId) => {
  * Note: We only consider signatures from the CURRENT school year.
  * Legacy signatures without signaturePeriodId are also checked for backwards compatibility.
  */
-const isAssignmentSigned = async (assignmentId) => {
-    // Get the active school year to determine current semester
-    const activeYear = await (0, cache_1.withCache)('school-years-active', () => SchoolYear_1.SchoolYear.findOne({ active: true }).lean());
-    if (!activeYear) {
-        // If no active year, fall back to checking for any signature
-        const anySignature = await TemplateSignature_1.TemplateSignature.findOne({
-            templateAssignmentId: assignmentId
-        }).lean();
-        return !!anySignature;
-    }
-    const activeSemester = activeYear.activeSemester || 1;
-    const schoolYearId = String(activeYear._id);
-    // Always check for end_of_year signature first - if it exists for current year, permanently locked
-    const endOfYearPeriodId = `${schoolYearId}_end_of_year`;
-    const endOfYearSignature = await TemplateSignature_1.TemplateSignature.findOne({
-        templateAssignmentId: assignmentId,
-        $or: [
-            { signaturePeriodId: endOfYearPeriodId },
-            // Legacy: signatures with type 'end_of_year' and matching schoolYearId
-            { type: 'end_of_year', schoolYearId: schoolYearId },
-            // Legacy: signatures with type 'end_of_year' and no schoolYearId (from before period tracking)
-            { type: 'end_of_year', schoolYearId: { $exists: false } }
-        ]
-    }).lean();
-    if (endOfYearSignature) {
-        return true; // Permanently locked after end_of_year signature
-    }
-    // In Semester 1: Check for sem1 signature for the current year
-    if (activeSemester === 1) {
-        const sem1PeriodId = `${schoolYearId}_sem1`;
-        const sem1Signature = await TemplateSignature_1.TemplateSignature.findOne({
-            templateAssignmentId: assignmentId,
-            $or: [
-                { signaturePeriodId: sem1PeriodId },
-                // Legacy: 'standard' signatures with matching schoolYearId
-                { type: 'standard', schoolYearId: schoolYearId },
-                // Legacy: 'standard' signatures with no schoolYearId (from before period tracking)
-                { type: 'standard', schoolYearId: { $exists: false } }
-            ]
-        }).lean();
-        return !!sem1Signature; // Locked in Sem1 if sem1 signature exists
-    }
-    // In Semester 2: Only locked if end_of_year exists (already checked above)
-    // Sem1 signature does NOT lock the gradebook in Semester 2
-    return false;
-};
+const signatureService_1 = require("../services/signatureService");
 // Teacher: Get classes assigned to logged-in teacher
 exports.teacherTemplatesRouter.get('/classes', (0, auth_1.requireAuth)(['TEACHER', 'ADMIN', 'SUBADMIN']), async (req, res) => {
     try {
@@ -281,7 +237,8 @@ exports.teacherTemplatesRouter.get('/students/:studentId/templates', (0, auth_1.
             })
             : [];
         const changedAssignmentSet = new Set((changedAssignmentIds || []).map((id) => String(id)));
-        const { enrollment } = await findEnrollmentForStudent(studentId);
+        const { enrollment, activeYear } = await findEnrollmentForStudent(studentId);
+        const activeSemester = activeYear?.activeSemester || 1;
         const classDoc = enrollment?.classId ? await Class_1.ClassModel.findById(enrollment.classId).lean() : null;
         const studentLevel = normalizeLevel(classDoc?.level || '');
         const teacherClassAssignment = enrollment?.classId
@@ -292,20 +249,24 @@ exports.teacherTemplatesRouter.get('/students/:studentId/templates', (0, auth_1.
         const templateIds = assignments.map(a => a.templateId);
         const templates = await Promise.all(templateIds.map(id => (0, cache_1.withCache)(`template-${id}`, () => GradebookTemplate_1.GradebookTemplate.findById(id).lean())));
         // Combine assignment data with template data
-        const result = assignments.map(assignment => {
+        const result = await Promise.all(assignments.map(async (assignment) => {
             const template = templates.find(t => t && String(t._id) === assignment.templateId);
             const languageCompletionMap = buildLanguageCompletionMap(assignment.languageCompletions || [], studentLevel);
             const isMyWorkCompletedSem1 = computeTeacherCompletionForSemester(languageCompletionMap, completionLanguages, 1);
             const isMyWorkCompletedSem2 = computeTeacherCompletionForSemester(languageCompletionMap, completionLanguages, 2);
+            const isSigned = await (0, signatureService_1.isAssignmentSigned)(String(assignment._id));
+            const isCompleted = activeSemester === 2 ? !!assignment.isCompletedSem2 : !!assignment.isCompletedSem1;
             return {
                 ...assignment,
                 template,
                 hasChanges: changedAssignmentSet.has(String(assignment._id)),
-                isMyWorkCompleted: isMyWorkCompletedSem1,
+                isMyWorkCompleted: activeSemester === 2 ? isMyWorkCompletedSem2 : isMyWorkCompletedSem1,
                 isMyWorkCompletedSem1,
-                isMyWorkCompletedSem2
+                isMyWorkCompletedSem2,
+                isCompleted,
+                isSigned
             };
-        });
+        }));
         res.json(result);
     }
     catch (e) {
@@ -463,19 +424,19 @@ exports.teacherTemplatesRouter.get('/template-assignments/:assignmentId', (0, au
         // Determine if teacher can edit
         // Since we enforce class assignment above, if they reach here, they can edit.
         // UNLESS the gradebook has been signed by a subadmin
-        const isSigned = await isAssignmentSigned(assignmentId);
+        const isSigned = await (0, signatureService_1.isAssignmentSigned)(assignmentId);
         const canEdit = !isSigned; // Teachers cannot edit signed gradebooks
         const isProfPolyvalent = teacherClassAssignment ? !!teacherClassAssignment.isProfPolyvalent : false;
         const completionLanguages = getCompletionLanguagesForTeacher(teacherClassAssignment);
         // Check my completion status
         const languageCompletionMap = buildLanguageCompletionMap(assignment.languageCompletions || [], level);
-        const isMyWorkCompletedSem1 = computeTeacherCompletionForSemester(languageCompletionMap, completionLanguages, 1);
-        const isMyWorkCompletedSem2 = computeTeacherCompletionForSemester(languageCompletionMap, completionLanguages, 2);
-        const isMyWorkCompleted = isMyWorkCompletedSem1;
         // Get active semester from the active school year
         const activeSemester = activeYear?.activeSemester || 1;
+        const isMyWorkCompletedSem1 = computeTeacherCompletionForSemester(languageCompletionMap, completionLanguages, 1);
+        const isMyWorkCompletedSem2 = computeTeacherCompletionForSemester(languageCompletionMap, completionLanguages, 2);
+        const isMyWorkCompleted = activeSemester === 2 ? isMyWorkCompletedSem2 : isMyWorkCompletedSem1;
         res.json({
-            assignment,
+            assignment: { ...assignment, classId: enrollment.classId },
             template: versionedTemplate,
             student: { ...student, level, className },
             canEdit,
@@ -494,7 +455,6 @@ exports.teacherTemplatesRouter.get('/template-assignments/:assignmentId', (0, au
         res.status(500).json({ error: 'fetch_failed', message: e.message });
     }
 });
-// Teacher: Edit only language_toggle in template
 exports.teacherTemplatesRouter.patch('/template-assignments/:assignmentId/language-toggle', (0, auth_1.requireAuth)(['TEACHER']), async (req, res) => {
     try {
         const teacherId = req.user.userId;
@@ -514,7 +474,7 @@ exports.teacherTemplatesRouter.patch('/template-assignments/:assignmentId/langua
             return res.status(403).json({ error: 'not_assigned_to_template' });
         }
         // Check if the assignment has been signed - teachers cannot edit signed gradebooks
-        if (await isAssignmentSigned(assignmentId)) {
+        if (await (0, signatureService_1.isAssignmentSigned)(assignmentId)) {
             return res.status(403).json({ error: 'gradebook_signed', message: 'Cannot edit a signed gradebook' });
         }
         // Get the template to verify the block
@@ -566,6 +526,18 @@ exports.teacherTemplatesRouter.patch('/template-assignments/:assignmentId/langua
         const completionLanguages = getCompletionLanguagesForTeacher(teacherClassAssignment);
         const activeSemester = activeYear?.activeSemester || 1;
         const languageCompletionMap = buildLanguageCompletionMap(assignment.languageCompletions || [], studentLevel);
+        // Fetch polyvalent exception settings
+        const settingsMap = {};
+        const settingsDocs = await Setting_1.Setting.find({ key: { $in: ['polyvalent_exception_enabled', 'polyvalent_exception_scope', 'polyvalent_history_exception_enabled', 'polyvalent_history_exception_scope', 'previous_year_dropdown_editable', 'previous_year_dropdown_editable_scope'] } }).lean();
+        settingsDocs.forEach(s => { settingsMap[s.key] = s.value; });
+        const polyvalentExceptionEnabledRaw = settingsMap.polyvalent_exception_enabled === true;
+        const polyvalentExceptionEnabled = polyvalentExceptionEnabledRaw && (0, scopeUtils_1.checkScope)(settingsMap.polyvalent_exception_scope, { level: studentLevel, classId: String(enrollment.classId) });
+        const previousYearDropdownEditableScope = settingsMap.previous_year_dropdown_editable_scope;
+        const polyvalentHistoryExceptionEnabledRaw = settingsMap.polyvalent_history_exception_enabled === true;
+        const polyvalentHistoryExceptionEnabled = polyvalentHistoryExceptionEnabledRaw && (0, scopeUtils_1.checkScope)(settingsMap.polyvalent_history_exception_scope, { level: studentLevel, classId: String(enrollment.classId) });
+        const isEnglish = allowedLanguages.includes('en');
+        const isArabic = allowedLanguages.includes('ar') || allowedLanguages.includes('lb');
+        const isTeacherQualifiedForException = (polyvalentExceptionEnabled || polyvalentHistoryExceptionEnabled) && (isProfPolyvalent || isEnglish || isArabic);
         const sourceItems = Array.isArray(targetBlock?.props?.items) ? targetBlock.props.items : [];
         const sanitizedItems = sourceItems.length > 0
             ? sourceItems.map((src, i) => ({ ...src, active: !!items?.[i]?.active }))
@@ -590,10 +562,11 @@ exports.teacherTemplatesRouter.patch('/template-assignments/:assignmentId/langua
             const oldItem = previousItems[i] || sourceItems[i];
             if (newItem && oldItem && newItem.active !== oldItem.active) {
                 const langCode = sourceItems?.[i]?.code;
-                if (isLanguageCompletedForSemester(languageCompletionMap, langCode, activeSemester)) {
+                const canBypassToggle = polyvalentExceptionEnabled || (polyvalentHistoryExceptionEnabled && isLanguageAllowedForTeacher(langCode, allowedLanguages, isProfPolyvalent));
+                if (isLanguageCompletedForSemester(languageCompletionMap, langCode, activeSemester) && !canBypassToggle) {
                     return res.status(403).json({ error: 'language_completed', details: langCode });
                 }
-                if (!isLanguageAllowedForTeacher(langCode, allowedLanguages, isProfPolyvalent)) {
+                if (!isLanguageAllowedForTeacher(langCode, allowedLanguages, isProfPolyvalent) && !polyvalentExceptionEnabled) {
                     return res.status(403).json({ error: 'language_not_allowed', details: langCode });
                 }
             }
@@ -654,7 +627,7 @@ exports.teacherTemplatesRouter.post('/templates/:assignmentId/mark-done', (0, au
             return res.status(403).json({ error: 'not_assigned_to_template' });
         }
         // Check if the assignment has been signed - teachers cannot modify signed gradebooks
-        if (await isAssignmentSigned(assignmentId)) {
+        if (await (0, signatureService_1.isAssignmentSigned)(assignmentId)) {
             return res.status(403).json({ error: 'gradebook_signed', message: 'Cannot modify a signed gradebook' });
         }
         const { enrollment } = await findEnrollmentForStudent(assignment.studentId);
@@ -730,20 +703,19 @@ exports.teacherTemplatesRouter.post('/templates/:assignmentId/mark-done', (0, au
         if (targetSemester === 1) {
             updateData.isCompletedSem1 = allCompletedSem;
             if (allCompletedSem)
-                updateData.completedAtSem1 = new Date();
-            // Legacy behavior: if sem1 is done, mark main as done/completed? 
-            // Or should main status depend on both? 
-            // For now, let's link legacy 'isCompleted' to Sem1 as it was the only semester before.
+                updateData.completedAtSem1 = now;
+            // Legacy/Global status update (can be debated, but for now we keep it linked)
             updateData.isCompleted = allCompletedSem;
             updateData.completedAt = allCompletedSem ? now : undefined;
-            updateData.completedBy = allCompletedSem ? teacherId : undefined; // Approximate
+            updateData.completedBy = allCompletedSem ? teacherId : undefined;
             updateData.status = allCompletedSem ? 'completed' : 'in_progress';
         }
-        else {
+        else if (targetSemester === 2) {
             updateData.isCompletedSem2 = allCompletedSem;
             if (allCompletedSem)
                 updateData.completedAtSem2 = now;
-            // Don't change main status for Sem2 yet, unless we want a new status
+            // Also update global status if sem2 is done
+            updateData.status = allCompletedSem ? 'completed' : 'in_progress';
         }
         // Update assignment
         const updated = await TemplateAssignment_1.TemplateAssignment.findByIdAndUpdate(assignmentId, updateData, { new: true });
@@ -784,7 +756,7 @@ exports.teacherTemplatesRouter.post('/templates/:assignmentId/unmark-done', (0, 
             return res.status(403).json({ error: 'not_assigned_to_template' });
         }
         // Check if the assignment has been signed - teachers cannot modify signed gradebooks
-        if (await isAssignmentSigned(assignmentId)) {
+        if (await (0, signatureService_1.isAssignmentSigned)(assignmentId)) {
             return res.status(403).json({ error: 'gradebook_signed', message: 'Cannot modify a signed gradebook' });
         }
         const { enrollment } = await findEnrollmentForStudent(assignment.studentId);
@@ -1042,7 +1014,7 @@ exports.teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data',
             return res.status(403).json({ error: 'not_assigned_to_template' });
         }
         // Check if the assignment has been signed - teachers cannot edit signed gradebooks
-        if (await isAssignmentSigned(assignmentId)) {
+        if (await (0, signatureService_1.isAssignmentSigned)(assignmentId)) {
             return res.status(403).json({ error: 'gradebook_signed', message: 'Cannot edit a signed gradebook' });
         }
         const { enrollment, activeYear } = await findEnrollmentForStudent(assignment.studentId);
@@ -1068,8 +1040,20 @@ exports.teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data',
         const activeSemester = activeYear?.activeSemester || 1;
         const completionLanguages = getCompletionLanguagesForTeacher(teacherClassAssignment);
         const languageCompletionMap = buildLanguageCompletionMap(assignment.languageCompletions || [], studentLevel);
+        // Fetch polyvalent exception settings
+        const settingsMap = {};
+        const settingsDocs = await Setting_1.Setting.find({ key: { $in: ['polyvalent_exception_enabled', 'polyvalent_exception_scope', 'polyvalent_history_exception_enabled', 'polyvalent_history_exception_scope', 'previous_year_dropdown_editable', 'previous_year_dropdown_editable_scope'] } }).lean();
+        settingsDocs.forEach(s => { settingsMap[s.key] = s.value; });
+        const polyvalentExceptionEnabledRaw = settingsMap.polyvalent_exception_enabled === true;
+        const polyvalentExceptionEnabled = polyvalentExceptionEnabledRaw && (0, scopeUtils_1.checkScope)(settingsMap.polyvalent_exception_scope, { level: studentLevel, classId: String(enrollment.classId) });
+        const previousYearDropdownEditableScope = settingsMap.previous_year_dropdown_editable_scope;
+        const polyvalentHistoryExceptionEnabledRaw = settingsMap.polyvalent_history_exception_enabled === true;
+        const polyvalentHistoryExceptionEnabled = polyvalentHistoryExceptionEnabledRaw && (0, scopeUtils_1.checkScope)(settingsMap.polyvalent_history_exception_scope, { level: studentLevel, classId: String(enrollment.classId) });
+        const isEnglish = allowedLanguages.includes('en');
+        const isArabic = allowedLanguages.includes('ar') || allowedLanguages.includes('lb');
+        const isTeacherQualifiedForException = (polyvalentExceptionEnabled || polyvalentHistoryExceptionEnabled) && (isProfPolyvalent || isEnglish || isArabic);
         const isActiveSemesterClosed = computeTeacherCompletionForSemester(languageCompletionMap, completionLanguages, activeSemester);
-        if (isActiveSemesterClosed) {
+        if (isActiveSemesterClosed && !polyvalentExceptionEnabled && !(polyvalentHistoryExceptionEnabled && isTeacherQualifiedForException)) {
             return res.status(403).json({ error: 'gradebook_closed', details: { activeSemester } });
         }
         const blocksById = (0, templateUtils_1.buildBlocksById)(versionedTemplate?.pages || []);
@@ -1099,10 +1083,11 @@ exports.teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data',
                     const oldItem = previousItems[i] || sourceItems[i];
                     if (newItem && oldItem && newItem.active !== oldItem.active) {
                         const langCode = sourceItems?.[i]?.code;
-                        if (isLanguageCompletedForSemester(languageCompletionMap, langCode, activeSemester)) {
+                        const canBypassToggle = polyvalentExceptionEnabled || (polyvalentHistoryExceptionEnabled && isLanguageAllowedForTeacher(langCode, allowedLanguages, isProfPolyvalent));
+                        if (isLanguageCompletedForSemester(languageCompletionMap, langCode, activeSemester) && !canBypassToggle) {
                             return res.status(403).json({ error: 'language_completed', details: langCode });
                         }
-                        if (!isLanguageAllowedForTeacher(langCode, allowedLanguages, isProfPolyvalent)) {
+                        if (!isLanguageAllowedForTeacher(langCode, allowedLanguages, isProfPolyvalent) && !polyvalentExceptionEnabled) {
                             return res.status(403).json({ error: 'language_not_allowed', details: langCode });
                         }
                     }
@@ -1136,10 +1121,11 @@ exports.teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data',
                     const oldItem = previousItems[i] || sourceItems[i];
                     if (newItem && oldItem && newItem.active !== oldItem.active) {
                         const langCode = sourceItems?.[i]?.code;
-                        if (isLanguageCompletedForSemester(languageCompletionMap, langCode, activeSemester)) {
+                        const canBypassToggle = polyvalentExceptionEnabled || (polyvalentHistoryExceptionEnabled && isLanguageAllowedForTeacher(langCode, allowedLanguages, isProfPolyvalent));
+                        if (isLanguageCompletedForSemester(languageCompletionMap, langCode, activeSemester) && !canBypassToggle) {
                             return res.status(403).json({ error: 'language_completed', details: langCode });
                         }
-                        if (!isLanguageAllowedForTeacher(langCode, allowedLanguages, isProfPolyvalent)) {
+                        if (!isLanguageAllowedForTeacher(langCode, allowedLanguages, isProfPolyvalent) && !polyvalentExceptionEnabled) {
                             return res.status(403).json({ error: 'language_not_allowed', details: langCode });
                         }
                     }
@@ -1179,10 +1165,11 @@ exports.teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data',
                             return res.status(403).json({ error: 'level_mismatch', details: { studentLevel, itemLevel } });
                         }
                         const langCode = sourceItems?.[i]?.code;
-                        if (isLanguageCompletedForSemester(languageCompletionMap, langCode, activeSemester)) {
+                        const canBypassToggle = polyvalentExceptionEnabled || (polyvalentHistoryExceptionEnabled && isLanguageAllowedForTeacher(langCode, allowedLanguages, isProfPolyvalent));
+                        if (isLanguageCompletedForSemester(languageCompletionMap, langCode, activeSemester) && !canBypassToggle) {
                             return res.status(403).json({ error: 'language_completed', details: langCode });
                         }
-                        if (!isLanguageAllowedForTeacher(langCode, allowedLanguages, isProfPolyvalent)) {
+                        if (!isLanguageAllowedForTeacher(langCode, allowedLanguages, isProfPolyvalent) && !polyvalentExceptionEnabled) {
                             return res.status(403).json({ error: 'language_not_allowed', details: langCode });
                         }
                     }
@@ -1229,10 +1216,11 @@ exports.teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data',
                             return res.status(403).json({ error: 'level_mismatch', details: { studentLevel, itemLevel } });
                         }
                         const langCode = sourceItems?.[i]?.code;
-                        if (isLanguageCompletedForSemester(languageCompletionMap, langCode, activeSemester)) {
+                        const canBypassToggle = polyvalentExceptionEnabled || (polyvalentHistoryExceptionEnabled && isLanguageAllowedForTeacher(langCode, allowedLanguages, isProfPolyvalent));
+                        if (isLanguageCompletedForSemester(languageCompletionMap, langCode, activeSemester) && !canBypassToggle) {
                             return res.status(403).json({ error: 'language_completed', details: langCode });
                         }
-                        if (!isLanguageAllowedForTeacher(langCode, allowedLanguages, isProfPolyvalent)) {
+                        if (!isLanguageAllowedForTeacher(langCode, allowedLanguages, isProfPolyvalent) && !polyvalentExceptionEnabled) {
                             return res.status(403).json({ error: 'language_not_allowed', details: langCode });
                         }
                     }
@@ -1260,11 +1248,11 @@ exports.teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data',
                 const dropdownBlock = dropdownBlocks.length === 1 ? dropdownBlocks[0] : null;
                 if (dropdownBlock) {
                     const allowedLevels = Array.isArray(dropdownBlock?.props?.levels) ? dropdownBlock.props.levels.map((v) => normalizeLevel(v)) : [];
-                    if (allowedLevels.length > 0 && (!studentLevel || !allowedLevels.includes(studentLevel))) {
+                    if (allowedLevels.length > 0 && (!studentLevel || !allowedLevels.includes(studentLevel)) && !isTeacherQualifiedForException) {
                         return res.status(403).json({ error: 'level_mismatch', details: { studentLevel, allowedLevels } });
                     }
                     const allowedSemesters = Array.isArray(dropdownBlock?.props?.semesters) ? dropdownBlock.props.semesters : [];
-                    if (allowedSemesters.length > 0 && !allowedSemesters.includes(activeSemester)) {
+                    if (allowedSemesters.length > 0 && !allowedSemesters.includes(activeSemester) && !isTeacherQualifiedForException) {
                         return res.status(403).json({ error: 'semester_mismatch', details: { activeSemester, allowedSemesters } });
                     }
                 }
@@ -1282,11 +1270,11 @@ exports.teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data',
             const variableBlock = variableNameBlocks.length === 1 ? variableNameBlocks[0] : null;
             if (variableBlock) {
                 const allowedLevels = Array.isArray(variableBlock?.props?.levels) ? variableBlock.props.levels.map((v) => normalizeLevel(v)) : [];
-                if (allowedLevels.length > 0 && (!studentLevel || !allowedLevels.includes(studentLevel))) {
+                if (allowedLevels.length > 0 && (!studentLevel || !allowedLevels.includes(studentLevel)) && !isTeacherQualifiedForException) {
                     return res.status(403).json({ error: 'level_mismatch', details: { studentLevel, allowedLevels } });
                 }
                 const allowedSemesters = Array.isArray(variableBlock?.props?.semesters) ? variableBlock.props.semesters : [];
-                if (allowedSemesters.length > 0 && !allowedSemesters.includes(activeSemester)) {
+                if (allowedSemesters.length > 0 && !allowedSemesters.includes(activeSemester) && !isTeacherQualifiedForException) {
                     return res.status(403).json({ error: 'semester_mismatch', details: { activeSemester, allowedSemesters } });
                 }
             }

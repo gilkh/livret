@@ -65,7 +65,7 @@ settingsRouter.get('/status', requireAuth(['ADMIN']), async (req, res) => {
 
 settingsRouter.get('/public', async (req, res) => {
   const settings = await Setting.find({
-    key: { $in: ['login_enabled_microsoft', 'login_enabled_aefe', 'school_name', 'nav_permissions', 'teacher_quick_grading_enabled', 'mobile_block_enabled', 'mobile_min_width', 'block_visibility', 'block_visibility_instances', 'block_visibility_settings', 'previous_year_dropdown_editable', 'previous_year_dropdown_editable_PS', 'previous_year_dropdown_editable_MS', 'previous_year_dropdown_editable_GS', 'polyvalent_exception_enabled', 'polyvalent_history_exception_enabled'] }
+    key: { $in: ['login_enabled_microsoft', 'login_enabled_aefe', 'school_name', 'nav_permissions', 'teacher_quick_grading_enabled', 'mobile_block_enabled', 'mobile_min_width', 'block_visibility', 'block_visibility_instances', 'block_visibility_settings', 'previous_year_dropdown_editable', 'previous_year_dropdown_editable_PS', 'previous_year_dropdown_editable_MS', 'previous_year_dropdown_editable_GS', 'previous_year_dropdown_editable_scope', 'polyvalent_exception_enabled', 'polyvalent_exception_scope', 'polyvalent_history_exception_enabled', 'polyvalent_history_exception_scope'] }
   }).lean()
 
   const settingsMap: Record<string, any> = {}

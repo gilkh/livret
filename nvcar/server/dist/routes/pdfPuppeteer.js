@@ -67,12 +67,38 @@ const resolveStudentLevel = async (studentId, fallbackLevel, schoolYearId) => {
     const classDoc = await Class_1.ClassModel.findById(enrollment.classId).lean();
     return String(classDoc?.level || '').trim();
 };
-// Singleton browser instance
+// Singleton browser instance with rotation logic
 let browserInstance = null;
+let browserTotalPageCount = 0;
+let browserActivePageCount = 0;
+let browserLaunchTime = 0;
+let browserRestartPending = false;
+const BROWSER_RESTART_PAGE_LIMIT = 200;
+const BROWSER_RESTART_TIME_LIMIT_MS = 60 * 60 * 1000; // 60 minutes
 const getBrowser = async () => {
-    console.log('[PDF DEBUG] getBrowser called');
+    const now = Date.now();
+    const uptime = now - browserLaunchTime;
+    // Check if we should mark for restart
+    if (browserInstance && !browserRestartPending) {
+        if (browserTotalPageCount >= BROWSER_RESTART_PAGE_LIMIT || uptime >= BROWSER_RESTART_TIME_LIMIT_MS) {
+            console.log(`[PDF] Browser marked for rotation (total pages: ${browserTotalPageCount}, uptime: ${Math.round(uptime / 60000)}m)`);
+            browserRestartPending = true;
+        }
+    }
+    // If a restart is pending and no pages are active, close it now
+    if (browserInstance && browserRestartPending) {
+        let pagesCount = 0;
+        try {
+            pagesCount = (await browserInstance.pages()).length;
+        }
+        catch { }
+        if (browserActivePageCount === 0 && pagesCount <= 1) {
+            console.log('[PDF] Closing browser for rotation (no active pages)');
+            await closeBrowser();
+            browserRestartPending = false;
+        }
+    }
     if (browserInstance && browserInstance.isConnected()) {
-        console.log('[PDF DEBUG] Reusing existing browser instance');
         return browserInstance;
     }
     console.log('[PDF] Launching new browser instance...');
@@ -93,6 +119,10 @@ const getBrowser = async () => {
                 '--ignore-certificate-errors'
             ]
         });
+        browserTotalPageCount = 0;
+        browserActivePageCount = 0;
+        browserLaunchTime = Date.now();
+        browserRestartPending = false;
         console.log('[PDF DEBUG] New browser instance launched successfully');
     }
     catch (e) {
@@ -102,6 +132,7 @@ const getBrowser = async () => {
     browserInstance.on('disconnected', () => {
         console.log('[PDF] Browser disconnected');
         browserInstance = null;
+        browserActivePageCount = 0;
     });
     return browserInstance;
 };
@@ -109,10 +140,12 @@ const getBrowser = async () => {
 const closeBrowser = async () => {
     if (browserInstance) {
         try {
+            // Close all pages first if possible? No, browser.close() is enough.
             await browserInstance.close();
         }
         catch { }
         browserInstance = null;
+        browserActivePageCount = 0;
     }
 };
 const sanitizeFileName = (value) => {
@@ -306,6 +339,10 @@ const generatePdfBufferFromPrintUrl = async (printUrl, token, frontendUrl, optio
     const safePrintUrl = String(printUrl || '').replace(/([?&])token=[^&]*/, '$1token=***');
     const browser = await getBrowser();
     const reusePage = options.reusePage || null;
+    if (!reusePage) {
+        browserTotalPageCount++;
+        browserActivePageCount++;
+    }
     page = reusePage || await browser.newPage();
     const shouldClosePage = !reusePage || !options.keepPageOpen;
     if (verboseLogs) {
@@ -532,8 +569,11 @@ const generatePdfBufferFromPrintUrl = async (printUrl, token, frontendUrl, optio
     }
     finally {
         try {
-            if (shouldClosePage)
-                await page?.close();
+            if (shouldClosePage && page) {
+                if (!reusePage)
+                    browserActivePageCount = Math.max(0, browserActivePageCount - 1);
+                await page.close();
+            }
         }
         catch { }
     }
@@ -835,13 +875,18 @@ exports.pdfPuppeteerRouter.post('/assignments/zip', (0, auth_1.requireAuth)(['AD
                     const versionMode = String(req.body?.versionMode || 'new');
                     let version = 1;
                     try {
-                        // Find existing files for this assignment in other batches
+                        // Find existing files for this assignment in other batches that MATCH our current context
                         const existingBatches = await ExportedGradebookBatch_1.ExportedGradebookBatch.find({
                             yearName,
                             semester,
-                            'files.assignmentId': assignmentId
+                            'files.assignmentId': assignmentId,
+                            'files.level': level,
+                            'files.className': className
                         }).lean();
-                        const allExistingFiles = existingBatches.flatMap(b => b.files).filter(f => String(f.assignmentId) === assignmentId);
+                        // Only consider files that match the FULL context (assignment, level, class)
+                        const allExistingFiles = existingBatches.flatMap(b => b.files).filter(f => String(f.assignmentId) === assignmentId &&
+                            f.level === level &&
+                            f.className === className);
                         const targetQuality = highQuality ? 'high' : 'compressed';
                         const sameQualityFiles = allExistingFiles.filter(f => f.quality === targetQuality);
                         if (sameQualityFiles.length > 0) {

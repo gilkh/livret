@@ -484,7 +484,7 @@ teacherTemplatesRouter.get('/template-assignments/:assignmentId', requireAuth(['
         const isMyWorkCompleted = activeSemester === 2 ? isMyWorkCompletedSem2 : isMyWorkCompletedSem1
 
         res.json({
-            assignment,
+            assignment: { ...assignment, classId: enrollment.classId },
             template: versionedTemplate,
             student: { ...student, level, className },
             canEdit,
@@ -503,7 +503,6 @@ teacherTemplatesRouter.get('/template-assignments/:assignmentId', requireAuth(['
     }
 })
 
-// Teacher: Edit only language_toggle in template
 teacherTemplatesRouter.patch('/template-assignments/:assignmentId/language-toggle', requireAuth(['TEACHER']), async (req, res) => {
     try {
         const teacherId = (req as any).user.userId
@@ -598,10 +597,10 @@ teacherTemplatesRouter.patch('/template-assignments/:assignmentId/language-toggl
         settingsDocs.forEach(s => { settingsMap[s.key] = s.value })
 
         const polyvalentExceptionEnabledRaw = settingsMap.polyvalent_exception_enabled === true;
-        const polyvalentExceptionEnabled = polyvalentExceptionEnabledRaw && checkScope(settingsMap.polyvalent_exception_scope, { level: studentLevel, classId: String(assignment.classId) });
+        const polyvalentExceptionEnabled = polyvalentExceptionEnabledRaw && checkScope(settingsMap.polyvalent_exception_scope, { level: studentLevel, classId: String(enrollment.classId) });
         const previousYearDropdownEditableScope = settingsMap.previous_year_dropdown_editable_scope;
         const polyvalentHistoryExceptionEnabledRaw = settingsMap.polyvalent_history_exception_enabled === true;
-        const polyvalentHistoryExceptionEnabled = polyvalentHistoryExceptionEnabledRaw && checkScope(settingsMap.polyvalent_history_exception_scope, { level: studentLevel, classId: String(assignment.classId) });
+        const polyvalentHistoryExceptionEnabled = polyvalentHistoryExceptionEnabledRaw && checkScope(settingsMap.polyvalent_history_exception_scope, { level: studentLevel, classId: String(enrollment.classId) });
 
         const isEnglish = allowedLanguages.includes('en')
         const isArabic = allowedLanguages.includes('ar') || allowedLanguages.includes('lb')
@@ -1228,10 +1227,10 @@ teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data', require
         settingsDocs.forEach(s => { settingsMap[s.key] = s.value })
 
         const polyvalentExceptionEnabledRaw = settingsMap.polyvalent_exception_enabled === true;
-        const polyvalentExceptionEnabled = polyvalentExceptionEnabledRaw && checkScope(settingsMap.polyvalent_exception_scope, { level: studentLevel, classId: String(assignment.classId) });
+        const polyvalentExceptionEnabled = polyvalentExceptionEnabledRaw && checkScope(settingsMap.polyvalent_exception_scope, { level: studentLevel, classId: String(enrollment.classId) });
         const previousYearDropdownEditableScope = settingsMap.previous_year_dropdown_editable_scope;
         const polyvalentHistoryExceptionEnabledRaw = settingsMap.polyvalent_history_exception_enabled === true;
-        const polyvalentHistoryExceptionEnabled = polyvalentHistoryExceptionEnabledRaw && checkScope(settingsMap.polyvalent_history_exception_scope, { level: studentLevel, classId: String(assignment.classId) });
+        const polyvalentHistoryExceptionEnabled = polyvalentHistoryExceptionEnabledRaw && checkScope(settingsMap.polyvalent_history_exception_scope, { level: studentLevel, classId: String(enrollment.classId) });
 
         const isEnglish = allowedLanguages.includes('en')
         const isArabic = allowedLanguages.includes('ar') || allowedLanguages.includes('lb')

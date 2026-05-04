@@ -261,28 +261,36 @@ exports.subAdminTemplatesRouter.get('/promoted-students', (0, auth_1.requireAuth
 exports.subAdminTemplatesRouter.get('/classes', (0, auth_1.requireAuth)(['SUBADMIN', 'AEFE']), async (req, res) => {
     try {
         const subAdminId = req.user.userId;
+        const isAefe = req.user.role === 'AEFE';
         // Get active school year
         const activeSchoolYear = await (0, cache_1.withCache)('school-years-active', () => SchoolYear_1.SchoolYear.findOne({ active: true }).lean());
         if (!activeSchoolYear)
             return res.json([]);
-        // Get teachers assigned to this sub-admin
-        const assignments = await SubAdminAssignment_1.SubAdminAssignment.find({ subAdminId }).lean();
-        const teacherIds = assignments.map(a => a.teacherId);
-        // Get classes assigned to these teachers
-        const teacherClassAssignments = await TeacherClassAssignment_1.TeacherClassAssignment.find({
-            teacherId: { $in: teacherIds },
-            schoolYearId: activeSchoolYear._id
-        }).lean();
-        let relevantClassIds = [...new Set(teacherClassAssignments.map(a => a.classId))];
-        // Check RoleScope for level assignments
-        const roleScope = await RoleScope_1.RoleScope.findOne({ userId: subAdminId }).lean();
-        if (roleScope?.levels?.length) {
-            const levelClasses = await Class_1.ClassModel.find({
-                level: { $in: roleScope.levels },
+        let relevantClassIds = [];
+        if (isAefe) {
+            const allClasses = await Class_1.ClassModel.find({ schoolYearId: activeSchoolYear._id }).lean();
+            relevantClassIds = allClasses.map(c => String(c._id));
+        }
+        else {
+            // Get teachers assigned to this sub-admin
+            const assignments = await SubAdminAssignment_1.SubAdminAssignment.find({ subAdminId }).lean();
+            const teacherIds = assignments.map(a => a.teacherId);
+            // Get classes assigned to these teachers
+            const teacherClassAssignments = await TeacherClassAssignment_1.TeacherClassAssignment.find({
+                teacherId: { $in: teacherIds },
                 schoolYearId: activeSchoolYear._id
             }).lean();
-            const levelClassIds = levelClasses.map(c => String(c._id));
-            relevantClassIds = [...new Set([...relevantClassIds, ...levelClassIds])];
+            relevantClassIds = [...new Set(teacherClassAssignments.map(a => a.classId))];
+            // Check RoleScope for level assignments
+            const roleScope = await RoleScope_1.RoleScope.findOne({ userId: subAdminId }).lean();
+            if (roleScope?.levels?.length) {
+                const levelClasses = await Class_1.ClassModel.find({
+                    level: { $in: roleScope.levels },
+                    schoolYearId: activeSchoolYear._id
+                }).lean();
+                const levelClassIds = levelClasses.map(c => String(c._id));
+                relevantClassIds = [...new Set([...relevantClassIds, ...levelClassIds])];
+            }
         }
         // Get students in these classes
         const enrollments = await Enrollment_1.Enrollment.find({ classId: { $in: relevantClassIds } }).lean();
@@ -383,6 +391,7 @@ exports.subAdminTemplatesRouter.get('/teachers/:teacherId/changes', (0, auth_1.r
 exports.subAdminTemplatesRouter.get('/pending-signatures', (0, auth_1.requireAuth)(['SUBADMIN', 'AEFE']), async (req, res) => {
     try {
         const subAdminId = req.user.userId;
+        const isAefe = req.user.role === 'AEFE';
         // Get active school year
         const activeSchoolYear = await (0, cache_1.withCache)('school-years-active', () => SchoolYear_1.SchoolYear.findOne({ active: true }).lean());
         if (!activeSchoolYear) {
@@ -390,24 +399,31 @@ exports.subAdminTemplatesRouter.get('/pending-signatures', (0, auth_1.requireAut
         }
         const standardPeriodId = (0, readinessUtils_1.computeSignaturePeriodId)(String(activeSchoolYear._id), 'sem1');
         const endOfYearPeriodId = (0, readinessUtils_1.computeSignaturePeriodId)(String(activeSchoolYear._id), 'end_of_year');
-        // Get teachers assigned to this sub-admin
-        const assignments = await SubAdminAssignment_1.SubAdminAssignment.find({ subAdminId }).lean();
-        const teacherIds = assignments.map(a => a.teacherId);
-        // Get classes assigned to these teachers
-        const teacherClassAssignments = await TeacherClassAssignment_1.TeacherClassAssignment.find({
-            teacherId: { $in: teacherIds },
-            schoolYearId: activeSchoolYear._id
-        }).lean();
-        let classIds = [...new Set(teacherClassAssignments.map(a => a.classId))];
-        // Check RoleScope for level assignments
-        const roleScope = await RoleScope_1.RoleScope.findOne({ userId: subAdminId }).lean();
-        if (roleScope?.levels?.length) {
-            const levelClasses = await Class_1.ClassModel.find({
-                level: { $in: roleScope.levels },
-                schoolYearId: activeSchoolYear?._id
+        let classIds = [];
+        if (isAefe) {
+            const allClasses = await Class_1.ClassModel.find({ schoolYearId: activeSchoolYear._id }).lean();
+            classIds = allClasses.map(c => String(c._id));
+        }
+        else {
+            // Get teachers assigned to this sub-admin
+            const assignments = await SubAdminAssignment_1.SubAdminAssignment.find({ subAdminId }).lean();
+            const teacherIds = assignments.map(a => a.teacherId);
+            // Get classes assigned to these teachers
+            const teacherClassAssignments = await TeacherClassAssignment_1.TeacherClassAssignment.find({
+                teacherId: { $in: teacherIds },
+                schoolYearId: activeSchoolYear._id
             }).lean();
-            const levelClassIds = levelClasses.map(c => String(c._id));
-            classIds = [...new Set([...classIds, ...levelClassIds])];
+            classIds = [...new Set(teacherClassAssignments.map(a => a.classId))];
+            // Check RoleScope for level assignments
+            const roleScope = await RoleScope_1.RoleScope.findOne({ userId: subAdminId }).lean();
+            if (roleScope?.levels?.length) {
+                const levelClasses = await Class_1.ClassModel.find({
+                    level: { $in: roleScope.levels },
+                    schoolYearId: activeSchoolYear?._id
+                }).lean();
+                const levelClassIds = levelClasses.map(c => String(c._id));
+                classIds = [...new Set([...classIds, ...levelClassIds])];
+            }
         }
         // Get students in these classes
         const enrollments = await Enrollment_1.Enrollment.find({ classId: { $in: classIds } }).lean();
@@ -1432,6 +1448,7 @@ exports.subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', (
         // Level and className already calculated above
         // Use centralized helper for versioning and data merging
         const versionedTemplate = (0, templateUtils_1.mergeAssignmentDataIntoTemplate)(template, assignment);
+        const isSigned = await (0, signatureService_1.isAssignmentSigned)(String(templateAssignmentId));
         const canEdit = authorized && req.user.role !== 'AEFE';
         // Reuse previously fetched activeSchoolYear (declared above)
         // const activeSchoolYear = await SchoolYear.findOne({ active: true }).lean()
@@ -1696,6 +1713,7 @@ exports.subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', (
         }
         // Populate signatures into assignment.data.signatures for visibility checks
         const populatedAssignment = await (0, signatureService_1.populateSignatures)(assignment);
+        const isSignedLocal = await (0, signatureService_1.isAssignmentSigned)(String(assignment._id));
         res.json({
             assignment: populatedAssignment,
             template: versionedTemplate,
@@ -1703,6 +1721,7 @@ exports.subAdminTemplatesRouter.get('/templates/:templateAssignmentId/review', (
             signature: signature || null,
             finalSignature: finalSignature || null,
             isSignedByMe: isSignedByMe || false,
+            isSigned: isSignedLocal,
             canEdit,
             isPromoted,
             activeSemester,

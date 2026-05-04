@@ -22,18 +22,24 @@ exports.subAdminAssignmentsRouter = (0, express_1.Router)();
 exports.subAdminAssignmentsRouter.get('/progress', (0, auth_1.requireAuth)(['SUBADMIN', 'AEFE']), async (req, res) => {
     try {
         const subAdminId = req.user.userId;
-        // Get assigned levels from RoleScope
-        const scope = await RoleScope_1.RoleScope.findOne({ userId: subAdminId }).lean();
-        if (!scope || !scope.levels || scope.levels.length === 0) {
-            return res.json([]);
-        }
-        const assignedLevels = scope.levels;
-        const normalizedAssignedLevels = new Set(assignedLevels.map((lvl) => String(lvl || '').trim().toUpperCase()).filter(Boolean));
+        const isAefe = req.user.role === 'AEFE';
         // Get active school year
         const activeYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
         if (!activeYear) {
             return res.status(400).json({ error: 'no_active_year' });
         }
+        let assignedLevels = [];
+        if (isAefe) {
+            assignedLevels = await Class_1.ClassModel.find({ schoolYearId: String(activeYear._id) }).distinct('level');
+        }
+        else {
+            const scope = await RoleScope_1.RoleScope.findOne({ userId: subAdminId }).lean();
+            if (!scope || !scope.levels || scope.levels.length === 0) {
+                return res.json([]);
+            }
+            assignedLevels = scope.levels;
+        }
+        const normalizedAssignedLevels = new Set(assignedLevels.map((lvl) => String(lvl || '').trim().toUpperCase()).filter(Boolean));
         // Find classes in these levels for the active year
         const classes = await Class_1.ClassModel.find({
             level: { $in: assignedLevels },
@@ -433,13 +439,8 @@ exports.subAdminAssignmentsRouter.get('/', (0, auth_1.requireAuth)(['ADMIN']), a
 exports.subAdminAssignmentsRouter.get('/teacher-progress-detailed', (0, auth_1.requireAuth)(['SUBADMIN', 'AEFE']), async (req, res) => {
     try {
         const subAdminId = req.user.userId;
+        const isAefe = req.user.role === 'AEFE';
         const { schoolYearId } = req.query;
-        // Get assigned levels
-        const scope = await RoleScope_1.RoleScope.findOne({ userId: subAdminId }).lean();
-        if (!scope || !scope.levels || scope.levels.length === 0) {
-            return res.json([]);
-        }
-        const levels = scope.levels;
         // Get school year - use provided schoolYearId or fall back to active year
         let activeYear;
         if (schoolYearId && typeof schoolYearId === 'string') {
@@ -450,6 +451,17 @@ exports.subAdminAssignmentsRouter.get('/teacher-progress-detailed', (0, auth_1.r
         }
         if (!activeYear) {
             return res.status(400).json({ error: 'no_active_year' });
+        }
+        let levels = [];
+        if (isAefe) {
+            levels = await Class_1.ClassModel.find({ schoolYearId: String(activeYear._id) }).distinct('level');
+        }
+        else {
+            const scope = await RoleScope_1.RoleScope.findOne({ userId: subAdminId }).lean();
+            if (!scope || !scope.levels || scope.levels.length === 0) {
+                return res.json([]);
+            }
+            levels = scope.levels;
         }
         const activeSemester = activeYear?.activeSemester || 1;
         // Find classes
@@ -668,13 +680,8 @@ exports.subAdminAssignmentsRouter.get('/teacher-progress-detailed', (0, auth_1.r
 exports.subAdminAssignmentsRouter.get('/teacher-progress', (0, auth_1.requireAuth)(['SUBADMIN', 'AEFE']), async (req, res) => {
     try {
         const subAdminId = req.user.userId;
+        const isAefe = req.user.role === 'AEFE';
         const { schoolYearId } = req.query;
-        // Get assigned levels
-        const scope = await RoleScope_1.RoleScope.findOne({ userId: subAdminId }).lean();
-        if (!scope || !scope.levels || scope.levels.length === 0) {
-            return res.json([]);
-        }
-        const levels = scope.levels;
         // Get school year - use provided schoolYearId or fall back to active year
         let activeYear;
         if (schoolYearId && typeof schoolYearId === 'string') {
@@ -685,6 +692,17 @@ exports.subAdminAssignmentsRouter.get('/teacher-progress', (0, auth_1.requireAut
         }
         if (!activeYear) {
             return res.status(400).json({ error: 'no_active_year' });
+        }
+        let levels = [];
+        if (isAefe) {
+            levels = await Class_1.ClassModel.find({ schoolYearId: String(activeYear._id) }).distinct('level');
+        }
+        else {
+            const scope = await RoleScope_1.RoleScope.findOne({ userId: subAdminId }).lean();
+            if (!scope || !scope.levels || scope.levels.length === 0) {
+                return res.json([]);
+            }
+            levels = scope.levels;
         }
         const activeSemester = activeYear?.activeSemester || 1;
         // Find classes
@@ -967,13 +985,8 @@ exports.subAdminAssignmentsRouter.get('/teacher-progress', (0, auth_1.requireAut
 exports.subAdminAssignmentsRouter.get('/my-teachers', (0, auth_1.requireAuth)(['SUBADMIN', 'AEFE']), async (req, res) => {
     try {
         const subAdminId = req.user.userId;
+        const isAefe = req.user.role === 'AEFE';
         const { schoolYearId } = req.query;
-        // Get assigned levels
-        const scope = await RoleScope_1.RoleScope.findOne({ userId: subAdminId }).lean();
-        if (!scope || !scope.levels || scope.levels.length === 0) {
-            return res.json([]);
-        }
-        const levels = scope.levels;
         // Get school year
         let activeYear;
         if (schoolYearId && typeof schoolYearId === 'string') {
@@ -984,6 +997,17 @@ exports.subAdminAssignmentsRouter.get('/my-teachers', (0, auth_1.requireAuth)(['
         }
         if (!activeYear) {
             return res.status(400).json({ error: 'no_active_year' });
+        }
+        let levels = [];
+        if (isAefe) {
+            levels = await Class_1.ClassModel.find({ schoolYearId: String(activeYear._id) }).distinct('level');
+        }
+        else {
+            const scope = await RoleScope_1.RoleScope.findOne({ userId: subAdminId }).lean();
+            if (!scope || !scope.levels || scope.levels.length === 0) {
+                return res.json([]);
+            }
+            levels = scope.levels;
         }
         // Find classes
         const classes = await Class_1.ClassModel.find({

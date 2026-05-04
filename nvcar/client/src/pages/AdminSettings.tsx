@@ -43,6 +43,86 @@ const Toggle = ({ checked, onChange }: { checked: boolean; onChange: () => void 
   <label className="switch"><input type="checkbox" checked={checked} onChange={onChange} /><span className="slider" /></label>
 )
 
+const ScopeSelector = ({ scope, onChange, levels, classes, label }: {
+  scope: { type: 'all' | 'specific', levels: string[], classes: string[] },
+  onChange: (newScope: any) => void,
+  levels: any[],
+  classes: any[],
+  label: string
+}) => {
+  const isAll = scope.type === 'all'
+
+  const toggleLevel = (lvlName: string) => {
+    const newLevels = scope.levels.includes(lvlName)
+      ? scope.levels.filter(l => l !== lvlName)
+      : [...scope.levels, lvlName]
+    onChange({ ...scope, type: 'specific', levels: newLevels })
+  }
+
+  const toggleClass = (classId: string) => {
+    const newClasses = scope.classes.includes(classId)
+      ? scope.classes.filter(c => c !== classId)
+      : [...scope.classes, classId]
+    onChange({ ...scope, type: 'specific', classes: newClasses })
+  }
+
+  return (
+    <div className="scope-selector">
+      <div className="scope-type-toggle">
+        <button
+          type="button"
+          className={`scope-btn ${isAll ? 'active' : ''}`}
+          onClick={() => onChange({ ...scope, type: 'all' })}
+        >
+          Tous ({label})
+        </button>
+        <button
+          type="button"
+          className={`scope-btn ${!isAll ? 'active' : ''}`}
+          onClick={() => onChange({ ...scope, type: 'specific' })}
+        >
+          Sélection spécifique
+        </button>
+      </div>
+
+      {!isAll && (
+        <div className="scope-options">
+          <div className="scope-group">
+            <h4>Niveaux</h4>
+            <div className="scope-chips">
+              {levels.map(l => (
+                <button
+                  key={l._id}
+                  type="button"
+                  className={`scope-chip ${scope.levels.includes(l.name) ? 'selected' : ''}`}
+                  onClick={() => toggleLevel(l.name)}
+                >
+                  {l.name}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="scope-group">
+            <h4>Classes</h4>
+            <div className="scope-chips">
+              {classes.map(c => (
+                <button
+                  key={c._id}
+                  type="button"
+                  className={`scope-chip ${scope.classes.includes(String(c._id)) ? 'selected' : ''}`}
+                  onClick={() => toggleClass(String(c._id))}
+                >
+                  {c.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 const SectionCard = ({ id, children, collapsedSections, toggleSection, sectionRefs }: {
   id: SectionId;
   children: React.ReactNode;
@@ -210,6 +290,18 @@ export default function AdminSettings() {
 
   // Previous year dropdown editability
   const [dropdownEditablePreviousYear, setDropdownEditablePreviousYear] = useState(false)
+  const [dropdownEditablePreviousYearScope, setDropdownEditablePreviousYearScope] = useState<any>({ type: 'all', levels: [], classes: [] })
+
+  // Polyvalent Exception Settings
+  const [polyvalentExceptionEnabled, setPolyvalentExceptionEnabled] = useState(false)
+  const [polyvalentExceptionScope, setPolyvalentExceptionScope] = useState<any>({ type: 'all', levels: [], classes: [] })
+  const [polyvalentHistoryExceptionEnabled, setPolyvalentHistoryExceptionEnabled] = useState(false)
+  const [polyvalentHistoryExceptionScope, setPolyvalentHistoryExceptionScope] = useState<any>({ type: 'all', levels: [], classes: [] })
+
+  // Levels and Classes for granular selection
+  const [allLevels, setAllLevels] = useState<any[]>([])
+  const [allClasses, setAllClasses] = useState<any[]>([])
+  const [granularLoading, setGranularLoading] = useState(false)
 
   const showMsg = (text: string, type: 'success' | 'error' = 'success') => {
     setMsg(text)
@@ -237,7 +329,34 @@ export default function AdminSettings() {
   }
 
   // API calls
-  useEffect(() => { loadSettings(); checkStatus(); loadBackups(); loadMobileAccessLogs() }, [])
+  useEffect(() => {
+    loadSettings();
+    checkStatus();
+    loadBackups();
+    loadMobileAccessLogs();
+  }, [])
+
+  useEffect(() => {
+    if (activeYearId) {
+      loadLevelsAndClasses();
+    }
+  }, [activeYearId])
+
+  const loadLevelsAndClasses = async () => {
+    setGranularLoading(true)
+    try {
+      const [levelsRes, classesRes] = await Promise.all([
+        api.get('/levels'),
+        api.get(`/classes?schoolYearId=${activeYearId}`)
+      ])
+      setAllLevels(levelsRes.data)
+      setAllClasses(classesRes.data)
+    } catch (err) {
+      console.error('Failed to load levels/classes', err)
+    } finally {
+      setGranularLoading(false)
+    }
+  }
   useEffect(() => { loadErrorLogs(errorLogFilter) }, [errorLogFilter])
   useEffect(() => { if (msg) { const t = setTimeout(() => setMsg(''), 4000); return () => clearTimeout(t) } }, [msg])
 
@@ -271,13 +390,20 @@ export default function AdminSettings() {
       const hasUnifiedPreviousYearDropdownSetting = Object.prototype.hasOwnProperty.call(res.data || {}, 'previous_year_dropdown_editable')
       setDropdownEditablePreviousYear(
         hasUnifiedPreviousYearDropdownSetting
-          ? res.data.previous_year_dropdown_editable === true
-          : (
-            res.data.previous_year_dropdown_editable_PS === true ||
-            res.data.previous_year_dropdown_editable_MS === true ||
-            res.data.previous_year_dropdown_editable_GS === true
-          )
+            ? res.data.previous_year_dropdown_editable === true
+            : (
+                res.data.previous_year_dropdown_editable_PS === true ||
+                res.data.previous_year_dropdown_editable_MS === true ||
+                res.data.previous_year_dropdown_editable_GS === true
+            )
       )
+      setDropdownEditablePreviousYearScope(res.data.previous_year_dropdown_editable_scope || { type: 'all', levels: [], classes: [] })
+
+      // Polyvalent settings
+      setPolyvalentExceptionEnabled(res.data.polyvalent_exception_enabled === true)
+      setPolyvalentExceptionScope(res.data.polyvalent_exception_scope || { type: 'all', levels: [], classes: [] })
+      setPolyvalentHistoryExceptionEnabled(res.data.polyvalent_history_exception_enabled === true)
+      setPolyvalentHistoryExceptionScope(res.data.polyvalent_history_exception_scope || { type: 'all', levels: [], classes: [] })
     } catch (err) { console.error(err) } finally { setLoading(false) }
   }
 
@@ -998,15 +1124,94 @@ export default function AdminSettings() {
                 <Toggle checked={teacherQuickGrading} onChange={() => toggleSetting('teacher_quick_grading_enabled', teacherQuickGrading, setTeacherQuickGrading)} />
               </div>
             </div>
-            <div className="setting-item" style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid #e2e8f0' }}>
-              <div className="setting-info">
-                <h3>🔓 Dropdowns - Année Précédente</h3>
-                <p>Permettre la modification des menus déroulants des années précédentes (PS/MS/GS) lors de l’édition d’un carnet</p>
+
+            {/* Dropdowns Previous Year */}
+            <div className="setting-item" style={{ marginTop: 24, paddingTop: 24, borderTop: '1px solid #e2e8f0', flexDirection: 'column', alignItems: 'stretch' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <div className="setting-info">
+                  <h3>🔓 Dropdowns - Année Précédente</h3>
+                  <p>Permettre la modification des menus déroulants des années précédentes (PS/MS/GS) lors de l’édition d’un carnet</p>
+                </div>
+                <div className="setting-actions">
+                  <StatusIndicator active={dropdownEditablePreviousYear} />
+                  <Toggle checked={dropdownEditablePreviousYear} onChange={() => toggleSetting('previous_year_dropdown_editable', dropdownEditablePreviousYear, setDropdownEditablePreviousYear)} />
+                </div>
               </div>
-              <div className="setting-actions">
-                <StatusIndicator active={dropdownEditablePreviousYear} />
-                <Toggle checked={dropdownEditablePreviousYear} onChange={() => toggleSetting('previous_year_dropdown_editable', dropdownEditablePreviousYear, setDropdownEditablePreviousYear)} />
+
+              {dropdownEditablePreviousYear && (
+                <div className="conditional-settings" style={{ marginTop: 0, padding: '16px', background: '#f8fafc' }}>
+                  <ScopeSelector
+                    label="les dropdowns"
+                    scope={dropdownEditablePreviousYearScope}
+                    levels={allLevels}
+                    classes={allClasses}
+                    onChange={(newScope) => {
+                      setDropdownEditablePreviousYearScope(newScope)
+                      saveSetting('previous_year_dropdown_editable_scope', newScope)
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Polyvalent Exception Global */}
+            <div className="setting-item" style={{ marginTop: 24, paddingTop: 24, borderTop: '1px solid #e2e8f0', flexDirection: 'column', alignItems: 'stretch' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <div className="setting-info">
+                  <h3>⚠️ Exception Polyvalents / Langues (GLOBAL)</h3>
+                  <p>Bypass de sécurité TOTAL : Permet à TOUS les enseignants de modifier TOUS les toggles (même clos). Permet aux enseignants de langues de modifier les dropdowns.</p>
+                  <p style={{ color: 'var(--danger)', fontSize: 12, fontWeight: 600, marginTop: 4 }}>Attention : Cette option contourne les verrouillages standards pour tout le monde. À utiliser avec prudence.</p>
+                </div>
+                <div className="setting-actions">
+                  <StatusIndicator active={polyvalentExceptionEnabled} />
+                  <Toggle checked={polyvalentExceptionEnabled} onChange={() => toggleSetting('polyvalent_exception_enabled', polyvalentExceptionEnabled, setPolyvalentExceptionEnabled)} />
+                </div>
               </div>
+
+              {polyvalentExceptionEnabled && (
+                <div className="conditional-settings" style={{ marginTop: 0, padding: '16px', background: '#fef2f2' }}>
+                  <ScopeSelector
+                    label="tous les carnets"
+                    scope={polyvalentExceptionScope}
+                    levels={allLevels}
+                    classes={allClasses}
+                    onChange={(newScope) => {
+                      setPolyvalentExceptionScope(newScope)
+                      saveSetting('polyvalent_exception_scope', newScope)
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Polyvalent History Exception */}
+            <div className="setting-item" style={{ marginTop: 24, paddingTop: 24, borderTop: '1px solid #e2e8f0', flexDirection: 'column', alignItems: 'stretch' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <div className="setting-info">
+                  <h3>🕒 Historique Langues (Limité)</h3>
+                  <p>Permet aux enseignants polyvalents/langues de modifier leurs propres toggles dans les années ou semestres terminés.</p>
+                  <p style={{ color: '#64748b', fontSize: 12, marginTop: 4 }}>Note : Les dropdowns restent verrouillés (uniquement modifiables via l'exception globale).</p>
+                </div>
+                <div className="setting-actions">
+                  <StatusIndicator active={polyvalentHistoryExceptionEnabled} />
+                  <Toggle checked={polyvalentHistoryExceptionEnabled} onChange={() => toggleSetting('polyvalent_history_exception_enabled', polyvalentHistoryExceptionEnabled, setPolyvalentHistoryExceptionEnabled)} />
+                </div>
+              </div>
+
+              {polyvalentHistoryExceptionEnabled && (
+                <div className="conditional-settings" style={{ marginTop: 0, padding: '16px', background: '#f0f9ff' }}>
+                  <ScopeSelector
+                    label="historiques"
+                    scope={polyvalentHistoryExceptionScope}
+                    levels={allLevels}
+                    classes={allClasses}
+                    onChange={(newScope) => {
+                      setPolyvalentHistoryExceptionScope(newScope)
+                      saveSetting('polyvalent_history_exception_scope', newScope)
+                    }}
+                  />
+                </div>
+              )}
             </div>
           </SectionCard>
 

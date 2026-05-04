@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.unsignTemplateAssignment = exports.signTemplateAssignment = void 0;
+exports.isAssignmentSigned = exports.unsignTemplateAssignment = exports.signTemplateAssignment = void 0;
 exports.populateSignatures = populateSignatures;
 exports.validateSignatureAuthorization = validateSignatureAuthorization;
 const TemplateAssignment_1 = require("../models/TemplateAssignment");
@@ -644,3 +644,56 @@ const unsignTemplateAssignment = async ({ templateAssignmentId, signerId, type, 
     return { success: true };
 };
 exports.unsignTemplateAssignment = unsignTemplateAssignment;
+/**
+ * Checks if a template assignment is considered "signed" for the current active semester.
+ *
+ * Note: We only consider signatures from the CURRENT school year.
+ * Legacy signatures without signaturePeriodId are also checked for backwards compatibility.
+ */
+const isAssignmentSigned = async (assignmentId) => {
+    // Get the active school year to determine current semester
+    const activeYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
+    if (!activeYear) {
+        // If no active year, fall back to checking for any signature
+        const anySignature = await TemplateSignature_1.TemplateSignature.findOne({
+            templateAssignmentId: assignmentId
+        }).lean();
+        return !!anySignature;
+    }
+    const activeSemester = activeYear.activeSemester || 1;
+    const schoolYearId = String(activeYear._id);
+    // Always check for end_of_year signature first - if it exists for current year, permanently locked
+    const endOfYearPeriodId = `${schoolYearId}_end_of_year`;
+    const endOfYearSignature = await TemplateSignature_1.TemplateSignature.findOne({
+        templateAssignmentId: assignmentId,
+        $or: [
+            { signaturePeriodId: endOfYearPeriodId },
+            // Legacy: signatures with type 'end_of_year' and matching schoolYearId
+            { type: 'end_of_year', schoolYearId: schoolYearId },
+            // Legacy: signatures with type 'end_of_year' and no schoolYearId (from before period tracking)
+            { type: 'end_of_year', schoolYearId: { $exists: false } }
+        ]
+    }).lean();
+    if (endOfYearSignature) {
+        return true; // Permanently locked after end_of_year signature
+    }
+    // In Semester 1: Check for sem1 signature for the current year
+    if (activeSemester === 1) {
+        const sem1PeriodId = `${schoolYearId}_sem1`;
+        const sem1Signature = await TemplateSignature_1.TemplateSignature.findOne({
+            templateAssignmentId: assignmentId,
+            $or: [
+                { signaturePeriodId: sem1PeriodId },
+                // Legacy: 'standard' signatures with matching schoolYearId
+                { type: 'standard', schoolYearId: schoolYearId },
+                // Legacy: 'standard' signatures with no schoolYearId (from before period tracking)
+                { type: 'standard', schoolYearId: { $exists: false } }
+            ]
+        }).lean();
+        return !!sem1Signature; // Locked in Sem1 if sem1 signature exists
+    }
+    // In Semester 2: Only locked if end_of_year exists (already checked above)
+    // Sem1 signature does NOT lock the gradebook in Semester 2
+    return false;
+};
+exports.isAssignmentSigned = isAssignmentSigned;
