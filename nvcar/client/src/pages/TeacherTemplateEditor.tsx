@@ -4,6 +4,7 @@ import api from '../api'
 import { useSocket } from '../context/SocketContext'
 import { useLevels } from '../context/LevelContext'
 import { useSchoolYear } from '../context/SchoolYearContext'
+import { checkScope } from '../utils/scopeUtils'
 import ScrollToTopButton from '../components/ScrollToTopButton'
 import ScrollPageDownButton from '../components/ScrollPageDownButton'
 import { GradebookPocket } from '../components/GradebookPocket'
@@ -65,6 +66,11 @@ export default function TeacherTemplateEditor() {
     const [blockVisibility, setBlockVisibility] = useState<any>({})
     const [isSigned, setIsSigned] = useState(false)
     const [previousYearDropdownEditable, setPreviousYearDropdownEditable] = useState(false)
+    const [polyvalentExceptionEnabled, setPolyvalentExceptionEnabled] = useState(false)
+    const [polyvalentExceptionScope, setPolyvalentExceptionScope] = useState<any>({ type: 'all' })
+    const [polyvalentHistoryExceptionScope, setPolyvalentHistoryExceptionScope] = useState<any>({ type: 'all' })
+    const [previousYearDropdownEditableScope, setPreviousYearDropdownEditableScope] = useState<any>({ type: 'all' })
+    const [polyvalentHistoryExceptionEnabled, setPolyvalentHistoryExceptionEnabled] = useState(false)
     const containerRef = useRef<HTMLDivElement | null>(null)
     const typingTimeoutRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
 
@@ -307,6 +313,11 @@ export default function TeacherTemplateEditor() {
                             settingsRes.data.previous_year_dropdown_editable_GS === true
                         )
                 )
+                setPolyvalentExceptionEnabled(settingsRes.data.polyvalent_exception_enabled === true)
+                setPolyvalentExceptionScope(settingsRes.data.polyvalent_exception_scope || { type: 'all' })
+                setPolyvalentHistoryExceptionScope(settingsRes.data.polyvalent_history_exception_scope || { type: 'all' })
+                setPreviousYearDropdownEditableScope(settingsRes.data.previous_year_dropdown_editable_scope || { type: 'all' })
+                setPolyvalentHistoryExceptionEnabled(settingsRes.data.polyvalent_history_exception_enabled === true)
             } catch (e: any) {
                 setError('Impossible de charger le carnet')
                 console.error(e)
@@ -453,7 +464,14 @@ export default function TeacherTemplateEditor() {
         return activeSemester === 1 ? isMyWorkCompletedSem1 : isMyWorkCompletedSem2
     }, [activeSemester, completionLanguages, isMyWorkCompletedSem1, isMyWorkCompletedSem2, languageCompletion])
 
-    const canEditActive = canEdit && !isActiveSemesterClosed
+    const isTeacherQualifiedForException = useMemo(() => {
+        if (!(polyvalentExceptionEnabled && checkScope(polyvalentExceptionScope, { level: student?.level, classId: assignment?.classId })) && !(polyvalentHistoryExceptionEnabled && checkScope(polyvalentHistoryExceptionScope, { level: student?.level, classId: assignment?.classId }))) return false
+        const isEnglish = (allowedLanguages || []).includes('en')
+        const isArabic = (allowedLanguages || []).includes('ar') || (allowedLanguages || []).includes('lb')
+        return isProfPolyvalent || isEnglish || isArabic
+    }, [polyvalentExceptionEnabled, polyvalentHistoryExceptionEnabled, isProfPolyvalent, allowedLanguages])
+
+    const canEditActive = canEdit && (!isActiveSemesterClosed || polyvalentExceptionEnabled || (polyvalentHistoryExceptionEnabled && isTeacherQualifiedForException))
 
     const toggleCompletionSem = async (semester: number, languages?: string[]) => {
         if (!assignment) return
@@ -464,6 +482,41 @@ export default function TeacherTemplateEditor() {
                 ? targetLanguages.every(code => isLanguageCompletedForSemester(semester, code))
                 : (semester === 1 ? isMyWorkCompletedSem1 : isMyWorkCompletedSem2)
             const action = isCompleted ? 'unmark-done' : 'mark-done'
+
+            // Validation for Prof Polyvalent: must select dropdown value before marking as done
+            if (action === 'mark-done' && isProfPolyvalent) {
+                const allDrops: any[] = []
+                template?.pages.forEach(page => {
+                    page.blocks.forEach(block => {
+                        if (block.type === 'dropdown') {
+                            const isLevelAllowed = previousYearDropdownEditable
+                                ? isLevelAtOrBelow(undefined, block.props.levels, student?.level)
+                                : isLevelExactMatch(block.props.levels, student?.level)
+                            const dropdownSemesters = block.props.semesters || [1, 2]
+                            const canBypassSemester = previousYearDropdownEditable && hasOnlyOlderLevels(block.props.levels, student?.level)
+                            const canEditSem1WhileActiveSem2 = previousYearDropdownEditable &&
+                                activeSemester === 2 &&
+                                dropdownSemesters.includes(1) &&
+                                !dropdownSemesters.includes(2)
+                            const isSemesterAllowed = canBypassSemester || canEditSem1WhileActiveSem2 || dropdownSemesters.includes(semester)
+
+                            if (isLevelAllowed && isSemesterAllowed) {
+                                allDrops.push(block)
+                            }
+                        }
+                    })
+                })
+
+                for (const drop of allDrops) {
+                    const key = drop.props.dropdownNumber ? `dropdown_${drop.props.dropdownNumber}` : drop.props.variableName
+                    if (key && !assignment.data?.[key]) {
+                        setError(`Veuillez sélectionner une valeur pour l'appreciation ${drop.props.label || 'Dropdown'}`)
+                        setSaveStatus('')
+                        return
+                    }
+                }
+            }
+
             const r = await api.post(`/teacher/templates/${assignmentId}/${action}`, { semester, languages: targetLanguages })
             setAssignment(r.data)
 
@@ -1340,18 +1393,18 @@ export default function TeacherTemplateEditor() {
                                                 {b.type === 'competency_list' && <div style={{ color: b.props.color, fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden' }}>Liste des compétences</div>}
                                                 {b.type === 'signature' && <div style={{ fontSize: b.props.fontSize, width: b.props.width, height: b.props.height, overflow: 'hidden' }}>{(b.props.labels || []).join(' / ')}</div>}
                                                 {b.type === 'dropdown' && (() => {
-                                                    const isLevelAllowed = previousYearDropdownEditable
+                                                    const isLevelAllowed = ((previousYearDropdownEditable && checkScope(previousYearDropdownEditableScope, { level: student?.level, classId: assignment?.classId })) || (polyvalentExceptionEnabled && checkScope(polyvalentExceptionScope, { level: student?.level, classId: assignment?.classId })))
                                                         ? isLevelAtOrBelow(undefined, b.props.levels, student?.level)
                                                         : isLevelExactMatch(b.props.levels, student?.level)
                                                     const dropdownSemesters = b.props.semesters || [1, 2]
-                                                    const canBypassSemester = previousYearDropdownEditable && hasOnlyOlderLevels(b.props.levels, student?.level)
-                                                    const canEditSem1WhileActiveSem2 = previousYearDropdownEditable &&
+                                                    const canBypassSemester = ((previousYearDropdownEditable && checkScope(previousYearDropdownEditableScope, { level: student?.level, classId: assignment?.classId })) || (polyvalentExceptionEnabled && checkScope(polyvalentExceptionScope, { level: student?.level, classId: assignment?.classId }))) && hasOnlyOlderLevels(b.props.levels, student?.level)
+                                                    const canEditSem1WhileActiveSem2 = ((previousYearDropdownEditable && checkScope(previousYearDropdownEditableScope, { level: student?.level, classId: assignment?.classId })) || (polyvalentExceptionEnabled && checkScope(polyvalentExceptionScope, { level: student?.level, classId: assignment?.classId }))) &&
                                                         activeSemester === 2 &&
                                                         dropdownSemesters.includes(1) &&
                                                         !dropdownSemesters.includes(2)
                                                     const isSemesterAllowed = canBypassSemester || canEditSem1WhileActiveSem2 || dropdownSemesters.includes(activeSemester)
                                                     const isDropdownAllowed = isLevelAllowed && isSemesterAllowed
-                                                    const canEditDropdown = canEditActive && (isProfPolyvalent || allowedLanguages.length === 0) && isDropdownAllowed
+                                                    const canEditDropdown = canEditActive && (isProfPolyvalent || isTeacherQualifiedForException) && isDropdownAllowed
 
                                                     return (
                                                         <div style={{
@@ -1686,6 +1739,7 @@ export default function TeacherTemplateEditor() {
                                                                                                 const isLevelAllowed = isLevelAtOrBelow(lang.level, lang.levels, student?.level);
 
                                                                                                 const isLanguageAllowed = (() => {
+                                                                                                    if (polyvalentExceptionEnabled && checkScope(polyvalentExceptionScope, { level: student?.level, classId: assignment?.classId })) return true
                                                                                                     const code = lang.code
                                                                                                     if (isProfPolyvalent) {
                                                                                                         return code === 'fr'
@@ -1697,7 +1751,7 @@ export default function TeacherTemplateEditor() {
                                                                                                 })();
                                                                                                 const isAllowed = isLevelAllowed && isLanguageAllowed;
                                                                                                 const isLanguageDone = isLanguageCompletedForSemester(activeSemester, lang.code)
-                                                                                                const canToggle = canEditActive && isAllowed && !isLanguageDone
+                                                                                                const canToggle = canEditActive && isAllowed && (!isLanguageDone || (polyvalentExceptionEnabled && checkScope(polyvalentExceptionScope, { level: student?.level, classId: assignment?.classId })) || (polyvalentHistoryExceptionEnabled && checkScope(polyvalentHistoryExceptionScope, { level: student?.level, classId: assignment?.classId }) && isLanguageAllowed))
 
                                                                                                 const size = Math.max(12, Math.min(expandedRowHeight - 12, 20))
                                                                                                 const isActive = lang.active

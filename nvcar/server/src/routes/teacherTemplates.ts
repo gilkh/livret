@@ -1,3 +1,4 @@
+import { checkScope } from '../utils/scopeUtils'
 import { Router } from 'express'
 import { requireAuth } from '../auth'
 import { TeacherClassAssignment } from '../models/TeacherClassAssignment'
@@ -13,6 +14,7 @@ import { StudentAcquiredSkill } from '../models/StudentAcquiredSkill'
 import { logAudit } from '../utils/auditLogger'
 import { getVersionedTemplate, mergeAssignmentDataIntoTemplate, buildBlocksById } from '../utils/templateUtils'
 import { withCache } from '../utils/cache'
+import { Setting } from '../models/Setting'
 
 export const teacherTemplatesRouter = Router()
 
@@ -93,15 +95,15 @@ const getCompletionLanguagesForTeacher = (teacherClassAssignment: any | null | u
 const buildLanguageCompletionMap = (languageCompletions: any[], levelRaw?: any) => {
     const targetLevel = normalizeLevel(levelRaw)
     const map: Record<string, any> = {}
-    ;(Array.isArray(languageCompletions) ? languageCompletions : []).forEach((entry: any) => {
-        const code = normalizeLanguageCode(entry?.code)
-        if (!code) return
-        if (targetLevel) {
-            const entryLevel = normalizeLevel(entry?.level)
-            if (!entryLevel || entryLevel !== targetLevel) return
-        }
-        map[code] = { ...(entry || {}), code }
-    })
+        ; (Array.isArray(languageCompletions) ? languageCompletions : []).forEach((entry: any) => {
+            const code = normalizeLanguageCode(entry?.code)
+            if (!code) return
+            if (targetLevel) {
+                const entryLevel = normalizeLevel(entry?.level)
+                if (!entryLevel || entryLevel !== targetLevel) return
+            }
+            map[code] = { ...(entry || {}), code }
+        })
     return map
 }
 
@@ -590,6 +592,21 @@ teacherTemplatesRouter.patch('/template-assignments/:assignmentId/language-toggl
         const activeSemester = (activeYear as any)?.activeSemester || 1
         const languageCompletionMap = buildLanguageCompletionMap((assignment as any).languageCompletions || [], studentLevel)
 
+        // Fetch polyvalent exception settings
+        const settingsMap: Record<string, any> = {}
+        const settingsDocs = await Setting.find({ key: { $in: ['polyvalent_exception_enabled', 'polyvalent_exception_scope', 'polyvalent_history_exception_enabled', 'polyvalent_history_exception_scope', 'previous_year_dropdown_editable', 'previous_year_dropdown_editable_scope'] } }).lean()
+        settingsDocs.forEach(s => { settingsMap[s.key] = s.value })
+
+        const polyvalentExceptionEnabledRaw = settingsMap.polyvalent_exception_enabled === true;
+        const polyvalentExceptionEnabled = polyvalentExceptionEnabledRaw && checkScope(settingsMap.polyvalent_exception_scope, { level: studentLevel, classId: String(assignment.classId) });
+        const previousYearDropdownEditableScope = settingsMap.previous_year_dropdown_editable_scope;
+        const polyvalentHistoryExceptionEnabledRaw = settingsMap.polyvalent_history_exception_enabled === true;
+        const polyvalentHistoryExceptionEnabled = polyvalentHistoryExceptionEnabledRaw && checkScope(settingsMap.polyvalent_history_exception_scope, { level: studentLevel, classId: String(assignment.classId) });
+
+        const isEnglish = allowedLanguages.includes('en')
+        const isArabic = allowedLanguages.includes('ar') || allowedLanguages.includes('lb')
+        const isTeacherQualifiedForException = (polyvalentExceptionEnabled || polyvalentHistoryExceptionEnabled) && (isProfPolyvalent || isEnglish || isArabic)
+
         const sourceItems = Array.isArray(targetBlock?.props?.items) ? targetBlock.props.items : []
         const sanitizedItems = sourceItems.length > 0
             ? sourceItems.map((src: any, i: number) => ({ ...src, active: !!items?.[i]?.active }))
@@ -618,10 +635,11 @@ teacherTemplatesRouter.patch('/template-assignments/:assignmentId/language-toggl
             const oldItem = previousItems[i] || sourceItems[i]
             if (newItem && oldItem && newItem.active !== oldItem.active) {
                 const langCode = sourceItems?.[i]?.code
-                if (isLanguageCompletedForSemester(languageCompletionMap, langCode, activeSemester)) {
+                const canBypassToggle = polyvalentExceptionEnabled || (polyvalentHistoryExceptionEnabled && isLanguageAllowedForTeacher(langCode, allowedLanguages, isProfPolyvalent))
+                if (isLanguageCompletedForSemester(languageCompletionMap, langCode, activeSemester) && !canBypassToggle) {
                     return res.status(403).json({ error: 'language_completed', details: langCode })
                 }
-                if (!isLanguageAllowedForTeacher(langCode, allowedLanguages, isProfPolyvalent)) {
+                if (!isLanguageAllowedForTeacher(langCode, allowedLanguages, isProfPolyvalent) && !polyvalentExceptionEnabled) {
                     return res.status(403).json({ error: 'language_not_allowed', details: langCode })
                 }
             }
@@ -768,9 +786,9 @@ teacherTemplatesRouter.post('/templates/:assignmentId/mark-done', requireAuth(['
             : []
 
         const teacherLanguagesMap = new Map<string, string[]>()
-        ;(classAssignments || []).forEach((ta: any) => {
-            teacherLanguagesMap.set(String(ta.teacherId), getCompletionLanguagesForTeacher(ta))
-        })
+            ; (classAssignments || []).forEach((ta: any) => {
+                teacherLanguagesMap.set(String(ta.teacherId), getCompletionLanguagesForTeacher(ta))
+            })
 
         const getLanguagesForTeacher = (tid: string) => {
             return teacherLanguagesMap.get(String(tid)) || ['ar', 'en', 'fr']
@@ -789,7 +807,7 @@ teacherTemplatesRouter.post('/templates/:assignmentId/mark-done', requireAuth(['
         if (targetSemester === 1) {
             updateData.isCompletedSem1 = allCompletedSem
             if (allCompletedSem) updateData.completedAtSem1 = now
-            
+
             // Legacy/Global status update (can be debated, but for now we keep it linked)
             updateData.isCompleted = allCompletedSem
             updateData.completedAt = allCompletedSem ? now : undefined
@@ -798,7 +816,7 @@ teacherTemplatesRouter.post('/templates/:assignmentId/mark-done', requireAuth(['
         } else if (targetSemester === 2) {
             updateData.isCompletedSem2 = allCompletedSem
             if (allCompletedSem) updateData.completedAtSem2 = now
-            
+
             // Also update global status if sem2 is done
             updateData.status = allCompletedSem ? 'completed' : 'in_progress'
         }
@@ -923,9 +941,9 @@ teacherTemplatesRouter.post('/templates/:assignmentId/unmark-done', requireAuth(
             : []
 
         const teacherLanguagesMap = new Map<string, string[]>()
-        ;(classAssignments || []).forEach((ta: any) => {
-            teacherLanguagesMap.set(String(ta.teacherId), getCompletionLanguagesForTeacher(ta))
-        })
+            ; (classAssignments || []).forEach((ta: any) => {
+                teacherLanguagesMap.set(String(ta.teacherId), getCompletionLanguagesForTeacher(ta))
+            })
 
         const getLanguagesForTeacher = (tid: string) => {
             return teacherLanguagesMap.get(String(tid)) || ['ar', 'en', 'fr']
@@ -1204,8 +1222,23 @@ teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data', require
         const completionLanguages = getCompletionLanguagesForTeacher(teacherClassAssignment)
         const languageCompletionMap = buildLanguageCompletionMap((assignment as any).languageCompletions || [], studentLevel)
 
+        // Fetch polyvalent exception settings
+        const settingsMap: Record<string, any> = {}
+        const settingsDocs = await Setting.find({ key: { $in: ['polyvalent_exception_enabled', 'polyvalent_exception_scope', 'polyvalent_history_exception_enabled', 'polyvalent_history_exception_scope', 'previous_year_dropdown_editable', 'previous_year_dropdown_editable_scope'] } }).lean()
+        settingsDocs.forEach(s => { settingsMap[s.key] = s.value })
+
+        const polyvalentExceptionEnabledRaw = settingsMap.polyvalent_exception_enabled === true;
+        const polyvalentExceptionEnabled = polyvalentExceptionEnabledRaw && checkScope(settingsMap.polyvalent_exception_scope, { level: studentLevel, classId: String(assignment.classId) });
+        const previousYearDropdownEditableScope = settingsMap.previous_year_dropdown_editable_scope;
+        const polyvalentHistoryExceptionEnabledRaw = settingsMap.polyvalent_history_exception_enabled === true;
+        const polyvalentHistoryExceptionEnabled = polyvalentHistoryExceptionEnabledRaw && checkScope(settingsMap.polyvalent_history_exception_scope, { level: studentLevel, classId: String(assignment.classId) });
+
+        const isEnglish = allowedLanguages.includes('en')
+        const isArabic = allowedLanguages.includes('ar') || allowedLanguages.includes('lb')
+        const isTeacherQualifiedForException = (polyvalentExceptionEnabled || polyvalentHistoryExceptionEnabled) && (isProfPolyvalent || isEnglish || isArabic)
+
         const isActiveSemesterClosed = computeTeacherCompletionForSemester(languageCompletionMap, completionLanguages, activeSemester)
-        if (isActiveSemesterClosed) {
+        if (isActiveSemesterClosed && !polyvalentExceptionEnabled && !(polyvalentHistoryExceptionEnabled && isTeacherQualifiedForException)) {
             return res.status(403).json({ error: 'gradebook_closed', details: { activeSemester } })
         }
 
@@ -1240,10 +1273,11 @@ teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data', require
                     const oldItem = (previousItems as any)[i] || sourceItems[i]
                     if (newItem && oldItem && newItem.active !== oldItem.active) {
                         const langCode = sourceItems?.[i]?.code
-                        if (isLanguageCompletedForSemester(languageCompletionMap, langCode, activeSemester)) {
+                        const canBypassToggle = polyvalentExceptionEnabled || (polyvalentHistoryExceptionEnabled && isLanguageAllowedForTeacher(langCode, allowedLanguages, isProfPolyvalent))
+                        if (isLanguageCompletedForSemester(languageCompletionMap, langCode, activeSemester) && !canBypassToggle) {
                             return res.status(403).json({ error: 'language_completed', details: langCode })
                         }
-                        if (!isLanguageAllowedForTeacher(langCode, allowedLanguages, isProfPolyvalent)) {
+                        if (!isLanguageAllowedForTeacher(langCode, allowedLanguages, isProfPolyvalent) && !polyvalentExceptionEnabled) {
                             return res.status(403).json({ error: 'language_not_allowed', details: langCode })
                         }
                     }
@@ -1282,10 +1316,11 @@ teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data', require
                     const oldItem = (previousItems as any)[i] || sourceItems[i]
                     if (newItem && oldItem && newItem.active !== oldItem.active) {
                         const langCode = sourceItems?.[i]?.code
-                        if (isLanguageCompletedForSemester(languageCompletionMap, langCode, activeSemester)) {
+                        const canBypassToggle = polyvalentExceptionEnabled || (polyvalentHistoryExceptionEnabled && isLanguageAllowedForTeacher(langCode, allowedLanguages, isProfPolyvalent))
+                        if (isLanguageCompletedForSemester(languageCompletionMap, langCode, activeSemester) && !canBypassToggle) {
                             return res.status(403).json({ error: 'language_completed', details: langCode })
                         }
-                        if (!isLanguageAllowedForTeacher(langCode, allowedLanguages, isProfPolyvalent)) {
+                        if (!isLanguageAllowedForTeacher(langCode, allowedLanguages, isProfPolyvalent) && !polyvalentExceptionEnabled) {
                             return res.status(403).json({ error: 'language_not_allowed', details: langCode })
                         }
                     }
@@ -1330,10 +1365,11 @@ teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data', require
                             return res.status(403).json({ error: 'level_mismatch', details: { studentLevel, itemLevel } })
                         }
                         const langCode = sourceItems?.[i]?.code
-                        if (isLanguageCompletedForSemester(languageCompletionMap, langCode, activeSemester)) {
+                        const canBypassToggle = polyvalentExceptionEnabled || (polyvalentHistoryExceptionEnabled && isLanguageAllowedForTeacher(langCode, allowedLanguages, isProfPolyvalent))
+                        if (isLanguageCompletedForSemester(languageCompletionMap, langCode, activeSemester) && !canBypassToggle) {
                             return res.status(403).json({ error: 'language_completed', details: langCode })
                         }
-                        if (!isLanguageAllowedForTeacher(langCode, allowedLanguages, isProfPolyvalent)) {
+                        if (!isLanguageAllowedForTeacher(langCode, allowedLanguages, isProfPolyvalent) && !polyvalentExceptionEnabled) {
                             return res.status(403).json({ error: 'language_not_allowed', details: langCode })
                         }
                     }
@@ -1384,10 +1420,11 @@ teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data', require
                             return res.status(403).json({ error: 'level_mismatch', details: { studentLevel, itemLevel } })
                         }
                         const langCode = sourceItems?.[i]?.code
-                        if (isLanguageCompletedForSemester(languageCompletionMap, langCode, activeSemester)) {
+                        const canBypassToggle = polyvalentExceptionEnabled || (polyvalentHistoryExceptionEnabled && isLanguageAllowedForTeacher(langCode, allowedLanguages, isProfPolyvalent))
+                        if (isLanguageCompletedForSemester(languageCompletionMap, langCode, activeSemester) && !canBypassToggle) {
                             return res.status(403).json({ error: 'language_completed', details: langCode })
                         }
-                        if (!isLanguageAllowedForTeacher(langCode, allowedLanguages, isProfPolyvalent)) {
+                        if (!isLanguageAllowedForTeacher(langCode, allowedLanguages, isProfPolyvalent) && !polyvalentExceptionEnabled) {
                             return res.status(403).json({ error: 'language_not_allowed', details: langCode })
                         }
                     }
@@ -1414,11 +1451,11 @@ teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data', require
                 const dropdownBlock = dropdownBlocks.length === 1 ? dropdownBlocks[0] : null
                 if (dropdownBlock) {
                     const allowedLevels = Array.isArray(dropdownBlock?.props?.levels) ? dropdownBlock.props.levels.map((v: any) => normalizeLevel(v)) : []
-                    if (allowedLevels.length > 0 && (!studentLevel || !allowedLevels.includes(studentLevel))) {
+                    if (allowedLevels.length > 0 && (!studentLevel || !allowedLevels.includes(studentLevel)) && !isTeacherQualifiedForException) {
                         return res.status(403).json({ error: 'level_mismatch', details: { studentLevel, allowedLevels } })
                     }
                     const allowedSemesters = Array.isArray(dropdownBlock?.props?.semesters) ? dropdownBlock.props.semesters : []
-                    if (allowedSemesters.length > 0 && !allowedSemesters.includes(activeSemester)) {
+                    if (allowedSemesters.length > 0 && !allowedSemesters.includes(activeSemester) && !isTeacherQualifiedForException) {
                         return res.status(403).json({ error: 'semester_mismatch', details: { activeSemester, allowedSemesters } })
                     }
                 }
@@ -1437,11 +1474,11 @@ teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data', require
             const variableBlock = variableNameBlocks.length === 1 ? variableNameBlocks[0] : null
             if (variableBlock) {
                 const allowedLevels = Array.isArray(variableBlock?.props?.levels) ? variableBlock.props.levels.map((v: any) => normalizeLevel(v)) : []
-                if (allowedLevels.length > 0 && (!studentLevel || !allowedLevels.includes(studentLevel))) {
+                if (allowedLevels.length > 0 && (!studentLevel || !allowedLevels.includes(studentLevel)) && !isTeacherQualifiedForException) {
                     return res.status(403).json({ error: 'level_mismatch', details: { studentLevel, allowedLevels } })
                 }
                 const allowedSemesters = Array.isArray(variableBlock?.props?.semesters) ? variableBlock.props.semesters : []
-                if (allowedSemesters.length > 0 && !allowedSemesters.includes(activeSemester)) {
+                if (allowedSemesters.length > 0 && !allowedSemesters.includes(activeSemester) && !isTeacherQualifiedForException) {
                     return res.status(403).json({ error: 'semester_mismatch', details: { activeSemester, allowedSemesters } })
                 }
             }

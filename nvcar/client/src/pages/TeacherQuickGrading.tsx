@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom'
 import api from '../api'
 import { useSocket } from '../context/SocketContext'
 import { useSchoolYear } from '../context/SchoolYearContext'
+import { checkScope } from '../utils/scopeUtils'
 import { useLevels } from '../context/LevelContext'
 import ScrollToTopButton from '../components/ScrollToTopButton'
 import Toast, { ToastType } from '../components/Toast'
@@ -73,14 +74,26 @@ export default function TeacherQuickGrading() {
     const [isMyWorkCompletedSem2, setIsMyWorkCompletedSem2] = useState(false)
     const [activeSemester, setActiveSemester] = useState<number>(1)
     const [previousYearDropdownEditable, setPreviousYearDropdownEditable] = useState(false)
+    const [polyvalentExceptionEnabled, setPolyvalentExceptionEnabled] = useState(false)
+    const [polyvalentExceptionScope, setPolyvalentExceptionScope] = useState<any>({ type: 'all' })
+    const [polyvalentHistoryExceptionScope, setPolyvalentHistoryExceptionScope] = useState<any>({ type: 'all' })
+    const [previousYearDropdownEditableScope, setPreviousYearDropdownEditableScope] = useState<any>({ type: 'all' })
+    const [polyvalentHistoryExceptionEnabled, setPolyvalentHistoryExceptionEnabled] = useState(false)
     const [search, setSearch] = useState('')
 
     const { activeYear } = useSchoolYear()
     const socket = useSocket()
     const { levels } = useLevels()
 
+    const isTeacherQualifiedForException = useMemo(() => {
+        if (!(polyvalentExceptionEnabled && checkScope(polyvalentExceptionScope, { level: student?.level, classId: assignment?.classId })) && !(polyvalentHistoryExceptionEnabled && checkScope(polyvalentHistoryExceptionScope, { level: student?.level, classId: assignment?.classId }))) return false
+        const isEnglish = (allowedLanguages || []).includes('en')
+        const isArabic = (allowedLanguages || []).includes('ar') || (allowedLanguages || []).includes('lb')
+        return isProfPolyvalent || isEnglish || isArabic
+    }, [polyvalentExceptionEnabled, polyvalentHistoryExceptionEnabled, isProfPolyvalent, allowedLanguages])
+
     const isActiveSemesterCompleted = activeSemester === 1 ? isMyWorkCompletedSem1 : isMyWorkCompletedSem2
-    const canEditActiveSemester = canEdit && !isActiveSemesterCompleted
+    const canEditActiveSemester = canEdit && (!isActiveSemesterCompleted || polyvalentExceptionEnabled || (polyvalentHistoryExceptionEnabled && isTeacherQualifiedForException))
 
     // Helper function to check if an item's level is at or below the student's current level
     // This allows teachers to edit toggles for PS, MS, GS based on student's current level
@@ -116,6 +129,14 @@ export default function TeacherQuickGrading() {
         // No level restrictions, allow
         return true
     }, [levels])
+
+    const isLevelExactMatch = useCallback((itemLevels: string[] | undefined, studentLevel: string | undefined) => {
+        if (!studentLevel) return true
+        if (!itemLevels || itemLevels.length === 0) return true
+        const studentLevelUpper = studentLevel.toUpperCase()
+        const levelsUpper = itemLevels.map(l => l.toUpperCase())
+        return levelsUpper.length === 1 && levelsUpper[0] === studentLevelUpper
+    }, [])
 
     const hasOnlyOlderLevels = useCallback((itemLevels: string[] | undefined, studentLevel: string) => {
         if (!studentLevel || !itemLevels || itemLevels.length === 0) return false
@@ -199,7 +220,9 @@ export default function TeacherQuickGrading() {
 
                     // Filter items by student level - show items at or below student's current level
                     const filteredItems = allItems.filter(item =>
-                        isLevelAtOrBelow(undefined, item.levels, studentLevel)
+                        (previousYearDropdownEditable || hasPolyvalentException)
+                            ? isLevelAtOrBelow(undefined, item.levels, studentLevel)
+                            : isLevelExactMatch(item.levels, studentLevel)
                     )
 
                     if (filteredItems.length > 0) {
@@ -290,7 +313,9 @@ export default function TeacherQuickGrading() {
                         const filteredItems = allItems.filter(item => {
                             const itemLevel = (item as any).level
                             const itemLevels = item.levels
-                            return isLevelAtOrBelow(itemLevel, itemLevels, studentLevel)
+                            return (previousYearDropdownEditable || hasPolyvalentException)
+                                ? isLevelAtOrBelow(itemLevel, itemLevels, studentLevel)
+                                : isLevelExactMatch(itemLevel, itemLevels, studentLevel)
                         })
 
                         if (filteredItems.length > 0) {
@@ -318,7 +343,7 @@ export default function TeacherQuickGrading() {
                     const dropdownLevels: string[] = block.props.levels || []
 
                     if (dropdownLevels.length > 0 && studentLevel) {
-                        if (!previousYearDropdownEditable) {
+                        if (!previousYearDropdownEditable && !hasPolyvalentException) {
                             const studentLevelUpper = studentLevel.toUpperCase()
                             const levelsUpper = dropdownLevels.map((l: string) => l.toUpperCase())
                             const isExclusivelyForCurrentLevel = levelsUpper.length === 1 && levelsUpper[0] === studentLevelUpper
@@ -352,7 +377,7 @@ export default function TeacherQuickGrading() {
         })
 
         return { rows, drops }
-    }, [isLevelAtOrBelow, previousYearDropdownEditable])
+    }, [isLevelAtOrBelow, isLevelExactMatch, previousYearDropdownEditable, hasPolyvalentException])
 
 
     // Load data
@@ -386,6 +411,11 @@ export default function TeacherQuickGrading() {
                             settingsRes.data.previous_year_dropdown_editable_GS === true
                         )
                 )
+                setPolyvalentExceptionEnabled(settingsRes.data.polyvalent_exception_enabled === true)
+                setPolyvalentExceptionScope(settingsRes.data.polyvalent_exception_scope || { type: 'all' })
+                setPolyvalentHistoryExceptionScope(settingsRes.data.polyvalent_history_exception_scope || { type: 'all' })
+                setPreviousYearDropdownEditableScope(settingsRes.data.previous_year_dropdown_editable_scope || { type: 'all' })
+                setPolyvalentHistoryExceptionEnabled(settingsRes.data.polyvalent_history_exception_enabled === true)
 
                 const { rows, drops } = extractTextRows(
                     r.data.template,
@@ -475,6 +505,7 @@ export default function TeacherQuickGrading() {
 
     // Check if language is allowed for teacher
     const isLanguageAllowed = useCallback((code: string) => {
+        if (polyvalentExceptionEnabled && checkScope(polyvalentExceptionScope, { level: student?.level, classId: assignment?.classId })) return true
         const c = (code || '').toLowerCase()
         if (isProfPolyvalent) return c === 'fr'
         if (allowedLanguages.length === 0) return true
@@ -482,7 +513,7 @@ export default function TeacherQuickGrading() {
         if ((c === 'lb' || c === 'ar') && allowedLanguages.includes('ar')) return true
         if ((c === 'uk' || c === 'gb') && allowedLanguages.includes('en')) return true
         return false
-    }, [isProfPolyvalent, allowedLanguages])
+    }, [isProfPolyvalent, allowedLanguages, polyvalentExceptionEnabled])
 
     // Toggle language
     const toggleLanguage = async (row: TextRow, itemIndex: number) => {
@@ -490,7 +521,7 @@ export default function TeacherQuickGrading() {
 
         const item = row.items[itemIndex]
         if (!isLanguageAllowed(item.code)) return
-        if (isLanguageCompletedForSemester(activeSemester, item.code)) return
+        if (isLanguageCompletedForSemester(activeSemester, item.code) && !polyvalentExceptionEnabled && !(polyvalentHistoryExceptionEnabled && isLanguageAllowed(item.code))) return
 
         const savingKey = `${row.blockId}_${itemIndex}`
         setSavingItems(prev => new Set(prev).add(savingKey))
@@ -601,7 +632,7 @@ export default function TeacherQuickGrading() {
 
     // Update dropdown
     const updateDropdown = async (dropdown: any, value: string) => {
-        if (!canEditActiveSemester || (!isProfPolyvalent && allowedLanguages.length > 0)) return
+        if (!canEditActiveSemester || (!isProfPolyvalent && !isTeacherQualifiedForException)) return
 
         try {
             const newData = { [dropdown.dataKey]: value }
@@ -696,6 +727,18 @@ export default function TeacherQuickGrading() {
                 ? targetLanguages.every(code => isLanguageCompletedForSemester(semester, code))
                 : (semester === 1 ? isMyWorkCompletedSem1 : isMyWorkCompletedSem2)
             const action = isCompleted ? 'unmark-done' : 'mark-done'
+
+            // Validation for Prof Polyvalent: must select dropdown value before marking as done
+            if (action === 'mark-done' && isProfPolyvalent) {
+                const unselectedDropdowns = filteredDropdowns.filter(d => !d.currentValue)
+                if (unselectedDropdowns.length > 0) {
+                    setToast({
+                        message: `Veuillez sélectionner une valeur pour l'appreciation ${unselectedDropdowns[0].label}`,
+                        type: 'error'
+                    })
+                    return
+                }
+            }
 
             const r = await api.post(`/teacher/templates/${assignmentId}/${action}`, { semester, languages: targetLanguages })
             setAssignment(r.data)
@@ -1084,7 +1127,7 @@ export default function TeacherQuickGrading() {
 
 
                 {/* Dropdowns for Prof Polyvalent or teachers with all languages */}
-                {(isProfPolyvalent || allowedLanguages.length === 0) && filteredDropdowns.length > 0 && (
+                {isProfPolyvalent && filteredDropdowns.length > 0 && (
                     <div style={{
                         marginBottom: 24,
                         padding: 16,
@@ -1264,8 +1307,8 @@ export default function TeacherQuickGrading() {
                                                     {row.items.map((item, i) => {
                                                         const allowed = isLanguageAllowed(item.code)
                                                         const isSaving = savingItems.has(`${row.blockId}_${i}`)
-                                                        const isCompletedLanguage = isLanguageCompletedForSemester(activeSemester, item.code)
-                                                        const canToggle = canEditActiveSemester && allowed && !isCompletedLanguage && !isSaving
+                                                        const isDone = isLanguageCompletedForSemester(activeSemester, item.code)
+                                                        const canToggle = canEditActiveSemester && allowed && (!isDone || polyvalentExceptionEnabled || polyvalentHistoryExceptionEnabled) && !isSaving
                                                         const emoji = getEmoji(item)
                                                         const emojiUrl = `https://emojicdn.elk.sh/${emoji}?style=apple`
 
