@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import api from '../api'
-import { ChevronDown, ChevronRight, Search, Filter, Save, CheckCircle, AlertCircle, ChevronsUp, ChevronsDown, Upload, X } from 'lucide-react'
+import { ChevronDown, ChevronRight, Search, Filter, Save, Check, CheckCircle, AlertCircle, ChevronsUp, ChevronsDown, Upload, X } from 'lucide-react'
 
 type Block = { type: string; props?: any }
 type Page = { title?: string; blocks?: Block[] }

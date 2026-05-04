@@ -17,6 +17,7 @@ export const ImageCropper: React.FC<ImageCropperProps> = ({
   onCropComplete,
   onCancel
 }) => {
+  const [aspect, setAspect] = useState(aspectRatio || 3/4)
   const [crop, setCrop] = useState<Point>({ x: 0, y: 0 })
   const [zoom, setZoom] = useState(1)
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null)
@@ -106,7 +107,7 @@ export const ImageCropper: React.FC<ImageCropperProps> = ({
           image={imageUrl}
           crop={crop}
           zoom={zoom}
-          aspect={aspectRatio}
+          aspect={aspect}
           onCropChange={onCropChange}
           onZoomChange={onZoomChange}
           onCropComplete={onCropCompleteHandler}
@@ -119,20 +120,51 @@ export const ImageCropper: React.FC<ImageCropperProps> = ({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        gap: 16,
-        borderTop: '1px solid #333'
+        gap: 24,
+        borderTop: '1px solid #333',
+        flexWrap: 'wrap'
       }}>
-        <span style={{ color: '#aaa', fontSize: 13 }}>Zoom:</span>
-        <input
-          type="range"
-          min={1}
-          max={3}
-          step={0.1}
-          value={zoom}
-          onChange={(e) => setZoom(Number(e.target.value))}
-          style={{ width: 200 }}
-        />
-        <span style={{ color: '#fff', fontSize: 13, minWidth: 40 }}>{Math.round(zoom * 100)}%</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={{ color: '#aaa', fontSize: 13 }}>Format:</span>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {[
+              { label: 'Portrait (3:4)', value: 3/4 },
+              { label: 'Carré (1:1)', value: 1 },
+              { label: 'Libre', value: undefined }
+            ].map((opt) => (
+              <button
+                key={opt.label}
+                onClick={() => setAspect(opt.value)}
+                style={{
+                  padding: '6px 12px',
+                  background: aspect === opt.value ? '#667eea' : '#333',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: 6,
+                  cursor: 'pointer',
+                  fontSize: 12,
+                  fontWeight: aspect === opt.value ? 600 : 400
+                }}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={{ color: '#aaa', fontSize: 13 }}>Zoom:</span>
+          <input
+            type="range"
+            min={1}
+            max={3}
+            step={0.1}
+            value={zoom}
+            onChange={(e) => setZoom(Number(e.target.value))}
+            style={{ width: 150 }}
+          />
+          <span style={{ color: '#fff', fontSize: 13, minWidth: 40 }}>{Math.round(zoom * 100)}%</span>
+        </div>
       </div>
     </div>
   )

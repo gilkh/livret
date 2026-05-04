@@ -431,9 +431,8 @@ export default function AdminStudents({ isTab }: { isTab?: boolean } = {}) {
     }
   }
 
-  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files?.length || !selectedStudent) return
-    const file = e.target.files[0]
+  const handlePhotoUpload = async (file: File) => {
+    if (!file || !selectedStudent) return
     const formData = new FormData()
     formData.append('file', file)
 
@@ -902,6 +901,7 @@ export default function AdminStudents({ isTab }: { isTab?: boolean } = {}) {
           student={selectedStudent}
           history={studentHistory}
           onPhotoUpload={handlePhotoUpload}
+          onPhotoRemove={removeStudentPhoto}
           onDelete={handleDeleteStudent}
           onEdit={() => setShowStudentModal(true)}
         />

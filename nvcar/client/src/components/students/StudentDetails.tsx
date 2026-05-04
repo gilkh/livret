@@ -1,18 +1,26 @@
-import { User, Calendar, Hash, Phone, Clock, Trash2, Mail, Edit2 } from 'lucide-react'
+import { User, Calendar, Hash, Phone, Clock, Trash2, Mail, Edit2, Crop, Trash, Upload } from 'lucide-react'
 import { useRef, useState } from 'react'
+import ImageCropper from '../ImageCropper'
+import { getCroppedImg } from '../../utils/imageUtils'
 
 interface StudentDetailsProps {
   student: any
   history: any[]
-  onPhotoUpload: (e: React.ChangeEvent<HTMLInputElement>) => void
+  onPhotoUpload: (file: File) => void
+  onPhotoRemove: (studentId: string) => void
   onDelete?: (studentId: string) => void
   onEdit?: () => void
 }
 
-export default function StudentDetails({ student, history, onPhotoUpload, onDelete, onEdit }: StudentDetailsProps) {
+export default function StudentDetails({ student, history, onPhotoUpload, onPhotoRemove, onDelete, onEdit }: StudentDetailsProps) {
   const photoInputRef = useRef<HTMLInputElement>(null)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
+
+  // Cropping State
+  const [imageToCrop, setImageToCrop] = useState<string | null>(null)
+  const [isCropping, setIsCropping] = useState(false)
+  const [processing, setProcessing] = useState(false)
 
   if (!student) {
     return (
@@ -40,33 +48,137 @@ export default function StudentDetails({ student, history, onPhotoUpload, onDele
     }
   }
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const file = e.target.files[0]
+      const reader = new FileReader()
+      reader.addEventListener('load', () => {
+        setImageToCrop(reader.result as string)
+        setIsCropping(true)
+      })
+      reader.readAsDataURL(file)
+    }
+    // Reset input value so same file can be selected again
+    e.target.value = ''
+  }
+
+  const handleCropComplete = async (cropData: { x: number; y: number; width: number; height: number }) => {
+    if (!imageToCrop) return
+    setProcessing(true)
+    try {
+      const croppedBlob = await getCroppedImg(imageToCrop, cropData)
+      if (croppedBlob) {
+        const file = new File([croppedBlob], 'avatar.jpg', { type: 'image/jpeg' })
+        onPhotoUpload(file)
+      }
+      setIsCropping(false)
+      setImageToCrop(null)
+    } catch (e) {
+      console.error('Cropping failed:', e)
+      alert('Erreur lors du recadrage de l\'image')
+    } finally {
+      setProcessing(false)
+    }
+  }
+
+  const handleEditCurrentPhoto = () => {
+    if (student.avatarUrl) {
+      setImageToCrop(student.avatarUrl)
+      setIsCropping(true)
+    }
+  }
+
   return (
     <div className="card" style={{ height: '100%', overflowY: 'auto', display: 'flex', flexDirection: 'column', padding: 0 }}>
       {/* Header with Photo */}
       <div style={{ padding: '32px 20px', background: 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)', textAlign: 'center', position: 'relative' }}>
-        <div
-          style={{
-            width: 120, height: 120, borderRadius: '50%', margin: '0 auto 16px',
-            background: 'white', overflow: 'hidden', position: 'relative',
-            cursor: 'pointer', border: '4px solid white', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1)'
-          }}
-          onClick={() => photoInputRef.current?.click()}
-        >
-          {student.avatarUrl ? (
-            <img src={student.avatarUrl} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-          ) : (
-            <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <User size={48} color="#cbd5e1" />
+        <div style={{ position: 'relative', width: 100, height: 130, margin: '0 auto 16px' }}>
+          <div
+            style={{
+              width: '100%', height: '100%', borderRadius: 12,
+              background: 'white', overflow: 'hidden', position: 'relative',
+              cursor: 'pointer', border: '4px solid white', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1)'
+            }}
+            onClick={() => photoInputRef.current?.click()}
+          >
+            {student.avatarUrl ? (
+              <img src={student.avatarUrl} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            ) : (
+              <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <User size={48} color="#cbd5e1" />
+              </div>
+            )}
+            <div style={{
+              position: 'absolute', bottom: 0, left: 0, right: 0,
+              background: 'rgba(0,0,0,0.6)', color: 'white', fontSize: 10, padding: 6,
+              backdropFilter: 'blur(4px)', fontWeight: 500
+            }}>
+              {student.avatarUrl ? 'CHANGER' : 'UPLOADER'}
             </div>
-          )}
+          </div>
+
+          {/* Quick Action Buttons */}
           <div style={{
-            position: 'absolute', bottom: 0, left: 0, right: 0,
-            background: 'rgba(0,0,0,0.6)', color: 'white', fontSize: 10, padding: 6,
-            backdropFilter: 'blur(4px)', fontWeight: 500
+            position: 'absolute',
+            bottom: -10,
+            right: -10,
+            display: 'flex',
+            gap: 4
           }}>
-            MODIFIER
+            {student.avatarUrl && (
+              <>
+                <button
+                  onClick={handleEditCurrentPhoto}
+                  style={{
+                    width: 32, height: 32, borderRadius: '50%',
+                    background: '#3b82f6', color: 'white', border: '2px solid white',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    cursor: 'pointer', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)',
+                    transition: 'transform 0.2s'
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.1)'}
+                  onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
+                  title="Recadrer"
+                >
+                  <Crop size={14} />
+                </button>
+                <button
+                  onClick={() => onPhotoRemove(student._id)}
+                  style={{
+                    width: 32, height: 32, borderRadius: '50%',
+                    background: '#ef4444', color: 'white', border: '2px solid white',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    cursor: 'pointer', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)',
+                    transition: 'transform 0.2s'
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.1)'}
+                  onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
+                  title="Supprimer la photo"
+                >
+                  <Trash size={14} />
+                </button>
+              </>
+            )}
+            {!student.avatarUrl && (
+              <button
+                onClick={() => photoInputRef.current?.click()}
+                style={{
+                  width: 32, height: 32, borderRadius: '50%',
+                  background: '#10b981', color: 'white', border: '2px solid white',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  cursor: 'pointer', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)',
+                  transition: 'transform 0.2s'
+                }}
+                onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.1)'}
+                onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
+                title="Uploader une photo"
+              >
+                <Upload size={14} />
+              </button>
+            )}
           </div>
         </div>
+
         <h2 style={{ margin: '0 0 4px', fontSize: 20, color: '#1e293b', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
           {student.firstName} {student.lastName}
           {onEdit && (
@@ -77,8 +189,35 @@ export default function StudentDetails({ student, history, onPhotoUpload, onDele
         </h2>
         <div style={{ color: '#64748b', fontWeight: 500 }}>{student.className || 'Non assigné'}</div>
 
-        <input type="file" ref={photoInputRef} style={{ display: 'none' }} accept="image/*" onChange={onPhotoUpload} />
+        <input type="file" ref={photoInputRef} style={{ display: 'none' }} accept="image/*" onChange={handleFileChange} />
       </div>
+
+      {isCropping && imageToCrop && (
+        <ImageCropper
+          imageUrl={imageToCrop}
+          onCancel={() => {
+            setIsCropping(false)
+            setImageToCrop(null)
+          }}
+          onCropComplete={handleCropComplete}
+        />
+      )}
+
+      {processing && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(255,255,255,0.7)', display: 'flex', alignItems: 'center',
+          justifyContent: 'center', zIndex: 11000, backdropFilter: 'blur(4px)'
+        }}>
+          <div style={{ textAlign: 'center' }}>
+            <div className="spinner" style={{ width: 40, height: 40, border: '4px solid #f3f3f3', borderTop: '4px solid #3b82f6', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto 12px' }}></div>
+            <p style={{ fontWeight: 600, color: '#1e293b' }}>Traitement de l'image...</p>
+          </div>
+          <style>{`
+            @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+          `}</style>
+        </div>
+      )}
 
       <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 20 }}>
         {/* Info Card */}
