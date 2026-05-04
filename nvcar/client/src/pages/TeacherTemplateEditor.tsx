@@ -66,6 +66,7 @@ export default function TeacherTemplateEditor() {
     const [isSigned, setIsSigned] = useState(false)
     const [previousYearDropdownEditable, setPreviousYearDropdownEditable] = useState(false)
     const containerRef = useRef<HTMLDivElement | null>(null)
+    const typingTimeoutRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
 
     const computeFitScale = () => {
         const containerWidth = containerRef.current ? containerRef.current.clientWidth : window.innerWidth
@@ -1983,22 +1984,28 @@ export default function TeacherTemplateEditor() {
                                                                     <textarea
                                                                         value={textValue}
                                                                         placeholder={b.props.placeholder || 'Tapez votre texte ici...'}
-                                                                        onChange={async (e) => {
+                                                                        onChange={(e) => {
                                                                             const newValue = e.target.value
                                                                             if (assignment) {
                                                                                 const newData = { ...assignment.data, [blockId]: newValue }
                                                                                 setAssignment({ ...assignment, data: newData })
 
-                                                                                try {
-                                                                                    await api.patch(`/teacher/template-assignments/${assignment._id}/data`, { data: { [blockId]: newValue } })
-                                                                                    emitAssignmentDataUpdate({ [blockId]: newValue })
-                                                                                    setSaveStatus('Enregistré avec succès ✓')
-                                                                                    setTimeout(() => setSaveStatus(''), 2000)
-                                                                                } catch (err) {
-                                                                                    console.error('Failed to save teacher text:', err)
-                                                                                    setSaveStatus('Erreur de sauvegarde ❌')
-                                                                                    setTimeout(() => setSaveStatus(''), 3000)
+                                                                                if (typingTimeoutRef.current[blockId]) {
+                                                                                    clearTimeout(typingTimeoutRef.current[blockId])
                                                                                 }
+
+                                                                                typingTimeoutRef.current[blockId] = setTimeout(async () => {
+                                                                                    try {
+                                                                                        await api.patch(`/teacher/template-assignments/${assignment._id}/data`, { data: { [blockId]: newValue } })
+                                                                                        emitAssignmentDataUpdate({ [blockId]: newValue })
+                                                                                        setSaveStatus('Enregistré avec succès ✓')
+                                                                                        setTimeout(() => setSaveStatus(''), 2000)
+                                                                                    } catch (err) {
+                                                                                        console.error('Failed to save teacher text:', err)
+                                                                                        setSaveStatus('Erreur de sauvegarde ❌')
+                                                                                        setTimeout(() => setSaveStatus(''), 3000)
+                                                                                    }
+                                                                                }, 800)
                                                                             }
                                                                         }}
                                                                         style={{

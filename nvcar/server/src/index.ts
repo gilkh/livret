@@ -84,6 +84,18 @@ server.listen(port, () => {
   if (addrs.length) {
     for (const a of addrs) console.log(`server shared on ${protocol}://${a}:${port}`)
   }
+
+  // Periodic memory logging (every 15 minutes) to monitor degradation
+  setInterval(() => {
+    const mem = process.memoryUsage()
+    const toMB = (bytes: number) => Math.round(bytes / 1024 / 1024)
+    console.log(`[MONITOR] Memory: RSS=${toMB(mem.rss)}MB, Heap=${toMB(mem.heapUsed)}/${toMB(mem.heapTotal)}MB, External=${toMB(mem.external)}MB, Uptime=${Math.round(process.uptime() / 3600)}h`)
+    
+    // Log if memory is high
+    if (toMB(mem.rss) > 1000) {
+      console.warn('[MONITOR] WARNING: Memory usage is high (> 1GB)')
+    }
+  }, 15 * 60 * 1000)
 })
 
 initSocket(server)

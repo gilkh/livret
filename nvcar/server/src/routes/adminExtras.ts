@@ -25,6 +25,7 @@ import { existsSync, mkdirSync } from 'fs'
 import fs from 'fs/promises'
 import multer from 'multer'
 import { emitSystemAlertUpdate } from '../socket'
+import { withCache } from '../utils/cache'
 
 export const adminExtrasRouter = Router()
 
@@ -47,6 +48,9 @@ adminExtrasRouter.get('/progress', requireAuth(['ADMIN']), async (req, res) => {
     try {
         const activeYear = await SchoolYear.findOne({ active: true }).lean()
         if (!activeYear) return res.status(400).json({ error: 'no_active_year' })
+
+        const cacheKey = `admin-progress-${activeYear._id}`
+        const result = await withCache(cacheKey, async () => {
 
         // --- Classes Progress ---
         const classes = await ClassModel.find({ schoolYearId: String(activeYear._id) }).lean()
@@ -352,7 +356,10 @@ adminExtrasRouter.get('/progress', requireAuth(['ADMIN']), async (req, res) => {
             }
         }))
 
-        res.json({ classes: classesResult, subAdmins: subAdminProgress })
+            return { classes: classesResult, subAdmins: subAdminProgress }
+        }, 60000) // Cache for 1 minute
+
+        res.json(result)
     } catch (error) {
         console.error(error)
         res.status(500).json({ error: 'Failed to fetch progress' })
@@ -505,67 +512,81 @@ adminExtrasRouter.post('/permissions', requireAuth(['ADMIN']), async (req, res) 
 // Admin: Get ALL gradebooks for active year
 adminExtrasRouter.get('/all-gradebooks', requireAuth(['ADMIN']), async (req, res) => {
     try {
-        // Get active school year
         const activeSchoolYear = await SchoolYear.findOne({ active: true }).lean()
-        if (!activeSchoolYear) {
-            return res.json([])
-        }
+        if (!activeSchoolYear) return res.json([])
 
-        // Get ALL classes for active year
-        const classes = await ClassModel.find({ schoolYearId: activeSchoolYear._id }).lean()
-        const classIds = classes.map(c => String(c._id))
-        const classMap = new Map(classes.map(c => [String(c._id), c]))
+        const cacheKey = `admin-all-gradebooks-${activeSchoolYear._id}`
+        const result = await withCache(cacheKey, async () => {
+            // Get ALL classes for active year
+            const classes = await ClassModel.find({ schoolYearId: activeSchoolYear._id }).lean()
+            const classIds = classes.map(c => String(c._id))
+            const classMap = new Map(classes.map(c => [String(c._id), c]))
 
-        // Get ALL enrollments
-        const enrollments = await Enrollment.find({ classId: { $in: classIds } }).lean()
-        const studentIds = enrollments.map(e => e.studentId)
-        const studentClassMap = new Map(enrollments.map(e => [String(e.studentId), String(e.classId)]))
+            // Get ALL enrollments
+            const enrollments = await Enrollment.find({ classId: { $in: classIds } }).lean()
+            const studentIds = enrollments.map(e => String(e.studentId))
+            const studentClassMap = new Map(enrollments.map(e => [String(e.studentId), String(e.classId)]))
 
-        // Get ALL template assignments
-        const templateAssignments = await TemplateAssignment.find({
-            studentId: { $in: studentIds },
-        }).lean()
+            // Get ALL template assignments
+            const templateAssignments = await TemplateAssignment.find({
+                studentId: { $in: studentIds },
+            }).lean()
 
-        // Get signature information
-        const assignmentIds = templateAssignments.map(a => String(a._id))
-        const signatures = await TemplateSignature.find({ templateAssignmentId: { $in: assignmentIds } }).lean()
-        const signatureMap = new Map()
-        signatures.forEach(s => {
-            if (!signatureMap.has(s.templateAssignmentId)) {
-                signatureMap.set(s.templateAssignmentId, [])
-            }
-            signatureMap.get(s.templateAssignmentId).push(s)
-        })
+            const assignmentIds = templateAssignments.map(a => String(a._id))
+            const uniqueTemplateIds = [...new Set(templateAssignments.map(a => String(a.templateId)))]
+            const uniqueStudentIds = [...new Set(templateAssignments.map(a => String(a.studentId)))]
 
-        // Enrich
-        const enrichedAssignments = await Promise.all(templateAssignments.map(async (assignment) => {
-            const template = await GradebookTemplate.findById(assignment.templateId).lean()
-            const student = await Student.findById(assignment.studentId).lean()
-            const assignmentSignatures = signatureMap.get(String(assignment._id)) || []
-            
-            // Still provide first signature for backward compatibility or display
-            const signature = assignmentSignatures.length > 0 ? assignmentSignatures[0] : null
+            // Bulk fetch everything else
+            const [templates, students, allSignatures] = await Promise.all([
+                GradebookTemplate.find({ _id: { $in: uniqueTemplateIds } }).lean(),
+                Student.find({ _id: { $in: uniqueStudentIds } }).lean(),
+                TemplateSignature.find({ templateAssignmentId: { $in: assignmentIds } }).lean()
+            ])
 
-            const classId = studentClassMap.get(String(assignment.studentId))
-            const classInfo = classId ? classMap.get(classId) : null
+            const templateMap = new Map(templates.map(t => [String((t as any)._id), t]))
+            const studentMap = new Map(students.map(s => [String(s._id), s]))
+            const signatureMap = new Map<string, any[]>()
+            allSignatures.forEach(s => {
+                const aid = String(s.templateAssignmentId)
+                if (!signatureMap.has(aid)) signatureMap.set(aid, [])
+                signatureMap.get(aid)!.push(s)
+            })
 
-            // New semester-aware check
-            const isSigned = await isAssignmentSigned(String(assignment._id))
+            // Enrichment
+            const enrichedAssignments = templateAssignments.map((assignment) => {
+                const aid = String(assignment._id)
+                const sid = String(assignment.studentId)
+                const tid = String(assignment.templateId)
 
-            return {
-                ...assignment,
-                template,
-                student,
-                signature,
-                signatures: assignmentSignatures,
-                isSigned, // Add this flag
-                className: classInfo?.name,
-                level: classInfo?.level,
-            }
-        }))
+                const template = templateMap.get(tid)
+                const student = studentMap.get(sid)
+                const assignmentSignatures = signatureMap.get(aid) || []
+                
+                const signature = assignmentSignatures.length > 0 ? assignmentSignatures[0] : null
+                const classId = studentClassMap.get(sid)
+                const classInfo = classId ? classMap.get(classId) : null
 
-        res.json(enrichedAssignments)
+                // Simplified isSigned check (local check of signatures array)
+                const isSigned = assignmentSignatures.length > 0
+
+                return {
+                    ...assignment,
+                    template,
+                    student,
+                    signature,
+                    signatures: assignmentSignatures,
+                    isSigned,
+                    className: classInfo?.name,
+                    level: classInfo?.level,
+                }
+            })
+
+            return enrichedAssignments
+        }, 60000) // Cache for 1 minute
+
+        res.json(result)
     } catch (e: any) {
+        console.error('[AdminExtra] all-gradebooks error:', e)
         res.status(500).json({ error: 'fetch_failed', message: e.message })
     }
 })
@@ -576,7 +597,9 @@ adminExtrasRouter.get('/appreciations/usage', requireAuth(['ADMIN']), async (req
         const activeSchoolYear = await SchoolYear.findOne({ active: true }).lean()
         if (!activeSchoolYear) return res.json({})
 
-        const enrollments = await Enrollment.find({ schoolYearId: activeSchoolYear._id }).lean()
+        const cacheKey = `admin-appreciations-usage-${activeSchoolYear._id}`
+        const result = await withCache(cacheKey, async () => {
+            const enrollments = await Enrollment.find({ schoolYearId: activeSchoolYear._id }).lean()
         const studentIds = enrollments.map(e => e.studentId)
         const classIds = enrollments.map(e => e.classId).filter(Boolean)
 
@@ -644,8 +667,10 @@ adminExtrasRouter.get('/appreciations/usage', requireAuth(['ADMIN']), async (req
                 }
             }
         }
+            return usageMap
+        }, 300000) // Cache for 5 minutes
 
-        res.json(usageMap)
+        res.json(result)
     } catch (e: any) {
         res.status(500).json({ error: 'fetch_failed', message: e.message })
     }
