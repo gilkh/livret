@@ -19,26 +19,39 @@ const cache_1 = require("../utils/cache");
 const Setting_1 = require("../models/Setting");
 exports.teacherTemplatesRouter = (0, express_1.Router)();
 const normalizeLevel = (v) => String(v || '').trim().toUpperCase();
-// For maternelle, allow teachers to edit toggles for previous levels.
-// Example: an MS student can still have PS toggles edited.
-// For unknown levels, we keep the conservative (exact-match) behavior.
+const isLevelExactMatch = (itemLevelRaw, studentLevelRaw) => {
+    const itemLevel = normalizeLevel(itemLevelRaw);
+    const studentLevel = normalizeLevel(studentLevelRaw);
+    if (!itemLevel || !studentLevel)
+        return true;
+    return itemLevel === studentLevel;
+};
+const LEVEL_ORDER = {
+    TPS: 0,
+    PS: 1,
+    MS: 2,
+    GS: 3,
+    KG1: 1,
+    KG2: 2,
+    KG3: 3,
+    EB1: 4,
+};
 const isLevelAtOrBelow = (itemLevelRaw, studentLevelRaw) => {
     const itemLevel = normalizeLevel(itemLevelRaw);
     const studentLevel = normalizeLevel(studentLevelRaw);
     if (!itemLevel || !studentLevel)
         return true;
-    const order = {
-        TPS: 0,
-        PS: 1,
-        MS: 2,
-        GS: 3,
-    };
-    const itemOrder = order[itemLevel];
-    const studentOrder = order[studentLevel];
+    const itemOrder = LEVEL_ORDER[itemLevel];
+    const studentOrder = LEVEL_ORDER[studentLevel];
     if (itemOrder === undefined || studentOrder === undefined) {
         return itemLevel === studentLevel;
     }
     return itemOrder <= studentOrder;
+};
+const checkLevelAllowed = (itemLevelRaw, studentLevelRaw, canEditOlderLevels) => {
+    return canEditOlderLevels
+        ? isLevelAtOrBelow(itemLevelRaw, studentLevelRaw)
+        : isLevelExactMatch(itemLevelRaw, studentLevelRaw);
 };
 const getBlockLevel = (block) => {
     const direct = block?.props?.level;
@@ -1056,6 +1069,8 @@ exports.teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data',
         if (isActiveSemesterClosed && !polyvalentExceptionEnabled && !(polyvalentHistoryExceptionEnabled && isTeacherQualifiedForException)) {
             return res.status(403).json({ error: 'gradebook_closed', details: { activeSemester } });
         }
+        // When either exception is on, allow editing toggles at or below the student's current level
+        const canEditOlderLevels = polyvalentExceptionEnabled || (polyvalentHistoryExceptionEnabled && isTeacherQualifiedForException);
         const blocksById = (0, templateUtils_1.buildBlocksById)(versionedTemplate?.pages || []);
         for (const [key, value] of Object.entries(data)) {
             const langToggleMatch = key.match(/^language_toggle_(\d+)_(\d+)$/);
@@ -1068,7 +1083,7 @@ exports.teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data',
                     return res.status(400).json({ error: 'invalid_language_toggle_key', details: key });
                 }
                 const blockLevel = getBlockLevel(block);
-                if (blockLevel && studentLevel && !isLevelAtOrBelow(blockLevel, studentLevel)) {
+                if (blockLevel && studentLevel && !checkLevelAllowed(blockLevel, studentLevel, canEditOlderLevels)) {
                     return res.status(403).json({ error: 'level_mismatch', details: { studentLevel, blockLevel } });
                 }
                 const sourceItems = Array.isArray(block?.props?.items) ? block.props.items : [];
@@ -1106,7 +1121,7 @@ exports.teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data',
                     return res.status(400).json({ error: 'invalid_language_toggle_key', details: key });
                 }
                 const blockLevel = getBlockLevel(block);
-                if (blockLevel && studentLevel && !isLevelAtOrBelow(blockLevel, studentLevel)) {
+                if (blockLevel && studentLevel && !checkLevelAllowed(blockLevel, studentLevel, canEditOlderLevels)) {
                     return res.status(403).json({ error: 'level_mismatch', details: { studentLevel, blockLevel } });
                 }
                 const sourceItems = Array.isArray(block?.props?.items) ? block.props.items : [];
@@ -1144,7 +1159,7 @@ exports.teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data',
                     return res.status(400).json({ error: 'invalid_table_key', details: key });
                 }
                 const blockLevel = getBlockLevel(block);
-                if (blockLevel && studentLevel && !isLevelAtOrBelow(blockLevel, studentLevel)) {
+                if (blockLevel && studentLevel && !checkLevelAllowed(blockLevel, studentLevel, canEditOlderLevels)) {
                     return res.status(403).json({ error: 'level_mismatch', details: { studentLevel, blockLevel } });
                 }
                 const expandedLanguages = block?.props?.expandedLanguages || [];
@@ -1161,7 +1176,7 @@ exports.teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data',
                     const oldItem = previousItems?.[i] || sourceItems[i];
                     if (newItem && oldItem && newItem.active !== oldItem.active) {
                         const itemLevel = normalizeLevel(sourceItems?.[i]?.level);
-                        if (itemLevel && studentLevel && !isLevelAtOrBelow(itemLevel, studentLevel)) {
+                        if (itemLevel && studentLevel && !checkLevelAllowed(itemLevel, studentLevel, canEditOlderLevels)) {
                             return res.status(403).json({ error: 'level_mismatch', details: { studentLevel, itemLevel } });
                         }
                         const langCode = sourceItems?.[i]?.code;
@@ -1195,7 +1210,7 @@ exports.teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data',
                 if (rowIdx < 0)
                     return res.status(400).json({ error: 'invalid_table_key', details: key });
                 const blockLevel = getBlockLevel(block);
-                if (blockLevel && studentLevel && !isLevelAtOrBelow(blockLevel, studentLevel)) {
+                if (blockLevel && studentLevel && !checkLevelAllowed(blockLevel, studentLevel, canEditOlderLevels)) {
                     return res.status(403).json({ error: 'level_mismatch', details: { studentLevel, blockLevel } });
                 }
                 const expandedLanguages = block?.props?.expandedLanguages || [];
@@ -1212,7 +1227,7 @@ exports.teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data',
                     const oldItem = previousItems?.[i] || sourceItems[i];
                     if (newItem && oldItem && newItem.active !== oldItem.active) {
                         const itemLevel = normalizeLevel(sourceItems?.[i]?.level);
-                        if (itemLevel && studentLevel && !isLevelAtOrBelow(itemLevel, studentLevel)) {
+                        if (itemLevel && studentLevel && !checkLevelAllowed(itemLevel, studentLevel, canEditOlderLevels)) {
                             return res.status(403).json({ error: 'level_mismatch', details: { studentLevel, itemLevel } });
                         }
                         const langCode = sourceItems?.[i]?.code;

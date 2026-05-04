@@ -15,6 +15,7 @@ type LanguageItem = {
     emoji?: string
     logo?: string
     active: boolean
+    level?: string
     levels?: string[]
     sourceIndex?: number // Original index in source items array
 }
@@ -45,6 +46,7 @@ type Student = {
 type Assignment = {
     _id: string
     status: string
+    classId?: string
     data?: Record<string, any>
     dataVersion?: number
     languageCompletions?: {
@@ -94,6 +96,10 @@ export default function TeacherQuickGrading() {
 
     const isActiveSemesterCompleted = activeSemester === 1 ? isMyWorkCompletedSem1 : isMyWorkCompletedSem2
     const canEditActiveSemester = canEdit && (!isActiveSemesterCompleted || polyvalentExceptionEnabled || (polyvalentHistoryExceptionEnabled && isTeacherQualifiedForException))
+    const hasPolyvalentException = polyvalentExceptionEnabled && checkScope(polyvalentExceptionScope, { level: student?.level, classId: assignment?.classId })
+    const hasPolyvalentHistoryException = polyvalentHistoryExceptionEnabled && checkScope(polyvalentHistoryExceptionScope, { level: student?.level, classId: assignment?.classId })
+    // When either exception applies (with scope), allow editing toggles at or below current student level
+    const canEditOlderLevels = hasPolyvalentException || (hasPolyvalentHistoryException && isTeacherQualifiedForException)
 
     // Helper function to check if an item's level is at or below the student's current level
     // This allows teachers to edit toggles for PS, MS, GS based on student's current level
@@ -130,8 +136,9 @@ export default function TeacherQuickGrading() {
         return true
     }, [levels])
 
-    const isLevelExactMatch = useCallback((itemLevels: string[] | undefined, studentLevel: string | undefined) => {
+    const isLevelExactMatch = useCallback((itemLevel: string | undefined, itemLevels: string[] | undefined, studentLevel: string | undefined) => {
         if (!studentLevel) return true
+        if (itemLevel) return itemLevel.toUpperCase() === studentLevel.toUpperCase()
         if (!itemLevels || itemLevels.length === 0) return true
         const studentLevelUpper = studentLevel.toUpperCase()
         const levelsUpper = itemLevels.map(l => l.toUpperCase())
@@ -218,11 +225,11 @@ export default function TeacherQuickGrading() {
                         sourceIndex: i
                     }))
 
-                    // Filter items by student level - show items at or below student's current level
+                    // Filter items by student level
                     const filteredItems = allItems.filter(item =>
-                        (previousYearDropdownEditable || hasPolyvalentException)
+                        canEditOlderLevels
                             ? isLevelAtOrBelow(undefined, item.levels, studentLevel)
-                            : isLevelExactMatch(item.levels, studentLevel)
+                            : isLevelExactMatch(undefined, item.levels, studentLevel)
                     )
 
                     if (filteredItems.length > 0) {
@@ -309,11 +316,11 @@ export default function TeacherQuickGrading() {
                             sourceIndex: i
                         }))
 
-                        // Filter items by student level - show items at or below student's current level
+                        // Filter items by student level
                         const filteredItems = allItems.filter(item => {
                             const itemLevel = (item as any).level
                             const itemLevels = item.levels
-                            return (previousYearDropdownEditable || hasPolyvalentException)
+                            return canEditOlderLevels
                                 ? isLevelAtOrBelow(itemLevel, itemLevels, studentLevel)
                                 : isLevelExactMatch(itemLevel, itemLevels, studentLevel)
                         })
@@ -377,8 +384,7 @@ export default function TeacherQuickGrading() {
         })
 
         return { rows, drops }
-    }, [isLevelAtOrBelow, isLevelExactMatch, previousYearDropdownEditable, hasPolyvalentException])
-
+    }, [isLevelExactMatch, isLevelAtOrBelow, previousYearDropdownEditable, hasPolyvalentException, canEditOlderLevels])
 
     // Load data
     useEffect(() => {
@@ -832,8 +838,8 @@ export default function TeacherQuickGrading() {
         const studentLevelUpper = studentLevel.toUpperCase()
 
         return dropdowns.filter(d => {
-            const canBypassSemester = previousYearDropdownEditable && hasOnlyOlderLevels(d.levels, studentLevel)
-            const canEditSem1WhileActiveSem2 = previousYearDropdownEditable &&
+            const canBypassSemester = (previousYearDropdownEditable || hasPolyvalentException) && hasOnlyOlderLevels(d.levels, studentLevel)
+            const canEditSem1WhileActiveSem2 = (previousYearDropdownEditable || hasPolyvalentException) &&
                 activeSemester === 2 &&
                 d.semesters.includes(1) &&
                 !d.semesters.includes(2)
@@ -852,7 +858,7 @@ export default function TeacherQuickGrading() {
             // Dropdowns without level restrictions are always shown
             return true
         })
-    }, [dropdowns, activeSemester, student?.level, previousYearDropdownEditable, isLevelAtOrBelow, hasOnlyOlderLevels])
+    }, [dropdowns, activeSemester, student?.level, previousYearDropdownEditable, hasPolyvalentException, isLevelAtOrBelow, hasOnlyOlderLevels])
 
     if (loading) {
         return (
@@ -1325,7 +1331,7 @@ export default function TeacherQuickGrading() {
                                                                     border: item.active ? '3px solid #6c5ce7' : '2px solid #e2e8f0',
                                                                     background: item.active ? '#f0f4ff' : '#fff',
                                                                     cursor: canToggle ? 'pointer' : 'not-allowed',
-                                                                    opacity: allowed ? (isCompletedLanguage ? 0.6 : 1) : 0.4,
+                                                                    opacity: allowed ? (isDone ? 0.6 : 1) : 0.4,
                                                                     display: 'flex',
                                                                     alignItems: 'center',
                                                                     justifyContent: 'center',

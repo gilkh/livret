@@ -28,6 +28,7 @@ type Student = {
 type Assignment = {
     _id: string
     status: string
+    classId?: string
     data?: Record<string, any>
     languageCompletions?: {
         code: string
@@ -128,8 +129,10 @@ export default function TeacherTemplateEditor() {
     // Helper function to check if an item is EXCLUSIVELY for the student's current level
     // This is stricter than isLevelAtOrBelow - used for dropdowns where teachers
     // should only edit the current level's dropdown, not previous levels
-    const isLevelExactMatch = (itemLevels: string[] | undefined, studentLevel: string | undefined) => {
+    const isLevelExactMatch = (itemLevel: string | undefined, itemLevels: string[] | undefined, studentLevel: string | undefined) => {
         if (!studentLevel) return true
+
+        if (itemLevel) return itemLevel.toUpperCase() === studentLevel.toUpperCase()
 
         // No level restrictions means it's available to all
         if (!itemLevels || itemLevels.length === 0) return true
@@ -229,16 +232,9 @@ export default function TeacherTemplateEditor() {
                         const nextMap = buildLanguageCompletionMap({ languageCompletions: payload.languageCompletions } as any)
                         setLanguageCompletion(nextMap)
 
-                        const languagesForCalc = completionLanguages.length > 0
-                            ? completionLanguages
-                            : (Array.isArray(payload.languages) ? payload.languages : [])
+                        const nextSem1 = areAllLanguagesCompleted(1, nextMap, completionLanguages)
+                        const nextSem2 = areAllLanguagesCompleted(2, nextMap, completionLanguages)
 
-                        if (completionLanguages.length === 0 && languagesForCalc.length > 0) {
-                            setCompletionLanguages(languagesForCalc.map(normalizeLanguageCode).filter(Boolean))
-                        }
-
-                        const nextSem1 = areAllLanguagesCompleted(1, nextMap, languagesForCalc)
-                        const nextSem2 = areAllLanguagesCompleted(2, nextMap, languagesForCalc)
                         setIsMyWorkCompletedSem1(nextSem1)
                         setIsMyWorkCompletedSem2(nextSem2)
                         setIsMyWorkCompleted(nextSem1)
@@ -473,6 +469,10 @@ export default function TeacherTemplateEditor() {
 
     const canEditActive = canEdit && (!isActiveSemesterClosed || polyvalentExceptionEnabled || (polyvalentHistoryExceptionEnabled && isTeacherQualifiedForException))
 
+    // When either exception applies (with scope), allow editing language toggles at or below current student level
+    const canEditOlderLevels = (polyvalentExceptionEnabled && checkScope(polyvalentExceptionScope, { level: student?.level, classId: assignment?.classId }))
+        || (polyvalentHistoryExceptionEnabled && checkScope(polyvalentHistoryExceptionScope, { level: student?.level, classId: assignment?.classId }) && isTeacherQualifiedForException)
+
     const toggleCompletionSem = async (semester: number, languages?: string[]) => {
         if (!assignment) return
         try {
@@ -491,10 +491,10 @@ export default function TeacherTemplateEditor() {
                         if (block.type === 'dropdown') {
                             const isLevelAllowed = previousYearDropdownEditable
                                 ? isLevelAtOrBelow(undefined, block.props.levels, student?.level)
-                                : isLevelExactMatch(block.props.levels, student?.level)
+                                : isLevelExactMatch(undefined, block.props.levels, student?.level)
                             const dropdownSemesters = block.props.semesters || [1, 2]
                             const canBypassSemester = previousYearDropdownEditable && hasOnlyOlderLevels(block.props.levels, student?.level)
-                            const canEditSem1WhileActiveSem2 = previousYearDropdownEditable &&
+                            const canEditSem1WhileActiveSem2 = (previousYearDropdownEditable || polyvalentExceptionEnabled) &&
                                 activeSemester === 2 &&
                                 dropdownSemesters.includes(1) &&
                                 !dropdownSemesters.includes(2)
@@ -522,9 +522,6 @@ export default function TeacherTemplateEditor() {
 
             const nextMap = buildLanguageCompletionMap(r.data)
             setLanguageCompletion(nextMap)
-            if (completionLanguages.length === 0 && targetLanguages.length > 0) {
-                setCompletionLanguages(targetLanguages.map(normalizeLanguageCode).filter(Boolean))
-            }
 
             const nextSem1 = areAllLanguagesCompleted(1, nextMap, targetLanguages)
             const nextSem2 = areAllLanguagesCompleted(2, nextMap, targetLanguages)
@@ -886,7 +883,7 @@ export default function TeacherTemplateEditor() {
                                                     borderRadius: 6,
                                                     border: '1px solid #e2e8f0',
                                                     background: disabled ? '#f1f5f9' : (allCompleted ? '#dcfce7' : '#fff'),
-                                                    color: disabled ? '#94a3b8' : (allCompleted ? '#166534' : '#0f172a'),
+                                                    color: disabled ? '#94a3b8' : (allCompleted ? '#0f172a' : '#0f172a'),
                                                     cursor: disabled ? 'not-allowed' : 'pointer',
                                                     fontWeight: 600,
                                                     boxShadow: disabled ? 'none' : '0 1px 2px rgba(0,0,0,0.05)',
@@ -1233,8 +1230,10 @@ export default function TeacherTemplateEditor() {
                                                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: b.props.spacing || 12 }}>
                                                         {(b.props.items || []).map((it: any, i: number) => {
                                                             // Check level and language
-                                                            // Allow editing if item's level is at or below student's current level
-                                                            const isLevelAllowed = isLevelAtOrBelow(undefined, it.levels, student?.level);
+                                                            // Exact-level by default; if exception is on, allow at-or-below
+                                                            const isLevelAllowed = canEditOlderLevels
+                                                                ? isLevelAtOrBelow(undefined, it.levels, student?.level)
+                                                                : isLevelExactMatch(undefined, it.levels, student?.level);
                                                             const isLanguageAllowed = (() => {
                                                                 const code = it.code
                                                                 if (isProfPolyvalent) {
@@ -1292,54 +1291,27 @@ export default function TeacherTemplateEditor() {
                                                         boxSizing: 'border-box'
                                                     }}>
                                                         {(b.props.items || []).map((it: any, i: number) => {
-                                                            // Check level and language
-                                                            // Allow editing if item's level is at or below student's current level
-                                                            const isLevelAllowed = isLevelAtOrBelow(undefined, it.levels, student?.level);
+                                                            const isLevelAllowed = canEditOlderLevels
+                                                                ? isLevelAtOrBelow(undefined, it.levels, student?.level)
+                                                                : isLevelExactMatch(undefined, it.levels, student?.level)
                                                             const isLanguageAllowed = (() => {
                                                                 const code = it.code
                                                                 if (isProfPolyvalent) {
                                                                     return code === 'fr'
                                                                 }
                                                                 return allowedLanguages.length === 0 || (code && allowedLanguages.includes(code))
-                                                            })();
-                                                            const isAllowed = isLevelAllowed && isLanguageAllowed;
+                                                            })()
+                                                            const isAllowed = isLevelAllowed && isLanguageAllowed
                                                             const isLanguageDone = isLanguageCompletedForSemester(activeSemester, it.code)
                                                             const canToggle = canEditActive && isAllowed && !isLanguageDone
+                                                            const size = b.props.size || 24
 
-                                                            const size = 40
-                                                            const getEmoji = (item: any) => {
-                                                                const e = item.emoji
-                                                                if (e && e.length >= 2) return e
-                                                                const c = (item.code || '').toLowerCase()
-                                                                if (c === 'lb' || c === 'ar') return '🇱🇧'
-                                                                if (c === 'fr') return '🇫🇷'
-                                                                if (c === 'en' || c === 'uk' || c === 'gb') return '🇬🇧'
-                                                                return '🏳️'
-                                                            }
-                                                            const emoji = getEmoji(it)
-                                                            const appleEmojiUrl = `https://emojicdn.elk.sh/${emoji}?style=apple`
                                                             return (
-                                                                <div
+                                                                <button
                                                                     key={i}
-                                                                    title={it.label}
-                                                                    style={{
-                                                                        width: size,
-                                                                        height: size,
-                                                                        minWidth: size,
-                                                                        borderRadius: '50%',
-                                                                        background: it.active ? '#fff' : 'rgba(255, 255, 255, 0.5)',
-                                                                        border: it.active ? '2px solid #2563eb' : '0.25px solid #fff',
-                                                                        display: 'flex',
-                                                                        alignItems: 'center',
-                                                                        justifyContent: 'center',
-                                                                        cursor: canToggle ? 'pointer' : 'not-allowed',
-                                                                        boxShadow: it.active ? '0 0 0 2px rgba(37, 99, 235, 0.2)' : 'none',
-                                                                        transition: 'all 0.2s ease',
-                                                                        transform: it.active ? 'scale(1.1)' : 'scale(1)',
-                                                                        opacity: canToggle ? (it.active ? 1 : 0.6) : (it.active ? 0.9 : 0.4),
-                                                                        pointerEvents: canToggle ? 'auto' : 'none',
-                                                                        filter: 'none'
-                                                                    }}
+                                                                    type="button"
+                                                                    title={isAllowed ? it.label : `${it.label || it.code}${it?.levels?.length ? ` (niveau ${it.levels.join(', ')} ≠ ${student?.level || ''})` : ''}`}
+                                                                    disabled={!canToggle}
                                                                     onClick={(e) => {
                                                                         e.stopPropagation()
                                                                         if (!canToggle) return
@@ -1347,17 +1319,23 @@ export default function TeacherTemplateEditor() {
                                                                         newItems[i] = { ...newItems[i], active: !newItems[i].active }
                                                                         updateLanguageToggle(actualPageIndex, idx, newItems)
                                                                     }}
-                                                                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.2)'}
-                                                                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)'}
+                                                                    style={{
+                                                                        width: size,
+                                                                        height: size,
+                                                                        borderRadius: '50%',
+                                                                        border: it.active ? '2px solid #6c5ce7' : '1px solid #cbd5e1',
+                                                                        background: it.active ? '#fff' : '#f8fafc',
+                                                                        opacity: canToggle ? 1 : 0.5,
+                                                                        cursor: canToggle ? 'pointer' : 'not-allowed',
+                                                                        display: 'flex',
+                                                                        alignItems: 'center',
+                                                                        justifyContent: 'center',
+                                                                        padding: 0,
+                                                                        overflow: 'hidden'
+                                                                    }}
                                                                 >
-                                                                    {emoji ? (
-                                                                        <img src={appleEmojiUrl} style={{ width: size * 0.9, height: size * 0.9, objectFit: 'contain' }} alt="" />
-                                                                    ) : it.logo ? (
-                                                                        <img src={fixUrl(it.logo)} style={{ width: size * 0.9, height: size * 0.9, objectFit: 'contain' }} alt="" />
-                                                                    ) : (
-                                                                        <span style={{ fontSize: 20, lineHeight: 1 }}>{getEmoji(it)}</span>
-                                                                    )}
-                                                                </div>
+                                                                    {it.logo ? <img src={fixUrl(it.logo)} style={{ width: '100%', height: '100%', objectFit: 'cover', filter: it.active ? 'brightness(1.1)' : 'brightness(0.6)' }} alt="" /> : (it.emoji || it.label || it.code)}
+                                                                </button>
                                                             )
                                                         })}
                                                     </div>
@@ -1395,13 +1373,14 @@ export default function TeacherTemplateEditor() {
                                                 {b.type === 'dropdown' && (() => {
                                                     const isLevelAllowed = ((previousYearDropdownEditable && checkScope(previousYearDropdownEditableScope, { level: student?.level, classId: assignment?.classId })) || (polyvalentExceptionEnabled && checkScope(polyvalentExceptionScope, { level: student?.level, classId: assignment?.classId })))
                                                         ? isLevelAtOrBelow(undefined, b.props.levels, student?.level)
-                                                        : isLevelExactMatch(b.props.levels, student?.level)
+                                                        : isLevelExactMatch(undefined, b.props.levels, student?.level)
                                                     const dropdownSemesters = b.props.semesters || [1, 2]
                                                     const canBypassSemester = ((previousYearDropdownEditable && checkScope(previousYearDropdownEditableScope, { level: student?.level, classId: assignment?.classId })) || (polyvalentExceptionEnabled && checkScope(polyvalentExceptionScope, { level: student?.level, classId: assignment?.classId }))) && hasOnlyOlderLevels(b.props.levels, student?.level)
-                                                    const canEditSem1WhileActiveSem2 = ((previousYearDropdownEditable && checkScope(previousYearDropdownEditableScope, { level: student?.level, classId: assignment?.classId })) || (polyvalentExceptionEnabled && checkScope(polyvalentExceptionScope, { level: student?.level, classId: assignment?.classId }))) &&
+                                                    const canEditSem1WhileActiveSem2 = (((previousYearDropdownEditable && checkScope(previousYearDropdownEditableScope, { level: student?.level, classId: assignment?.classId })) || (polyvalentExceptionEnabled && checkScope(polyvalentExceptionScope, { level: student?.level, classId: assignment?.classId }))) &&
                                                         activeSemester === 2 &&
                                                         dropdownSemesters.includes(1) &&
                                                         !dropdownSemesters.includes(2)
+                                                    )
                                                     const isSemesterAllowed = canBypassSemester || canEditSem1WhileActiveSem2 || dropdownSemesters.includes(activeSemester)
                                                     const isDropdownAllowed = isLevelAllowed && isSemesterAllowed
                                                     const canEditDropdown = canEditActive && (isProfPolyvalent || isTeacherQualifiedForException) && isDropdownAllowed
@@ -1629,7 +1608,7 @@ export default function TeacherTemplateEditor() {
                                                                             borderLeft: bl?.width ? `${bl.width}px solid ${bl.color || '#000'}` : 'none',
                                                                             borderRight: br?.width ? `${br.width}px solid ${br.color || '#000'}` : 'none',
                                                                             borderTop: bt?.width ? `${bt.width}px solid ${bt.color || '#000'}` : 'none',
-                                                                            borderBottom: bb?.width ? `${bb.width}px solid ${bb.color || '#000'}` : 'none',
+                                                                            borderBottom: 'none',
                                                                             padding: 15,
                                                                             boxSizing: 'border-box',
                                                                             borderTopLeftRadius: (isFirstCol && (treatAsCards || isFirstRow)) ? radius : 0,
@@ -1736,8 +1715,10 @@ export default function TeacherTemplateEditor() {
                                                                                             return currentItems.map((lang: any, li: number) => {
                                                                                                 // Allow editing if item's level is at or below student's current level
                                                                                                 // (e.g. MS student can edit PS toggles)
-                                                                                                const isLevelAllowed = isLevelAtOrBelow(lang.level, lang.levels, student?.level);
-
+                                                                                                const isLevelAllowed = canEditOlderLevels
+                                                                                                    ? isLevelAtOrBelow(lang.level, lang.levels, student?.level)
+                                                                                                    : isLevelExactMatch(lang.level, lang.levels, student?.level);
+                                                                
                                                                                                 const isLanguageAllowed = (() => {
                                                                                                     if (polyvalentExceptionEnabled && checkScope(polyvalentExceptionScope, { level: student?.level, classId: assignment?.classId })) return true
                                                                                                     const code = lang.code
