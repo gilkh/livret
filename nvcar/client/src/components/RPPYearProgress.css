@@ -82,21 +82,59 @@
     border-radius: 12px;
     border: 1px solid #e2e8f0;
     padding: 12px;
+    transition: all 0.2s ease;
+}
+
+.rpp-level-item:hover {
+    border-color: #cbd5e1;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
 }
 
 .rpp-level-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    margin-bottom: 0;
+    padding-bottom: 0;
+    border-bottom: none;
+    cursor: pointer;
+    user-select: none;
+}
+
+.rpp-level-item.expanded .rpp-level-header {
     margin-bottom: 12px;
-    padding-bottom: 8px;
+    padding-bottom: 12px;
     border-bottom: 1px solid #f1f5f9;
 }
 
+.level-name-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.level-name-wrap .chevron {
+    color: #94a3b8;
+    transition: transform 0.2s ease;
+}
+
 .level-name {
-    font-size: 13px;
-    font-weight: 800;
-    color: #0f172a;
+    font-size: 14px;
+    font-weight: 700;
+    color: #1e293b;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.level-count {
+    font-size: 12px;
+    color: #64748b;
+    font-weight: 500;
+    background: #f8fafc;
+    padding: 2px 8px;
+    border-radius: 12px;
+    border: 1px solid #e2e8f0;
 }
 
 .level-stats {

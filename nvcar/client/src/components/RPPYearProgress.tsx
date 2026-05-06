@@ -112,15 +112,17 @@ const RPPYearProgress: React.FC<RPPYearProgressProps> = ({ pending }) => {
                     const lData = levelsMap[level];
                     const s1Pct = getPercentage(lData.s1Count, lData.total);
                     const s2Pct = getPercentage(lData.s2Count, lData.total);
+                    const isExpanded = expandedLevels[level] ?? true; // default expanded
 
                     return (
-                        <div key={level} className="rpp-level-item">
-                            <div className="rpp-level-header">
-                                <div className="level-name">
-                                    <span>{level}</span>
-                                    <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 500, marginLeft: 6 }}>
-                                        {lData.total} élèves
-                                    </span>
+                        <div key={level} className={`rpp-level-item ${isExpanded ? 'expanded' : ''}`}>
+                            <div className="rpp-level-header" onClick={() => toggleLevel(level)}>
+                                <div className="level-name-wrap">
+                                    {isExpanded ? <ChevronDown size={16} className="chevron" /> : <ChevronRight size={16} className="chevron" />}
+                                    <div className="level-name">
+                                        <span>{level}</span>
+                                        <span className="level-count">{lData.total} élèves</span>
+                                    </div>
                                 </div>
                                 <div className="level-stats">
                                     <div className="level-pct-badge s1">
@@ -132,8 +134,9 @@ const RPPYearProgress: React.FC<RPPYearProgressProps> = ({ pending }) => {
                                 </div>
                             </div>
 
+                            {isExpanded && (
                                 <div className="rpp-class-list">
-                                {Object.keys(lData.classes).sort().map(className => {
+                                    {Object.keys(lData.classes).sort().map(className => {
                                     const cData = lData.classes[className];
                                     const cs1Pct = getPercentage(cData.s1Count, cData.total);
                                     const cs2Pct = getPercentage(cData.s2Count, cData.total);
@@ -157,7 +160,8 @@ const RPPYearProgress: React.FC<RPPYearProgressProps> = ({ pending }) => {
                                         </div>
                                     );
                                 })}
-                            </div>
+                                </div>
+                            )}
                         </div>
                     );
                 })}
