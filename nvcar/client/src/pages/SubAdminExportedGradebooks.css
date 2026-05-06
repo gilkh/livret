@@ -1,5 +1,5 @@
 .exports-container {
-  padding: 16px 16px 24px;
+  padding: 8px;
   max-width: 100%;
   margin: 0 auto;
   color: #0f172a;
@@ -38,6 +38,7 @@
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.03), 0 1px 3px rgba(0, 0, 0, 0.05);
   border-radius: 24px;
   overflow: hidden;
+  padding: 0 !important;
   transition: transform 0.3s ease, box-shadow 0.3s ease;
 }
 
@@ -46,7 +47,7 @@
 }
 
 .card-header {
-  padding: 1px 1px;
+  padding: 10px 15px !important;
   background: rgba(248, 250, 252, 0.8);
   border-bottom: 1px solid rgba(226, 232, 240, 0.6);
   display: flex;
@@ -72,7 +73,7 @@
 .batch-list {
   max-height: 75vh;
   overflow-y: auto;
-  padding: 8px;
+  padding: 4px;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -491,7 +492,7 @@
 .exports-workspace-grid {
   display: grid;
   grid-template-columns: 240px minmax(0, 1fr) 220px 280px;
-  gap: 12px;
+  gap: 8px;
   height: calc(100vh - 160px);
   min-height: 600px;
 }
@@ -666,7 +667,7 @@
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   gap: 12px;
-  padding: 12px;
+  padding: 6px !important;
 }
 
 .file-card {
@@ -817,7 +818,7 @@
 
 /* Config Pane */
 .config-pane {
-  padding: 0 12px 12px;
+  padding: 8px !important;
   display: flex;
   flex-direction: column;
   gap: 20px;
@@ -991,7 +992,7 @@
 
 /* History Pane */
 .history-pane {
-  padding: 0 12px 12px;
+  padding: 0 8px 8px;
 }
 
 .history-item {
@@ -1161,6 +1162,7 @@
 /* Library Tree Styling */
 .library-tree {
   user-select: none;
+  padding: 0 !important;
 }
 
 .tree-node {
@@ -1171,7 +1173,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 16px;
+  padding: 8px 12px;
   cursor: pointer;
   transition: all 0.2s ease;
   border-left: 3px solid transparent;
@@ -1272,7 +1274,7 @@
 .year-selector {
   display: flex;
   gap: 6px;
-  padding: 12px 16px;
+  padding: 8px 12px !important;
   background: rgba(248, 250, 252, 0.5);
   border-bottom: 1px solid #e2e8f0;
   overflow-x: auto;
@@ -1784,7 +1786,7 @@
 }
 
 .selection-panel .panel-header {
-  padding: 12px 16px;
+  padding: 10px 15px !important;
   background: rgba(248, 250, 252, 0.8);
   border-bottom: 1px solid rgba(226, 232, 240, 0.6);
   display: flex;
@@ -1831,7 +1833,7 @@
 }
 
 .selection-list {
-  padding: 12px;
+  padding: 6px !important;
   display: flex;
   flex-direction: column;
   gap: 8px;

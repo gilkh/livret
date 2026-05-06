@@ -297,7 +297,8 @@ export default function SubAdminExportedGradebooks() {
   // Calculate available emails for current selection
   const emailStats = (() => {
     let p = 0, m = 0, e = 0
-    allFilesForLot.forEach(f => {
+    const selectedFiles = allFilesForLot.filter(f => selectedFileIds.includes(f._id))
+    selectedFiles.forEach(f => {
       if (f.emails?.father) p++
       if (f.emails?.mother) m++
       if (f.emails?.student) e++
