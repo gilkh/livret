@@ -1,11 +1,19 @@
 import { Schema, model, Document, Types } from 'mongoose'
 
+export interface IRecipientStatus {
+  email: string
+  type: 'father' | 'mother' | 'student' | 'override'
+  status: 'pending' | 'sent' | 'failed'
+  error?: string
+}
+
 export interface IEmailJobItem {
   fileId: string
   studentId: string
   studentName: string
   recipients: string[]
-  status: 'pending' | 'sent' | 'skipped' | 'failed'
+  recipientDetails?: IRecipientStatus[]
+  status: 'pending' | 'sent' | 'skipped' | 'failed' | 'partial'
   error?: string
 }
 
@@ -61,7 +69,13 @@ const emailJobSchema = new Schema<IEmailJob>({
     studentId: { type: String },
     studentName: { type: String },
     recipients: [{ type: String }],
-    status: { type: String, enum: ['pending', 'sent', 'skipped', 'failed'], default: 'pending' },
+    recipientDetails: [{
+      email: { type: String },
+      type: { type: String, enum: ['father', 'mother', 'student', 'override'] },
+      status: { type: String, enum: ['pending', 'sent', 'failed'], default: 'pending' },
+      error: { type: String }
+    }],
+    status: { type: String, enum: ['pending', 'sent', 'skipped', 'failed', 'partial'], default: 'pending' },
     error: { type: String }
   }],
   isTest: { type: Boolean, default: false },

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { FileDown, RefreshCcw, Mail, Eye, Archive, CheckCircle2, XCircle, AlertCircle, Send, CheckSquare, Square, FolderArchive, MailPlus, Trash2, Users, X } from 'lucide-react'
+import { FileDown, RefreshCcw, Mail, Eye, Archive, CheckCircle2, XCircle, AlertCircle, Send, CheckSquare, Square, FolderArchive, MailPlus, Trash2, Users, X, Download, Sparkles } from 'lucide-react'
 import api from '../api'
 import './SubAdminExportedGradebooks.css'
 
@@ -49,6 +49,13 @@ type EmailPreview = {
   }
 }
 
+type RecipientStatus = {
+  email: string
+  type: 'father' | 'mother' | 'student' | 'override'
+  status: 'pending' | 'sent' | 'failed'
+  error?: string
+}
+
 type EmailJob = {
   id: string
   status: 'queued' | 'running' | 'completed' | 'failed'
@@ -62,7 +69,8 @@ type EmailJob = {
     fileId: string
     studentName: string
     recipients: string[]
-    status: 'pending' | 'sent' | 'skipped' | 'failed'
+    recipientDetails?: RecipientStatus[]
+    status: 'pending' | 'sent' | 'skipped' | 'failed' | 'partial'
     error?: string
   }>
   creatorName?: string
@@ -103,6 +111,7 @@ export default function SubAdminExportedGradebooks() {
 
   const [showConfirmModal, setShowConfirmModal] = useState(false)
   const [confirmStep, setConfirmStep] = useState(1)
+  const [exportQualityChoice, setExportQualityChoice] = useState<{ callback: (hq: boolean) => void, available: { sd: boolean, hd: boolean } } | null>(null)
   const [selectedGroupKey, setSelectedGroupKey] = useState('')
   const [activeFileForTest, setActiveFileForTest] = useState<string | null>(null)
   const [testEmailValue, setTestEmailValue] = useState('')
@@ -329,7 +338,12 @@ export default function SubAdminExportedGradebooks() {
       try {
         const response = await api.get(`/gradebook-exports/email-jobs/${jobId}`)
         setEmailJob(response.data)
-        if (response.data?.status === 'completed' || response.data?.status === 'failed') window.clearInterval(intervalId)
+        if (response.data?.status === 'completed' || response.data?.status === 'failed') {
+          window.clearInterval(intervalId)
+          loadJobHistory(selectedContext 
+            ? libraryTree[selectedContext.level]?.[selectedContext.className]?.[selectedContext.semester]?.batches[0]?._id
+            : selectedLot?.batches[0]?._id)
+        }
       } catch { window.clearInterval(intervalId) }
     }, 1000)
     return () => window.clearInterval(intervalId)
@@ -365,14 +379,51 @@ export default function SubAdminExportedGradebooks() {
     } finally { setPreviewLoading(false) }
   }
 
-  const sendEmails = async () => {
+  const sendEmails = async (forcedQuality?: 'high' | 'compressed') => {
     if ((!selectedLot && !selectedContext) || selectedFileIds.length === 0) return
+    
+    // Always show quality choice modal if not already forced
+    if (!forcedQuality) {
+      const selectedAssignments = allFilesForLot.filter(f => selectedFileIds.includes(f._id))
+      const selectedAssignmentIds = new Set(selectedAssignments.map(f => f.assignmentId))
+      
+      const allPossibleFiles = batches.flatMap(b => b.files)
+      const relevantFiles = allPossibleFiles.filter(f => selectedAssignmentIds.has(f.assignmentId))
+      const availableQualities = new Set(relevantFiles.map(f => f.quality || 'high'))
+      
+      setExportQualityChoice({ 
+        callback: (hq) => sendEmails(hq ? 'high' : 'compressed'),
+        available: {
+          sd: availableQualities.has('compressed'),
+          hd: availableQualities.has('high')
+        }
+      })
+      return
+    }
+
     try {
       setSendLoading(true)
       setShowConfirmModal(false)
       
-      // Use the batch ID of the first file for the job association (legacy requirement)
-      const firstFileId = selectedFileIds[0]
+      let finalFileIds = selectedFileIds
+      if (forcedQuality) {
+        const selectedAssignments = allFilesForLot.filter(f => selectedFileIds.includes(f._id))
+        
+        // When quality is forced, we search across ALL batches for the correct quality version of these students
+        const allPossibleFilesWithBatch = batches.flatMap(b => b.files.map(f => ({ ...f, batchId: b._id })))
+        
+        finalFileIds = selectedAssignments.map(s => {
+          const match = allPossibleFilesWithBatch.find(f => 
+            f.assignmentId === s.assignmentId && 
+            f.version === s.version && 
+            (f.quality === forcedQuality || (!f.quality && forcedQuality === 'high'))
+          )
+          return match ? match._id : s._id
+        })
+      }
+      
+      // Use the batch ID of the first file for the job association
+      const firstFileId = finalFileIds[0]
       const firstFile = allFilesForLot.find(f => f._id === firstFileId)
       const bId = firstFile?.batchId || (selectedContext 
         ? libraryTree[selectedContext.level]?.[selectedContext.className]?.[selectedContext.semester]?.batches[0]?._id
@@ -381,7 +432,7 @@ export default function SubAdminExportedGradebooks() {
       if (!bId) throw new Error("Lot introuvable")
 
       const res = await api.post(`/gradebook-exports/batches/${bId}/send`, { 
-        selectedFileIds,
+        selectedFileIds: finalFileIds,
         includeFather,
         includeMother,
         includeStudent,
@@ -494,7 +545,7 @@ export default function SubAdminExportedGradebooks() {
         </div>
       )}
 
-      <div className="main-workspace-grid">
+      <div className="exports-workspace-grid">
         {/* COLUMN 1: NAVIGATION / LIBRARY */}
         <aside className="workspace-column sidebar">
           <div className="glass-card full-height flex-column">
@@ -804,7 +855,51 @@ export default function SubAdminExportedGradebooks() {
           </section>
         </main>
 
-        {/* COLUMN 3: ACTIONS & HISTORY */}
+        {/* COLUMN 3: SELECTED STUDENTS */}
+        <aside className="workspace-column selection-panel">
+          <div className="glass-card full-height flex-column">
+            <div className="panel-header">
+              <div className="title-row">
+                <CheckSquare size={16} color="#3b82f6" />
+                <h3>Sélection</h3>
+                {selectedFileIds.length > 0 && <span className="selection-count">{selectedFileIds.length}</span>}
+              </div>
+              {selectedFileIds.length > 0 && (
+                <button className="clear-all" onClick={() => setSelectedFileIds([])}>
+                  Vider
+                </button>
+              )}
+            </div>
+            
+            <div className="selection-list scrollable" style={{ flex: 1 }}>
+              {selectedFileIds.length === 0 ? (
+                <div className="empty-selection">
+                  <Square className="empty-icon" size={32} />
+                  <p>Aucun élève</p>
+                  <span>Cochez des élèves dans la liste pour les distribuer</span>
+                </div>
+              ) : (
+                selectedFileIds.map((id) => {
+                  const file = allFilesForLot.find(f => f._id === id);
+                  if (!file) return null;
+                  return (
+                    <div key={id} className="selected-item">
+                      <div className="item-info">
+                        <span className="item-name">{file.firstName} {file.lastName}</span>
+                        <span className="item-meta">{file.level} • {file.className}</span>
+                      </div>
+                      <button className="btn-delete-small" onClick={() => toggleFileSelection(id)}>
+                        <X size={14} />
+                      </button>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </aside>
+
+        {/* COLUMN 4: ACTIONS & HISTORY */}
         <aside className="workspace-column actions-panel">
           <div className="glass-card full-height flex-column">
             <div className="workspace-tabs">
@@ -876,7 +971,7 @@ export default function SubAdminExportedGradebooks() {
                     <button 
                       className="btn btn-primary" 
                       style={{ width: '100%' }} 
-                      onClick={() => { setConfirmStep(1); setShowConfirmModal(true); }} 
+                      onClick={() => sendEmails()} 
                       disabled={(!selectedLot && !selectedContext) || selectedFileIds.length === 0 || sendLoading}
                     >
                       <Send size={18} /> Lancer la distribution ({selectedFileIds.length})
@@ -888,8 +983,15 @@ export default function SubAdminExportedGradebooks() {
                   {emailJob && (
                     <div className="job-status-card" style={{ marginTop: 12 }}>
                       <div className="status-header">
-                        <span className="status-title">Progression</span>
-                        <span className={`status-tag ${emailJob.status}`}>{emailJob.status}</span>
+                        <span className="status-title">Distribution en cours</span>
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                          <span className={`status-tag ${emailJob.status}`}>{emailJob.status}</span>
+                          {emailJob.status === 'completed' && (
+                            <button className="btn-close-mini" onClick={() => setEmailJob(null)}>
+                              <X size={14} />
+                            </button>
+                          )}
+                        </div>
                       </div>
                       <div className="status-bar-wrapper">
                         <div 
@@ -908,15 +1010,22 @@ export default function SubAdminExportedGradebooks() {
                       
                       <div className="job-items-list mini scrollable">
                         {emailJob.items.map((item) => (
-                          <div key={item.fileId} className={`job-item-row ${item.status}`}>
-                            <span className="item-name" style={{ fontWeight: 600 }}>{item.studentName}</span>
-                            <span className="item-status" style={{ 
-                              color: item.status === 'sent' ? '#16a34a' : item.status === 'failed' ? '#dc2626' : '#64748b',
-                              fontSize: 10,
-                              fontWeight: 700
-                            }}>
-                              {item.status.toUpperCase()}
-                            </span>
+                          <div key={item.fileId} className={`job-item-row-granular ${item.status}`}>
+                            <div className="job-item-main">
+                              <span className="item-name">{item.studentName}</span>
+                              <span className={`item-status-tag ${item.status}`}>{item.status.toUpperCase()}</span>
+                            </div>
+                            {item.recipientDetails && item.recipientDetails.length > 0 && (
+                              <div className="recipient-progress-list">
+                                {item.recipientDetails.map((rd, idx) => (
+                                  <div key={idx} className={`recipient-progress-item ${rd.status}`}>
+                                    <span className="rd-type">{rd.type === 'father' ? 'Père' : rd.type === 'mother' ? 'Mère' : rd.type === 'student' ? 'Élève' : 'Test'}</span>
+                                    <span className="rd-status">{rd.status === 'sent' ? 'Succès' : rd.status === 'failed' ? 'Échec' : 'Envoi...'}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            {item.error && !item.recipientDetails?.length && <div className="item-error-msg">{item.error}</div>}
                           </div>
                         ))}
                       </div>
@@ -978,20 +1087,33 @@ export default function SubAdminExportedGradebooks() {
 
                       <div className="job-items-list mini scrollable" style={{ maxHeight: 400 }}>
                         {emailJob.items.map((item) => (
-                          <div key={item.fileId} className={`job-item-row ${item.status}`} style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: '10px 12px' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div key={item.fileId} className={`job-item-row-granular history ${item.status}`}>
+                            <div className="job-item-main">
                               <span className="item-name" style={{ fontWeight: 700, fontSize: 13 }}>{item.studentName}</span>
-                              <span className="item-status" style={{ 
-                                color: item.status === 'sent' ? '#16a34a' : item.status === 'failed' ? '#dc2626' : '#64748b',
-                                fontSize: 10, fontWeight: 800
-                              }}>
-                                {item.status.toUpperCase()}
-                              </span>
+                              <span className={`item-status-tag ${item.status}`} style={{ fontSize: 10 }}>{item.status.toUpperCase()}</span>
                             </div>
-                            <div style={{ fontSize: 11, color: '#64748b', display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                              <Mail size={12} /> {item.recipients && item.recipients.length > 0 ? item.recipients.join(', ') : 'Aucun destinataire'}
-                            </div>
-                            {item.error && <div style={{ fontSize: 10, color: '#dc2626', marginTop: 2 }}>Erreur: {item.error}</div>}
+                            
+                            {item.recipientDetails && item.recipientDetails.length > 0 ? (
+                              <div className="recipient-details-grid">
+                                {item.recipientDetails.map((rd, idx) => (
+                                  <div key={idx} className={`recipient-detail-card ${rd.status}`}>
+                                    <div className="rd-header">
+                                      <span className="rd-type-label">{rd.type === 'father' ? 'Père' : rd.type === 'mother' ? 'Mère' : rd.type === 'student' ? 'Élève' : 'Test'}</span>
+                                      <span className="rd-status-icon">{rd.status === 'sent' ? <CheckCircle2 size={10} /> : <XCircle size={10} />}</span>
+                                    </div>
+                                    <div className="rd-email">{rd.email}</div>
+                                    {rd.error && <div className="rd-error">{rd.error}</div>}
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <>
+                                <div style={{ fontSize: 11, color: '#64748b', display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 4 }}>
+                                  <Mail size={12} /> {item.recipients && item.recipients.length > 0 ? item.recipients.join(', ') : 'Aucun destinataire'}
+                                </div>
+                                {item.error && <div style={{ fontSize: 10, color: '#dc2626', marginTop: 2 }}>Erreur: {item.error}</div>}
+                              </>
+                            )}
                           </div>
                         ))}
                       </div>
@@ -1057,7 +1179,7 @@ export default function SubAdminExportedGradebooks() {
               <button className="btn secondary" onClick={() => setShowPreviewModal(false)}>Fermer</button>
               <button 
                 className="btn btn-primary" 
-                onClick={() => { setShowPreviewModal(false); setConfirmStep(1); setShowConfirmModal(true); }}
+                onClick={() => { setShowPreviewModal(false); sendEmails(); }}
               >
                 Tout semble correct, continuer
               </button>
@@ -1066,74 +1188,115 @@ export default function SubAdminExportedGradebooks() {
         </div>
       )}
 
-      {/* Two-step Confirmation Modal */}
-      {showConfirmModal && (
-        <div 
+      {/* Quality choice modal */}
+      {exportQualityChoice && (
+        <div
           style={{
-            position: 'fixed', inset: 0, zIndex: 10000, 
-            background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
+            position: 'fixed', inset: 0, zIndex: 10000,
+            background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)',
             display: 'flex', alignItems: 'center', justifyContent: 'center'
           }}
-          onClick={() => setShowConfirmModal(false)}
+          onClick={() => setExportQualityChoice(null)}
         >
-          <div 
+          <div
             style={{
-              background: 'white', borderRadius: 20, padding: 32, width: '90%', maxWidth: 440,
-              boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', border: '1px solid #e2e8f0'
+              background: 'white', borderRadius: 16, padding: '28px 32px',
+              boxShadow: '0 20px 60px rgba(0,0,0,0.25)', maxWidth: 420, width: '90%'
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
-              <div style={{ 
-                width: 48, height: 48, borderRadius: 12, background: '#fef2f2', 
-                display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#dc2626' 
-              }}>
-                <AlertCircle size={28} />
-              </div>
-              <div>
-                <h3 style={{ margin: 0, fontSize: 18, color: '#1e293b' }}>Confirmation requise</h3>
-                <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>Étape {confirmStep} sur 2</p>
-              </div>
+            <h3 style={{ margin: '0 0 6px', fontSize: 18, color: '#1e293b' }}>
+              Qualité de la distribution
+            </h3>
+            <p style={{ margin: '0 0 10px', fontSize: 14, color: '#64748b', lineHeight: 1.5 }}>
+              Vous êtes sur le point de lancer l'envoi de <strong>{selectedFileIds.length} carnets</strong> scolaires par email. <br/>
+              Choisissez la qualité des carnets PDF à envoyer. 
+            </p>
+            <div style={{ background: '#fffbeb', border: '1px solid #fef3c7', borderRadius: 12, padding: 12, marginBottom: 20 }}>
+              <p style={{ margin: 0, fontSize: 13, color: '#b45309', fontWeight: 600 }}>Action irréversible : les emails seront envoyés immédiatement.</p>
             </div>
-
-            {confirmStep === 1 ? (
-              <>
-                <p style={{ margin: '0 0 24px', fontSize: 15, color: '#475569', lineHeight: 1.6 }}>
-                  Vous êtes sur le point de lancer l'envoi de <strong>{selectedFileIds.length} carnets</strong> scolaires par email.
-                </p>
-                <div style={{ display: 'flex', gap: 12 }}>
-                  <button className="btn secondary" style={{ flex: 1 }} onClick={() => setShowConfirmModal(false)}>
-                    Annuler
-                  </button>
-                  <button className="btn btn-shiny" style={{ flex: 2 }} onClick={() => setConfirmStep(2)}>
-                    Continuer
-                  </button>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <button
+                disabled={!exportQualityChoice.available.sd}
+                onClick={() => {
+                  const cb = exportQualityChoice.callback
+                  setExportQualityChoice(null)
+                  cb(false)
+                }}
+                className={`quality-btn ${!exportQualityChoice.available.sd ? 'disabled' : ''}`}
+                style={{
+                  padding: '14px 18px', borderRadius: 12,
+                  border: '2px solid #e2e8f0', background: '#f8fafc',
+                  cursor: exportQualityChoice.available.sd ? 'pointer' : 'not-allowed', 
+                  textAlign: 'left',
+                  display: 'flex', alignItems: 'center', gap: 14,
+                  transition: 'all 0.15s',
+                  opacity: exportQualityChoice.available.sd ? 1 : 0.5,
+                  filter: exportQualityChoice.available.sd ? 'none' : 'grayscale(1)'
+                }}
+              >
+                <div style={{ background: '#dbeafe', padding: 8, borderRadius: 10 }}>
+                  <Download size={22} style={{ color: '#3b82f6', display: 'block' }} />
                 </div>
-              </>
-            ) : (
-              <>
-                <div style={{ background: '#fffbeb', border: '1px solid #fef3c7', borderRadius: 12, padding: 16, marginBottom: 24 }}>
-                  <p style={{ margin: 0, fontSize: 14, color: '#92400e', fontWeight: 600 }}>
-                    ⚠️ Action irréversible
-                  </p>
-                  <p style={{ margin: '4px 0 0', fontSize: 13, color: '#b45309' }}>
-                    Une fois lancé, les emails seront envoyés directement aux parents et élèves sélectionnés.
-                  </p>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 15, color: '#1e293b' }}>
+                    Compressé (SD)
+                    {!exportQualityChoice.available.sd && <span style={{ fontSize: 10, color: '#dc2626', marginLeft: 8 }}>(Non exporté)</span>}
+                    {exportQualityChoice.available.sd && <span style={{ fontWeight: 500, fontSize: 12, color: '#94a3b8', marginLeft: 8 }}>— Recommandé</span>}
+                  </div>
+                  <div style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>
+                    Fichiers légers, envoi plus rapide et fiable
+                  </div>
                 </div>
-                <div style={{ display: 'flex', gap: 12 }}>
-                  <button className="btn secondary" style={{ flex: 1 }} onClick={() => setConfirmStep(1)}>
-                    Retour
-                  </button>
-                  <button className="btn btn-shiny" style={{ flex: 2, background: '#dc2626' }} onClick={sendEmails}>
-                    Confirmer l'envoi
-                  </button>
+              </button>
+              <button
+                disabled={!exportQualityChoice.available.hd}
+                onClick={() => {
+                  const cb = exportQualityChoice.callback
+                  setExportQualityChoice(null)
+                  cb(true)
+                }}
+                className={`quality-btn ${!exportQualityChoice.available.hd ? 'disabled' : ''}`}
+                style={{
+                  padding: '14px 18px', borderRadius: 12,
+                  border: '2px solid #e2e8f0', background: '#f8fafc',
+                  cursor: exportQualityChoice.available.hd ? 'pointer' : 'not-allowed', 
+                  textAlign: 'left',
+                  display: 'flex', alignItems: 'center', gap: 14,
+                  transition: 'all 0.15s',
+                  opacity: exportQualityChoice.available.hd ? 1 : 0.5,
+                  filter: exportQualityChoice.available.hd ? 'none' : 'grayscale(1)'
+                }}
+              >
+                <div style={{ background: '#f5f3ff', padding: 8, borderRadius: 10 }}>
+                  <Sparkles size={22} style={{ color: '#8b5cf6', display: 'block' }} />
                 </div>
-              </>
-            )}
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 15, color: '#1e293b' }}>
+                    Haute Qualité (HD)
+                    {!exportQualityChoice.available.hd && <span style={{ fontSize: 10, color: '#dc2626', marginLeft: 8 }}>(Non exporté)</span>}
+                  </div>
+                  <div style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>
+                    Qualité maximale sans compression
+                  </div>
+                </div>
+              </button>
+            </div>
+            <button
+              onClick={() => setExportQualityChoice(null)}
+              style={{
+                marginTop: 16, width: '100%', padding: '10px',
+                borderRadius: 10, border: '1px solid #e2e8f0',
+                background: 'transparent', color: '#94a3b8',
+                cursor: 'pointer', fontSize: 14, fontWeight: 500
+              }}
+            >
+              Annuler
+            </button>
           </div>
         </div>
       )}
-
     </div>
   )
 }
+

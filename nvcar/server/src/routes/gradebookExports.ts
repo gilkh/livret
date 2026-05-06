@@ -59,16 +59,17 @@ const getOwnedBatch = async (req: any, batchId: string) => {
   return batch
 }
 
-const buildRecipients = (file: any, options: EmailJobOptions) => {
-  const recipients: string[] = []
-  const pushIfValid = (raw: unknown) => {
+const buildRecipientsWithTypes = (file: any, options: EmailJobOptions) => {
+  const recipients: Array<{ email: string, type: 'father' | 'mother' | 'student' }> = []
+  const pushIfValid = (raw: unknown, type: 'father' | 'mother' | 'student') => {
     const normalized = normalizeEmail(raw)
-    if (!normalized || !isValidEmail(normalized) || recipients.includes(normalized)) return
-    recipients.push(normalized)
+    if (!normalized || !isValidEmail(normalized)) return
+    // We allow duplicates here so they all show up in the history/status grid
+    recipients.push({ email: normalized, type })
   }
-  if (options.includeFather) pushIfValid(file?.emails?.father)
-  if (options.includeMother) pushIfValid(file?.emails?.mother)
-  if (options.includeStudent) pushIfValid(file?.emails?.student)
+  if (options.includeFather) pushIfValid(file?.emails?.father, 'father')
+  if (options.includeMother) pushIfValid(file?.emails?.mother, 'mother')
+  if (options.includeStudent) pushIfValid(file?.emails?.student, 'student')
   return recipients
 }
 
@@ -192,13 +193,16 @@ const buildEmailContent = async (batch: any, file: any, options: EmailJobOptions
   ]
   if (extraMessage) textLines.push('', extraMessage)
 
+  const recipientsWithTypes = buildRecipientsWithTypes(file, options)
+
   return {
     subject: finalSubject,
     html: finalHtml,
     text: textLines.join('\n'),
     fromName: senderName,
     fromEmail: String(settingsMap.smtp_from_email || '').trim(),
-    recipients: buildRecipients(file, options)
+    recipients: recipientsWithTypes.map(r => r.email),
+    recipientsWithTypes
   }
 }
 
@@ -210,43 +214,78 @@ async function runEmailJob(jobId: string, batch: any, files: any[], options: Ema
     const smtpSettings = await getSmtpSettings()
 
     for (const file of files) {
+      const emailContent = await buildEmailContent(batch, file, options)
+      let recipientsToProcess = emailContent.recipientsWithTypes.map(r => ({ ...r }))
+      
+      if (options.testEmailOverride) {
+        recipientsToProcess = [{ email: options.testEmailOverride, type: 'override' as any }]
+      }
+
       const item: any = {
         fileId: file._id,
         studentName: `${file.firstName} ${file.lastName}`,
-        recipients: [],
+        recipients: recipientsToProcess.map(r => r.email),
+        recipientDetails: [],
         status: 'pending'
       }
 
       try {
-        const emailContent = await buildEmailContent(batch, file, options)
-
-        let recipients = emailContent.recipients
-        if (options.testEmailOverride) {
-          recipients = [options.testEmailOverride]
-        }
-
-        item.recipients = recipients
-
-        if (recipients.length === 0) {
+        if (recipientsToProcess.length === 0) {
           item.status = 'skipped'
           item.error = 'Aucun destinataire valide trouvé'
         } else {
           const absolutePath = resolveGradebookExportPath(file.relativePath)
-          
-          await transporter.sendMail({
-            from: emailContent.fromEmail ? `"${emailContent.fromName}" <${emailContent.fromEmail}>` : smtpSettings.user,
-            to: recipients.join(', '),
-            subject: options.testEmailOverride ? `[TEST] ${emailContent.subject}` : emailContent.subject,
-            text: emailContent.text,
-            html: emailContent.html,
-            attachments: [
-              {
-                filename: file.fileName,
-                path: absolutePath
-              }
-            ]
-          })
-          item.status = 'sent'
+          let sentCount = 0
+          let failedCount = 0
+          const sentEmailsForThisFile = new Set<string>()
+
+          for (const rec of recipientsToProcess) {
+            const detail: any = {
+              email: rec.email,
+              type: rec.type,
+              status: 'pending'
+            }
+
+            if (sentEmailsForThisFile.has(rec.email)) {
+              detail.status = 'sent'
+              sentCount++
+              item.recipientDetails.push(detail)
+              continue
+            }
+
+            try {
+              await transporter.sendMail({
+                from: emailContent.fromEmail ? `"${emailContent.fromName}" <${emailContent.fromEmail}>` : smtpSettings.user,
+                to: rec.email,
+                subject: options.testEmailOverride ? `[TEST] ${emailContent.subject}` : emailContent.subject,
+                text: emailContent.text,
+                html: emailContent.html,
+                attachments: [
+                  {
+                    filename: file.fileName,
+                    path: absolutePath
+                  }
+                ]
+              })
+              detail.status = 'sent'
+              sentCount++
+              sentEmailsForThisFile.add(rec.email)
+            } catch (mailErr: any) {
+              detail.status = 'failed'
+              detail.error = mailErr.message
+              failedCount++
+            }
+            item.recipientDetails.push(detail)
+          }
+
+          if (sentCount === recipientsToProcess.length) {
+            item.status = 'sent'
+          } else if (sentCount > 0) {
+            item.status = 'partial'
+          } else {
+            item.status = 'failed'
+            item.error = 'Tous les envois ont échoué'
+          }
         }
       } catch (err: any) {
         item.status = 'failed'
@@ -412,15 +451,23 @@ gradebookExportsRouter.post('/batches/:batchId/email-preview', requireAuth(['ADM
       selectedFileIds: Array.isArray(req.body?.selectedFileIds) ? req.body.selectedFileIds.map((id: unknown) => String(id)) : []
     }
 
-    const selectedFiles = (options.selectedFileIds && options.selectedFileIds.length > 0
-      ? batch.files.filter((file: any) => options.selectedFileIds!.includes(String(file._id)))
-      : batch.files)
+    let selectedFiles = []
+    if (options.selectedFileIds && options.selectedFileIds.length > 0) {
+      const isAdmin = isAdminRole(String((req as any).user?.role || ''))
+      const ownerId = (req as any).user.id || (req as any).user.userId
+      const allBatches = await ExportedGradebookBatch.find(
+        isAdmin ? {} : { createdBy: ownerId }
+      ).lean()
+      selectedFiles = allBatches.flatMap(b => b.files).filter(f => options.selectedFileIds!.includes(String(f._id)))
+    } else {
+      selectedFiles = batch.files
+    }
 
     if (selectedFiles.length === 0) return res.status(400).json({ error: 'no_files_selected' })
 
     const previewFile = selectedFiles[0]
     const emailContent = await buildEmailContent(batch, previewFile, options)
-    const totalRecipients = selectedFiles.reduce((acc: number, file: any) => acc + buildRecipients(file, options).length, 0)
+    const totalRecipients = selectedFiles.reduce((acc: number, file: any) => acc + buildRecipientsWithTypes(file, options).length, 0)
 
     res.json({
       subject: emailContent.subject,
@@ -442,13 +489,30 @@ gradebookExportsRouter.post('/batches/:batchId/email-preview', requireAuth(['ADM
 
 gradebookExportsRouter.post('/batches/:batchId/send', requireAuth(['ADMIN', 'SUBADMIN', 'AEFE']), async (req, res) => {
   try {
-    const { selectedFileIds, includeFather, includeMother, includeStudent, customMessage, testEmailOverride, templateId } = req.body
+    const { selectedFileIds, testEmailOverride, templateId } = req.body
+    const includeFather = req.body.includeFather !== false
+    const includeMother = req.body.includeMother !== false
+    const includeStudent = req.body.includeStudent !== false
+    const customMessage = String(req.body.customMessage || '')
+
     const batch = await getOwnedBatch(req, String(req.params.batchId || ''))
     if (!batch) return res.status(404).json({ error: 'batch_not_found' })
 
-    const files = selectedFileIds && selectedFileIds.length > 0 
-      ? batch.files.filter((f: any) => selectedFileIds.includes(String(f._id)))
-      : batch.files
+    // If selectedFileIds contains IDs that are NOT in this batch, we might want to search in other batches 
+    // of the same lot/owner. For now, let's just make sure we find all requested files that the user owns.
+    let files = []
+    if (selectedFileIds && selectedFileIds.length > 0) {
+      const isAdmin = isAdminRole(String((req as any).user?.role || ''))
+      const ownerId = (req as any).user.id || (req as any).user.userId
+      
+      const allBatches = await ExportedGradebookBatch.find(
+        isAdmin ? {} : { createdBy: ownerId }
+      ).lean()
+      
+      files = allBatches.flatMap(b => b.files).filter(f => selectedFileIds.includes(String(f._id)))
+    } else {
+      files = batch.files
+    }
 
     if (files.length === 0) return res.status(400).json({ error: 'no_files_selected' })
 
@@ -466,13 +530,14 @@ gradebookExportsRouter.post('/batches/:batchId/send', requireAuth(['ADMIN', 'SUB
         includeMother,
         includeStudent,
         customMessage,
-        selectedFileIds: selectedFileIds || [],
+        selectedFileIds: files.map(f => String(f._id)),
         testEmailOverride
       }
     })
     await job.save()
 
-    runEmailJob(jobId, batch, files, { includeFather, includeMother, includeStudent, customMessage, selectedFileIds, testEmailOverride, templateId })
+    // Use the first batch as a reference for SMTP settings/context
+    runEmailJob(jobId, batch, files, { includeFather, includeMother, includeStudent, customMessage, selectedFileIds: files.map(f => String(f._id)), testEmailOverride, templateId })
     res.json({ jobId })
   } catch (error: any) {
     res.status(500).json({ error: 'send_failed', message: error.message })
