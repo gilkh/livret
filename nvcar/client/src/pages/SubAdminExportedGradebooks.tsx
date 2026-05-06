@@ -90,7 +90,17 @@ export default function SubAdminExportedGradebooks() {
   const [zipDownloadLoading, setZipDownloadLoading] = useState(false)
   const [jobHistory, setJobHistory] = useState<EmailJob[]>([])
   const [historyLoading, setHistoryLoading] = useState(false)
-  const [rightTab, setRightTab] = useState<'config' | 'history'>('config')
+  const userRole = (sessionStorage.getItem('role') || localStorage.getItem('role') || '').trim()
+  const isRPP = userRole === 'AEFE' || window.location.pathname.includes('/aefe/')
+  
+  const [rightTab, setRightTab] = useState<'config' | 'history'>(isRPP ? 'history' : 'config')
+
+  useEffect(() => {
+    if (isRPP) {
+      setRightTab('history')
+    }
+  }, [isRPP])
+
   const [showConfirmModal, setShowConfirmModal] = useState(false)
   const [confirmStep, setConfirmStep] = useState(1)
   const [selectedGroupKey, setSelectedGroupKey] = useState('')
@@ -798,15 +808,18 @@ export default function SubAdminExportedGradebooks() {
         <aside className="workspace-column actions-panel">
           <div className="glass-card full-height flex-column">
             <div className="workspace-tabs">
-              <button 
-                className={`tab-btn ${rightTab === 'config' ? 'active' : ''}`}
-                onClick={() => setRightTab('config')}
-              >
-                <Send size={16} /> Distribution
-              </button>
+              {!isRPP && (
+                <button 
+                  className={`tab-btn ${rightTab === 'config' ? 'active' : ''}`}
+                  onClick={() => setRightTab('config')}
+                >
+                  <Send size={16} /> Distribution
+                </button>
+              )}
               <button 
                 className={`tab-btn ${rightTab === 'history' ? 'active' : ''}`}
                 onClick={() => setRightTab('history')}
+                style={isRPP ? { flex: 1, borderRadius: '12px 12px 0 0' } : {}}
               >
                 <Archive size={16} /> Historique {jobHistory.length > 0 && <span className="tab-count">{jobHistory.length}</span>}
               </button>

@@ -11,6 +11,7 @@ import { GradebookPocket } from '../components/GradebookPocket'
 import { CroppedImage } from '../components/CroppedImage'
 import { findDropdownBlockByReference, resolveDropdownDisplayValue } from '../utils/dropdownAppreciations'
 import { formatDdMonthYyyy } from '../utils/dateFormat'
+import { Mars, Venus } from 'lucide-react'
 
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
@@ -736,60 +737,85 @@ export default function TeacherTemplateEditor() {
                 <div style={{ marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
                     <div>
                         <div style={{
-                            position: 'relative',
-                            paddingLeft: 12,
-                            marginBottom: 8,
-                            display: 'inline-block'
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 16,
+                            marginBottom: 12
                         }}>
-                            <div
-                                aria-hidden
-                                style={{
-                                    position: 'absolute',
-                                    left: 0,
-                                    top: 4,
-                                    height: 84,
-                                    width: 1.5,
-                                    borderRadius: 999,
-                                    background: getSexAccentColor(student?.sex)
-                                }}
-                            />
-                            <h2 className="title" style={{ fontSize: 28, marginBottom: 0, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 12 }}>
+                            <div style={{ position: 'relative', width: 56, height: 56, flexShrink: 0 }}>
+                                <img
+                                    src={student?.avatarUrl || `https://api.dicebear.com/9.x/thumbs/svg?seed=${student?.firstName}-${student?.lastName}`}
+                                    alt=""
+                                    style={{
+                                        width: '100%',
+                                        height: '100%',
+                                        borderRadius: '50%',
+                                        objectFit: 'cover',
+                                        border: '2px solid #e2e8f0',
+                                        background: 'white'
+                                    }}
+                                />
+                                <div
+                                    aria-hidden
+                                    style={{
+                                        position: 'absolute',
+                                        bottom: 0,
+                                        right: 0,
+                                        width: 20,
+                                        height: 20,
+                                        borderRadius: '50%',
+                                        background: student?.sex === 'female' ? '#ec4899' : student?.sex === 'male' ? '#3b82f6' : '#94a3b8',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        color: 'white',
+                                        border: '2px solid white',
+                                        boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                                        zIndex: 2
+                                    }}
+                                >
+                                    {student?.sex === 'female' ? <Venus size={12} strokeWidth={3} /> : student?.sex === 'male' ? <Mars size={12} strokeWidth={3} /> : '👤'}
+                                </div>
+                            </div>
+                            <h2 className="title" style={{ fontSize: 28, marginBottom: 0, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
                                 <span>✏️ Édition du carnet - {student ? `${student.firstName} ${student.lastName}` : 'Élève'}</span>
-                                {student?.level && (
+                                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                                    {student?.level && (
+                                        <span style={{
+                                            fontSize: 14,
+                                            background: '#e0e7ff',
+                                            color: '#4338ca',
+                                            padding: '4px 10px',
+                                            borderRadius: 16,
+                                            fontWeight: 600
+                                        }}>
+                                            {student.level}
+                                        </span>
+                                    )}
+                                    {student?.className && (
+                                        <span style={{
+                                            fontSize: 14,
+                                            background: '#f1f5f9',
+                                            color: '#475569',
+                                            padding: '4px 10px',
+                                            borderRadius: 16,
+                                            fontWeight: 600
+                                        }}>
+                                            {student.className}
+                                        </span>
+                                    )}
                                     <span style={{
                                         fontSize: 14,
-                                        background: '#e0e7ff',
-                                        color: '#4338ca',
+                                        background: activeSemester === 2 ? '#dbeafe' : '#fef3c7',
+                                        color: activeSemester === 2 ? '#1e40af' : '#92400e',
                                         padding: '4px 10px',
                                         borderRadius: 16,
-                                        fontWeight: 600
+                                        fontWeight: 700,
+                                        border: `1px solid ${activeSemester === 2 ? '#93c5fd' : '#fcd34d'}`
                                     }}>
-                                        {student.level}
+                                        S{activeSemester}
                                     </span>
-                                )}
-                                {student?.className && (
-                                    <span style={{
-                                        fontSize: 14,
-                                        background: '#f1f5f9',
-                                        color: '#475569',
-                                        padding: '4px 10px',
-                                        borderRadius: 16,
-                                        fontWeight: 600
-                                    }}>
-                                        {student.className}
-                                    </span>
-                                )}
-                                <span style={{
-                                    fontSize: 14,
-                                    background: activeSemester === 2 ? '#dbeafe' : '#fef3c7',
-                                    color: activeSemester === 2 ? '#1e40af' : '#92400e',
-                                    padding: '4px 10px',
-                                    borderRadius: 16,
-                                    fontWeight: 700,
-                                    border: `1px solid ${activeSemester === 2 ? '#93c5fd' : '#fcd34d'}`
-                                }}>
-                                    S{activeSemester}
-                                </span>
+                                </div>
                             </h2>
                         </div>
                         <div style={{

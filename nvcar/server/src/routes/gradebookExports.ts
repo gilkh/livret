@@ -9,6 +9,9 @@ import { Setting } from '../models/Setting'
 import { resolveGradebookExportPath } from '../utils/gradebookExportStorage'
 import { EmailJob } from '../models/EmailJob'
 import { EmailTemplate } from '../models/EmailTemplate'
+import { RoleScope } from '../models/RoleScope'
+import { ClassModel } from '../models/Class'
+import { SchoolYear } from '../models/SchoolYear'
 
 export const gradebookExportsRouter = Router()
 
@@ -274,10 +277,24 @@ async function runEmailJob(jobId: string, batch: any, files: any[], options: Ema
 gradebookExportsRouter.get('/batches', requireAuth(['ADMIN', 'SUBADMIN', 'AEFE']), async (req, res) => {
   try {
     const reqAny = req as any
-    const query: Record<string, unknown> = {}
-    if (!isAdminRole(String(reqAny.user?.role || ''))) {
-      query.createdBy = String(reqAny.user?.userId || '')
+    const role = String(reqAny.user?.role || '')
+    const userId = String(reqAny.user?.userId || '')
+    const query: Record<string, any> = {}
+
+    if (role === 'SUBADMIN' || role === 'AEFE') {
+      const scope = await RoleScope.findOne({ userId }).lean()
+      if (scope && scope.levels && scope.levels.length > 0) {
+        // Filter batches that contain at least one file from these levels
+        query['files.level'] = { $in: scope.levels }
+      } else if (role === 'SUBADMIN') {
+        // SubAdmin with no scope sees only their own batches
+        query.createdBy = userId
+      }
+      // AEFE with no scope continues to see everything (Direction)
+    } else if (role !== 'ADMIN') {
+      query.createdBy = userId
     }
+
     const batches = await ExportedGradebookBatch.find(query).sort({ createdAt: -1 }).limit(100).lean()
     res.json(batches)
   } catch (error: any) {
@@ -505,13 +522,34 @@ gradebookExportsRouter.post('/check-existing', requireAuth(['ADMIN', 'SUBADMIN',
   }
 })
 
-gradebookExportsRouter.get('/email-jobs/mine', requireAuth(['ADMIN', 'SUBADMIN']), async (req, res) => {
+gradebookExportsRouter.get('/email-jobs/mine', requireAuth(['ADMIN', 'SUBADMIN', 'AEFE']), async (req, res) => {
   try {
     const reqAny = req as any
-    const query: Record<string, unknown> = {}
-    if (!isAdminRole(String(reqAny.user?.role || ''))) {
-      query.createdBy = String(reqAny.user?.userId || '')
+    const role = String(reqAny.user?.role || '')
+    const userId = String(reqAny.user?.userId || '')
+    const query: Record<string, any> = {}
+
+    if (role === 'SUBADMIN' || role === 'AEFE') {
+      const scope = await RoleScope.findOne({ userId }).lean()
+      if (scope && scope.levels && scope.levels.length > 0) {
+        // Find batches that match the levels
+        const matchingBatches = await ExportedGradebookBatch.find({
+          'files.level': { $in: scope.levels }
+        }).select('_id').lean()
+        const batchIds = matchingBatches.map(b => b._id)
+        
+        // Query jobs that belong to these batches OR were created by the user
+        query.$or = [
+          { batchId: { $in: batchIds } },
+          { createdBy: userId }
+        ]
+      } else if (role === 'SUBADMIN') {
+        query.createdBy = userId
+      }
+    } else if (role !== 'ADMIN') {
+      query.createdBy = userId
     }
+
     const jobs = await EmailJob.find(query).sort({ createdAt: -1 }).limit(200).lean()
     res.json(jobs)
   } catch (error: any) {
@@ -519,7 +557,7 @@ gradebookExportsRouter.get('/email-jobs/mine', requireAuth(['ADMIN', 'SUBADMIN']
   }
 })
 
-gradebookExportsRouter.get('/email-jobs', requireAuth(['ADMIN', 'SUBADMIN']), async (req, res) => {
+gradebookExportsRouter.get('/email-jobs', requireAuth(['ADMIN', 'SUBADMIN', 'AEFE']), async (req, res) => {
   try {
     const jobs = await EmailJob.find().sort({ createdAt: -1 }).limit(100).lean()
     res.json(jobs)

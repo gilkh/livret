@@ -1,0 +1,262 @@
+.rpp-progress-container {
+    margin-top: 24px;
+    padding: 24px;
+    background: #ffffff;
+    border-radius: 16px;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+
+.rpp-progress-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid #f1f5f9;
+}
+
+.rpp-progress-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.rpp-progress-title h3 {
+    margin: 0;
+    font-size: 18px;
+    color: #0f172a;
+    font-weight: 700;
+}
+
+.rpp-progress-title .icon-box {
+    color: #64748b;
+}
+
+/* Compact Summary Header */
+.rpp-summary-minimal {
+    display: flex;
+    gap: 12px;
+}
+
+.summary-pill {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 12px;
+    background: #ffffff;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+}
+
+.summary-pill .label {
+    font-size: 11px;
+    font-weight: 700;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+}
+
+.summary-pill .value {
+    font-size: 14px;
+    font-weight: 800;
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+/* Color states for summary */
+.value.low { background: #fef2f2; color: #dc2626; }
+.value.mid { background: #fffbeb; color: #d97706; }
+.value.high { background: #f0fdf4; color: #16a34a; }
+
+/* Level List Grid */
+.rpp-level-list {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+}
+
+.rpp-level-item {
+    background: #ffffff;
+    border-radius: 12px;
+    border: 1px solid #e2e8f0;
+    padding: 12px;
+}
+
+.rpp-level-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #f1f5f9;
+}
+
+.level-name {
+    font-size: 13px;
+    font-weight: 800;
+    color: #0f172a;
+}
+
+.level-stats {
+    display: flex;
+    gap: 10px;
+}
+
+.level-pct-badge {
+    font-size: 10px;
+    font-weight: 800;
+    padding: 2px 6px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.level-pct-badge.s1 { background: #eef2ff; color: #4f46e5; border: 1px solid #e0e7ff; }
+.level-pct-badge.s2 { background: #ecfdf5; color: #059669; border: 1px solid #d1fae5; }
+
+/* Class Grid - Thinner & Inline Stats */
+.rpp-class-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+    gap: 4px;
+}
+
+.rpp-class-card {
+    padding: 6px 8px;
+    background: #fafbfc;
+    border-radius: 6px;
+    border: 1px solid #f1f5f9;
+}
+
+.class-name {
+    font-size: 10px;
+    font-weight: 700;
+    color: #475569;
+    margin-bottom: 6px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: block;
+}
+
+.class-bars {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.class-bar-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.micro-bar {
+    flex: 1;
+    height: 3px;
+    background: #f1f5f9;
+    border-radius: 1px;
+    overflow: hidden;
+}
+
+.fill {
+    height: 100%;
+    transition: width 0.8s ease-out;
+}
+
+.s1 .fill { background: #6366f1; }
+.s2 .fill { background: #10b981; }
+
+.mini-pct {
+    font-size: 9px;
+    font-weight: 800;
+    width: 24px;
+    text-align: right;
+    line-height: 1;
+}
+
+.mini-pct.s1 { color: #6366f1; }
+.mini-pct.s2 { color: #10b981; }
+
+/* Status Intensity */
+.fill.complete { background: #22c55e !important; }
+.fill.none { background: #e2e8f0 !important; }
+
+@media (max-width: 1200px) {
+    .rpp-level-list { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 768px) {
+    .rpp-progress-container { padding: 16px; }
+}
+
+.rpp-class-card {
+    background: white;
+    padding: 16px;
+    border-radius: 12px;
+    border: 1px solid #e2e8f0;
+    transition: all 0.2s ease;
+}
+
+.rpp-class-card:hover {
+    border-color: #cbd5e1;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+}
+
+.class-name {
+    font-size: 14px;
+    font-weight: 700;
+    color: #334155;
+    margin-bottom: 12px;
+}
+
+.class-bars {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.class-bar-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.class-bar-label {
+    font-size: 10px;
+    font-weight: 800;
+    color: #94a3b8;
+    width: 20px;
+}
+
+.class-bar-track {
+    flex: 1;
+    height: 6px;
+    background: #f1f5f9;
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.class-bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 1s ease-out;
+}
+
+.class-bar-pct {
+    font-size: 10px;
+    font-weight: 700;
+    color: #64748b;
+    width: 30px;
+    text-align: right;
+}
+
+@media (max-width: 768px) {
+    .rpp-progress-container { padding: 20px; }
+    .level-progress-bars { min-width: 0; flex: 1; gap: 12px; }
+    .rpp-level-header { flex-direction: column; align-items: stretch; }
+    .semester-mini-bar { width: 100%; }
+}

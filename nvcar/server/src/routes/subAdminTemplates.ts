@@ -441,11 +441,20 @@ subAdminTemplatesRouter.get('/pending-signatures', requireAuth(['SUBADMIN', 'AEF
         const standardPeriodId = computeSignaturePeriodId(String(activeSchoolYear._id), 'sem1')
         const endOfYearPeriodId = computeSignaturePeriodId(String(activeSchoolYear._id), 'end_of_year')
 
+        const roleScope = await RoleScope.findOne({ userId: subAdminId }).lean()
         let classIds: string[] = []
 
         if (isAefe) {
-            const allClasses = await ClassModel.find({ schoolYearId: activeSchoolYear._id }).lean()
-            classIds = allClasses.map(c => String(c._id))
+            if (roleScope?.levels?.length) {
+                const levelClasses = await ClassModel.find({
+                    level: { $in: roleScope.levels },
+                    schoolYearId: activeSchoolYear._id
+                }).lean()
+                classIds = levelClasses.map(c => String(c._id))
+            } else {
+                const allClasses = await ClassModel.find({ schoolYearId: activeSchoolYear._id }).lean()
+                classIds = allClasses.map(c => String(c._id))
+            }
         } else {
             // Get teachers assigned to this sub-admin
             const assignments = await SubAdminAssignment.find({ subAdminId }).lean()
@@ -459,7 +468,6 @@ subAdminTemplatesRouter.get('/pending-signatures', requireAuth(['SUBADMIN', 'AEF
             classIds = [...new Set(teacherClassAssignments.map(a => a.classId))]
 
             // Check RoleScope for level assignments
-            const roleScope = await RoleScope.findOne({ userId: subAdminId }).lean()
             if (roleScope?.levels?.length) {
                 const levelClasses = await ClassModel.find({
                     level: { $in: roleScope.levels },

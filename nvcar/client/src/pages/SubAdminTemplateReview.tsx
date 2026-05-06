@@ -13,7 +13,7 @@ import ScrollPageDownButton from '../components/ScrollPageDownButton'
 import { openPdfExport, buildStudentPdfUrl, buildSavedGradebookPdfUrl } from '../utils/pdfExport'
 import { formatDdMonthYyyy, formatDdMmYyyyColon } from '../utils/dateFormat'
 import { findDropdownBlockByReference, resolveDropdownDisplayValue } from '../utils/dropdownAppreciations'
-import { Download, Sparkles } from 'lucide-react'
+import { Download, Sparkles, Mars, Venus } from 'lucide-react'
 
 type Block = { type: string; props: any }
 type Page = { title?: string; bgColor?: string; excludeFromPdf?: boolean; blocks: Block[] }
@@ -1031,23 +1031,46 @@ export default function SubAdminTemplateReview() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
                     <div>
                         <div style={{
-                            position: 'relative',
-                            paddingLeft: 12,
-                            marginBottom: 8,
-                            display: 'inline-block'
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 16,
+                            marginBottom: 12
                         }}>
-                            <div
-                                aria-hidden
-                                style={{
-                                    position: 'absolute',
-                                    left: 0,
-                                    top: 4,
-                                    height: 84,
-                                    width: 1.5,
-                                    borderRadius: 999,
-                                    background: getSexAccentColor(student?.sex)
-                                }}
-                            />
+                            <div style={{ position: 'relative', width: 56, height: 56, flexShrink: 0 }}>
+                                <img
+                                    src={student?.avatarUrl || `https://api.dicebear.com/9.x/thumbs/svg?seed=${student?.firstName}-${student?.lastName}`}
+                                    alt=""
+                                    style={{
+                                        width: '100%',
+                                        height: '100%',
+                                        borderRadius: '50%',
+                                        objectFit: 'cover',
+                                        border: '2px solid #e2e8f0',
+                                        background: 'white'
+                                    }}
+                                />
+                                <div
+                                    aria-hidden
+                                    style={{
+                                        position: 'absolute',
+                                        bottom: 0,
+                                        right: 0,
+                                        width: 20,
+                                        height: 20,
+                                        borderRadius: '50%',
+                                        background: student?.sex === 'female' ? '#ec4899' : student?.sex === 'male' ? '#3b82f6' : '#94a3b8',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        color: 'white',
+                                        border: '2px solid white',
+                                        boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                                        zIndex: 2
+                                    }}
+                                >
+                                    {student?.sex === 'female' ? <Venus size={12} strokeWidth={3} /> : student?.sex === 'male' ? <Mars size={12} strokeWidth={3} /> : '👤'}
+                                </div>
+                            </div>
                             <h2 className="title" style={{ fontSize: 28, marginBottom: 0, color: '#1e293b' }}>📝 Examen du carnet - {student ? `${student.firstName} ${student.lastName}` : 'Élève'}</h2>
                         </div>
                         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import api from '../api'
 import ProgressionChart from '../components/ProgressionChart'
+import RPPYearProgress from '../components/RPPYearProgress'
 import { useSchoolYear } from '../context/SchoolYearContext'
 import { openBatchPdfExport } from '../utils/pdfExport'
 import { AlertTriangle, CheckCircle2, Download, PenTool, RotateCcw, TrendingUp, Users, BookOpen, Lightbulb, ArrowRight, Sparkles, Minus, Check, X, CircleSlash } from 'lucide-react'
@@ -1004,6 +1005,9 @@ export default function SubAdminDashboard() {
                                 </div>
                             </a>
                         </div>
+
+                        {/* Yearly Progress Breakdown for RPP */}
+                        <RPPYearProgress pending={pending} />
                     </div>
                 )}
 
@@ -1418,7 +1422,7 @@ export default function SubAdminDashboard() {
 
                                                                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 'auto' }}>
                                                                                     {isPromoted ? (
-                                                                                        <div 
+                                                                                        <div
                                                                                             title="Élève promu"
                                                                                             style={{
                                                                                                 display: 'flex',
@@ -1436,7 +1440,7 @@ export default function SubAdminDashboard() {
                                                                                             <CheckCircle2 size={14} strokeWidth={2.5} />
                                                                                         </div>
                                                                                     ) : (
-                                                                                        <div 
+                                                                                        <div
                                                                                             title="Non promu"
                                                                                             style={{
                                                                                                 display: 'flex',
