@@ -530,16 +530,6 @@ export default function SubAdminExportedGradebooks() {
 
   return (
     <div className="exports-container">
-      <div className="exports-header">
-        <div>
-          <h1 className="exports-title">Centre de Distribution</h1>
-          <p className="exports-subtitle">Gérez vos lots exportés et distribuez les carnets par email aux familles.</p>
-        </div>
-        <button className="btn btn-icon" onClick={loadInitialData} disabled={loading}>
-          <RefreshCcw size={18} className={loading ? 'spin' : ''} /> Actualiser
-        </button>
-      </div>
-
       {error && (
         <div style={{ marginBottom: 24, padding: '16px', borderRadius: 12, background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', display: 'flex', alignItems: 'center', gap: 12 }}>
           <AlertCircle size={20} /> {error}
@@ -553,6 +543,15 @@ export default function SubAdminExportedGradebooks() {
             <div className="card-header">
               <Archive size={18} />
               <div className="card-title">Bibliothèque</div>
+              <button 
+                className="btn-refresh-inline" 
+                onClick={loadInitialData} 
+                disabled={loading}
+                title="Actualiser les données"
+                style={{ marginLeft: 'auto' }}
+              >
+                <RefreshCcw size={14} className={loading ? 'spin' : ''} />
+              </button>
             </div>
             
             <div className="year-selector">
@@ -987,11 +986,13 @@ export default function SubAdminExportedGradebooks() {
                         <span className="status-title">Distribution en cours</span>
                         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                           <span className={`status-tag ${emailJob.status}`}>{emailJob.status}</span>
-                          {emailJob.status === 'completed' && (
-                            <button className="btn-close-mini" onClick={() => setEmailJob(null)}>
-                              <X size={14} />
-                            </button>
-                          )}
+                          <button 
+                            className="btn-close-mini" 
+                            onClick={() => setEmailJob(null)}
+                            title="Fermer ce volet (n'efface pas l'historique)"
+                          >
+                            <X size={14} />
+                          </button>
                         </div>
                       </div>
                       <div className="status-bar-wrapper">
@@ -1059,6 +1060,35 @@ export default function SubAdminExportedGradebooks() {
                               </span>
                               <span className={`history-status-badge ${job.status}`}>{job.status}</span>
                             </div>
+
+                            <div className="history-item-mid">
+                              <span className="history-student-name">
+                                {job.items.length === 1 
+                                  ? job.items[0].studentName 
+                                  : job.items.length > 0 
+                                    ? `${job.items[0].studentName} + ${job.items.length - 1} autres`
+                                    : 'Sans élève'}
+                              </span>
+                              
+                              {job.items.length === 1 && job.items[0].recipientDetails && (
+                                <div className="history-pme-mini">
+                                  {['father', 'mother', 'student'].map(type => {
+                                    const rd = job.items[0].recipientDetails?.find(r => r.type === type);
+                                    if (!rd) return null;
+                                    return (
+                                      <div 
+                                        key={type} 
+                                        className={`status-dot ${rd.status}`}
+                                        title={`${type === 'father' ? 'Père' : type === 'mother' ? 'Mère' : 'Élève'}: ${rd.status}`}
+                                      >
+                                        {type[0].toUpperCase()}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+
                             <div className="history-item-bottom">
                               <span className="history-date">{new Date(job.startedAt || '').toLocaleString()}</span>
                               <span className="history-count" style={{ fontWeight: 700 }}>{job.sentItems}/{job.totalItems}</span>
@@ -1077,7 +1107,16 @@ export default function SubAdminExportedGradebooks() {
                           <span className="status-title">Détails de l'envoi</span>
                           <span style={{ fontSize: 11, color: '#64748b' }}>Par {emailJob.creatorName}</span>
                         </div>
-                        <span className={`status-tag ${emailJob.status}`}>{emailJob.status}</span>
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                          <span className={`status-tag ${emailJob.status}`}>{emailJob.status}</span>
+                          <button 
+                            className="btn-close-mini" 
+                            onClick={() => setEmailJob(null)}
+                            title="Masquer les détails"
+                          >
+                            <X size={14} />
+                          </button>
+                        </div>
                       </div>
                       
                       <div className="status-stats" style={{ margin: '16px 0' }}>
