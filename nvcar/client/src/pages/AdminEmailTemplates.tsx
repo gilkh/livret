@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
-import { Plus, Edit2, Trash2, Mail, Save, X, Eye, Image as ImageIcon, Send, RefreshCcw, CheckCircle, AlertCircle, History, Package, FolderArchive, FileDown, Archive, Layout, CheckSquare, Square, Users, CheckCircle2, XCircle, MailPlus } from 'lucide-react'
+import { Plus, Edit2, Trash2, Mail, Save, X, Eye, Image as ImageIcon, Send, RefreshCcw, CheckCircle, AlertCircle, History, Package, FolderArchive, FileDown, Archive, Layout, CheckSquare, Square, Users, CheckCircle2, XCircle, MailPlus, Layers } from 'lucide-react'
 import api from '../api'
 import './AdminEmailTemplates.css'
 import EmailBlockEditor, { DEFAULT_BLOCKS, blocksToHtml, EmailBlock } from '../components/EmailBlockEditor'
@@ -111,6 +111,18 @@ export default function AdminEmailTemplates() {
   })
   
   const [editorType, setEditorType] = useState<'visual' | 'html'>('visual')
+  const [searchQuery, setSearchQuery] = useState('')
+
+  const filteredTemplates = useMemo(() => {
+    if (!searchQuery) return templates
+    const lowSearch = searchQuery.toLowerCase()
+    return templates.filter(t => 
+      t.name.toLowerCase().includes(lowSearch) || 
+      t.subject.toLowerCase().includes(lowSearch) ||
+      (t.linkedLevels || []).some(l => l.toLowerCase().includes(lowSearch)) ||
+      (t.linkedClasses || []).some(c => c.toLowerCase().includes(lowSearch))
+    )
+  }, [templates, searchQuery])
 
   // Distribution State
   const [batches, setBatches] = useState<ExportBatch[]>([])
@@ -630,9 +642,21 @@ export default function AdminEmailTemplates() {
 
       {activeTab === 'templates' && (
         <>
-          <div className="section-actions">
-            <button className="btn btn-primary" onClick={handleCreate}>
-              <Plus size={18} /> Nouveau Modèle
+          <div className="section-header-actions">
+            <div className="search-filter-group">
+              <div className="search-input-wrapper">
+                <ImageIcon size={18} className="search-icon" />
+                <input 
+                  type="text" 
+                  placeholder="Rechercher un modèle..." 
+                  className="modern-input search-input"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+              </div>
+            </div>
+            <button className="btn-premium" onClick={handleCreate}>
+              <Plus size={20} /> Nouveau Modèle
             </button>
           </div>
 
@@ -640,60 +664,108 @@ export default function AdminEmailTemplates() {
 
           {!showForm ? (
             <div className="templates-grid">
-              {loading && <div className="loading">Chargement...</div>}
-              {!loading && templates.length === 0 && (
-                <div className="empty-state">
-                  <Mail size={48} className="empty-icon" />
-                  <p>Aucun modèle d'email configuré.</p>
+              {loading && (
+                <div className="loading-container">
+                  <RefreshCcw size={40} className="spin-slow" />
+                  <p>Chargement de vos modèles...</p>
                 </div>
               )}
-              {templates.map(tpl => (
+              
+              {!loading && templates.length === 0 && (
+                <div className="empty-state-modern">
+                  <div className="empty-icon-wrap">
+                    <MailPlus size={64} />
+                  </div>
+                  <h3>Aucun modèle configuré</h3>
+                  <p>Commencez par créer votre premier modèle d'email pour automatiser vos envois.</p>
+                  <button className="btn btn-primary mt-4" onClick={handleCreate}>
+                    <Plus size={18} /> Créer un modèle
+                  </button>
+                </div>
+              )}
+
+              {!loading && templates.length > 0 && filteredTemplates.length === 0 && (
+                <div className="empty-state-modern">
+                  <div className="empty-icon-wrap">
+                    <ImageIcon size={64} />
+                  </div>
+                  <h3>Aucun résultat</h3>
+                  <p>Aucun modèle ne correspond à votre recherche "{searchQuery}".</p>
+                  <button className="btn btn-secondary mt-4" onClick={() => setSearchQuery('')}>
+                    Effacer la recherche
+                  </button>
+                </div>
+              )}
+
+              {!loading && filteredTemplates.map(tpl => (
                 <div key={tpl._id} className="template-card">
                   <div className="template-card-header">
-                    <h3>{tpl.name}</h3>
+                    <div className="template-title-area">
+                      <div className="template-icon-circle">
+                        <Mail size={20} />
+                      </div>
+                      <h3>{tpl.name}</h3>
+                    </div>
                     <div className="template-actions">
-                      <button className="btn-icon" onClick={() => handleEdit(tpl)} title="Modifier">
+                      <button className="btn-action edit" onClick={() => handleEdit(tpl)} title="Modifier">
                         <Edit2 size={16} />
                       </button>
-                      <button className="btn-icon delete" onClick={() => handleDelete(tpl._id)} title="Supprimer">
+                      <button className="btn-action delete" onClick={() => handleDelete(tpl._id)} title="Supprimer">
                         <Trash2 size={16} />
                       </button>
                     </div>
                   </div>
+                  
                   <div className="template-card-body">
-                    <p><strong>Sujet :</strong> {tpl.subject}</p>
+                    <div className="subject-preview">
+                      <span className="label">Sujet de l'email</span>
+                      <p className="subject-text">{tpl.subject}</p>
+                    </div>
                     
-                    <div className="template-links">
+                    <div className="template-links-modern">
                       {tpl.linkedLevels?.length > 0 && (
-                        <div className="link-group">
-                          <span className="link-label">Niveaux:</span>
-                          <div className="link-tags">
-                            {tpl.linkedLevels?.map(l => <span key={l} className="tag level-tag">{l}</span>)}
+                        <div className="link-group-modern">
+                          <div className="link-header">
+                            <Layers size={14} />
+                            <span className="link-label">Niveaux</span>
+                          </div>
+                          <div className="link-tags-scroll">
+                            {tpl.linkedLevels?.map(l => <span key={l} className="tag-modern level-tag-modern">{l}</span>)}
                           </div>
                         </div>
                       )}
+                      
                       {tpl.linkedClasses?.length > 0 && (
-                        <div className="link-group">
-                          <span className="link-label">Classes:</span>
-                          <div className="link-tags">
-                            {tpl.linkedClasses?.map(l => <span key={l} className="tag class-tag">{l}</span>)}
+                        <div className="link-group-modern">
+                          <div className="link-header">
+                            <Users size={14} />
+                            <span className="link-label">Classes</span>
+                          </div>
+                          <div className="link-tags-scroll">
+                            {tpl.linkedClasses?.map(l => <span key={l} className="tag-modern class-tag-modern">{l}</span>)}
                           </div>
                         </div>
                       )}
+                      
                       {(!tpl.linkedLevels?.length && !tpl.linkedClasses?.length) && (
-                        <span className="tag default-tag">Modèle par défaut</span>
+                        <div className="default-badge-modern">
+                          <CheckCircle2 size={14} />
+                          <span>Modèle par défaut</span>
+                        </div>
                       )}
                     </div>
 
-                    <button 
-                      className="btn secondary btn-full mt-4" 
-                      onClick={() => {
-                        setSelectedTemplateId(tpl._id)
-                        setActiveTab('distribution')
-                      }}
-                    >
-                      <Send size={14} /> Utiliser pour l'envoi
-                    </button>
+                    <div className="card-footer-actions">
+                      <button 
+                        className="btn-use-template" 
+                        onClick={() => {
+                          setSelectedTemplateId(tpl._id)
+                          setActiveTab('distribution')
+                        }}
+                      >
+                        <Send size={16} /> Utiliser ce modèle
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))}
