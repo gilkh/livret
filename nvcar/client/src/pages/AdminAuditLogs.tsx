@@ -97,6 +97,7 @@ const ROLE_LABELS: Record<string, string> = {
     ADMIN: 'Administrateur',
     SUBADMIN: 'Sous-Admin',
     TEACHER: 'Enseignant',
+    AEFE: 'AEFE',
 }
 
 // Icons as inline SVG for better performance
@@ -232,8 +233,8 @@ export default function AdminAuditLogs() {
     }
 
     const roleCounts = useMemo(() => {
-        if (!stats?.roleCounts) return { ADMIN: 0, SUBADMIN: 0, TEACHER: 0 }
-        const counts: Record<string, number> = { ADMIN: 0, SUBADMIN: 0, TEACHER: 0 }
+        if (!stats?.roleCounts) return { ADMIN: 0, SUBADMIN: 0, TEACHER: 0, AEFE: 0 }
+        const counts: Record<string, number> = { ADMIN: 0, SUBADMIN: 0, TEACHER: 0, AEFE: 0 }
         stats.roleCounts.forEach(rc => {
             counts[rc._id] = rc.count
         })
@@ -315,6 +316,7 @@ export default function AdminAuditLogs() {
             case 'ADMIN': return Icons.crown
             case 'SUBADMIN': return Icons.shield
             case 'TEACHER': return Icons.book
+            case 'AEFE': return Icons.users
             default: return null
         }
     }
@@ -365,6 +367,10 @@ export default function AdminAuditLogs() {
                         <div className="audit-stat-label">Enseignants</div>
                         <div className="audit-stat-value">{roleCounts.TEACHER.toLocaleString()}</div>
                     </div>
+                    <div className="audit-stat-card aefe">
+                        <div className="audit-stat-label">AEFE</div>
+                        <div className="audit-stat-value">{roleCounts.AEFE.toLocaleString()}</div>
+                    </div>
                 </div>
             )}
 
@@ -401,6 +407,14 @@ export default function AdminAuditLogs() {
                     {Icons.book}
                     Enseignants
                     <span className="audit-role-tab-count">{roleCounts.TEACHER}</span>
+                </button>
+                <button
+                    className={`audit-role-tab aefe-tab ${activeRoleTab === 'AEFE' ? 'active' : ''}`}
+                    onClick={() => { setActiveRoleTab('AEFE'); setPage(0) }}
+                >
+                    {Icons.users}
+                    AEFE
+                    <span className="audit-role-tab-count">{roleCounts.AEFE}</span>
                 </button>
             </div>
 

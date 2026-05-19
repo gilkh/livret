@@ -99,6 +99,10 @@
   background: linear-gradient(135deg, #fdcb6e, #ffeaa7);
 }
 
+.audit-stat-card.aefe::before {
+  background: linear-gradient(135deg, #10ac84, #1dd1a1);
+}
+
 .audit-stat-label {
   font-size: 12px;
   font-weight: 600;
@@ -132,6 +136,10 @@
 
 .audit-stat-card.teacher .audit-stat-value {
   color: #d4a500;
+}
+
+.audit-stat-card.aefe .audit-stat-value {
+  color: #10ac84;
 }
 
 .audit-stat-trend {
@@ -203,6 +211,12 @@
   background: linear-gradient(135deg, #fdcb6e, #ffeaa7);
   color: #855c00;
   box-shadow: 0 4px 12px rgba(253, 203, 110, 0.3);
+}
+
+.audit-role-tab.active.aefe-tab {
+  background: linear-gradient(135deg, #10ac84, #1dd1a1);
+  color: white;
+  box-shadow: 0 4px 12px rgba(16, 172, 132, 0.3);
 }
 
 .audit-role-tab-count {
@@ -438,6 +452,11 @@
 .audit-role-badge.teacher {
   background: linear-gradient(135deg, rgba(253, 203, 110, 0.25), rgba(255, 234, 167, 0.25));
   color: #855c00;
+}
+
+.audit-role-badge.aefe {
+  background: linear-gradient(135deg, rgba(16, 172, 132, 0.15), rgba(29, 209, 161, 0.15));
+  color: #10ac84;
 }
 
 .audit-role-badge svg {
