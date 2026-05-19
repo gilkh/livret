@@ -67,6 +67,8 @@ export default function TeacherTemplateEditor() {
     const [quickGradingEnabled, setQuickGradingEnabled] = useState(true)
     const [blockVisibility, setBlockVisibility] = useState<any>({})
     const [isSigned, setIsSigned] = useState(false)
+    const [signature, setSignature] = useState<any>(null)
+    const [finalSignature, setFinalSignature] = useState<any>(null)
     const [previousYearDropdownEditable, setPreviousYearDropdownEditable] = useState(false)
     const [polyvalentExceptionEnabled, setPolyvalentExceptionEnabled] = useState(false)
     const [polyvalentExceptionScope, setPolyvalentExceptionScope] = useState<any>({ type: 'all' })
@@ -291,6 +293,8 @@ export default function TeacherTemplateEditor() {
                 setIsMyWorkCompletedSem1(r.data.isMyWorkCompletedSem1 || false)
                 setIsMyWorkCompletedSem2(r.data.isMyWorkCompletedSem2 || false)
                 setIsSigned(r.data.isSigned || false)
+                setSignature(r.data.signature || null)
+                setFinalSignature(r.data.finalSignature || null)
                 setActiveSemester(r.data.activeSemester || 1)
 
                 // Check if quick grading is enabled
@@ -603,6 +607,19 @@ export default function TeacherTemplateEditor() {
         return null
     }
 
+    const isPromotionRelatedBlock = (b: Block) => {
+        if (b.type === 'promotion_info') return true;
+        const label = (b.props.label || '').toUpperCase();
+        const text = (b.props.text || '').toUpperCase();
+        const combined = label + ' ' + text;
+        return combined.includes('PROMOTION') || 
+               combined.includes('PASSAGE') || 
+               combined.includes('ANNÉE') || 
+               combined.includes('NIVEAU SUIVANT') ||
+               combined.includes('SEM 1') ||
+               combined.includes('SEM 2');
+    };
+
     const normalizeYear = (y: any) => String(y || '').replace(/\s+/g, '').replace(/-/g, '/').trim()
 
     const levelOrder: Record<string, number> = { 'TPS': 0, 'PS': 1, 'MS': 2, 'GS': 3, 'EB1': 4, 'KG1': 1, 'KG2': 2, 'KG3': 3 }
@@ -648,29 +665,8 @@ export default function TeacherTemplateEditor() {
         return next || year
     }
 
-    const savedSignatures = useMemo(() => {
-        const sigs = assignment?.data?.signatures
-        return Array.isArray(sigs) ? sigs : []
-    }, [assignment?.data])
-
-    const hasSem1Signature = useMemo(() => {
-        return savedSignatures.some((s: any) => {
-            const t = String(s?.type || 'standard')
-            const spid = String(s?.signaturePeriodId || '')
-            return t === 'standard' || spid.endsWith('_sem1') || spid.endsWith('_sem2')
-        })
-    }, [savedSignatures])
-
-    const hasFinalSignature = useMemo(() => {
-        return savedSignatures.some((s: any) => {
-            const t = String(s?.type || '')
-            const spid = String(s?.signaturePeriodId || '')
-            return t === 'end_of_year' || spid.endsWith('_end_of_year')
-        })
-    }, [savedSignatures])
-
     const getSignatureForLevel = (targetLevel: string | null) => {
-        if (!targetLevel) return { hasSem1: hasSem1Signature, hasSem2: hasFinalSignature }
+        if (!targetLevel) return { hasSem1: !!signature, hasSem2: !!finalSignature }
 
         const normalizedTarget = targetLevel.toUpperCase()
         const promotions = assignment?.data?.promotions || []
@@ -679,18 +675,21 @@ export default function TeacherTemplateEditor() {
         let hasSem2 = false
 
         if ((student?.level || '').toUpperCase() === normalizedTarget) {
-            hasSem1 = hasSem1Signature
-            hasSem2 = hasFinalSignature
+            hasSem1 = !!signature
+            hasSem2 = !!finalSignature
         }
 
-        savedSignatures.forEach((sig: any) => {
+        const signaturesHistory = assignment?.data?.signatures || []
+
+        signaturesHistory.forEach((sig: any) => {
             if (sig.schoolYearName) {
-                const promo = promotions.find((p: any) => normalizeYear(p.year) === normalizeYear(sig.schoolYearName))
+                const promo = promotions.find((p: any) => p.year === sig.schoolYearName)
                 if (promo && promo.from?.toUpperCase() === normalizedTarget) {
                     if (sig.type === 'standard' || !sig.type) hasSem1 = true
                     if (sig.type === 'end_of_year') hasSem2 = true
                 }
             }
+            // Also check direct level match on signature
 
             if (sig.level?.toUpperCase() === normalizedTarget) {
                 if (sig.type === 'standard' || !sig.type) hasSem1 = true
@@ -1166,7 +1165,11 @@ export default function TeacherTemplateEditor() {
                                         let shouldShow = true
 
                                         if (blockLevel) {
-                                            const visibilitySetting = blockVisibility?.[blockLevel.toUpperCase()]?.teacher?.[key]
+                                            const subadminSetting = blockVisibility?.[blockLevel.toUpperCase()]?.subadmin?.[key]
+                                            const teacherSetting = blockVisibility?.[blockLevel.toUpperCase()]?.teacher?.[key]
+                                            const blockOrder = levelOrder[blockLevel.toUpperCase()] ?? 99
+                                            const isOlderClass = blockOrder < studentOrder
+                                            const visibilitySetting = (isPromotionRelatedBlock(b) || isOlderClass) ? subadminSetting : teacherSetting
                                             const { hasSem1, hasSem2 } = getSignatureForLevel(blockLevel)
 
                                             if (visibilitySetting) {
@@ -1180,7 +1183,11 @@ export default function TeacherTemplateEditor() {
                                             let anyLevelWouldShow = false
 
                                             for (const lvl of levelsToCheck) {
-                                                const visibilitySetting = blockVisibility?.[lvl]?.teacher?.[key]
+                                                const subadminSetting = blockVisibility?.[lvl]?.subadmin?.[key]
+                                                const teacherSetting = blockVisibility?.[lvl]?.teacher?.[key]
+                                                const blockOrder = levelOrder[lvl] ?? 99
+                                                const isOlderClass = blockOrder < studentOrder
+                                                const visibilitySetting = (isPromotionRelatedBlock(b) || isOlderClass) ? subadminSetting : teacherSetting
                                                 if (visibilitySetting) {
                                                     foundSetting = true
                                                     const { hasSem1, hasSem2 } = getSignatureForLevel(lvl)

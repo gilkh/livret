@@ -179,8 +179,23 @@ async function populateSignatures(assignments) {
     list.forEach((a) => {
         if (!a.data)
             a.data = {};
-        // Overwrite or set data.signatures from the single source of truth
-        a.data.signatures = sigMap.get(String(a._id)) || [];
+        // Preserve historical signatures while adding new ones from the single source of truth
+        const existingSignatures = Array.isArray(a.data.signatures) ? [...a.data.signatures] : [];
+        const newSignatures = sigMap.get(String(a._id)) || [];
+        const merged = [...existingSignatures];
+        newSignatures.forEach(sig => {
+            const already = merged.some(s => {
+                const sameSubAdmin = String(s.subAdminId) === String(sig.subAdminId);
+                const sameType = String(s.type || 'standard') === String(sig.type || 'standard');
+                const sa = s.signedAt ? new Date(s.signedAt).getTime() : 0;
+                const sb = sig.signedAt ? new Date(sig.signedAt).getTime() : 0;
+                return sameSubAdmin && sameType && sa === sb;
+            });
+            if (!already) {
+                merged.push(sig);
+            }
+        });
+        a.data.signatures = merged;
     });
     return assignments;
 }

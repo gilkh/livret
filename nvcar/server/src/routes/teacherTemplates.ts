@@ -171,7 +171,8 @@ const findEnrollmentForStudent = async (studentId: string) => {
  * Note: We only consider signatures from the CURRENT school year.
  * Legacy signatures without signaturePeriodId are also checked for backwards compatibility.
  */
-import { isAssignmentSigned } from '../services/signatureService'
+import { isAssignmentSigned, populateSignatures } from '../services/signatureService'
+import { computeSignaturePeriodId } from '../utils/readinessUtils'
 
 
 // Teacher: Get classes assigned to logged-in teacher
@@ -496,12 +497,34 @@ teacherTemplatesRouter.get('/template-assignments/:assignmentId', requireAuth(['
         const isMyWorkCompletedSem2 = computeTeacherCompletionForSemester(languageCompletionMap, completionLanguages, 2)
         const isMyWorkCompleted = activeSemester === 2 ? isMyWorkCompletedSem2 : isMyWorkCompletedSem1
 
+        // Resolve current signatures (similar to SubAdmin review)
+        const standardPeriodId = activeYear ? computeSignaturePeriodId(String((activeYear as any)._id), 'sem1') : null
+        const endOfYearPeriodId = activeYear ? computeSignaturePeriodId(String((activeYear as any)._id), 'end_of_year') : null
+
+        const signatures = await TemplateSignature.find({ templateAssignmentId: assignmentId }).lean()
+        const signature = signatures.find(s => {
+            if (!(s.type === 'standard' || !s.type)) return false
+            if (!standardPeriodId) return true
+            if (!s.signaturePeriodId) return true
+            return s.signaturePeriodId === standardPeriodId
+        })
+        const finalSignature = signatures.find(s => {
+            if (s.type !== 'end_of_year') return false
+            if (!endOfYearPeriodId) return true
+            if (!s.signaturePeriodId) return true
+            return s.signaturePeriodId === endOfYearPeriodId
+        })
+
+        const populatedAssignment = await populateSignatures(assignment)
+
         res.json({
-            assignment: { ...assignment, classId: enrollment.classId },
+            assignment: { ...populatedAssignment, classId: enrollment.classId },
             template: versionedTemplate,
             student: { ...student, level, className },
             canEdit,
             isSigned,
+            signature,
+            finalSignature,
             allowedLanguages,
             isProfPolyvalent,
             isMyWorkCompleted,

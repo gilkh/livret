@@ -7,6 +7,7 @@ const auth_1 = require("../auth");
 const TeacherClassAssignment_1 = require("../models/TeacherClassAssignment");
 const TemplateAssignment_1 = require("../models/TemplateAssignment");
 const TemplateChangeLog_1 = require("../models/TemplateChangeLog");
+const TemplateSignature_1 = require("../models/TemplateSignature");
 const GradebookTemplate_1 = require("../models/GradebookTemplate");
 const Student_1 = require("../models/Student");
 const Enrollment_1 = require("../models/Enrollment");
@@ -181,6 +182,7 @@ const findEnrollmentForStudent = async (studentId) => {
  * Legacy signatures without signaturePeriodId are also checked for backwards compatibility.
  */
 const signatureService_1 = require("../services/signatureService");
+const readinessUtils_1 = require("../utils/readinessUtils");
 // Teacher: Get classes assigned to logged-in teacher
 exports.teacherTemplatesRouter.get('/classes', (0, auth_1.requireAuth)(['TEACHER', 'ADMIN', 'SUBADMIN']), async (req, res) => {
     try {
@@ -448,12 +450,37 @@ exports.teacherTemplatesRouter.get('/template-assignments/:assignmentId', (0, au
         const isMyWorkCompletedSem1 = computeTeacherCompletionForSemester(languageCompletionMap, completionLanguages, 1);
         const isMyWorkCompletedSem2 = computeTeacherCompletionForSemester(languageCompletionMap, completionLanguages, 2);
         const isMyWorkCompleted = activeSemester === 2 ? isMyWorkCompletedSem2 : isMyWorkCompletedSem1;
+        // Resolve current signatures (similar to SubAdmin review)
+        const standardPeriodId = activeYear ? (0, readinessUtils_1.computeSignaturePeriodId)(String(activeYear._id), 'sem1') : null;
+        const endOfYearPeriodId = activeYear ? (0, readinessUtils_1.computeSignaturePeriodId)(String(activeYear._id), 'end_of_year') : null;
+        const signatures = await TemplateSignature_1.TemplateSignature.find({ templateAssignmentId: assignmentId }).lean();
+        const signature = signatures.find(s => {
+            if (!(s.type === 'standard' || !s.type))
+                return false;
+            if (!standardPeriodId)
+                return true;
+            if (!s.signaturePeriodId)
+                return true;
+            return s.signaturePeriodId === standardPeriodId;
+        });
+        const finalSignature = signatures.find(s => {
+            if (s.type !== 'end_of_year')
+                return false;
+            if (!endOfYearPeriodId)
+                return true;
+            if (!s.signaturePeriodId)
+                return true;
+            return s.signaturePeriodId === endOfYearPeriodId;
+        });
+        const populatedAssignment = await (0, signatureService_1.populateSignatures)(assignment);
         res.json({
-            assignment: { ...assignment, classId: enrollment.classId },
+            assignment: { ...populatedAssignment, classId: enrollment.classId },
             template: versionedTemplate,
             student: { ...student, level, className },
             canEdit,
             isSigned,
+            signature,
+            finalSignature,
             allowedLanguages,
             isProfPolyvalent,
             isMyWorkCompleted,
