@@ -52,309 +52,309 @@ adminExtrasRouter.get('/progress', requireAuth(['ADMIN']), async (req, res) => {
         const cacheKey = `admin-progress-${activeYear._id}`
         const result = await withCache(cacheKey, async () => {
 
-        // --- Classes Progress ---
-        const classes = await ClassModel.find({ schoolYearId: String(activeYear._id) }).lean()
+            // --- Classes Progress ---
+            const classes = await ClassModel.find({ schoolYearId: String(activeYear._id) }).lean()
 
-        const classIds = classes.map(c => String(c._id))
+            const classIds = classes.map(c => String(c._id))
 
-        const teacherAssignments = await TeacherClassAssignment.find({
-            classId: { $in: classIds },
-            schoolYearId: String(activeYear._id)
-        }).lean()
-
-        const teacherIds = [...new Set(teacherAssignments.map(ta => ta.teacherId))]
-        const [users, outlookUsers] = await Promise.all([
-            User.find({ _id: { $in: teacherIds } }).lean(),
-            OutlookUser.find({ _id: { $in: teacherIds } }).lean()
-        ])
-        const allTeachers = [...users, ...outlookUsers]
-        const teacherMap = new Map(allTeachers.map(t => [String(t._id), t]))
-
-        const enrollments = await Enrollment.find({
-            classId: { $in: classIds },
-            schoolYearId: String(activeYear._id)
-            , status: { $ne: 'archived' }
-        }).lean()
-
-        const studentIds = enrollments.map(e => e.studentId)
-
-        const assignments = await TemplateAssignment.find({
-            studentId: { $in: studentIds }
-        }).lean()
-
-        const templateIds = [...new Set(assignments.map(a => a.templateId))]
-        const templates = await GradebookTemplate.find({ _id: { $in: templateIds } }).lean()
-        const templateMap = new Map(templates.map(t => [String((t as any)._id), t]))
-
-        const teacherAssignmentsByClassId = new Map<string, any[]>()
-        for (const ta of teacherAssignments) {
-            const classId = String((ta as any).classId)
-            if (!teacherAssignmentsByClassId.has(classId)) teacherAssignmentsByClassId.set(classId, [])
-            teacherAssignmentsByClassId.get(classId)!.push(ta)
-        }
-
-        const studentToClassId = new Map<string, string>()
-        for (const e of enrollments) {
-            if (e.studentId && e.classId) studentToClassId.set(String(e.studentId), String(e.classId))
-        }
-
-        const assignmentsByClassId = new Map<string, any[]>()
-        for (const a of assignments as any[]) {
-            const classId = studentToClassId.get(String(a.studentId))
-            if (!classId) continue
-            if (!assignmentsByClassId.has(classId)) assignmentsByClassId.set(classId, [])
-            assignmentsByClassId.get(classId)!.push(a)
-        }
-
-        const classesResult = classes.map(cls => {
-            const clsId = String(cls._id)
-
-            const clsTeacherAssignments = teacherAssignmentsByClassId.get(clsId) || []
-            const clsTeachers = clsTeacherAssignments.map(ta => {
-                const t = teacherMap.get(String((ta as any).teacherId)) as any
-                return t?.displayName || t?.email || 'Unknown'
-            })
-
-            // Categorize teachers
-            const polyvalentTeachers: string[] = []
-            const englishTeachers: string[] = []
-            const arabicTeachers: string[] = []
-
-            clsTeacherAssignments.forEach(ta => {
-                const t = teacherMap.get(String((ta as any).teacherId)) as any
-                const teacherName = t?.displayName || t?.email || 'Unknown'
-                const langs = ((ta as any).languages || []).map((l: string) => String(l).toLowerCase())
-
-                if ((ta as any).isProfPolyvalent) {
-                    polyvalentTeachers.push(teacherName)
-                }
-
-                if (langs.includes('ar') || langs.includes('lb')) {
-                    arabicTeachers.push(teacherName)
-                }
-
-                if (langs.includes('en') || langs.includes('uk') || langs.includes('gb')) {
-                    englishTeachers.push(teacherName)
-                }
-            })
-
-            const clsEnrollments = enrollments.filter(e => String(e.classId) === clsId)
-            const clsStudentIds = new Set(clsEnrollments.map(e => String(e.studentId)))
-            const clsAssignments = assignmentsByClassId.get(clsId) || []
-
-            let totalCompetencies = 0
-            let filledCompetencies = 0
-            const categoryStats: Record<string, { total: number, filled: number, name: string }> = {}
-
-            clsAssignments.forEach(assignment => {
-                const templateId = String((assignment as any).templateId)
-                const template = templateMap.get(templateId) as any
-                if (!template) return
-
-                const assignmentData = (assignment as any).data || {}
-                const level = cls.level
-                const teacherCompletions = ((assignment as any).teacherCompletions || []) as any[]
-                const completionMemo = new Map<string, boolean>()
-
-                const isCategoryCompleted = (categoryName: string, langCode?: string) => {
-                    const key = `${categoryName}|${langCode || ''}`
-                    if (completionMemo.has(key)) return completionMemo.get(key)!
-
-                    const l = categoryName.toLowerCase()
-                    const code = (langCode || '').toLowerCase()
-                    const isArabic = code === 'ar' || code === 'lb' || l.includes('arabe') || l.includes('arabic') || l.includes('العربية')
-                    const isEnglish = code === 'en' || code === 'uk' || code === 'gb' || l.includes('anglais') || l.includes('english')
-
-                    let responsibleTeachers = (clsTeacherAssignments as any[])
-                        .filter((ta: any) => {
-                            const langs = (ta.languages || []).map((tl: string) => String(tl).toLowerCase())
-                            if (isArabic) {
-                                if (langs.length === 0) return !ta.isProfPolyvalent
-                                return langs.some((v: string) => v === 'ar' || v === 'lb' || v.includes('arabe') || v.includes('arabic') || v.includes('العربية'))
-                            }
-                            if (isEnglish) {
-                                if (langs.length === 0) return !ta.isProfPolyvalent
-                                return langs.some((v: string) => v === 'en' || v === 'uk' || v === 'gb' || v.includes('anglais') || v.includes('english'))
-                            }
-                            return !!ta.isProfPolyvalent
-                        })
-                        .map((ta: any) => String(ta.teacherId))
-
-                    if (responsibleTeachers.length === 0) {
-                        responsibleTeachers = (((assignment as any).assignedTeachers || []) as any[]).map(id => String(id))
-                    }
-
-                    const completed = responsibleTeachers.some(tid =>
-                        teacherCompletions.some(tc =>
-                            String(tc.teacherId) === String(tid) &&
-                            (tc.completed || tc.completedSem1 || tc.completedSem2)
-                        )
-                    )
-
-                    completionMemo.set(key, completed)
-                    return completed
-                }
-
-                template.pages.forEach((page: any, pageIdx: number) => {
-                    (page.blocks || []).forEach((block: any, blockIdx: number) => {
-                        let itemsToProcess: any[] = []
-
-                        if (['language_toggle', 'language_toggle_v2'].includes(block.type)) {
-                            const blockId = typeof block?.props?.blockId === 'string' && block.props.blockId.trim() ? block.props.blockId.trim() : null
-                            const keyStable = blockId ? `language_toggle_${blockId}` : null
-                            const keyLegacy = `language_toggle_${pageIdx}_${blockIdx}`
-                            const overrideItems = (keyStable ? assignmentData[keyStable] : null) || assignmentData[keyLegacy]
-                            itemsToProcess = overrideItems || block.props.items || []
-                        } else if (block.type === 'table' && block.props.expandedRows) {
-                            const rows = block.props.cells || []
-                            const expandedLanguages = block.props.expandedLanguages || []
-                            const rowLanguages = block.props.rowLanguages || {}
-                            const rowIds = Array.isArray(block?.props?.rowIds) ? block.props.rowIds : []
-                            const blockId = typeof block?.props?.blockId === 'string' && block.props.blockId.trim() ? block.props.blockId.trim() : null
-
-                            rows.forEach((_: any, ri: number) => {
-                                const rowId = typeof rowIds?.[ri] === 'string' && rowIds[ri].trim() ? rowIds[ri].trim() : null
-                                const keyStable = blockId && rowId ? `table_${blockId}_row_${rowId}` : null
-                                const keyLegacy1 = `table_${pageIdx}_${blockIdx}_row_${ri}`
-                                const keyLegacy2 = `table_${blockIdx}_row_${ri}`
-                                const rowLangs = rowLanguages[ri] || expandedLanguages
-                                const currentItems = (keyStable ? assignmentData[keyStable] : null) || assignmentData[keyLegacy1] || assignmentData[keyLegacy2] || rowLangs || []
-                                if (Array.isArray(currentItems)) {
-                                    itemsToProcess.push(...currentItems)
-                                }
-                            })
-                        }
-
-                        if (itemsToProcess.length === 0) return
-
-                        itemsToProcess.forEach((item: any) => {
-                            let isAssigned = true
-                            let itemLevels = item.levels && Array.isArray(item.levels) ? item.levels : []
-                            if (itemLevels.length === 0 && item.level) itemLevels = [item.level]
-
-                            if (itemLevels.length > 0) {
-                                if (!level || !itemLevels.includes(level)) {
-                                    isAssigned = false
-                                }
-                            }
-
-                            if (!isAssigned) return
-
-                            const code = (item.code || '').toLowerCase()
-                            const rawLang = item.type || item.label || ''
-                            const lang = (() => {
-                                const ll = String(rawLang).toLowerCase()
-                                if (code === 'fr' || ll.includes('français') || ll.includes('french')) return 'Polyvalent'
-                                if (code === 'ar' || code === 'lb' || ll.includes('arabe') || ll.includes('arabic') || ll.includes('العربية')) return 'Arabe'
-                                if (code === 'en' || code === 'uk' || code === 'gb' || ll.includes('anglais') || ll.includes('english')) return 'Anglais'
-                                return 'Autre'
-                            })()
-
-                            if (!categoryStats[lang]) categoryStats[lang] = { total: 0, filled: 0, name: lang }
-
-                            categoryStats[lang].total++
-                            totalCompetencies++
-
-                            if (isCategoryCompleted(lang, code) || item.active) {
-                                categoryStats[lang].filled++
-                                filledCompetencies++
-                            }
-                        })
-                    })
-                })
-            })
-
-            return {
-                classId: clsId,
-                className: cls.name,
-                level: cls.level,
-                teachers: clsTeachers,
-                studentCount: clsStudentIds.size,
-                progress: {
-                    total: totalCompetencies,
-                    filled: filledCompetencies,
-                    percentage: totalCompetencies > 0 ? Math.round((filledCompetencies / totalCompetencies) * 100) : 0
-                },
-                teachersCheck: {
-                    polyvalent: polyvalentTeachers,
-                    english: englishTeachers,
-                    arabic: arabicTeachers,
-                    hasPolyvalent: polyvalentTeachers.length > 0,
-                    hasEnglish: englishTeachers.length > 0,
-                    hasArabic: arabicTeachers.length > 0
-                },
-                byCategory: Object.values(categoryStats).map(stat => ({
-                    name: stat.name,
-                    total: stat.total,
-                    filled: stat.filled,
-                    percentage: stat.total > 0 ? Math.round((stat.filled / stat.total) * 100) : 0
-                }))
-            }
-        })
-
-        // --- Sub-Admin Progress ---
-        const subAdmins = await User.find({ role: 'SUBADMIN' }).lean()
-        const subAdminProgress = await Promise.all(subAdmins.map(async (sa) => {
-            const saId = String(sa._id)
-
-            // Get assigned levels from RoleScope
-            const scope = await RoleScope.findOne({ userId: saId }).lean()
-            const assignedLevels = scope?.levels || []
-
-            // Get directly assigned teachers
-            const directAssignments = await SubAdminAssignment.find({ subAdminId: saId }).lean()
-            const assignedTeacherIds = [...new Set(directAssignments.map(da => String(da.teacherId)))]
-
-            // Find classes matching levels OR teachers
-            // 1. By Level
-            const levelClasses = await ClassModel.find({
-                level: { $in: assignedLevels },
+            const teacherAssignments = await TeacherClassAssignment.find({
+                classId: { $in: classIds },
                 schoolYearId: String(activeYear._id)
             }).lean()
 
-            // 2. By Teacher
-            const teacherClassesAssignments = await TeacherClassAssignment.find({
-                teacherId: { $in: assignedTeacherIds },
-                schoolYearId: String(activeYear._id)
-            }).lean()
-            const teacherClassIds = teacherClassesAssignments.map(tca => tca.classId)
-            const teacherClasses = await ClassModel.find({ _id: { $in: teacherClassIds } }).lean()
+            const teacherIds = [...new Set(teacherAssignments.map(ta => ta.teacherId))]
+            const [users, outlookUsers] = await Promise.all([
+                User.find({ _id: { $in: teacherIds } }).lean(),
+                OutlookUser.find({ _id: { $in: teacherIds } }).lean()
+            ])
+            const allTeachers = [...users, ...outlookUsers]
+            const teacherMap = new Map(allTeachers.map(t => [String(t._id), t]))
 
-            // Merge unique classes
-            const allRelevantClasses = [...levelClasses, ...teacherClasses]
-            const uniqueClassIds = [...new Set(allRelevantClasses.map(c => String(c._id)))]
-
-            // Find students in these classes
-            const saEnrollments = await Enrollment.find({
-                classId: { $in: uniqueClassIds },
+            const enrollments = await Enrollment.find({
+                classId: { $in: classIds },
                 schoolYearId: String(activeYear._id)
                 , status: { $ne: 'archived' }
             }).lean()
-            const saStudentIds = [...new Set(saEnrollments.map(e => String(e.studentId)))]
 
-            // Find assignments for these students
-            const saAssignments = await TemplateAssignment.find({
-                studentId: { $in: saStudentIds }
+            const studentIds = enrollments.map(e => e.studentId)
+
+            const assignments = await TemplateAssignment.find({
+                studentId: { $in: studentIds }
             }).lean()
 
-            const totalAssignments = saAssignments.length
-            const saAssignmentIds = saAssignments.map(a => String((a as any)._id))
-            const signatures = saAssignmentIds.length
-                ? await TemplateSignature.find({ templateAssignmentId: { $in: saAssignmentIds }, subAdminId: saId }).lean()
-                : []
-            const signedAssignments = new Set(signatures.map(s => String((s as any).templateAssignmentId))).size
+            const templateIds = [...new Set(assignments.map(a => a.templateId))]
+            const templates = await GradebookTemplate.find({ _id: { $in: templateIds } }).lean()
+            const templateMap = new Map(templates.map(t => [String((t as any)._id), t]))
 
-            return {
-                subAdminId: saId,
-                displayName: sa.displayName,
-                assignedLevels,
-                assignedTeacherCount: assignedTeacherIds.length,
-                totalStudents: saStudentIds.length,
-                totalAssignments,
-                signedAssignments,
-                percentage: totalAssignments > 0 ? Math.round((signedAssignments / totalAssignments) * 100) : 0
+            const teacherAssignmentsByClassId = new Map<string, any[]>()
+            for (const ta of teacherAssignments) {
+                const classId = String((ta as any).classId)
+                if (!teacherAssignmentsByClassId.has(classId)) teacherAssignmentsByClassId.set(classId, [])
+                teacherAssignmentsByClassId.get(classId)!.push(ta)
             }
-        }))
+
+            const studentToClassId = new Map<string, string>()
+            for (const e of enrollments) {
+                if (e.studentId && e.classId) studentToClassId.set(String(e.studentId), String(e.classId))
+            }
+
+            const assignmentsByClassId = new Map<string, any[]>()
+            for (const a of assignments as any[]) {
+                const classId = studentToClassId.get(String(a.studentId))
+                if (!classId) continue
+                if (!assignmentsByClassId.has(classId)) assignmentsByClassId.set(classId, [])
+                assignmentsByClassId.get(classId)!.push(a)
+            }
+
+            const classesResult = classes.map(cls => {
+                const clsId = String(cls._id)
+
+                const clsTeacherAssignments = teacherAssignmentsByClassId.get(clsId) || []
+                const clsTeachers = clsTeacherAssignments.map(ta => {
+                    const t = teacherMap.get(String((ta as any).teacherId)) as any
+                    return t?.displayName || t?.email || 'Unknown'
+                })
+
+                // Categorize teachers
+                const polyvalentTeachers: string[] = []
+                const englishTeachers: string[] = []
+                const arabicTeachers: string[] = []
+
+                clsTeacherAssignments.forEach(ta => {
+                    const t = teacherMap.get(String((ta as any).teacherId)) as any
+                    const teacherName = t?.displayName || t?.email || 'Unknown'
+                    const langs = ((ta as any).languages || []).map((l: string) => String(l).toLowerCase())
+
+                    if ((ta as any).isProfPolyvalent) {
+                        polyvalentTeachers.push(teacherName)
+                    }
+
+                    if (langs.includes('ar') || langs.includes('lb')) {
+                        arabicTeachers.push(teacherName)
+                    }
+
+                    if (langs.includes('en') || langs.includes('uk') || langs.includes('gb')) {
+                        englishTeachers.push(teacherName)
+                    }
+                })
+
+                const clsEnrollments = enrollments.filter(e => String(e.classId) === clsId)
+                const clsStudentIds = new Set(clsEnrollments.map(e => String(e.studentId)))
+                const clsAssignments = assignmentsByClassId.get(clsId) || []
+
+                let totalCompetencies = 0
+                let filledCompetencies = 0
+                const categoryStats: Record<string, { total: number, filled: number, name: string }> = {}
+
+                clsAssignments.forEach(assignment => {
+                    const templateId = String((assignment as any).templateId)
+                    const template = templateMap.get(templateId) as any
+                    if (!template) return
+
+                    const assignmentData = (assignment as any).data || {}
+                    const level = cls.level
+                    const teacherCompletions = ((assignment as any).teacherCompletions || []) as any[]
+                    const completionMemo = new Map<string, boolean>()
+
+                    const isCategoryCompleted = (categoryName: string, langCode?: string) => {
+                        const key = `${categoryName}|${langCode || ''}`
+                        if (completionMemo.has(key)) return completionMemo.get(key)!
+
+                        const l = categoryName.toLowerCase()
+                        const code = (langCode || '').toLowerCase()
+                        const isArabic = code === 'ar' || code === 'lb' || l.includes('arabe') || l.includes('arabic') || l.includes('العربية')
+                        const isEnglish = code === 'en' || code === 'uk' || code === 'gb' || l.includes('anglais') || l.includes('english')
+
+                        let responsibleTeachers = (clsTeacherAssignments as any[])
+                            .filter((ta: any) => {
+                                const langs = (ta.languages || []).map((tl: string) => String(tl).toLowerCase())
+                                if (isArabic) {
+                                    if (langs.length === 0) return !ta.isProfPolyvalent
+                                    return langs.some((v: string) => v === 'ar' || v === 'lb' || v.includes('arabe') || v.includes('arabic') || v.includes('العربية'))
+                                }
+                                if (isEnglish) {
+                                    if (langs.length === 0) return !ta.isProfPolyvalent
+                                    return langs.some((v: string) => v === 'en' || v === 'uk' || v === 'gb' || v.includes('anglais') || v.includes('english'))
+                                }
+                                return !!ta.isProfPolyvalent
+                            })
+                            .map((ta: any) => String(ta.teacherId))
+
+                        if (responsibleTeachers.length === 0) {
+                            responsibleTeachers = (((assignment as any).assignedTeachers || []) as any[]).map(id => String(id))
+                        }
+
+                        const completed = responsibleTeachers.some(tid =>
+                            teacherCompletions.some(tc =>
+                                String(tc.teacherId) === String(tid) &&
+                                (tc.completed || tc.completedSem1 || tc.completedSem2)
+                            )
+                        )
+
+                        completionMemo.set(key, completed)
+                        return completed
+                    }
+
+                    template.pages.forEach((page: any, pageIdx: number) => {
+                        (page.blocks || []).forEach((block: any, blockIdx: number) => {
+                            let itemsToProcess: any[] = []
+
+                            if (['language_toggle', 'language_toggle_v2'].includes(block.type)) {
+                                const blockId = typeof block?.props?.blockId === 'string' && block.props.blockId.trim() ? block.props.blockId.trim() : null
+                                const keyStable = blockId ? `language_toggle_${blockId}` : null
+                                const keyLegacy = `language_toggle_${pageIdx}_${blockIdx}`
+                                const overrideItems = (keyStable ? assignmentData[keyStable] : null) || assignmentData[keyLegacy]
+                                itemsToProcess = overrideItems || block.props.items || []
+                            } else if (block.type === 'table' && block.props.expandedRows) {
+                                const rows = block.props.cells || []
+                                const expandedLanguages = block.props.expandedLanguages || []
+                                const rowLanguages = block.props.rowLanguages || {}
+                                const rowIds = Array.isArray(block?.props?.rowIds) ? block.props.rowIds : []
+                                const blockId = typeof block?.props?.blockId === 'string' && block.props.blockId.trim() ? block.props.blockId.trim() : null
+
+                                rows.forEach((_: any, ri: number) => {
+                                    const rowId = typeof rowIds?.[ri] === 'string' && rowIds[ri].trim() ? rowIds[ri].trim() : null
+                                    const keyStable = blockId && rowId ? `table_${blockId}_row_${rowId}` : null
+                                    const keyLegacy1 = `table_${pageIdx}_${blockIdx}_row_${ri}`
+                                    const keyLegacy2 = `table_${blockIdx}_row_${ri}`
+                                    const rowLangs = rowLanguages[ri] || expandedLanguages
+                                    const currentItems = (keyStable ? assignmentData[keyStable] : null) || assignmentData[keyLegacy1] || assignmentData[keyLegacy2] || rowLangs || []
+                                    if (Array.isArray(currentItems)) {
+                                        itemsToProcess.push(...currentItems)
+                                    }
+                                })
+                            }
+
+                            if (itemsToProcess.length === 0) return
+
+                            itemsToProcess.forEach((item: any) => {
+                                let isAssigned = true
+                                let itemLevels = item.levels && Array.isArray(item.levels) ? item.levels : []
+                                if (itemLevels.length === 0 && item.level) itemLevels = [item.level]
+
+                                if (itemLevels.length > 0) {
+                                    if (!level || !itemLevels.includes(level)) {
+                                        isAssigned = false
+                                    }
+                                }
+
+                                if (!isAssigned) return
+
+                                const code = (item.code || '').toLowerCase()
+                                const rawLang = item.type || item.label || ''
+                                const lang = (() => {
+                                    const ll = String(rawLang).toLowerCase()
+                                    if (code === 'fr' || ll.includes('français') || ll.includes('french')) return 'Polyvalent'
+                                    if (code === 'ar' || code === 'lb' || ll.includes('arabe') || ll.includes('arabic') || ll.includes('العربية')) return 'Arabe'
+                                    if (code === 'en' || code === 'uk' || code === 'gb' || ll.includes('anglais') || ll.includes('english')) return 'Anglais'
+                                    return 'Autre'
+                                })()
+
+                                if (!categoryStats[lang]) categoryStats[lang] = { total: 0, filled: 0, name: lang }
+
+                                categoryStats[lang].total++
+                                totalCompetencies++
+
+                                if (isCategoryCompleted(lang, code) || item.active) {
+                                    categoryStats[lang].filled++
+                                    filledCompetencies++
+                                }
+                            })
+                        })
+                    })
+                })
+
+                return {
+                    classId: clsId,
+                    className: cls.name,
+                    level: cls.level,
+                    teachers: clsTeachers,
+                    studentCount: clsStudentIds.size,
+                    progress: {
+                        total: totalCompetencies,
+                        filled: filledCompetencies,
+                        percentage: totalCompetencies > 0 ? Math.round((filledCompetencies / totalCompetencies) * 100) : 0
+                    },
+                    teachersCheck: {
+                        polyvalent: polyvalentTeachers,
+                        english: englishTeachers,
+                        arabic: arabicTeachers,
+                        hasPolyvalent: polyvalentTeachers.length > 0,
+                        hasEnglish: englishTeachers.length > 0,
+                        hasArabic: arabicTeachers.length > 0
+                    },
+                    byCategory: Object.values(categoryStats).map(stat => ({
+                        name: stat.name,
+                        total: stat.total,
+                        filled: stat.filled,
+                        percentage: stat.total > 0 ? Math.round((stat.filled / stat.total) * 100) : 0
+                    }))
+                }
+            })
+
+            // --- Sub-Admin Progress ---
+            const subAdmins = await User.find({ role: 'SUBADMIN' }).lean()
+            const subAdminProgress = await Promise.all(subAdmins.map(async (sa) => {
+                const saId = String(sa._id)
+
+                // Get assigned levels from RoleScope
+                const scope = await RoleScope.findOne({ userId: saId }).lean()
+                const assignedLevels = scope?.levels || []
+
+                // Get directly assigned teachers
+                const directAssignments = await SubAdminAssignment.find({ subAdminId: saId }).lean()
+                const assignedTeacherIds = [...new Set(directAssignments.map(da => String(da.teacherId)))]
+
+                // Find classes matching levels OR teachers
+                // 1. By Level
+                const levelClasses = await ClassModel.find({
+                    level: { $in: assignedLevels },
+                    schoolYearId: String(activeYear._id)
+                }).lean()
+
+                // 2. By Teacher
+                const teacherClassesAssignments = await TeacherClassAssignment.find({
+                    teacherId: { $in: assignedTeacherIds },
+                    schoolYearId: String(activeYear._id)
+                }).lean()
+                const teacherClassIds = teacherClassesAssignments.map(tca => tca.classId)
+                const teacherClasses = await ClassModel.find({ _id: { $in: teacherClassIds } }).lean()
+
+                // Merge unique classes
+                const allRelevantClasses = [...levelClasses, ...teacherClasses]
+                const uniqueClassIds = [...new Set(allRelevantClasses.map(c => String(c._id)))]
+
+                // Find students in these classes
+                const saEnrollments = await Enrollment.find({
+                    classId: { $in: uniqueClassIds },
+                    schoolYearId: String(activeYear._id)
+                    , status: { $ne: 'archived' }
+                }).lean()
+                const saStudentIds = [...new Set(saEnrollments.map(e => String(e.studentId)))]
+
+                // Find assignments for these students
+                const saAssignments = await TemplateAssignment.find({
+                    studentId: { $in: saStudentIds }
+                }).lean()
+
+                const totalAssignments = saAssignments.length
+                const saAssignmentIds = saAssignments.map(a => String((a as any)._id))
+                const signatures = saAssignmentIds.length
+                    ? await TemplateSignature.find({ templateAssignmentId: { $in: saAssignmentIds }, subAdminId: saId }).lean()
+                    : []
+                const signedAssignments = new Set(signatures.map(s => String((s as any).templateAssignmentId))).size
+
+                return {
+                    subAdminId: saId,
+                    displayName: sa.displayName,
+                    assignedLevels,
+                    assignedTeacherCount: assignedTeacherIds.length,
+                    totalStudents: saStudentIds.length,
+                    totalAssignments,
+                    signedAssignments,
+                    percentage: totalAssignments > 0 ? Math.round((signedAssignments / totalAssignments) * 100) : 0
+                }
+            }))
 
             return { classes: classesResult, subAdmins: subAdminProgress }
         }, 60000) // Cache for 1 minute
@@ -561,7 +561,7 @@ adminExtrasRouter.get('/all-gradebooks', requireAuth(['ADMIN']), async (req, res
                 const template = templateMap.get(tid)
                 const student = studentMap.get(sid)
                 const assignmentSignatures = signatureMap.get(aid) || []
-                
+
                 const signature = assignmentSignatures.length > 0 ? assignmentSignatures[0] : null
                 const classId = studentClassMap.get(sid)
                 const classInfo = classId ? classMap.get(classId) : null
@@ -600,73 +600,73 @@ adminExtrasRouter.get('/appreciations/usage', requireAuth(['ADMIN']), async (req
         const cacheKey = `admin-appreciations-usage-${activeSchoolYear._id}`
         const result = await withCache(cacheKey, async () => {
             const enrollments = await Enrollment.find({ schoolYearId: activeSchoolYear._id }).lean()
-        const studentIds = enrollments.map(e => e.studentId)
-        const classIds = enrollments.map(e => e.classId).filter(Boolean)
+            const studentIds = enrollments.map(e => e.studentId)
+            const classIds = enrollments.map(e => e.classId).filter(Boolean)
 
-        const [assignments, students, classes] = await Promise.all([
-            TemplateAssignment.find({
-                studentId: { $in: studentIds }
-            }).select('data studentId').lean(),
-            Student.find({ _id: { $in: studentIds } }).select('firstName lastName sex').lean(),
-            ClassModel.find({ _id: { $in: classIds } }).select('name').lean()
-        ])
+            const [assignments, students, classes] = await Promise.all([
+                TemplateAssignment.find({
+                    studentId: { $in: studentIds }
+                }).select('data studentId').lean(),
+                Student.find({ _id: { $in: studentIds } }).select('firstName lastName sex').lean(),
+                ClassModel.find({ _id: { $in: classIds } }).select('name').lean()
+            ])
 
-        const classMap: Record<string, string> = {}
-        for (const c of classes) classMap[c._id.toString()] = c.name
+            const classMap: Record<string, string> = {}
+            for (const c of classes) classMap[c._id.toString()] = c.name
 
-        const studentMap: Record<string, { name: string; sex: string; className: string }> = {}
-        for (const s of students) {
-            const enrollment = enrollments.find(e => e.studentId === s._id.toString())
-            studentMap[s._id.toString()] = {
-                name: `${s.firstName} ${s.lastName}`,
-                sex: s.sex || 'neutral',
-                className: enrollment && enrollment.classId ? (classMap[enrollment.classId] || '') : ''
+            const studentMap: Record<string, { name: string; sex: string; className: string }> = {}
+            for (const s of students) {
+                const enrollment = enrollments.find(e => e.studentId === s._id.toString())
+                studentMap[s._id.toString()] = {
+                    name: `${s.firstName} ${s.lastName}`,
+                    sex: s.sex || 'neutral',
+                    className: enrollment && enrollment.classId ? (classMap[enrollment.classId] || '') : ''
+                }
             }
-        }
 
-        const usageMap: Record<string, { 
-            total: number; 
-            male: { count: number; students: any[] }; 
-            female: { count: number; students: any[] }; 
-            neutral: { count: number; students: any[] }; 
-        }> = {}
+            const usageMap: Record<string, {
+                total: number;
+                male: { count: number; students: any[] };
+                female: { count: number; students: any[] };
+                neutral: { count: number; students: any[] };
+            }> = {}
 
-        for (const assignment of assignments) {
-            const data = (assignment as any).data || {}
-            const studentId = String(assignment.studentId)
-            const studentInfo = studentMap[studentId]
-            if (!studentInfo) continue
+            for (const assignment of assignments) {
+                const data = (assignment as any).data || {}
+                const studentId = String(assignment.studentId)
+                const studentInfo = studentMap[studentId]
+                if (!studentInfo) continue
 
-            const { name, sex, className } = studentInfo
-            const displayInfo = { name, className }
+                const { name, sex, className } = studentInfo
+                const displayInfo = { name, className }
 
-            for (const key of Object.keys(data)) {
-                if (key.startsWith('dropdown_') || key.startsWith('tpl:')) {
-                    const val = String(data[key] || '').trim()
-                    if (val) {
-                        if (!usageMap[val]) {
-                            usageMap[val] = { 
-                                total: 0, 
-                                male: { count: 0, students: [] }, 
-                                female: { count: 0, students: [] }, 
-                                neutral: { count: 0, students: [] } 
+                for (const key of Object.keys(data)) {
+                    if (key.startsWith('dropdown_') || key.startsWith('tpl:')) {
+                        const val = String(data[key] || '').trim()
+                        if (val) {
+                            if (!usageMap[val]) {
+                                usageMap[val] = {
+                                    total: 0,
+                                    male: { count: 0, students: [] },
+                                    female: { count: 0, students: [] },
+                                    neutral: { count: 0, students: [] }
+                                }
                             }
-                        }
-                        usageMap[val].total++
-                        if (sex === 'male') {
-                            usageMap[val].male.count++
-                            usageMap[val].male.students.push(displayInfo)
-                        } else if (sex === 'female') {
-                            usageMap[val].female.count++
-                            usageMap[val].female.students.push(displayInfo)
-                        } else {
-                            usageMap[val].neutral.count++
-                            usageMap[val].neutral.students.push(displayInfo)
+                            usageMap[val].total++
+                            if (sex === 'male') {
+                                usageMap[val].male.count++
+                                usageMap[val].male.students.push(displayInfo)
+                            } else if (sex === 'female') {
+                                usageMap[val].female.count++
+                                usageMap[val].female.students.push(displayInfo)
+                            } else {
+                                usageMap[val].neutral.count++
+                                usageMap[val].neutral.students.push(displayInfo)
+                            }
                         }
                     }
                 }
             }
-        }
             return usageMap
         }, 300000) // Cache for 5 minutes
 
@@ -2277,7 +2277,7 @@ adminExtrasRouter.post('/ps-onboarding/batch-promote', requireAuth(['ADMIN']), a
                         if (updatedAssignment) {
                             const statuses = await StudentCompetencyStatus.find({ studentId: sid }).lean()
                             const allSignatures = await TemplateSignature.find({ templateAssignmentId: String(assignment._id) }).lean()
-                            
+
                             const snapshotData = {
                                 student: student,
                                 enrollment: oldEnrollment,

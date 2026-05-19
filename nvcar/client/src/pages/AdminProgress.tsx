@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import api from '../api'
 import './AdminProgress.css'
-import ProgressSection from '../components/ProgressSection' 
+import ProgressSection from '../components/ProgressSection'
 
 type CategoryProgress = {
     name: string
@@ -56,12 +56,12 @@ export default function AdminProgress() {
     const [sortBy, setSortBy] = useState('className')
 
     const filteredClasses = classes
-      .filter(c => (levelFilter === 'all' || c.level === levelFilter) && c.className.toLowerCase().includes(searchQuery.toLowerCase()))
-      .sort((a, b) => {
-        if (sortBy === 'progress_desc') return b.progress.percentage - a.progress.percentage
-        if (sortBy === 'progress_asc') return a.progress.percentage - b.progress.percentage
-        return a.className.localeCompare(b.className)
-      })
+        .filter(c => (levelFilter === 'all' || c.level === levelFilter) && c.className.toLowerCase().includes(searchQuery.toLowerCase()))
+        .sort((a, b) => {
+            if (sortBy === 'progress_desc') return b.progress.percentage - a.progress.percentage
+            if (sortBy === 'progress_asc') return a.progress.percentage - b.progress.percentage
+            return a.className.localeCompare(b.className)
+        })
 
     const filteredSubAdmins = subAdmins.filter(sa => levelFilter === 'all' || sa.assignedLevels.includes(levelFilter))
 
@@ -106,7 +106,7 @@ export default function AdminProgress() {
             stats.studentCount += cls.studentCount
             stats.progress.total += cls.progress.total
             stats.progress.filled += cls.progress.filled
-            
+
             cls.byCategory.forEach(cat => {
                 if (!stats.byCategory[cat.name]) {
                     stats.byCategory[cat.name] = { total: 0, filled: 0, name: cat.name }
@@ -116,8 +116,8 @@ export default function AdminProgress() {
             })
         })
 
-        stats.progress.percentage = stats.progress.total > 0 
-            ? Math.round((stats.progress.filled / stats.progress.total) * 100) 
+        stats.progress.percentage = stats.progress.total > 0
+            ? Math.round((stats.progress.filled / stats.progress.total) * 100)
             : 0
 
         const byCategoryArray = Object.values(stats.byCategory).map(cat => ({
@@ -192,11 +192,11 @@ export default function AdminProgress() {
                                 </thead>
                                 <tbody>
                                     {filteredClasses.map(cls => {
-                                        const check = cls.teachersCheck || { 
-                                            polyvalent: [], english: [], arabic: [], 
-                                            hasPolyvalent: false, hasEnglish: false, hasArabic: false 
+                                        const check = cls.teachersCheck || {
+                                            polyvalent: [], english: [], arabic: [],
+                                            hasPolyvalent: false, hasEnglish: false, hasArabic: false
                                         }
-                                        
+
                                         // Helper for cell style
                                         const getCellStyle = (hasTeacher: boolean) => {
                                             if (!hasTeacher) return { background: '#fef2f2', color: '#dc2626' } // Pink red
@@ -229,14 +229,14 @@ export default function AdminProgress() {
                         {levelsToShow.map(level => {
                             const levelClasses = groupedByLevel[level]
                             const levelStats = getLevelStats(levelClasses)
-                            
+
                             return (
                                 <div key={level} style={{ marginBottom: 40 }}>
-                                    <h3 style={{ 
-                                        fontSize: 20, 
-                                        color: '#334155', 
-                                        marginBottom: 20, 
-                                        borderBottom: '2px solid #e2e8f0', 
+                                    <h3 style={{
+                                        fontSize: 20,
+                                        color: '#334155',
+                                        marginBottom: 20,
+                                        borderBottom: '2px solid #e2e8f0',
                                         paddingBottom: 8,
                                         display: 'flex',
                                         alignItems: 'center',
@@ -249,7 +249,7 @@ export default function AdminProgress() {
 
                                     {/* Level Summary */}
                                     <div style={{ marginBottom: 24 }}>
-                                        <ProgressSection 
+                                        <ProgressSection
                                             title={`Résumé ${level}`}
                                             subtitle={`${levelStats.studentCount} élèves au total`}
                                             progress={levelStats.progress}
@@ -262,7 +262,7 @@ export default function AdminProgress() {
                                     {/* Classes Grid */}
                                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 16 }}>
                                         {levelClasses.filter(c => c.className.toLowerCase().includes(searchQuery.toLowerCase())).map(cls => (
-                                            <ProgressSection 
+                                            <ProgressSection
                                                 key={cls.classId}
                                                 title={cls.className}
                                                 subtitle={`${cls.teachers.join(', ') || 'Aucun enseignant'} • ${cls.studentCount} élèves`}
@@ -286,9 +286,9 @@ export default function AdminProgress() {
                         </h2>
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
                             {filteredSubAdmins.map(sa => (
-                                <div key={sa.subAdminId} style={{ 
-                                    background: '#fff', 
-                                    borderRadius: 10, 
+                                <div key={sa.subAdminId} style={{
+                                    background: '#fff',
+                                    borderRadius: 10,
                                     border: '1px solid #e2e8f0',
                                     padding: 16,
                                     boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
@@ -299,11 +299,11 @@ export default function AdminProgress() {
                                             {sa.percentage}% Signé
                                         </span>
                                     </div>
-                                    
+
                                     <div style={{ marginBottom: 16 }}>
                                         <div style={{ fontSize: 14, color: '#64748b', marginBottom: 4 }}>Périmètre:</div>
                                         <div style={{ fontSize: 14, color: '#334155' }}>
-                                            {sa.assignedLevels.length > 0 ? sa.assignedLevels.join(', ') : 'Aucun niveau'} 
+                                            {sa.assignedLevels.length > 0 ? sa.assignedLevels.join(', ') : 'Aucun niveau'}
                                             {sa.assignedTeacherCount > 0 && ` • ${sa.assignedTeacherCount} Enseignants`}
                                         </div>
                                     </div>
@@ -321,9 +321,9 @@ export default function AdminProgress() {
 
                                     {/* Progress Bar */}
                                     <div style={{ height: 8, background: '#f1f5f9', borderRadius: 4, overflow: 'hidden' }}>
-                                        <div style={{ 
-                                            height: '100%', 
-                                            width: `${sa.percentage}%`, 
+                                        <div style={{
+                                            height: '100%',
+                                            width: `${sa.percentage}%`,
                                             background: sa.percentage === 100 ? '#22c55e' : '#3b82f6',
                                             transition: 'width 0.5s ease'
                                         }} />

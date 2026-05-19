@@ -5,7 +5,7 @@ const mongoose_1 = require("mongoose");
 const auditLogSchema = new mongoose_1.Schema({
     userId: { type: String, required: true },
     userName: { type: String, required: true },
-    userRole: { type: String, enum: ['ADMIN', 'SUBADMIN', 'TEACHER'], required: true },
+    userRole: { type: String, enum: ['ADMIN', 'SUBADMIN', 'TEACHER', 'AEFE'], required: true },
     action: {
         type: String,
         enum: [

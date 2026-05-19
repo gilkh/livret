@@ -131,6 +131,8 @@ exports.adminExtrasRouter.get('/progress', (0, auth_1.requireAuth)(['ADMIN']), a
                 const clsAssignments = assignmentsByClassId.get(clsId) || [];
                 let totalCompetencies = 0;
                 let filledCompetencies = 0;
+                let filledCompetenciesSem1 = 0;
+                let filledCompetenciesSem2 = 0;
                 const categoryStats = {};
                 clsAssignments.forEach(assignment => {
                     const templateId = String(assignment.templateId);
@@ -141,8 +143,8 @@ exports.adminExtrasRouter.get('/progress', (0, auth_1.requireAuth)(['ADMIN']), a
                     const level = cls.level;
                     const teacherCompletions = (assignment.teacherCompletions || []);
                     const completionMemo = new Map();
-                    const isCategoryCompleted = (categoryName, langCode) => {
-                        const key = `${categoryName}|${langCode || ''}`;
+                    const isCategoryCompleted = (categoryName, langCode, sem) => {
+                        const key = `${categoryName}|${langCode || ''}|${sem || 'overall'}`;
                         if (completionMemo.has(key))
                             return completionMemo.get(key);
                         const l = categoryName.toLowerCase();
@@ -169,7 +171,7 @@ exports.adminExtrasRouter.get('/progress', (0, auth_1.requireAuth)(['ADMIN']), a
                             responsibleTeachers = (assignment.assignedTeachers || []).map(id => String(id));
                         }
                         const completed = responsibleTeachers.some(tid => teacherCompletions.some(tc => String(tc.teacherId) === String(tid) &&
-                            (tc.completed || tc.completedSem1 || tc.completedSem2)));
+                            (sem === 'sem1' ? tc.completedSem1 : sem === 'sem2' ? tc.completedSem2 : (tc.completed || tc.completedSem1 || tc.completedSem2))));
                         completionMemo.set(key, completed);
                         return completed;
                     };
@@ -228,10 +230,18 @@ exports.adminExtrasRouter.get('/progress', (0, auth_1.requireAuth)(['ADMIN']), a
                                     return 'Autre';
                                 })();
                                 if (!categoryStats[lang])
-                                    categoryStats[lang] = { total: 0, filled: 0, name: lang };
+                                    categoryStats[lang] = { total: 0, filled: 0, filledSem1: 0, filledSem2: 0, name: lang };
                                 categoryStats[lang].total++;
                                 totalCompetencies++;
-                                if (isCategoryCompleted(lang, code) || item.active) {
+                                if (isCategoryCompleted(lang, code, 'sem1') || item.active) {
+                                    categoryStats[lang].filledSem1++;
+                                    filledCompetenciesSem1++;
+                                }
+                                if (isCategoryCompleted(lang, code, 'sem2') || item.active) {
+                                    categoryStats[lang].filledSem2++;
+                                    filledCompetenciesSem2++;
+                                }
+                                if (isCategoryCompleted(lang, code, 'overall') || item.active) {
                                     categoryStats[lang].filled++;
                                     filledCompetencies++;
                                 }
@@ -248,7 +258,11 @@ exports.adminExtrasRouter.get('/progress', (0, auth_1.requireAuth)(['ADMIN']), a
                     progress: {
                         total: totalCompetencies,
                         filled: filledCompetencies,
-                        percentage: totalCompetencies > 0 ? Math.round((filledCompetencies / totalCompetencies) * 100) : 0
+                        filledSem1: filledCompetenciesSem1,
+                        filledSem2: filledCompetenciesSem2,
+                        percentage: totalCompetencies > 0 ? Math.round((filledCompetencies / totalCompetencies) * 100) : 0,
+                        percentageSem1: totalCompetencies > 0 ? Math.round((filledCompetenciesSem1 / totalCompetencies) * 100) : 0,
+                        percentageSem2: totalCompetencies > 0 ? Math.round((filledCompetenciesSem2 / totalCompetencies) * 100) : 0
                     },
                     teachersCheck: {
                         polyvalent: polyvalentTeachers,
@@ -262,7 +276,11 @@ exports.adminExtrasRouter.get('/progress', (0, auth_1.requireAuth)(['ADMIN']), a
                         name: stat.name,
                         total: stat.total,
                         filled: stat.filled,
-                        percentage: stat.total > 0 ? Math.round((stat.filled / stat.total) * 100) : 0
+                        filledSem1: stat.filledSem1,
+                        filledSem2: stat.filledSem2,
+                        percentage: stat.total > 0 ? Math.round((stat.filled / stat.total) * 100) : 0,
+                        percentageSem1: stat.total > 0 ? Math.round((stat.filledSem1 / stat.total) * 100) : 0,
+                        percentageSem2: stat.total > 0 ? Math.round((stat.filledSem2 / stat.total) * 100) : 0
                     }))
                 };
             });
