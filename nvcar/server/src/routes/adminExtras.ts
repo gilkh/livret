@@ -81,6 +81,16 @@ adminExtrasRouter.get('/progress', requireAuth(['ADMIN']), async (req, res) => {
             const assignments = await TemplateAssignment.find({
                 studentId: { $in: studentIds }
             }).lean()
+            const assignmentIds = assignments.map(a => String((a as any)._id))
+            const signatures = assignmentIds.length
+                ? await TemplateSignature.find({ templateAssignmentId: { $in: assignmentIds } }).lean()
+                : []
+            const signaturesByAssignmentId = new Map<string, any[]>()
+            for (const signature of signatures as any[]) {
+                const assignmentId = String(signature.templateAssignmentId)
+                if (!signaturesByAssignmentId.has(assignmentId)) signaturesByAssignmentId.set(assignmentId, [])
+                signaturesByAssignmentId.get(assignmentId)!.push(signature)
+            }
 
             const templateIds = [...new Set(assignments.map(a => a.templateId))]
             const templates = await GradebookTemplate.find({ _id: { $in: templateIds } }).lean()
@@ -142,9 +152,61 @@ adminExtrasRouter.get('/progress', requireAuth(['ADMIN']), async (req, res) => {
                 const clsStudentIds = new Set(clsEnrollments.map(e => String(e.studentId)))
                 const clsAssignments = assignmentsByClassId.get(clsId) || []
 
-                let totalCompetencies = 0
-                let filledCompetencies = 0
-                const categoryStats: Record<string, { total: number, filled: number, name: string }> = {}
+                const makeProgressBucket = () => ({
+                    total: 0,
+                    filled: 0,
+                    byCategory: {} as Record<string, { total: number, filled: number, name: string }>
+                })
+                const addProgress = (bucket: ReturnType<typeof makeProgressBucket>, name: string, completed: boolean) => {
+                    if (!bucket.byCategory[name]) bucket.byCategory[name] = { total: 0, filled: 0, name }
+                    bucket.byCategory[name].total++
+                    bucket.total++
+                    if (completed) {
+                        bucket.byCategory[name].filled++
+                        bucket.filled++
+                    }
+                }
+                const formatProgress = (bucket: ReturnType<typeof makeProgressBucket>) => ({
+                    total: bucket.total,
+                    filled: bucket.filled,
+                    percentage: bucket.total > 0 ? Math.round((bucket.filled / bucket.total) * 100) : 0
+                })
+                const formatCategories = (bucket: ReturnType<typeof makeProgressBucket>) => Object.values(bucket.byCategory).map(stat => ({
+                    name: stat.name,
+                    total: stat.total,
+                    filled: stat.filled,
+                    percentage: stat.total > 0 ? Math.round((stat.filled / stat.total) * 100) : 0
+                }))
+                const overallStats = makeProgressBucket()
+                const sem1Stats = makeProgressBucket()
+                const sem2Stats = makeProgressBucket()
+                const makeLanguageGradebookStats = () => ({
+                    Arabe: { total: 0, done: 0 },
+                    Anglais: { total: 0, done: 0 },
+                    Polyvalent: { total: 0, done: 0 }
+                })
+                const gradebookStats = {
+                    total: clsAssignments.length,
+                    sem1: { done: 0, signed: 0, byLanguage: makeLanguageGradebookStats() },
+                    sem2: { done: 0, signed: 0, byLanguage: makeLanguageGradebookStats() }
+                }
+
+                const isSem1Signed = (assignmentId: string) => (signaturesByAssignmentId.get(assignmentId) || []).some((s: any) =>
+                    s.type !== 'end_of_year' &&
+                    (String(s.signaturePeriodId || '').endsWith('_sem1') || !s.signaturePeriodId)
+                )
+                const isSem2Signed = (assignmentId: string) => (signaturesByAssignmentId.get(assignmentId) || []).some((s: any) =>
+                    s.type === 'end_of_year' ||
+                    String(s.signaturePeriodId || '').endsWith('_sem2') ||
+                    String(s.signaturePeriodId || '').endsWith('_end_of_year')
+                )
+                const formatLanguageGradebooks = (stats: ReturnType<typeof makeLanguageGradebookStats>) => Object.entries(stats).map(([name, value]) => ({
+                    name,
+                    total: value.total,
+                    done: value.done,
+                    missing: Math.max(0, value.total - value.done),
+                    percentage: value.total > 0 ? Math.round((value.done / value.total) * 100) : 0
+                }))
 
                 clsAssignments.forEach(assignment => {
                     const templateId = String((assignment as any).templateId)
@@ -153,8 +215,23 @@ adminExtrasRouter.get('/progress', requireAuth(['ADMIN']), async (req, res) => {
 
                     const assignmentData = (assignment as any).data || {}
                     const level = cls.level
+                    const assignmentId = String((assignment as any)._id)
                     const teacherCompletions = ((assignment as any).teacherCompletions || []) as any[]
-                    const completionMemo = new Map<string, boolean>()
+                    const languageCompletions = ((assignment as any).languageCompletions || []) as any[]
+                    const languageCompletionMap = new Map<string, any>()
+                    for (const entry of Array.isArray(languageCompletions) ? languageCompletions : []) {
+                        const entryLevel = String(entry?.level || '').trim()
+                        if (level && entryLevel && entryLevel !== level) continue
+                        const rawCode = String(entry?.code || '').trim().toLowerCase()
+                        if (!rawCode) continue
+                        const normalized = rawCode === 'lb' || rawCode === 'ara' || rawCode === 'arab' ? 'ar'
+                            : rawCode === 'uk' || rawCode === 'gb' || rawCode === 'eng' ? 'en'
+                                : rawCode === 'fra' ? 'fr'
+                                    : rawCode
+                        languageCompletionMap.set(normalized, entry)
+                    }
+                    const completionMemo = new Map<string, { overall: boolean, sem1: boolean, sem2: boolean }>()
+                    const assignmentLanguages = new Set<'Arabe' | 'Anglais' | 'Polyvalent'>()
 
                     const isCategoryCompleted = (categoryName: string, langCode?: string) => {
                         const key = `${categoryName}|${langCode || ''}`
@@ -164,6 +241,17 @@ adminExtrasRouter.get('/progress', requireAuth(['ADMIN']), async (req, res) => {
                         const code = (langCode || '').toLowerCase()
                         const isArabic = code === 'ar' || code === 'lb' || l.includes('arabe') || l.includes('arabic') || l.includes('العربية')
                         const isEnglish = code === 'en' || code === 'uk' || code === 'gb' || l.includes('anglais') || l.includes('english')
+                        const normalizedCode = isArabic ? 'ar' : isEnglish ? 'en' : code === 'fr' || l.includes('fran') || l.includes('french') ? 'fr' : code
+                        const languageCompletion = languageCompletionMap.get(normalizedCode)
+                        if (languageCompletion) {
+                            const result = {
+                                overall: !!(languageCompletion.completed || languageCompletion.completedSem1 || languageCompletion.completedSem2),
+                                sem1: !!(languageCompletion.completedSem1 || languageCompletion.completed),
+                                sem2: !!languageCompletion.completedSem2
+                            }
+                            completionMemo.set(key, result)
+                            return result
+                        }
 
                         let responsibleTeachers = (clsTeacherAssignments as any[])
                             .filter((ta: any) => {
@@ -184,16 +272,35 @@ adminExtrasRouter.get('/progress', requireAuth(['ADMIN']), async (req, res) => {
                             responsibleTeachers = (((assignment as any).assignedTeachers || []) as any[]).map(id => String(id))
                         }
 
-                        const completed = responsibleTeachers.some(tid =>
-                            teacherCompletions.some(tc =>
-                                String(tc.teacherId) === String(tid) &&
-                                (tc.completed || tc.completedSem1 || tc.completedSem2)
+                        const result = {
+                            overall: responsibleTeachers.some(tid =>
+                                teacherCompletions.some(tc =>
+                                    String(tc.teacherId) === String(tid) &&
+                                    (tc.completed || tc.completedSem1 || tc.completedSem2)
+                                )
+                            ),
+                            sem1: responsibleTeachers.some(tid =>
+                                teacherCompletions.some(tc =>
+                                    String(tc.teacherId) === String(tid) &&
+                                    (tc.completed || tc.completedSem1)
+                                )
+                            ),
+                            sem2: responsibleTeachers.some(tid =>
+                                teacherCompletions.some(tc =>
+                                    String(tc.teacherId) === String(tid) &&
+                                    tc.completedSem2
+                                )
                             )
-                        )
+                        }
 
-                        completionMemo.set(key, completed)
-                        return completed
+                        completionMemo.set(key, result)
+                        return result
                     }
+
+                    if ((assignment as any).isCompletedSem1 || (assignment as any).isCompleted) gradebookStats.sem1.done++
+                    if ((assignment as any).isCompletedSem2) gradebookStats.sem2.done++
+                    if (isSem1Signed(assignmentId)) gradebookStats.sem1.signed++
+                    if (isSem2Signed(assignmentId)) gradebookStats.sem2.signed++
 
                     template.pages.forEach((page: any, pageIdx: number) => {
                         (page.blocks || []).forEach((block: any, blockIdx: number) => {
@@ -249,18 +356,30 @@ adminExtrasRouter.get('/progress', requireAuth(['ADMIN']), async (req, res) => {
                                     if (code === 'en' || code === 'uk' || code === 'gb' || ll.includes('anglais') || ll.includes('english')) return 'Anglais'
                                     return 'Autre'
                                 })()
-
-                                if (!categoryStats[lang]) categoryStats[lang] = { total: 0, filled: 0, name: lang }
-
-                                categoryStats[lang].total++
-                                totalCompetencies++
-
-                                if (isCategoryCompleted(lang, code) || item.active) {
-                                    categoryStats[lang].filled++
-                                    filledCompetencies++
+                                if (lang === 'Arabe' || lang === 'Anglais' || lang === 'Polyvalent') {
+                                    assignmentLanguages.add(lang)
                                 }
+
+                                const completion = isCategoryCompleted(lang, code)
+                                const isPreFilled = item.active === true || item.active === 'true'
+                                addProgress(overallStats, lang, completion.overall || isPreFilled)
+                                addProgress(sem1Stats, lang, completion.sem1 || isPreFilled)
+                                addProgress(sem2Stats, lang, completion.sem2 || isPreFilled)
                             })
                         })
+                    })
+
+                    assignmentLanguages.forEach(lang => {
+                        const code = lang === 'Arabe' ? 'ar' : lang === 'Anglais' ? 'en' : 'fr'
+                        const completion = isCategoryCompleted(lang, code)
+                        gradebookStats.sem1.byLanguage[lang].total++
+                        gradebookStats.sem2.byLanguage[lang].total++
+                        if (completion.sem1 || (assignment as any).isCompletedSem1 || (assignment as any).isCompleted) {
+                            gradebookStats.sem1.byLanguage[lang].done++
+                        }
+                        if (completion.sem2 || (assignment as any).isCompletedSem2) {
+                            gradebookStats.sem2.byLanguage[lang].done++
+                        }
                     })
                 })
 
@@ -270,10 +389,37 @@ adminExtrasRouter.get('/progress', requireAuth(['ADMIN']), async (req, res) => {
                     level: cls.level,
                     teachers: clsTeachers,
                     studentCount: clsStudentIds.size,
-                    progress: {
-                        total: totalCompetencies,
-                        filled: filledCompetencies,
-                        percentage: totalCompetencies > 0 ? Math.round((filledCompetencies / totalCompetencies) * 100) : 0
+                    gradebooks: {
+                        total: gradebookStats.total,
+                        sem1: {
+                            done: gradebookStats.sem1.done,
+                            signed: gradebookStats.sem1.signed,
+                            notDone: Math.max(0, gradebookStats.total - gradebookStats.sem1.done),
+                            notSigned: Math.max(0, gradebookStats.sem1.done - gradebookStats.sem1.signed),
+                            percentage: gradebookStats.total > 0 ? Math.round((gradebookStats.sem1.done / gradebookStats.total) * 100) : 0,
+                            signedPercentage: gradebookStats.total > 0 ? Math.round((gradebookStats.sem1.signed / gradebookStats.total) * 100) : 0,
+                            byLanguage: formatLanguageGradebooks(gradebookStats.sem1.byLanguage)
+                        },
+                        sem2: {
+                            done: gradebookStats.sem2.done,
+                            signed: gradebookStats.sem2.signed,
+                            notDone: Math.max(0, gradebookStats.total - gradebookStats.sem2.done),
+                            notSigned: Math.max(0, gradebookStats.sem2.done - gradebookStats.sem2.signed),
+                            percentage: gradebookStats.total > 0 ? Math.round((gradebookStats.sem2.done / gradebookStats.total) * 100) : 0,
+                            signedPercentage: gradebookStats.total > 0 ? Math.round((gradebookStats.sem2.signed / gradebookStats.total) * 100) : 0,
+                            byLanguage: formatLanguageGradebooks(gradebookStats.sem2.byLanguage)
+                        }
+                    },
+                    progress: formatProgress(overallStats),
+                    semesters: {
+                        sem1: {
+                            ...formatProgress(sem1Stats),
+                            byCategory: formatCategories(sem1Stats)
+                        },
+                        sem2: {
+                            ...formatProgress(sem2Stats),
+                            byCategory: formatCategories(sem2Stats)
+                        }
                     },
                     teachersCheck: {
                         polyvalent: polyvalentTeachers,
@@ -283,12 +429,7 @@ adminExtrasRouter.get('/progress', requireAuth(['ADMIN']), async (req, res) => {
                         hasEnglish: englishTeachers.length > 0,
                         hasArabic: arabicTeachers.length > 0
                     },
-                    byCategory: Object.values(categoryStats).map(stat => ({
-                        name: stat.name,
-                        total: stat.total,
-                        filled: stat.filled,
-                        percentage: stat.total > 0 ? Math.round((stat.filled / stat.total) * 100) : 0
-                    }))
+                    byCategory: formatCategories(overallStats)
                 }
             })
 
@@ -343,6 +484,16 @@ adminExtrasRouter.get('/progress', requireAuth(['ADMIN']), async (req, res) => {
                     ? await TemplateSignature.find({ templateAssignmentId: { $in: saAssignmentIds }, subAdminId: saId }).lean()
                     : []
                 const signedAssignments = new Set(signatures.map(s => String((s as any).templateAssignmentId))).size
+                const sem1SignedAssignments = new Set(
+                    signatures
+                        .filter((s: any) => String(s.signaturePeriodId || '').endsWith('_sem1') || (!s.signaturePeriodId && s.type !== 'end_of_year'))
+                        .map(s => String((s as any).templateAssignmentId))
+                ).size
+                const sem2SignedAssignments = new Set(
+                    signatures
+                        .filter((s: any) => String(s.signaturePeriodId || '').endsWith('_sem2') || String(s.signaturePeriodId || '').endsWith('_end_of_year') || s.type === 'end_of_year')
+                        .map(s => String((s as any).templateAssignmentId))
+                ).size
 
                 return {
                     subAdminId: saId,
@@ -352,11 +503,31 @@ adminExtrasRouter.get('/progress', requireAuth(['ADMIN']), async (req, res) => {
                     totalStudents: saStudentIds.length,
                     totalAssignments,
                     signedAssignments,
-                    percentage: totalAssignments > 0 ? Math.round((signedAssignments / totalAssignments) * 100) : 0
+                    percentage: totalAssignments > 0 ? Math.round((signedAssignments / totalAssignments) * 100) : 0,
+                    semesters: {
+                        sem1: {
+                            total: totalAssignments,
+                            signed: sem1SignedAssignments,
+                            percentage: totalAssignments > 0 ? Math.round((sem1SignedAssignments / totalAssignments) * 100) : 0
+                        },
+                        sem2: {
+                            total: totalAssignments,
+                            signed: sem2SignedAssignments,
+                            percentage: totalAssignments > 0 ? Math.round((sem2SignedAssignments / totalAssignments) * 100) : 0
+                        }
+                    }
                 }
             }))
 
-            return { classes: classesResult, subAdmins: subAdminProgress }
+            return {
+                activeSemester: (activeYear as any).activeSemester || 1,
+                schoolYear: {
+                    id: String(activeYear._id),
+                    name: (activeYear as any).name
+                },
+                classes: classesResult,
+                subAdmins: subAdminProgress
+            }
         }, 60000) // Cache for 1 minute
 
         res.json(result)
