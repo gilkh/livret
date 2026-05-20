@@ -2852,3 +2852,367 @@ adminExtrasRouter.post('/run-tests', requireAuth(['ADMIN']), async (req, res) =>
         res.status(500).json({ error: 'run_failed', message: e.message })
     }
 })
+
+// ============================================================================
+// ADMIN GRADEBOOKS LANGUAGE DONE STATUS MANAGEMENT
+// ============================================================================
+
+const adminNormalizeLevel = (v: any) => String(v || '').trim().toUpperCase()
+
+const adminNormalizeLanguageCode = (code: any) => {
+    const c = String(code || '').toLowerCase()
+    if (!c) return ''
+    if (c === 'lb' || c === 'ar') return 'ar'
+    if (c === 'en' || c === 'uk' || c === 'gb') return 'en'
+    if (c === 'fr') return 'fr'
+    return c
+}
+
+const adminNormalizeLanguageCodes = (codes: any[]) => {
+    const normalized = (Array.isArray(codes) ? codes : []).map(adminNormalizeLanguageCode).filter(Boolean)
+    return [...new Set(normalized)]
+}
+
+const adminGetCompletionLanguagesForTeacher = (teacherClassAssignment: any | null | undefined) => {
+    const langs = adminNormalizeLanguageCodes(teacherClassAssignment?.languages || [])
+    if (langs.length > 0) return langs
+    if (teacherClassAssignment?.isPolyvalent) return ['fr']
+    return ['ar', 'en', 'fr']
+}
+
+const adminBuildLanguageCompletionMap = (languageCompletions: any[], levelRaw?: any) => {
+    const targetLevel = adminNormalizeLevel(levelRaw)
+    const map: Record<string, any> = {}
+    ;(Array.isArray(languageCompletions) ? languageCompletions : []).forEach((entry: any) => {
+        const code = adminNormalizeLanguageCode(entry?.code)
+        if (!code) return
+        if (targetLevel) {
+            const entryLevel = adminNormalizeLevel(entry?.level)
+            if (!entryLevel || entryLevel !== targetLevel) return
+        }
+        map[code] = { ...(entry || {}), code }
+    })
+    return map
+}
+
+const adminIsLanguageCompletedForSemester = (languageCompletionMap: Record<string, any>, code: string, semester: number) => {
+    const entry = languageCompletionMap[adminNormalizeLanguageCode(code)]
+    if (!entry) return false
+    if (semester === 1) return !!(entry.completedSem1 || entry.completed)
+    return !!entry.completedSem2
+}
+
+const adminComputeTeacherCompletionForSemester = (languageCompletionMap: Record<string, any>, languages: string[], semester: number) => {
+    if (!Array.isArray(languages) || languages.length === 0) return false
+    return languages.every(code => adminIsLanguageCompletedForSemester(languageCompletionMap, code, semester))
+}
+
+// GET /admin-extras/gradebooks/languages/status
+adminExtrasRouter.get('/gradebooks/languages/status', requireAuth(['ADMIN']), async (req, res) => {
+    try {
+        const classId = String(req.query.classId || '').trim()
+        const schoolYearIdRaw = String(req.query.schoolYearId || '').trim()
+        const semesterRaw = Number(req.query.semester)
+
+        if (!classId) {
+            return res.status(400).json({ error: 'missing_class_id' })
+        }
+
+        const activeSchoolYear = await SchoolYear.findOne({ active: true }).lean()
+        const targetSchoolYearId = schoolYearIdRaw || (activeSchoolYear ? String(activeSchoolYear._id) : null)
+        if (!targetSchoolYearId) {
+            return res.status(400).json({ error: 'no_active_school_year' })
+        }
+
+        const classDoc = await ClassModel.findById(classId).lean()
+        if (!classDoc) {
+            return res.status(404).json({ error: 'class_not_found' })
+        }
+
+        const semester = [1, 2].includes(semesterRaw)
+            ? semesterRaw
+            : (activeSchoolYear?.activeSemester || 1)
+
+        // Get enrollments in the class
+        const enrollments = await Enrollment.find({
+            classId,
+            schoolYearId: targetSchoolYearId,
+            status: { $nin: ['archived', 'left'] }
+        }).lean()
+
+        const studentIds = enrollments.map(e => String(e.studentId))
+        if (studentIds.length === 0) {
+            return res.json({ students: [], semester, activeSemester: activeSchoolYear?.activeSemester || 1 })
+        }
+
+        // Fetch students
+        const students = await Student.find({ _id: { $in: studentIds } })
+            .select('firstName lastName')
+            .lean()
+
+        const studentMap = new Map(students.map(s => [String(s._id), s]))
+
+        // Fetch template assignments (gradebooks) for these students
+        const assignments = await TemplateAssignment.find({
+            studentId: { $in: studentIds }
+        }).lean()
+
+        const templateIds = [...new Set(assignments.map(a => String(a.templateId)).filter(Boolean))]
+        const templates = await GradebookTemplate.find({ _id: { $in: templateIds } }).select('name').lean()
+        const templateMap = new Map(templates.map(t => [String(t._id), t.name]))
+
+        const resultStudents = enrollments.map(enrollment => {
+            const sid = String(enrollment.studentId)
+            const student = studentMap.get(sid)
+            const assignment = assignments.find(a => String(a.studentId) === sid)
+
+            const languagesStatus = {
+                fr: false,
+                en: false,
+                ar: false
+            }
+
+            if (assignment) {
+                const completions = Array.isArray(assignment.languageCompletions) ? assignment.languageCompletions : []
+                completions.forEach((lc: any) => {
+                    const code = String(lc.code || '').toLowerCase()
+                    const isDone = semester === 1
+                        ? !!(lc.completedSem1 || lc.completed)
+                        : !!lc.completedSem2
+
+                    if (code === 'fr') languagesStatus.fr = isDone
+                    else if (code === 'en') languagesStatus.en = isDone
+                    else if (code === 'ar') languagesStatus.ar = isDone
+                })
+            }
+
+            return {
+                studentId: sid,
+                firstName: student?.firstName || '',
+                lastName: student?.lastName || '',
+                assignmentId: assignment ? String(assignment._id) : null,
+                templateName: assignment ? (templateMap.get(String(assignment.templateId)) || 'Gradebook') : null,
+                languages: languagesStatus
+            }
+        })
+
+        // Sort students by lastName, firstName
+        resultStudents.sort((a, b) => {
+            const nameA = `${a.lastName} ${a.firstName}`.toLowerCase()
+            const nameB = `${b.lastName} ${b.firstName}`.toLowerCase()
+            return nameA.localeCompare(nameB)
+        })
+
+        res.json({
+            students: resultStudents,
+            semester,
+            activeSemester: activeSchoolYear?.activeSemester || 1,
+            classInfo: {
+                id: String(classDoc._id),
+                name: classDoc.name,
+                level: classDoc.level
+            }
+        })
+    } catch (e: any) {
+        console.error(e)
+        res.status(500).json({ error: 'fetch_failed', message: e.message })
+    }
+})
+
+// POST /admin-extras/gradebooks/languages/toggle
+adminExtrasRouter.post('/gradebooks/languages/toggle', requireAuth(['ADMIN']), async (req, res) => {
+    try {
+        const assignmentIds = req.body.assignmentIds
+        const targetLanguages = req.body.languages // e.g. ['fr']
+        const active = req.body.active // boolean
+        const semesterRaw = Number(req.body.semester)
+
+        if (!Array.isArray(assignmentIds) || assignmentIds.length === 0) {
+            return res.status(400).json({ error: 'missing_assignment_ids' })
+        }
+        if (!Array.isArray(targetLanguages) || targetLanguages.length === 0) {
+            return res.status(400).json({ error: 'missing_languages' })
+        }
+        if (typeof active !== 'boolean') {
+            return res.status(400).json({ error: 'missing_active_status' })
+        }
+
+        const activeSchoolYear = await SchoolYear.findOne({ active: true }).lean()
+        const targetSemester = [1, 2].includes(semesterRaw)
+            ? semesterRaw
+            : (activeSchoolYear?.activeSemester || 1)
+
+        const now = new Date()
+        const adminId = (req as any).user.userId
+
+        const results = {
+            successCount: 0,
+            errorCount: 0,
+            errors: [] as any[]
+        }
+
+        // Loop through assignmentIds to update them
+        for (const assignmentId of assignmentIds) {
+            try {
+                const assignment = await TemplateAssignment.findById(assignmentId)
+                if (!assignment) {
+                    results.errorCount++
+                    results.errors.push({ id: assignmentId, error: 'Assignment not found' })
+                    continue
+                }
+
+                // Get enrollment for student to know the class and level
+                const enrollment = await Enrollment.findOne({ studentId: assignment.studentId }).sort({ _id: -1 }).lean()
+                if (!enrollment) {
+                    results.errorCount++
+                    results.errors.push({ id: assignmentId, error: 'Student enrollment not found' })
+                    continue
+                }
+
+                const classDoc = await ClassModel.findById(enrollment.classId).lean()
+                const studentLevel = adminNormalizeLevel(classDoc?.level || '')
+
+                let languageCompletions = Array.isArray((assignment as any).languageCompletions)
+                    ? [...(assignment as any).languageCompletions]
+                    : []
+
+                // Update target languages done status
+                targetLanguages.forEach(code => {
+                    const normalized = adminNormalizeLanguageCode(code)
+                    if (!normalized) return
+
+                    let entryIndex = languageCompletions.findIndex((lc: any) =>
+                        adminNormalizeLanguageCode(lc?.code) === normalized &&
+                        adminNormalizeLevel(lc?.level) === studentLevel
+                    )
+
+                    let entry: any
+                    if (entryIndex === -1) {
+                        entry = { code: normalized, level: studentLevel }
+                        languageCompletions.push(entry)
+                        entryIndex = languageCompletions.length - 1
+                    } else {
+                        entry = { ...languageCompletions[entryIndex] }
+                    }
+
+                    if (active) {
+                        if (targetSemester === 1) {
+                            entry.completedSem1 = true
+                            entry.completedAtSem1 = now
+                            entry.completed = true
+                            entry.completedAt = now
+                        } else {
+                            entry.completedSem2 = true
+                            entry.completedAtSem2 = now
+                        }
+                    } else {
+                        if (targetSemester === 1) {
+                            entry.completedSem1 = false
+                            entry.completedAtSem1 = null
+                            entry.completed = false
+                            entry.completedAt = null
+                        } else {
+                            entry.completedSem2 = false
+                            entry.completedAtSem2 = null
+                        }
+                    }
+
+                    languageCompletions[entryIndex] = entry
+                })
+
+                // Recalculate teacher completions based on languageCompletions
+                const languageCompletionMap = adminBuildLanguageCompletionMap(languageCompletions, studentLevel)
+                
+                let teacherCompletions = (assignment as any).teacherCompletions || []
+
+                // Fetch class assignments to know which teachers are assigned to which languages
+                const classAssignments = await TeacherClassAssignment.find({ classId: enrollment.classId }).lean()
+                const teacherLanguagesMap = new Map<string, string[]>()
+                classAssignments.forEach((ta: any) => {
+                    teacherLanguagesMap.set(String(ta.teacherId), adminGetCompletionLanguagesForTeacher(ta))
+                })
+
+                const getLanguagesForTeacher = (tid: string) => {
+                    return teacherLanguagesMap.get(String(tid)) || ['ar', 'en', 'fr']
+                }
+
+                // For each teacher assigned to the gradebook, update their done status
+                ;(assignment.assignedTeachers || []).forEach((tid: string) => {
+                    let tcIndex = teacherCompletions.findIndex((tc: any) => String(tc.teacherId) === tid)
+                    if (tcIndex === -1) {
+                        teacherCompletions.push({ teacherId: tid })
+                        tcIndex = teacherCompletions.length - 1
+                    }
+
+                    const completionLangs = getLanguagesForTeacher(tid)
+                    const teacherCompletedSem1 = adminComputeTeacherCompletionForSemester(languageCompletionMap, completionLangs, 1)
+                    const teacherCompletedSem2 = adminComputeTeacherCompletionForSemester(languageCompletionMap, completionLangs, 2)
+
+                    teacherCompletions[tcIndex].completedSem1 = teacherCompletedSem1
+                    teacherCompletions[tcIndex].completedAtSem1 = teacherCompletedSem1 ? (teacherCompletions[tcIndex].completedAtSem1 || now) : null
+                    teacherCompletions[tcIndex].completedSem2 = teacherCompletedSem2
+                    teacherCompletions[tcIndex].completedAtSem2 = teacherCompletedSem2 ? (teacherCompletions[tcIndex].completedAtSem2 || now) : null
+                    teacherCompletions[tcIndex].completed = teacherCompletedSem1
+                    teacherCompletions[tcIndex].completedAt = teacherCompletedSem1 ? (teacherCompletions[tcIndex].completedAt || now) : null
+                })
+
+                // Check if all teachers have completed this semester
+                const allCompletedSem = (assignment.assignedTeachers || []).every((tid: string) =>
+                    adminComputeTeacherCompletionForSemester(languageCompletionMap, getLanguagesForTeacher(tid), targetSemester)
+                )
+
+                // Update assignment completions fields
+                ;(assignment as any).languageCompletions = languageCompletions
+                ;(assignment as any).teacherCompletions = teacherCompletions
+
+                if (targetSemester === 1) {
+                    assignment.isCompletedSem1 = allCompletedSem
+                    assignment.completedAtSem1 = allCompletedSem ? now : null
+
+                    // Legacy/Global status
+                    assignment.isCompleted = allCompletedSem
+                    assignment.completedAt = allCompletedSem ? now : null
+                    assignment.completedBy = allCompletedSem ? adminId : null
+                    assignment.status = allCompletedSem ? 'completed' : 'in_progress'
+                } else if (targetSemester === 2) {
+                    assignment.isCompletedSem2 = allCompletedSem
+                    assignment.completedAtSem2 = allCompletedSem ? now : null
+                    assignment.status = allCompletedSem ? 'completed' : 'in_progress'
+                }
+
+                await assignment.save()
+                results.successCount++
+
+                // Log audit
+                const template = await GradebookTemplate.findById(assignment.templateId).lean()
+                const student = await Student.findById(assignment.studentId).lean()
+                await logAudit({
+                    userId: adminId,
+                    action: active ? 'MARK_ASSIGNMENT_DONE' : 'UNMARK_ASSIGNMENT_DONE',
+                    details: {
+                        assignmentId,
+                        semester: targetSemester,
+                        languages: targetLanguages,
+                        templateId: assignment.templateId,
+                        templateName: template?.name,
+                        studentId: assignment.studentId,
+                        studentName: student ? `${student.firstName} ${student.lastName}` : 'Unknown',
+                        triggeredBy: 'ADMIN_GRADEBOOKS_LANGUAGES_PAGE'
+                    },
+                    req,
+                })
+            } catch (err: any) {
+                results.errorCount++
+                results.errors.push({ id: assignmentId, error: err.message })
+            }
+        }
+
+        res.json({
+            success: true,
+            ...results
+        })
+    } catch (e: any) {
+        console.error(e)
+        res.status(500).json({ error: 'toggle_failed', message: e.message })
+    }
+})

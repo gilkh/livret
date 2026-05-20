@@ -27,6 +27,7 @@ export interface IEmailJob extends Document {
   sentItems: number
   skippedItems: number
   failedItems: number
+  partialItems: number
   startedAt: Date
   updatedAt: Date
   completedAt?: Date
@@ -53,6 +54,7 @@ const emailJobSchema = new Schema<IEmailJob>({
   sentItems: { type: Number, default: 0 },
   skippedItems: { type: Number, default: 0 },
   failedItems: { type: Number, default: 0 },
+  partialItems: { type: Number, default: 0 },
   startedAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
   completedAt: { type: Date },

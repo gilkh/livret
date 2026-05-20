@@ -10,7 +10,7 @@ export const settingsRouter = Router()
 // Helper to get SMTP settings from database
 export async function getSmtpSettings() {
   const settings = await Setting.find({
-    key: { $in: ['smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass', 'smtp_secure', 'smtp_from_name', 'smtp_from_email'] }
+    key: { $in: ['smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass', 'smtp_secure', 'smtp_from_name', 'smtp_from_email', 'smtp_tls_reject_unauthorized'] }
   }).lean()
 
   const map: Record<string, any> = {}
@@ -23,7 +23,9 @@ export async function getSmtpSettings() {
     pass: map.smtp_pass || '',
     secure: map.smtp_secure === true,
     fromName: map.smtp_from_name || '',
-    fromEmail: map.smtp_from_email || ''
+    fromEmail: map.smtp_from_email || '',
+    // #15: configurable TLS cert validation, defaults to false to preserve existing behaviour
+    tlsRejectUnauthorized: map.smtp_tls_reject_unauthorized === true
   }
 }
 
@@ -43,7 +45,8 @@ export async function createSmtpTransporter() {
       pass: smtp.pass
     },
     tls: {
-      rejectUnauthorized: false
+      // #15: use the DB setting; enable strict cert validation in the SMTP admin panel
+      rejectUnauthorized: smtp.tlsRejectUnauthorized
     },
     requireTLS: true
   })

@@ -46,7 +46,7 @@ import AdminSignatures from './pages/AdminSignatures'
 import AdminGlobalPermissions from './pages/AdminGlobalPermissions'
 import AdminNavigationVisibility from './pages/AdminNavigationVisibility'
 import AdminBlockVisibility from './pages/AdminBlockVisibility'
-import AdminStudentPromotions from './pages/AdminStudentPromotions'
+import AdminGradebookLanguages from './pages/AdminGradebookLanguages'
 import AdminAppreciations from './pages/AdminAppreciations'
 import AdminPsOnboarding from './pages/AdminPsOnboarding'
 import AdminSkillAnalytics from './pages/AdminSkillAnalytics'
@@ -686,10 +686,10 @@ export default function App() {
           }
         />
         <Route
-          path="/admin/student-promotions"
+          path="/admin/gradebook-languages"
           element={
             <RequireAuth>
-              <AdminStudentPromotions />
+              <AdminGradebookLanguages />
             </RequireAuth>
           }
         />

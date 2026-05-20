@@ -122,10 +122,10 @@ export default function AdminDashboard() {
               iconColor="#0369a1"
             />
             <DashboardCard
-              title="Passage Élèves"
-              description="Promotions annuelles."
-              icon={GraduationCap}
-              to="/admin/student-promotions"
+              title="Validation Langues"
+              description="Validation administrative des langues."
+              icon={Globe}
+              to="/admin/gradebook-languages"
               color="#ffedd5"
               iconColor="#c2410c"
             />

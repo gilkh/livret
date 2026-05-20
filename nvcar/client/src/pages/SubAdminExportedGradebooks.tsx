@@ -113,10 +113,7 @@ export default function SubAdminExportedGradebooks() {
   const [confirmStep, setConfirmStep] = useState(1)
   const [exportQualityChoice, setExportQualityChoice] = useState<{ callback: (hq: boolean) => void, available: { sd: boolean, hd: boolean } } | null>(null)
   const [selectedGroupKey, setSelectedGroupKey] = useState('')
-  const [activeFileForTest, setActiveFileForTest] = useState<string | null>(null)
-  const [testEmailValue, setTestEmailValue] = useState('')
-  const [testLoading, setTestLoading] = useState(false)
-  const [testSuccess, setTestSuccess] = useState(false)
+
 
   const [assignedClasses, setAssignedClasses] = useState<any[]>([])
   const [expandedLevels, setExpandedLevels] = useState<Record<string, boolean>>({})
@@ -335,19 +332,27 @@ export default function SubAdminExportedGradebooks() {
 
   useEffect(() => {
     if (!jobId) return
-    const intervalId = window.setInterval(async () => {
+    // #4: exponential backoff — 1s → 1.5s → 2.25s … → max 10s
+    let cancelled = false
+    let delay = 1000
+    const poll = async () => {
+      if (cancelled) return
       try {
         const response = await api.get(`/gradebook-exports/email-jobs/${jobId}`)
+        if (cancelled) return
         setEmailJob(response.data)
         if (response.data?.status === 'completed' || response.data?.status === 'failed') {
-          window.clearInterval(intervalId)
           loadJobHistory(selectedContext 
             ? libraryTree[selectedContext.level]?.[selectedContext.className]?.[selectedContext.semester]?.batches[0]?._id
             : selectedLot?.batches[0]?._id)
+          return // stop polling
         }
-      } catch { window.clearInterval(intervalId) }
-    }, 1000)
-    return () => window.clearInterval(intervalId)
+      } catch { return } // stop polling on error
+      delay = Math.min(Math.round(delay * 1.5), 10000)
+      setTimeout(poll, delay)
+    }
+    setTimeout(poll, delay)
+    return () => { cancelled = true }
   }, [jobId])
 
   const toggleFileSelection = (fileId: string) => {
@@ -500,33 +505,7 @@ export default function SubAdminExportedGradebooks() {
     } catch (e: any) { setError(e.response?.data?.message || 'Erreur') }
   }
 
-  const sendTestEmails = async () => {
-    if (!testEmailValue || selectedFileIds.length === 0) return
-    try {
-      setTestLoading(true)
-      setTestSuccess(false)
-      // We'll reuse the main send logic but with an override
-      const bId = selectedContext 
-        ? libraryTree[selectedContext.level]?.[selectedContext.className]?.[selectedContext.semester]?.batches[0]?._id
-        : selectedLot?.batches[0]?._id
-      if (!bId) return
-      
-      await api.post(`/gradebook-exports/batches/${bId}/send`, {
-        selectedFileIds,
-        includeFather,
-        includeMother,
-        includeStudent,
-        customMessage,
-        testEmailOverride: testEmailValue
-      })
-      setTestSuccess(true)
-      setTimeout(() => setTestSuccess(false), 5000)
-    } catch (e: any) {
-      alert(e.response?.data?.message || 'Échec du test')
-    } finally {
-      setTestLoading(false)
-    }
-  }
+
 
   return (
     <div className="exports-container">
@@ -929,6 +908,7 @@ export default function SubAdminExportedGradebooks() {
                       <div 
                         className={`pme-card ${includeFather ? 'active' : ''} ${emailStats.p === 0 ? 'disabled' : ''}`}
                         onClick={() => emailStats.p > 0 && setIncludeFather(!includeFather)}
+                        title={emailStats.p === 0 ? (selectedFileIds.length === 0 ? 'Sélectionnez des élèves pour voir les emails disponibles' : 'Aucun email père dans la sélection') : `${emailStats.p} email(s) père disponibles`}
                       >
                         <div className="pme-icon-box"><Users size={16} /></div>
                         <div className="pme-info">
@@ -941,6 +921,7 @@ export default function SubAdminExportedGradebooks() {
                       <div 
                         className={`pme-card ${includeMother ? 'active' : ''} ${emailStats.m === 0 ? 'disabled' : ''}`}
                         onClick={() => emailStats.m > 0 && setIncludeMother(!includeMother)}
+                        title={emailStats.m === 0 ? (selectedFileIds.length === 0 ? 'Sélectionnez des élèves pour voir les emails disponibles' : 'Aucun email mère dans la sélection') : `${emailStats.m} email(s) mère disponibles`}
                       >
                         <div className="pme-icon-box"><Users size={16} /></div>
                         <div className="pme-info">
@@ -953,6 +934,7 @@ export default function SubAdminExportedGradebooks() {
                       <div 
                         className={`pme-card ${includeStudent ? 'active' : ''} ${emailStats.e === 0 ? 'disabled' : ''}`}
                         onClick={() => emailStats.e > 0 && setIncludeStudent(!includeStudent)}
+                        title={emailStats.e === 0 ? (selectedFileIds.length === 0 ? 'Sélectionnez des élèves pour voir les emails disponibles' : 'Aucun email élève dans la sélection') : `${emailStats.e} email(s) élève disponibles`}
                       >
                         <div className="pme-icon-box"><MailPlus size={16} /></div>
                         <div className="pme-info">
@@ -964,6 +946,19 @@ export default function SubAdminExportedGradebooks() {
                     </div>
                   </div>
 
+                  {/* #1: Custom message textarea */}
+                  <div className="config-section" style={{ marginTop: 12 }}>
+                    <h3 className="section-title" style={{ marginBottom: 8 }}>Message <span style={{ fontWeight: 400, color: '#94a3b8', fontSize: 11 }}>(optionnel)</span></h3>
+                    <textarea
+                      className="modern-textarea"
+                      rows={3}
+                      placeholder="Message personnalisé qui apparaîtra dans l'email envoyé aux familles..."
+                      value={customMessage}
+                      onChange={e => setCustomMessage(e.target.value)}
+                      style={{ minHeight: 'unset' }}
+                    />
+                  </div>
+
                   <div className="action-footer" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                     <button className="btn secondary" style={{ width: '100%' }} onClick={previewEmail} disabled={(!selectedLot && !selectedContext) || selectedFileIds.length === 0 || previewLoading}>
                       {previewLoading ? <RefreshCcw size={16} className="spin" /> : <Eye size={16} />} Aperçu du modèle d'email
@@ -972,9 +967,15 @@ export default function SubAdminExportedGradebooks() {
                       className="btn btn-primary" 
                       style={{ width: '100%' }} 
                       onClick={() => sendEmails()} 
-                      disabled={(!selectedLot && !selectedContext) || selectedFileIds.length === 0 || sendLoading}
+                      disabled={(!selectedLot && !selectedContext) || selectedFileIds.length === 0 || sendLoading || (includeFather ? emailStats.p : 0) + (includeMother ? emailStats.m : 0) + (includeStudent ? emailStats.e : 0) === 0}
+                      title={(includeFather ? emailStats.p : 0) + (includeMother ? emailStats.m : 0) + (includeStudent ? emailStats.e : 0) === 0 && selectedFileIds.length > 0 ? 'Aucun destinataire disponible pour la sélection actuelle' : ''}
                     >
-                      <Send size={18} /> Lancer la distribution ({selectedFileIds.length})
+                      {/* #9: Show recipient count alongside file count */}
+                      <Send size={18} />
+                      {selectedFileIds.length > 0
+                        ? `Envoyer — ${selectedFileIds.length} carnet${selectedFileIds.length > 1 ? 's' : ''} · ${(includeFather ? emailStats.p : 0) + (includeMother ? emailStats.m : 0) + (includeStudent ? emailStats.e : 0)} destinataire${(includeFather ? emailStats.p : 0) + (includeMother ? emailStats.m : 0) + (includeStudent ? emailStats.e : 0) !== 1 ? 's' : ''}`
+                        : 'Lancer la distribution'
+                      }
                     </button>
                   </div>
 
@@ -1090,7 +1091,7 @@ export default function SubAdminExportedGradebooks() {
                             </div>
 
                             <div className="history-item-bottom">
-                              <span className="history-date">{new Date(job.startedAt || '').toLocaleString()}</span>
+                              <span className="history-date">{job.startedAt ? new Date(job.startedAt).toLocaleString('fr-FR') : '—'}</span>
                               <span className="history-count" style={{ fontWeight: 700 }}>{job.sentItems}/{job.totalItems}</span>
                             </div>
                           </button>
@@ -1217,12 +1218,35 @@ export default function SubAdminExportedGradebooks() {
 
             <div className="modal-footer">
               <button className="btn secondary" onClick={() => setShowPreviewModal(false)}>Fermer</button>
-              <button 
-                className="btn btn-primary" 
-                onClick={() => { setShowPreviewModal(false); sendEmails(); }}
-              >
-                Tout semble correct, continuer
-              </button>
+              {/* #6: Integrate quality choice into preview footer — no double-modal */}
+              {(() => {
+                const selAssignments = allFilesForLot.filter(f => selectedFileIds.includes(f._id))
+                const allPossible = batches.flatMap(b => b.files)
+                const relevant = allPossible.filter(f => selAssignments.some(s => s.assignmentId === (f as any).assignmentId))
+                const quals = new Set(relevant.map((f: any) => f.quality || 'high'))
+                const sdOk = quals.has('compressed')
+                const hdOk = quals.has('high')
+                return (
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      className="btn secondary"
+                      disabled={!sdOk}
+                      title={!sdOk ? "Version SD non exportée pour cette sélection" : "Envoyer la version compressée (SD)"}
+                      onClick={() => { setShowPreviewModal(false); sendEmails('compressed') }}
+                    >
+                      <Archive size={15} /> Envoyer SD
+                    </button>
+                    <button
+                      className="btn btn-primary"
+                      disabled={!hdOk}
+                      title={!hdOk ? "Version HD non exportée pour cette sélection" : "Envoyer la version haute qualité (HD)"}
+                      onClick={() => { setShowPreviewModal(false); sendEmails('high') }}
+                    >
+                      <Send size={15} /> Envoyer HD
+                    </button>
+                  </div>
+                )
+              })()}
             </div>
           </div>
         </div>

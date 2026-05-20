@@ -12,6 +12,7 @@ import { EmailTemplate } from '../models/EmailTemplate'
 import { RoleScope } from '../models/RoleScope'
 import { ClassModel } from '../models/Class'
 import { SchoolYear } from '../models/SchoolYear'
+import { Student } from '../models/Student'
 
 export const gradebookExportsRouter = Router()
 
@@ -59,6 +60,25 @@ const getOwnedBatch = async (req: any, batchId: string) => {
   return batch
 }
 
+const hydrateLatestEmails = async (files: any[]) => {
+  const studentIds = files.map(f => f.studentId).filter(Boolean)
+  if (!studentIds.length) return files
+
+  const students = await Student.find({ _id: { $in: studentIds } }, 'fatherEmail motherEmail studentEmail').lean()
+  const studentMap = new Map(students.map(s => [String(s._id), s]))
+
+  return files.map(f => {
+    const s = studentMap.get(String(f.studentId))
+    if (s) {
+      if (!f.emails) f.emails = {}
+      f.emails.father = String((s as any).fatherEmail || '')
+      f.emails.mother = String((s as any).motherEmail || '')
+      f.emails.student = String((s as any).studentEmail || '')
+    }
+    return f
+  })
+}
+
 const buildRecipientsWithTypes = (file: any, options: EmailJobOptions) => {
   const recipients: Array<{ email: string, type: 'father' | 'mother' | 'student' }> = []
   const pushIfValid = (raw: unknown, type: 'father' | 'mother' | 'student') => {
@@ -73,18 +93,57 @@ const buildRecipientsWithTypes = (file: any, options: EmailJobOptions) => {
   return recipients
 }
 
-const buildEmailContent = async (batch: any, file: any, options: EmailJobOptions) => {
+// #10: Load shared email settings once per job (not once per file)
+const loadEmailSettings = async () => {
   const settings = await Setting.find({
     key: { $in: ['school_name', 'smtp_from_name', 'smtp_from_email'] }
   }).lean()
-
-  const settingsMap = settings.reduce<Record<string, unknown>>((acc, entry: any) => {
+  const map = settings.reduce<Record<string, unknown>>((acc, entry: any) => {
     acc[String(entry.key)] = entry.value
     return acc
   }, {})
+  const schoolName = String(map.school_name || 'Votre école').trim() || 'Votre école'
+  return {
+    schoolName,
+    senderName: String(map.smtp_from_name || schoolName).trim() || schoolName,
+    fromEmail: String(map.smtp_from_email || '').trim()
+  }
+}
 
-  const schoolName = String(settingsMap.school_name || 'Votre école').trim() || 'Votre école'
-  const senderName = String(settingsMap.smtp_from_name || schoolName).trim() || schoolName
+// #10: Resolve template with a per-job cache — at most one DB hit per unique level/class combo
+const resolveEmailTemplate = async (
+  cache: Map<string, any | null>,
+  level: string,
+  className: string,
+  templateId?: string
+): Promise<any | null> => {
+  const key = templateId || `${level}::${className}`
+  if (cache.has(key)) return cache.get(key) ?? null
+  let t: any = null
+  if (templateId) t = await EmailTemplate.findById(templateId).lean()
+  if (!t) {
+    t = await EmailTemplate.findOne({
+      $or: [{ linkedLevels: level }, { linkedClasses: className }]
+    }).lean()
+  }
+  if (!t) {
+    t = await EmailTemplate.findOne({
+      linkedLevels: { $size: 0 },
+      linkedClasses: { $size: 0 }
+    }).lean()
+  }
+  cache.set(key, t ?? null)
+  return t
+}
+
+// #10: Build email body from pre-loaded context — no DB calls
+const buildEmailBody = (
+  emailSettings: { schoolName: string; senderName: string; fromEmail: string },
+  template: any | null,
+  file: any,
+  options: EmailJobOptions
+) => {
+  const { schoolName, senderName, fromEmail } = emailSettings
   const yearName = String(file?.yearName || '').trim()
   const level = String(file?.level || '').trim()
   const className = String(file?.className || '').trim()
@@ -101,37 +160,12 @@ const buildEmailContent = async (batch: any, file: any, options: EmailJobOptions
   if (className) details.push(`Classe : ${className}`)
 
   const schoolNameHtml = escapeHtml(schoolName)
-  const senderNameHtml = escapeHtml(senderName)
   const studentNameHtml = escapeHtml(studentName)
-  const detailsHtml = details.map((detail) => escapeHtml(detail))
-
-  // Find a matching template
-  let matchingTemplate = null
-  
-  if (options.templateId) {
-    matchingTemplate = await EmailTemplate.findById(options.templateId).lean()
-  }
-
-  if (!matchingTemplate) {
-    matchingTemplate = await EmailTemplate.findOne({
-      $or: [
-        { linkedLevels: level },
-        { linkedClasses: className }
-      ]
-    }).lean()
-  }
-
-  if (!matchingTemplate) {
-    matchingTemplate = await EmailTemplate.findOne({
-      linkedLevels: { $size: 0 },
-      linkedClasses: { $size: 0 }
-    }).lean()
-  }
 
   let finalSubject = subject
   let finalHtml = ''
 
-  if (matchingTemplate) {
+  if (template) {
     const replacements: Record<string, string> = {
       '{{studentName}}': studentNameHtml,
       '{{yearName}}': escapeHtml(yearName),
@@ -139,10 +173,8 @@ const buildEmailContent = async (batch: any, file: any, options: EmailJobOptions
       '{{className}}': escapeHtml(className),
       '{{schoolName}}': schoolNameHtml,
     }
-
-    finalSubject = matchingTemplate.subject
-    finalHtml = matchingTemplate.bodyHtml
-
+    finalSubject = template.subject
+    finalHtml = template.bodyHtml
     for (const [key, val] of Object.entries(replacements)) {
       finalSubject = finalSubject.replace(new RegExp(key, 'g'), val)
       finalHtml = finalHtml.replace(new RegExp(key, 'g'), val)
@@ -164,10 +196,10 @@ const buildEmailContent = async (batch: any, file: any, options: EmailJobOptions
         ${details.length > 0 ? `
         <div style="background-color: #f8fafc; border-radius: 10px; padding: 20px; border: 1px solid #e2e8f0; margin-bottom: 25px;">
           <table style="width: 100%; border-collapse: collapse;">
-            ${details.map((_, idx) => `
+            ${details.map((detail) => `
               <tr>
-                <td style="padding: 5px 0; font-size: 14px; color: #64748b; width: 130px;">${details[idx].split(' : ')[0]}</td>
-                <td style="padding: 5px 0; font-size: 14px; font-weight: 700; color: #1e293b;">${details[idx].split(' : ')[1]}</td>
+                <td style="padding: 5px 0; font-size: 14px; color: #64748b; width: 130px;">${detail.split(' : ')[0]}</td>
+                <td style="padding: 5px 0; font-size: 14px; font-weight: 700; color: #1e293b;">${detail.split(' : ')[1]}</td>
               </tr>
             `).join('')}
           </table>
@@ -200,10 +232,20 @@ const buildEmailContent = async (batch: any, file: any, options: EmailJobOptions
     html: finalHtml,
     text: textLines.join('\n'),
     fromName: senderName,
-    fromEmail: String(settingsMap.smtp_from_email || '').trim(),
+    fromEmail,
     recipients: recipientsWithTypes.map(r => r.email),
     recipientsWithTypes
   }
+}
+
+// Backward-compat wrapper used by the preview route (single file only — N+1 is acceptable there)
+const buildEmailContent = async (batch: any, file: any, options: EmailJobOptions) => {
+  const emailSettings = await loadEmailSettings()
+  const level = String(file?.level || '').trim()
+  const className = String(file?.className || '').trim()
+  const cache = new Map<string, any>()
+  const template = await resolveEmailTemplate(cache, level, className, options.templateId)
+  return buildEmailBody(emailSettings, template, file, options)
 }
 
 async function runEmailJob(jobId: string, batch: any, files: any[], options: EmailJobOptions) {
@@ -211,10 +253,30 @@ async function runEmailJob(jobId: string, batch: any, files: any[], options: Ema
     const transporter = await createSmtpTransporter()
     if (!transporter) throw new Error('SMTP not configured')
 
+    // #11: verify SMTP connection before starting the batch
+    await transporter.verify()
+
     const smtpSettings = await getSmtpSettings()
 
+    // #10: load settings once — not once per file
+    const emailSettings = await loadEmailSettings()
+    const templateCache = new Map<string, any | null>()
+
+    // #12: wrap sendMail with a hard 15-second timeout per email
+    const sendMailWithTimeout = (mailOptions: any): Promise<void> =>
+      Promise.race([
+        transporter.sendMail(mailOptions) as Promise<any>,
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('SMTP timeout après 15 secondes')), 15_000)
+        )
+      ])
+
     for (const file of files) {
-      const emailContent = await buildEmailContent(batch, file, options)
+      const level = String(file?.level || '').trim()
+      const className = String(file?.className || '').trim()
+      const template = await resolveEmailTemplate(templateCache, level, className, options.templateId)
+      const emailContent = buildEmailBody(emailSettings, template, file, options)
+
       let recipientsToProcess = emailContent.recipientsWithTypes.map(r => ({ ...r }))
       
       if (options.testEmailOverride) {
@@ -254,7 +316,7 @@ async function runEmailJob(jobId: string, batch: any, files: any[], options: Ema
             }
 
             try {
-              await transporter.sendMail({
+              await sendMailWithTimeout({
                 from: emailContent.fromEmail ? `"${emailContent.fromName}" <${emailContent.fromEmail}>` : smtpSettings.user,
                 to: rec.email,
                 subject: options.testEmailOverride ? `[TEST] ${emailContent.subject}` : emailContent.subject,
@@ -300,7 +362,8 @@ async function runEmailJob(jobId: string, batch: any, files: any[], options: Ema
             processedItems: 1,
             sentItems: item.status === 'sent' ? 1 : 0,
             failedItems: item.status === 'failed' ? 1 : 0,
-            skippedItems: item.status === 'skipped' ? 1 : 0
+            skippedItems: item.status === 'skipped' ? 1 : 0,
+            partialItems: item.status === 'partial' ? 1 : 0  // #14: count partial sends
           }
         }
       )
@@ -335,6 +398,14 @@ gradebookExportsRouter.get('/batches', requireAuth(['ADMIN', 'SUBADMIN', 'AEFE']
     }
 
     const batches = await ExportedGradebookBatch.find(query).sort({ createdAt: -1 }).limit(100).lean()
+    
+    // Hydrate latest emails onto the files array for each batch
+    for (const batch of batches) {
+      if (batch.files && batch.files.length > 0) {
+        await hydrateLatestEmails(batch.files)
+      }
+    }
+
     res.json(batches)
   } catch (error: any) {
     res.status(500).json({ error: 'fetch_failed', message: error.message })
@@ -465,6 +536,8 @@ gradebookExportsRouter.post('/batches/:batchId/email-preview', requireAuth(['ADM
 
     if (selectedFiles.length === 0) return res.status(400).json({ error: 'no_files_selected' })
 
+    await hydrateLatestEmails(selectedFiles)
+
     const previewFile = selectedFiles[0]
     const emailContent = await buildEmailContent(batch, previewFile, options)
     const totalRecipients = selectedFiles.reduce((acc: number, file: any) => acc + buildRecipientsWithTypes(file, options).length, 0)
@@ -515,6 +588,8 @@ gradebookExportsRouter.post('/batches/:batchId/send', requireAuth(['ADMIN', 'SUB
     }
 
     if (files.length === 0) return res.status(400).json({ error: 'no_files_selected' })
+
+    await hydrateLatestEmails(files)
 
     const jobId = new mongoose.Types.ObjectId().toString()
     const job = new EmailJob({
