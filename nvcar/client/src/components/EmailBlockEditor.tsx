@@ -63,7 +63,7 @@ export function blocksToHtml(blocks: EmailBlock[]): string {
         case 'text':
           return `<div style="font-size:${p.fontSize||16}px;color:${p.color||'#334155'};text-align:${p.alignment||'left'};line-height:${p.lineHeight||1.6};${p.bg?`background-color:${p.bg};`:''}padding:${p.paddingTop??8}px ${p.paddingRight??0}px ${p.paddingBottom??8}px ${p.paddingLeft??0}px;">${(p.text||'').replace(/\n/g,'<br/>')}</div>`
         case 'image':
-          return `<div style="text-align:${p.alignment||'center'};padding:${p.paddingTop??8}px ${p.paddingRight??0}px ${p.paddingBottom??8}px ${p.paddingLeft??0}px;"><img src="${p.src||''}" alt="${p.alt||''}" style="max-width:${p.imgWidth||100}%;height:auto;display:inline-block;" /></div>`
+          return `<div style="text-align:${p.alignment||'center'};padding:${p.paddingTop??8}px ${p.paddingRight??0}px ${p.paddingBottom??8}px ${p.paddingLeft??0}px;"><img src="${p.src||''}" alt="${p.alt||''}" width="${p.imgWidth||100}%" style="max-width:${p.imgWidth||100}%;height:auto;display:inline-block;" /></div>`
         case 'divider':
           return `<hr style="border:none;border-top:${p.borderWidth||1}px solid ${p.borderColor||'#e2e8f0'};margin:12px 0;" />`
         case 'spacer':

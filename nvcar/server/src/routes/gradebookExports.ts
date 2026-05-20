@@ -1,5 +1,7 @@
 import { Router } from 'express'
 import fs from 'fs'
+import path from 'path'
+import crypto from 'crypto'
 import mongoose from 'mongoose'
 import archiver from 'archiver'
 import { requireAuth } from '../auth'
@@ -136,12 +138,80 @@ const resolveEmailTemplate = async (
   return t
 }
 
+const getBaseUrl = (req?: any): string => {
+  if (process.env.API_URL) {
+    return process.env.API_URL
+  }
+  if (req) {
+    const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http'
+    const host = req.headers['x-forwarded-host'] || req.get('host')
+    if (host) {
+      return `${protocol}://${host}`
+    }
+  }
+  return 'http://localhost:4000'
+}
+
+const prepareEmailAttachmentsAndHtml = (html: string, baseAttachments: any[]) => {
+  const attachments = [...baseAttachments]
+  let modifiedHtml = html
+
+  if (!html) {
+    return { html, attachments }
+  }
+
+  const imgRegex = /<img[^>]+src\s*=\s*["']([^"']+)["']/g
+  let match
+  const processedSources = new Map<string, string>()
+
+  while ((match = imgRegex.exec(html)) !== null) {
+    const originalSrc = match[1]
+    if (processedSources.has(originalSrc)) {
+      continue
+    }
+
+    // Match relative or absolute /uploads/ paths
+    const uploadMatch = originalSrc.match(/\/uploads\/(.+)$/)
+    if (!uploadMatch) {
+      continue
+    }
+
+    const relativeFilePath = uploadMatch[1]
+    const localPath = path.join(process.cwd(), 'public', 'uploads', relativeFilePath)
+
+    if (fs.existsSync(localPath)) {
+      const filename = path.basename(localPath)
+      const contentId = `img_${crypto.randomBytes(8).toString('hex')}_${filename}`
+      processedSources.set(originalSrc, contentId)
+
+      attachments.push({
+        filename,
+        path: localPath,
+        cid: contentId
+      })
+    }
+  }
+
+  for (const [src, cid] of processedSources.entries()) {
+    const escapedSrc = src.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')
+    const replaceRegex = new RegExp(`(src\\s*=\\s*["'])(${escapedSrc})(["'])`, 'g')
+    modifiedHtml = modifiedHtml.replace(replaceRegex, `$1cid:${cid}$3`)
+  }
+
+  return {
+    html: modifiedHtml,
+    attachments
+  }
+}
+
+
 // #10: Build email body from pre-loaded context — no DB calls
 const buildEmailBody = (
   emailSettings: { schoolName: string; senderName: string; fromEmail: string },
   template: any | null,
   file: any,
-  options: EmailJobOptions
+  options: EmailJobOptions,
+  baseUrl: string
 ) => {
   const { schoolName, senderName, fromEmail } = emailSettings
   const yearName = String(file?.yearName || '').trim()
@@ -214,6 +284,23 @@ const buildEmailBody = (
   `.trim()
   }
 
+  // Resolve any relative upload/media urls to be absolute
+  if (finalHtml && baseUrl) {
+    const base = baseUrl.replace(/\/$/, '')
+    finalHtml = finalHtml.replace(/(src|href)=["']\/((uploads|media)[^"']*)["']/g, `$1="${base}/$2"`)
+  }
+
+  // Ensure img tags have explicit width attributes for email client compatibility (e.g. Outlook)
+  if (finalHtml) {
+    finalHtml = finalHtml.replace(/<img([^>]*?style=["'][^"']*max-width:\s*(\d+)(%|px)?[^"']*["'][^>]*?)\s*(\/?)>/gi, (match, body, val, unit, selfClose) => {
+      if (/\bwidth\s*=/i.test(body)) {
+        return match
+      }
+      const widthVal = unit === '%' ? `${val}%` : val
+      return `<img${body} width="${widthVal}"${selfClose ? ' /' : ''}>`
+    })
+  }
+
   const textLines = [
     `Carnet scolaire de ${studentName}`,
     '',
@@ -239,16 +326,16 @@ const buildEmailBody = (
 }
 
 // Backward-compat wrapper used by the preview route (single file only — N+1 is acceptable there)
-const buildEmailContent = async (batch: any, file: any, options: EmailJobOptions) => {
+const buildEmailContent = async (batch: any, file: any, options: EmailJobOptions, baseUrl: string) => {
   const emailSettings = await loadEmailSettings()
   const level = String(file?.level || '').trim()
   const className = String(file?.className || '').trim()
   const cache = new Map<string, any>()
   const template = await resolveEmailTemplate(cache, level, className, options.templateId)
-  return buildEmailBody(emailSettings, template, file, options)
+  return buildEmailBody(emailSettings, template, file, options, baseUrl)
 }
 
-async function runEmailJob(jobId: string, batch: any, files: any[], options: EmailJobOptions) {
+async function runEmailJob(jobId: string, batch: any, files: any[], options: EmailJobOptions, baseUrl: string) {
   try {
     const transporter = await createSmtpTransporter()
     if (!transporter) throw new Error('SMTP not configured')
@@ -275,7 +362,7 @@ async function runEmailJob(jobId: string, batch: any, files: any[], options: Ema
       const level = String(file?.level || '').trim()
       const className = String(file?.className || '').trim()
       const template = await resolveEmailTemplate(templateCache, level, className, options.templateId)
-      const emailContent = buildEmailBody(emailSettings, template, file, options)
+      const emailContent = buildEmailBody(emailSettings, template, file, options, baseUrl)
 
       let recipientsToProcess = emailContent.recipientsWithTypes.map(r => ({ ...r }))
       
@@ -316,18 +403,18 @@ async function runEmailJob(jobId: string, batch: any, files: any[], options: Ema
             }
 
             try {
+              const { html: finalHtml, attachments: finalAttachments } = prepareEmailAttachmentsAndHtml(
+                emailContent.html,
+                [{ filename: file.fileName, path: absolutePath }]
+              )
+
               await sendMailWithTimeout({
                 from: emailContent.fromEmail ? `"${emailContent.fromName}" <${emailContent.fromEmail}>` : smtpSettings.user,
                 to: rec.email,
                 subject: options.testEmailOverride ? `[TEST] ${emailContent.subject}` : emailContent.subject,
                 text: emailContent.text,
-                html: emailContent.html,
-                attachments: [
-                  {
-                    filename: file.fileName,
-                    path: absolutePath
-                  }
-                ]
+                html: finalHtml,
+                attachments: finalAttachments
               })
               detail.status = 'sent'
               sentCount++
@@ -539,7 +626,8 @@ gradebookExportsRouter.post('/batches/:batchId/email-preview', requireAuth(['ADM
     await hydrateLatestEmails(selectedFiles)
 
     const previewFile = selectedFiles[0]
-    const emailContent = await buildEmailContent(batch, previewFile, options)
+    const baseUrl = getBaseUrl(req)
+    const emailContent = await buildEmailContent(batch, previewFile, options, baseUrl)
     const totalRecipients = selectedFiles.reduce((acc: number, file: any) => acc + buildRecipientsWithTypes(file, options).length, 0)
 
     res.json({
@@ -612,7 +700,8 @@ gradebookExportsRouter.post('/batches/:batchId/send', requireAuth(['ADMIN', 'SUB
     await job.save()
 
     // Use the first batch as a reference for SMTP settings/context
-    runEmailJob(jobId, batch, files, { includeFather, includeMother, includeStudent, customMessage, selectedFileIds: files.map(f => String(f._id)), testEmailOverride, templateId })
+    const baseUrl = getBaseUrl(req)
+    runEmailJob(jobId, batch, files, { includeFather, includeMother, includeStudent, customMessage, selectedFileIds: files.map(f => String(f._id)), testEmailOverride, templateId }, baseUrl)
     res.json({ jobId })
   } catch (error: any) {
     res.status(500).json({ error: 'send_failed', message: error.message })

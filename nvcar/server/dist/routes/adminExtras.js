@@ -77,6 +77,17 @@ exports.adminExtrasRouter.get('/progress', (0, auth_1.requireAuth)(['ADMIN']), a
             const assignments = await TemplateAssignment_1.TemplateAssignment.find({
                 studentId: { $in: studentIds }
             }).lean();
+            const assignmentIds = assignments.map(a => String(a._id));
+            const signatures = assignmentIds.length
+                ? await TemplateSignature_1.TemplateSignature.find({ templateAssignmentId: { $in: assignmentIds } }).lean()
+                : [];
+            const signaturesByAssignmentId = new Map();
+            for (const signature of signatures) {
+                const assignmentId = String(signature.templateAssignmentId);
+                if (!signaturesByAssignmentId.has(assignmentId))
+                    signaturesByAssignmentId.set(assignmentId, []);
+                signaturesByAssignmentId.get(assignmentId).push(signature);
+            }
             const templateIds = [...new Set(assignments.map(a => a.templateId))];
             const templates = await GradebookTemplate_1.GradebookTemplate.find({ _id: { $in: templateIds } }).lean();
             const templateMap = new Map(templates.map(t => [String(t._id), t]));
@@ -129,11 +140,57 @@ exports.adminExtrasRouter.get('/progress', (0, auth_1.requireAuth)(['ADMIN']), a
                 const clsEnrollments = enrollments.filter(e => String(e.classId) === clsId);
                 const clsStudentIds = new Set(clsEnrollments.map(e => String(e.studentId)));
                 const clsAssignments = assignmentsByClassId.get(clsId) || [];
-                let totalCompetencies = 0;
-                let filledCompetencies = 0;
-                let filledCompetenciesSem1 = 0;
-                let filledCompetenciesSem2 = 0;
-                const categoryStats = {};
+                const makeProgressBucket = () => ({
+                    total: 0,
+                    filled: 0,
+                    byCategory: {}
+                });
+                const addProgress = (bucket, name, completed) => {
+                    if (!bucket.byCategory[name])
+                        bucket.byCategory[name] = { total: 0, filled: 0, name };
+                    bucket.byCategory[name].total++;
+                    bucket.total++;
+                    if (completed) {
+                        bucket.byCategory[name].filled++;
+                        bucket.filled++;
+                    }
+                };
+                const formatProgress = (bucket) => ({
+                    total: bucket.total,
+                    filled: bucket.filled,
+                    percentage: bucket.total > 0 ? Math.round((bucket.filled / bucket.total) * 100) : 0
+                });
+                const formatCategories = (bucket) => Object.values(bucket.byCategory).map(stat => ({
+                    name: stat.name,
+                    total: stat.total,
+                    filled: stat.filled,
+                    percentage: stat.total > 0 ? Math.round((stat.filled / stat.total) * 100) : 0
+                }));
+                const overallStats = makeProgressBucket();
+                const sem1Stats = makeProgressBucket();
+                const sem2Stats = makeProgressBucket();
+                const makeLanguageGradebookStats = () => ({
+                    Arabe: { total: 0, done: 0 },
+                    Anglais: { total: 0, done: 0 },
+                    Polyvalent: { total: 0, done: 0 }
+                });
+                const gradebookStats = {
+                    total: clsAssignments.length,
+                    sem1: { done: 0, signed: 0, byLanguage: makeLanguageGradebookStats() },
+                    sem2: { done: 0, signed: 0, byLanguage: makeLanguageGradebookStats() }
+                };
+                const isSem1Signed = (assignmentId) => (signaturesByAssignmentId.get(assignmentId) || []).some((s) => s.type !== 'end_of_year' &&
+                    (String(s.signaturePeriodId || '').endsWith('_sem1') || !s.signaturePeriodId));
+                const isSem2Signed = (assignmentId) => (signaturesByAssignmentId.get(assignmentId) || []).some((s) => s.type === 'end_of_year' ||
+                    String(s.signaturePeriodId || '').endsWith('_sem2') ||
+                    String(s.signaturePeriodId || '').endsWith('_end_of_year'));
+                const formatLanguageGradebooks = (stats) => Object.entries(stats).map(([name, value]) => ({
+                    name,
+                    total: value.total,
+                    done: value.done,
+                    missing: Math.max(0, value.total - value.done),
+                    percentage: value.total > 0 ? Math.round((value.done / value.total) * 100) : 0
+                }));
                 clsAssignments.forEach(assignment => {
                     const templateId = String(assignment.templateId);
                     const template = templateMap.get(templateId);
@@ -141,16 +198,44 @@ exports.adminExtrasRouter.get('/progress', (0, auth_1.requireAuth)(['ADMIN']), a
                         return;
                     const assignmentData = assignment.data || {};
                     const level = cls.level;
+                    const assignmentId = String(assignment._id);
                     const teacherCompletions = (assignment.teacherCompletions || []);
+                    const languageCompletions = (assignment.languageCompletions || []);
+                    const languageCompletionMap = new Map();
+                    for (const entry of Array.isArray(languageCompletions) ? languageCompletions : []) {
+                        const entryLevel = String(entry?.level || '').trim();
+                        if (level && entryLevel && entryLevel !== level)
+                            continue;
+                        const rawCode = String(entry?.code || '').trim().toLowerCase();
+                        if (!rawCode)
+                            continue;
+                        const normalized = rawCode === 'lb' || rawCode === 'ara' || rawCode === 'arab' ? 'ar'
+                            : rawCode === 'uk' || rawCode === 'gb' || rawCode === 'eng' ? 'en'
+                                : rawCode === 'fra' ? 'fr'
+                                    : rawCode;
+                        languageCompletionMap.set(normalized, entry);
+                    }
                     const completionMemo = new Map();
-                    const isCategoryCompleted = (categoryName, langCode, sem) => {
-                        const key = `${categoryName}|${langCode || ''}|${sem || 'overall'}`;
+                    const assignmentLanguages = new Set();
+                    const isCategoryCompleted = (categoryName, langCode) => {
+                        const key = `${categoryName}|${langCode || ''}`;
                         if (completionMemo.has(key))
                             return completionMemo.get(key);
                         const l = categoryName.toLowerCase();
                         const code = (langCode || '').toLowerCase();
                         const isArabic = code === 'ar' || code === 'lb' || l.includes('arabe') || l.includes('arabic') || l.includes('العربية');
                         const isEnglish = code === 'en' || code === 'uk' || code === 'gb' || l.includes('anglais') || l.includes('english');
+                        const normalizedCode = isArabic ? 'ar' : isEnglish ? 'en' : code === 'fr' || l.includes('fran') || l.includes('french') ? 'fr' : code;
+                        const languageCompletion = languageCompletionMap.get(normalizedCode);
+                        if (languageCompletion) {
+                            const result = {
+                                overall: !!(languageCompletion.completed || languageCompletion.completedSem1 || languageCompletion.completedSem2),
+                                sem1: !!(languageCompletion.completedSem1 || languageCompletion.completed),
+                                sem2: !!languageCompletion.completedSem2
+                            };
+                            completionMemo.set(key, result);
+                            return result;
+                        }
                         let responsibleTeachers = clsTeacherAssignments
                             .filter((ta) => {
                             const langs = (ta.languages || []).map((tl) => String(tl).toLowerCase());
@@ -170,11 +255,25 @@ exports.adminExtrasRouter.get('/progress', (0, auth_1.requireAuth)(['ADMIN']), a
                         if (responsibleTeachers.length === 0) {
                             responsibleTeachers = (assignment.assignedTeachers || []).map(id => String(id));
                         }
-                        const completed = responsibleTeachers.some(tid => teacherCompletions.some(tc => String(tc.teacherId) === String(tid) &&
-                            (sem === 'sem1' ? tc.completedSem1 : sem === 'sem2' ? tc.completedSem2 : (tc.completed || tc.completedSem1 || tc.completedSem2))));
-                        completionMemo.set(key, completed);
-                        return completed;
+                        const result = {
+                            overall: responsibleTeachers.some(tid => teacherCompletions.some(tc => String(tc.teacherId) === String(tid) &&
+                                (tc.completed || tc.completedSem1 || tc.completedSem2))),
+                            sem1: responsibleTeachers.some(tid => teacherCompletions.some(tc => String(tc.teacherId) === String(tid) &&
+                                (tc.completed || tc.completedSem1))),
+                            sem2: responsibleTeachers.some(tid => teacherCompletions.some(tc => String(tc.teacherId) === String(tid) &&
+                                tc.completedSem2))
+                        };
+                        completionMemo.set(key, result);
+                        return result;
                     };
+                    if (assignment.isCompletedSem1 || assignment.isCompleted)
+                        gradebookStats.sem1.done++;
+                    if (assignment.isCompletedSem2)
+                        gradebookStats.sem2.done++;
+                    if (isSem1Signed(assignmentId))
+                        gradebookStats.sem1.signed++;
+                    if (isSem2Signed(assignmentId))
+                        gradebookStats.sem2.signed++;
                     template.pages.forEach((page, pageIdx) => {
                         (page.blocks || []).forEach((block, blockIdx) => {
                             let itemsToProcess = [];
@@ -229,24 +328,28 @@ exports.adminExtrasRouter.get('/progress', (0, auth_1.requireAuth)(['ADMIN']), a
                                         return 'Anglais';
                                     return 'Autre';
                                 })();
-                                if (!categoryStats[lang])
-                                    categoryStats[lang] = { total: 0, filled: 0, filledSem1: 0, filledSem2: 0, name: lang };
-                                categoryStats[lang].total++;
-                                totalCompetencies++;
-                                if (isCategoryCompleted(lang, code, 'sem1') || item.active) {
-                                    categoryStats[lang].filledSem1++;
-                                    filledCompetenciesSem1++;
+                                if (lang === 'Arabe' || lang === 'Anglais' || lang === 'Polyvalent') {
+                                    assignmentLanguages.add(lang);
                                 }
-                                if (isCategoryCompleted(lang, code, 'sem2') || item.active) {
-                                    categoryStats[lang].filledSem2++;
-                                    filledCompetenciesSem2++;
-                                }
-                                if (isCategoryCompleted(lang, code, 'overall') || item.active) {
-                                    categoryStats[lang].filled++;
-                                    filledCompetencies++;
-                                }
+                                const completion = isCategoryCompleted(lang, code);
+                                const isPreFilled = item.active === true || item.active === 'true';
+                                addProgress(overallStats, lang, completion.overall || isPreFilled);
+                                addProgress(sem1Stats, lang, completion.sem1 || isPreFilled);
+                                addProgress(sem2Stats, lang, completion.sem2 || isPreFilled);
                             });
                         });
+                    });
+                    assignmentLanguages.forEach(lang => {
+                        const code = lang === 'Arabe' ? 'ar' : lang === 'Anglais' ? 'en' : 'fr';
+                        const completion = isCategoryCompleted(lang, code);
+                        gradebookStats.sem1.byLanguage[lang].total++;
+                        gradebookStats.sem2.byLanguage[lang].total++;
+                        if (completion.sem1 || assignment.isCompletedSem1 || assignment.isCompleted) {
+                            gradebookStats.sem1.byLanguage[lang].done++;
+                        }
+                        if (completion.sem2 || assignment.isCompletedSem2) {
+                            gradebookStats.sem2.byLanguage[lang].done++;
+                        }
                     });
                 });
                 return {
@@ -255,14 +358,37 @@ exports.adminExtrasRouter.get('/progress', (0, auth_1.requireAuth)(['ADMIN']), a
                     level: cls.level,
                     teachers: clsTeachers,
                     studentCount: clsStudentIds.size,
-                    progress: {
-                        total: totalCompetencies,
-                        filled: filledCompetencies,
-                        filledSem1: filledCompetenciesSem1,
-                        filledSem2: filledCompetenciesSem2,
-                        percentage: totalCompetencies > 0 ? Math.round((filledCompetencies / totalCompetencies) * 100) : 0,
-                        percentageSem1: totalCompetencies > 0 ? Math.round((filledCompetenciesSem1 / totalCompetencies) * 100) : 0,
-                        percentageSem2: totalCompetencies > 0 ? Math.round((filledCompetenciesSem2 / totalCompetencies) * 100) : 0
+                    gradebooks: {
+                        total: gradebookStats.total,
+                        sem1: {
+                            done: gradebookStats.sem1.done,
+                            signed: gradebookStats.sem1.signed,
+                            notDone: Math.max(0, gradebookStats.total - gradebookStats.sem1.done),
+                            notSigned: Math.max(0, gradebookStats.sem1.done - gradebookStats.sem1.signed),
+                            percentage: gradebookStats.total > 0 ? Math.round((gradebookStats.sem1.done / gradebookStats.total) * 100) : 0,
+                            signedPercentage: gradebookStats.total > 0 ? Math.round((gradebookStats.sem1.signed / gradebookStats.total) * 100) : 0,
+                            byLanguage: formatLanguageGradebooks(gradebookStats.sem1.byLanguage)
+                        },
+                        sem2: {
+                            done: gradebookStats.sem2.done,
+                            signed: gradebookStats.sem2.signed,
+                            notDone: Math.max(0, gradebookStats.total - gradebookStats.sem2.done),
+                            notSigned: Math.max(0, gradebookStats.sem2.done - gradebookStats.sem2.signed),
+                            percentage: gradebookStats.total > 0 ? Math.round((gradebookStats.sem2.done / gradebookStats.total) * 100) : 0,
+                            signedPercentage: gradebookStats.total > 0 ? Math.round((gradebookStats.sem2.signed / gradebookStats.total) * 100) : 0,
+                            byLanguage: formatLanguageGradebooks(gradebookStats.sem2.byLanguage)
+                        }
+                    },
+                    progress: formatProgress(overallStats),
+                    semesters: {
+                        sem1: {
+                            ...formatProgress(sem1Stats),
+                            byCategory: formatCategories(sem1Stats)
+                        },
+                        sem2: {
+                            ...formatProgress(sem2Stats),
+                            byCategory: formatCategories(sem2Stats)
+                        }
                     },
                     teachersCheck: {
                         polyvalent: polyvalentTeachers,
@@ -272,16 +398,7 @@ exports.adminExtrasRouter.get('/progress', (0, auth_1.requireAuth)(['ADMIN']), a
                         hasEnglish: englishTeachers.length > 0,
                         hasArabic: arabicTeachers.length > 0
                     },
-                    byCategory: Object.values(categoryStats).map(stat => ({
-                        name: stat.name,
-                        total: stat.total,
-                        filled: stat.filled,
-                        filledSem1: stat.filledSem1,
-                        filledSem2: stat.filledSem2,
-                        percentage: stat.total > 0 ? Math.round((stat.filled / stat.total) * 100) : 0,
-                        percentageSem1: stat.total > 0 ? Math.round((stat.filledSem1 / stat.total) * 100) : 0,
-                        percentageSem2: stat.total > 0 ? Math.round((stat.filledSem2 / stat.total) * 100) : 0
-                    }))
+                    byCategory: formatCategories(overallStats)
                 };
             });
             // --- Sub-Admin Progress ---
@@ -327,6 +444,12 @@ exports.adminExtrasRouter.get('/progress', (0, auth_1.requireAuth)(['ADMIN']), a
                     ? await TemplateSignature_1.TemplateSignature.find({ templateAssignmentId: { $in: saAssignmentIds }, subAdminId: saId }).lean()
                     : [];
                 const signedAssignments = new Set(signatures.map(s => String(s.templateAssignmentId))).size;
+                const sem1SignedAssignments = new Set(signatures
+                    .filter((s) => String(s.signaturePeriodId || '').endsWith('_sem1') || (!s.signaturePeriodId && s.type !== 'end_of_year'))
+                    .map(s => String(s.templateAssignmentId))).size;
+                const sem2SignedAssignments = new Set(signatures
+                    .filter((s) => String(s.signaturePeriodId || '').endsWith('_sem2') || String(s.signaturePeriodId || '').endsWith('_end_of_year') || s.type === 'end_of_year')
+                    .map(s => String(s.templateAssignmentId))).size;
                 return {
                     subAdminId: saId,
                     displayName: sa.displayName,
@@ -335,10 +458,30 @@ exports.adminExtrasRouter.get('/progress', (0, auth_1.requireAuth)(['ADMIN']), a
                     totalStudents: saStudentIds.length,
                     totalAssignments,
                     signedAssignments,
-                    percentage: totalAssignments > 0 ? Math.round((signedAssignments / totalAssignments) * 100) : 0
+                    percentage: totalAssignments > 0 ? Math.round((signedAssignments / totalAssignments) * 100) : 0,
+                    semesters: {
+                        sem1: {
+                            total: totalAssignments,
+                            signed: sem1SignedAssignments,
+                            percentage: totalAssignments > 0 ? Math.round((sem1SignedAssignments / totalAssignments) * 100) : 0
+                        },
+                        sem2: {
+                            total: totalAssignments,
+                            signed: sem2SignedAssignments,
+                            percentage: totalAssignments > 0 ? Math.round((sem2SignedAssignments / totalAssignments) * 100) : 0
+                        }
+                    }
                 };
             }));
-            return { classes: classesResult, subAdmins: subAdminProgress };
+            return {
+                activeSemester: activeYear.activeSemester || 1,
+                schoolYear: {
+                    id: String(activeYear._id),
+                    name: activeYear.name
+                },
+                classes: classesResult,
+                subAdmins: subAdminProgress
+            };
         }, 60000); // Cache for 1 minute
         res.json(result);
     }
@@ -2429,5 +2572,332 @@ exports.adminExtrasRouter.post('/run-tests', (0, auth_1.requireAuth)(['ADMIN']),
     catch (e) {
         console.error('run-tests error', e);
         res.status(500).json({ error: 'run_failed', message: e.message });
+    }
+});
+// ============================================================================
+// ADMIN GRADEBOOKS LANGUAGE DONE STATUS MANAGEMENT
+// ============================================================================
+const adminNormalizeLevel = (v) => String(v || '').trim().toUpperCase();
+const adminNormalizeLanguageCode = (code) => {
+    const c = String(code || '').toLowerCase();
+    if (!c)
+        return '';
+    if (c === 'lb' || c === 'ar')
+        return 'ar';
+    if (c === 'en' || c === 'uk' || c === 'gb')
+        return 'en';
+    if (c === 'fr')
+        return 'fr';
+    return c;
+};
+const adminNormalizeLanguageCodes = (codes) => {
+    const normalized = (Array.isArray(codes) ? codes : []).map(adminNormalizeLanguageCode).filter(Boolean);
+    return [...new Set(normalized)];
+};
+const adminGetCompletionLanguagesForTeacher = (teacherClassAssignment) => {
+    const langs = adminNormalizeLanguageCodes(teacherClassAssignment?.languages || []);
+    if (langs.length > 0)
+        return langs;
+    if (teacherClassAssignment?.isPolyvalent)
+        return ['fr'];
+    return ['ar', 'en', 'fr'];
+};
+const adminBuildLanguageCompletionMap = (languageCompletions, levelRaw) => {
+    const targetLevel = adminNormalizeLevel(levelRaw);
+    const map = {};
+    (Array.isArray(languageCompletions) ? languageCompletions : []).forEach((entry) => {
+        const code = adminNormalizeLanguageCode(entry?.code);
+        if (!code)
+            return;
+        if (targetLevel) {
+            const entryLevel = adminNormalizeLevel(entry?.level);
+            if (!entryLevel || entryLevel !== targetLevel)
+                return;
+        }
+        map[code] = { ...(entry || {}), code };
+    });
+    return map;
+};
+const adminIsLanguageCompletedForSemester = (languageCompletionMap, code, semester) => {
+    const entry = languageCompletionMap[adminNormalizeLanguageCode(code)];
+    if (!entry)
+        return false;
+    if (semester === 1)
+        return !!(entry.completedSem1 || entry.completed);
+    return !!entry.completedSem2;
+};
+const adminComputeTeacherCompletionForSemester = (languageCompletionMap, languages, semester) => {
+    if (!Array.isArray(languages) || languages.length === 0)
+        return false;
+    return languages.every(code => adminIsLanguageCompletedForSemester(languageCompletionMap, code, semester));
+};
+// GET /admin-extras/gradebooks/languages/status
+exports.adminExtrasRouter.get('/gradebooks/languages/status', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
+    try {
+        const classId = String(req.query.classId || '').trim();
+        const schoolYearIdRaw = String(req.query.schoolYearId || '').trim();
+        const semesterRaw = Number(req.query.semester);
+        if (!classId) {
+            return res.status(400).json({ error: 'missing_class_id' });
+        }
+        const activeSchoolYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
+        const targetSchoolYearId = schoolYearIdRaw || (activeSchoolYear ? String(activeSchoolYear._id) : null);
+        if (!targetSchoolYearId) {
+            return res.status(400).json({ error: 'no_active_school_year' });
+        }
+        const classDoc = await Class_1.ClassModel.findById(classId).lean();
+        if (!classDoc) {
+            return res.status(404).json({ error: 'class_not_found' });
+        }
+        const semester = [1, 2].includes(semesterRaw)
+            ? semesterRaw
+            : (activeSchoolYear?.activeSemester || 1);
+        // Get enrollments in the class
+        const enrollments = await Enrollment_1.Enrollment.find({
+            classId,
+            schoolYearId: targetSchoolYearId,
+            status: { $nin: ['archived', 'left'] }
+        }).lean();
+        const studentIds = enrollments.map(e => String(e.studentId));
+        if (studentIds.length === 0) {
+            return res.json({ students: [], semester, activeSemester: activeSchoolYear?.activeSemester || 1 });
+        }
+        // Fetch students
+        const students = await Student_1.Student.find({ _id: { $in: studentIds } })
+            .select('firstName lastName')
+            .lean();
+        const studentMap = new Map(students.map(s => [String(s._id), s]));
+        // Fetch template assignments (gradebooks) for these students
+        const assignments = await TemplateAssignment_1.TemplateAssignment.find({
+            studentId: { $in: studentIds }
+        }).lean();
+        const templateIds = [...new Set(assignments.map(a => String(a.templateId)).filter(Boolean))];
+        const templates = await GradebookTemplate_1.GradebookTemplate.find({ _id: { $in: templateIds } }).select('name').lean();
+        const templateMap = new Map(templates.map(t => [String(t._id), t.name]));
+        const resultStudents = enrollments.map(enrollment => {
+            const sid = String(enrollment.studentId);
+            const student = studentMap.get(sid);
+            const assignment = assignments.find(a => String(a.studentId) === sid);
+            const languagesStatus = {
+                fr: false,
+                en: false,
+                ar: false
+            };
+            if (assignment) {
+                const completions = Array.isArray(assignment.languageCompletions) ? assignment.languageCompletions : [];
+                completions.forEach((lc) => {
+                    const code = String(lc.code || '').toLowerCase();
+                    const isDone = semester === 1
+                        ? !!(lc.completedSem1 || lc.completed)
+                        : !!lc.completedSem2;
+                    if (code === 'fr')
+                        languagesStatus.fr = isDone;
+                    else if (code === 'en')
+                        languagesStatus.en = isDone;
+                    else if (code === 'ar')
+                        languagesStatus.ar = isDone;
+                });
+            }
+            return {
+                studentId: sid,
+                firstName: student?.firstName || '',
+                lastName: student?.lastName || '',
+                assignmentId: assignment ? String(assignment._id) : null,
+                templateName: assignment ? (templateMap.get(String(assignment.templateId)) || 'Gradebook') : null,
+                languages: languagesStatus
+            };
+        });
+        // Sort students by lastName, firstName
+        resultStudents.sort((a, b) => {
+            const nameA = `${a.lastName} ${a.firstName}`.toLowerCase();
+            const nameB = `${b.lastName} ${b.firstName}`.toLowerCase();
+            return nameA.localeCompare(nameB);
+        });
+        res.json({
+            students: resultStudents,
+            semester,
+            activeSemester: activeSchoolYear?.activeSemester || 1,
+            classInfo: {
+                id: String(classDoc._id),
+                name: classDoc.name,
+                level: classDoc.level
+            }
+        });
+    }
+    catch (e) {
+        console.error(e);
+        res.status(500).json({ error: 'fetch_failed', message: e.message });
+    }
+});
+// POST /admin-extras/gradebooks/languages/toggle
+exports.adminExtrasRouter.post('/gradebooks/languages/toggle', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
+    try {
+        const assignmentIds = req.body.assignmentIds;
+        const targetLanguages = req.body.languages; // e.g. ['fr']
+        const active = req.body.active; // boolean
+        const semesterRaw = Number(req.body.semester);
+        if (!Array.isArray(assignmentIds) || assignmentIds.length === 0) {
+            return res.status(400).json({ error: 'missing_assignment_ids' });
+        }
+        if (!Array.isArray(targetLanguages) || targetLanguages.length === 0) {
+            return res.status(400).json({ error: 'missing_languages' });
+        }
+        if (typeof active !== 'boolean') {
+            return res.status(400).json({ error: 'missing_active_status' });
+        }
+        const activeSchoolYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
+        const targetSemester = [1, 2].includes(semesterRaw)
+            ? semesterRaw
+            : (activeSchoolYear?.activeSemester || 1);
+        const now = new Date();
+        const adminId = req.user.userId;
+        const results = {
+            successCount: 0,
+            errorCount: 0,
+            errors: []
+        };
+        // Loop through assignmentIds to update them
+        for (const assignmentId of assignmentIds) {
+            try {
+                const assignment = await TemplateAssignment_1.TemplateAssignment.findById(assignmentId);
+                if (!assignment) {
+                    results.errorCount++;
+                    results.errors.push({ id: assignmentId, error: 'Assignment not found' });
+                    continue;
+                }
+                // Get enrollment for student to know the class and level
+                const enrollment = await Enrollment_1.Enrollment.findOne({ studentId: assignment.studentId }).sort({ _id: -1 }).lean();
+                if (!enrollment) {
+                    results.errorCount++;
+                    results.errors.push({ id: assignmentId, error: 'Student enrollment not found' });
+                    continue;
+                }
+                const classDoc = await Class_1.ClassModel.findById(enrollment.classId).lean();
+                const studentLevel = adminNormalizeLevel(classDoc?.level || '');
+                let languageCompletions = Array.isArray(assignment.languageCompletions)
+                    ? [...assignment.languageCompletions]
+                    : [];
+                // Update target languages done status
+                targetLanguages.forEach(code => {
+                    const normalized = adminNormalizeLanguageCode(code);
+                    if (!normalized)
+                        return;
+                    let entryIndex = languageCompletions.findIndex((lc) => adminNormalizeLanguageCode(lc?.code) === normalized &&
+                        adminNormalizeLevel(lc?.level) === studentLevel);
+                    let entry;
+                    if (entryIndex === -1) {
+                        entry = { code: normalized, level: studentLevel };
+                        languageCompletions.push(entry);
+                        entryIndex = languageCompletions.length - 1;
+                    }
+                    else {
+                        entry = { ...languageCompletions[entryIndex] };
+                    }
+                    if (active) {
+                        if (targetSemester === 1) {
+                            entry.completedSem1 = true;
+                            entry.completedAtSem1 = now;
+                            entry.completed = true;
+                            entry.completedAt = now;
+                        }
+                        else {
+                            entry.completedSem2 = true;
+                            entry.completedAtSem2 = now;
+                        }
+                    }
+                    else {
+                        if (targetSemester === 1) {
+                            entry.completedSem1 = false;
+                            entry.completedAtSem1 = null;
+                            entry.completed = false;
+                            entry.completedAt = null;
+                        }
+                        else {
+                            entry.completedSem2 = false;
+                            entry.completedAtSem2 = null;
+                        }
+                    }
+                    languageCompletions[entryIndex] = entry;
+                });
+                // Recalculate teacher completions based on languageCompletions
+                const languageCompletionMap = adminBuildLanguageCompletionMap(languageCompletions, studentLevel);
+                let teacherCompletions = assignment.teacherCompletions || [];
+                // Fetch class assignments to know which teachers are assigned to which languages
+                const classAssignments = await TeacherClassAssignment_1.TeacherClassAssignment.find({ classId: enrollment.classId }).lean();
+                const teacherLanguagesMap = new Map();
+                classAssignments.forEach((ta) => {
+                    teacherLanguagesMap.set(String(ta.teacherId), adminGetCompletionLanguagesForTeacher(ta));
+                });
+                const getLanguagesForTeacher = (tid) => {
+                    return teacherLanguagesMap.get(String(tid)) || ['ar', 'en', 'fr'];
+                };
+                (assignment.assignedTeachers || []).forEach((tid) => {
+                    let tcIndex = teacherCompletions.findIndex((tc) => String(tc.teacherId) === tid);
+                    if (tcIndex === -1) {
+                        teacherCompletions.push({ teacherId: tid });
+                        tcIndex = teacherCompletions.length - 1;
+                    }
+                    const completionLangs = getLanguagesForTeacher(tid);
+                    const teacherCompletedSem1 = adminComputeTeacherCompletionForSemester(languageCompletionMap, completionLangs, 1);
+                    const teacherCompletedSem2 = adminComputeTeacherCompletionForSemester(languageCompletionMap, completionLangs, 2);
+                    teacherCompletions[tcIndex].completedSem1 = teacherCompletedSem1;
+                    teacherCompletions[tcIndex].completedAtSem1 = teacherCompletedSem1 ? (teacherCompletions[tcIndex].completedAtSem1 || now) : null;
+                    teacherCompletions[tcIndex].completedSem2 = teacherCompletedSem2;
+                    teacherCompletions[tcIndex].completedAtSem2 = teacherCompletedSem2 ? (teacherCompletions[tcIndex].completedAtSem2 || now) : null;
+                    teacherCompletions[tcIndex].completed = teacherCompletedSem1;
+                    teacherCompletions[tcIndex].completedAt = teacherCompletedSem1 ? (teacherCompletions[tcIndex].completedAt || now) : null;
+                });
+                // Check if all teachers have completed this semester
+                const allCompletedSem = (assignment.assignedTeachers || []).every((tid) => adminComputeTeacherCompletionForSemester(languageCompletionMap, getLanguagesForTeacher(tid), targetSemester));
+                assignment.languageCompletions = languageCompletions;
+                assignment.teacherCompletions = teacherCompletions;
+                if (targetSemester === 1) {
+                    assignment.isCompletedSem1 = allCompletedSem;
+                    assignment.completedAtSem1 = allCompletedSem ? now : null;
+                    // Legacy/Global status
+                    assignment.isCompleted = allCompletedSem;
+                    assignment.completedAt = allCompletedSem ? now : null;
+                    assignment.completedBy = allCompletedSem ? adminId : null;
+                    assignment.status = allCompletedSem ? 'completed' : 'in_progress';
+                }
+                else if (targetSemester === 2) {
+                    assignment.isCompletedSem2 = allCompletedSem;
+                    assignment.completedAtSem2 = allCompletedSem ? now : null;
+                    assignment.status = allCompletedSem ? 'completed' : 'in_progress';
+                }
+                await assignment.save();
+                results.successCount++;
+                // Log audit
+                const template = await GradebookTemplate_1.GradebookTemplate.findById(assignment.templateId).lean();
+                const student = await Student_1.Student.findById(assignment.studentId).lean();
+                await (0, auditLogger_1.logAudit)({
+                    userId: adminId,
+                    action: active ? 'MARK_ASSIGNMENT_DONE' : 'UNMARK_ASSIGNMENT_DONE',
+                    details: {
+                        assignmentId,
+                        semester: targetSemester,
+                        languages: targetLanguages,
+                        templateId: assignment.templateId,
+                        templateName: template?.name,
+                        studentId: assignment.studentId,
+                        studentName: student ? `${student.firstName} ${student.lastName}` : 'Unknown',
+                        triggeredBy: 'ADMIN_GRADEBOOKS_LANGUAGES_PAGE'
+                    },
+                    req,
+                });
+            }
+            catch (err) {
+                results.errorCount++;
+                results.errors.push({ id: assignmentId, error: err.message });
+            }
+        }
+        res.json({
+            success: true,
+            ...results
+        });
+    }
+    catch (e) {
+        console.error(e);
+        res.status(500).json({ error: 'toggle_failed', message: e.message });
     }
 });

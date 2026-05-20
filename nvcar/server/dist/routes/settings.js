@@ -16,7 +16,7 @@ exports.settingsRouter = (0, express_1.Router)();
 // Helper to get SMTP settings from database
 async function getSmtpSettings() {
     const settings = await Setting_1.Setting.find({
-        key: { $in: ['smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass', 'smtp_secure', 'smtp_from_name', 'smtp_from_email'] }
+        key: { $in: ['smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass', 'smtp_secure', 'smtp_from_name', 'smtp_from_email', 'smtp_tls_reject_unauthorized'] }
     }).lean();
     const map = {};
     settings.forEach(s => { map[s.key] = s.value; });
@@ -27,7 +27,9 @@ async function getSmtpSettings() {
         pass: map.smtp_pass || '',
         secure: map.smtp_secure === true,
         fromName: map.smtp_from_name || '',
-        fromEmail: map.smtp_from_email || ''
+        fromEmail: map.smtp_from_email || '',
+        // #15: configurable TLS cert validation, defaults to false to preserve existing behaviour
+        tlsRejectUnauthorized: map.smtp_tls_reject_unauthorized === true
     };
 }
 // Helper to create nodemailer transporter
@@ -45,7 +47,8 @@ async function createSmtpTransporter() {
             pass: smtp.pass
         },
         tls: {
-            rejectUnauthorized: false
+            // #15: use the DB setting; enable strict cert validation in the SMTP admin panel
+            rejectUnauthorized: smtp.tlsRejectUnauthorized
         },
         requireTLS: true
     });
