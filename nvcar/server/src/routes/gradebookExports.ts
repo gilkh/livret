@@ -2,6 +2,7 @@ import { Router } from 'express'
 import fs from 'fs'
 import path from 'path'
 import crypto from 'crypto'
+import dns from 'dns'
 import mongoose from 'mongoose'
 import archiver from 'archiver'
 import { requireAuth } from '../auth'
@@ -15,6 +16,7 @@ import { RoleScope } from '../models/RoleScope'
 import { ClassModel } from '../models/Class'
 import { SchoolYear } from '../models/SchoolYear'
 import { Student } from '../models/Student'
+import { TemplateChangeSuggestion } from '../models/TemplateChangeSuggestion'
 
 export const gradebookExportsRouter = Router()
 
@@ -23,6 +25,7 @@ type EmailJobOptions = {
   includeMother: boolean
   includeStudent: boolean
   customMessage: string
+  overrideEmail?: string
   selectedFileIds?: string[]
   testEmailOverride?: string
   templateId?: string
@@ -82,16 +85,31 @@ const hydrateLatestEmails = async (files: any[]) => {
 }
 
 const buildRecipientsWithTypes = (file: any, options: EmailJobOptions) => {
-  const recipients: Array<{ email: string, type: 'father' | 'mother' | 'student' }> = []
-  const pushIfValid = (raw: unknown, type: 'father' | 'mother' | 'student') => {
+  const recipients: Array<{ email: string, type: 'father' | 'mother' | 'student' | 'override' }> = []
+  const pushIfValid = (raw: unknown, type: 'father' | 'mother' | 'student' | 'override') => {
     const normalized = normalizeEmail(raw)
     if (!normalized || !isValidEmail(normalized)) return
-    // We allow duplicates here so they all show up in the history/status grid
+    if (recipients.some(r => r.email === normalized)) return
     recipients.push({ email: normalized, type })
   }
-  if (options.includeFather) pushIfValid(file?.emails?.father, 'father')
-  if (options.includeMother) pushIfValid(file?.emails?.mother, 'mother')
-  if (options.includeStudent) pushIfValid(file?.emails?.student, 'student')
+  const isOverride = !!(options.overrideEmail && options.selectedFileIds && options.selectedFileIds.length === 1)
+  if (isOverride) {
+    if (options.includeFather) {
+      pushIfValid(options.overrideEmail, 'father')
+    } else if (options.includeMother) {
+      pushIfValid(options.overrideEmail, 'mother')
+    }
+  } else {
+    if (options.includeFather) {
+      pushIfValid(file?.emails?.father, 'father')
+    }
+    if (options.includeMother) {
+      pushIfValid(file?.emails?.mother, 'mother')
+    }
+    if (options.includeStudent) {
+      pushIfValid(file?.emails?.student, 'student')
+    }
+  }
   return recipients
 }
 
@@ -336,6 +354,42 @@ const buildEmailContent = async (batch: any, file: any, options: EmailJobOptions
 }
 
 async function runEmailJob(jobId: string, batch: any, files: any[], options: EmailJobOptions, baseUrl: string) {
+
+  // Email validation: format + DNS MX check
+  const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
+  const mxCache = new Map<string, boolean>()
+
+  async function validateEmail(email: string): Promise<{ valid: boolean; reason?: string }> {
+    if (!email || !EMAIL_REGEX.test(email)) {
+      return { valid: false, reason: `Format d'email invalide: ${email}` }
+    }
+    const domain = email.split('@')[1].toLowerCase()
+    if (mxCache.has(domain)) {
+      return mxCache.get(domain) 
+        ? { valid: true } 
+        : { valid: false, reason: `Le domaine '${domain}' n'a aucun enregistrement MX` }
+    }
+    try {
+      const records = await dns.promises.resolveMx(domain)
+      const hasMx = records && records.length > 0
+      mxCache.set(domain, hasMx)
+      if (!hasMx) {
+        // Fallback: check if domain has A record
+        try {
+          await dns.promises.resolve4(domain)
+          mxCache.set(domain, true)
+          return { valid: true }
+        } catch {
+          return { valid: false, reason: `Le domaine '${domain}' n'a aucun enregistrement MX` }
+        }
+      }
+      return { valid: true }
+    } catch (err: any) {
+      // DNS lookup failed entirely — domain does not exist
+      mxCache.set(domain, false)
+      return { valid: false, reason: `Le domaine '${domain}' n'existe pas ou est injoignable` }
+    }
+  }
   try {
     const transporter = await createSmtpTransporter()
     if (!transporter) throw new Error('SMTP not configured')
@@ -371,7 +425,7 @@ async function runEmailJob(jobId: string, batch: any, files: any[], options: Ema
       }
 
       const item: any = {
-        fileId: file._id,
+        fileId: String(file._id),
         studentName: `${file.firstName} ${file.lastName}`,
         recipients: recipientsToProcess.map(r => r.email),
         recipientDetails: [],
@@ -395,10 +449,53 @@ async function runEmailJob(jobId: string, batch: any, files: any[], options: Ema
               status: 'pending'
             }
 
+            // Validate email format + DNS before sending
+            const validation = await validateEmail(rec.email)
+            if (!validation.valid) {
+              detail.status = 'failed'
+              detail.error = validation.reason || 'Email invalide'
+              failedCount++
+              item.recipientDetails.push(detail)
+
+              await EmailJob.updateOne(
+                { _id: jobId, "items.fileId": String(file._id) },
+                {
+                  $set: {
+                    "items.$.recipientDetails.$[recFilter].status": "failed",
+                    "items.$.recipientDetails.$[recFilter].error": detail.error
+                  },
+                  $inc: {
+                    processedEmails: 1,
+                    failedEmails: 1
+                  }
+                },
+                {
+                  arrayFilters: [{ "recFilter.email": rec.email, "recFilter.type": rec.type }]
+                }
+              )
+              continue
+            }
+
             if (sentEmailsForThisFile.has(rec.email)) {
               detail.status = 'sent'
               sentCount++
               item.recipientDetails.push(detail)
+
+              await EmailJob.updateOne(
+                { _id: jobId, "items.fileId": String(file._id) },
+                {
+                  $set: {
+                    "items.$.recipientDetails.$[recFilter].status": "sent"
+                  },
+                  $inc: {
+                    processedEmails: 1,
+                    sentEmails: 1
+                  }
+                },
+                {
+                  arrayFilters: [{ "recFilter.email": rec.email }]
+                }
+              )
               continue
             }
 
@@ -419,10 +516,43 @@ async function runEmailJob(jobId: string, batch: any, files: any[], options: Ema
               detail.status = 'sent'
               sentCount++
               sentEmailsForThisFile.add(rec.email)
+
+              await EmailJob.updateOne(
+                { _id: jobId, "items.fileId": String(file._id) },
+                {
+                  $set: {
+                    "items.$.recipientDetails.$[recFilter].status": "sent"
+                  },
+                  $inc: {
+                    processedEmails: 1,
+                    sentEmails: 1
+                  }
+                },
+                {
+                  arrayFilters: [{ "recFilter.email": rec.email }]
+                }
+              )
             } catch (mailErr: any) {
               detail.status = 'failed'
               detail.error = mailErr.message
               failedCount++
+
+              await EmailJob.updateOne(
+                { _id: jobId, "items.fileId": String(file._id) },
+                {
+                  $set: {
+                    "items.$.recipientDetails.$[recFilter].status": "failed",
+                    "items.$.recipientDetails.$[recFilter].error": mailErr.message
+                  },
+                  $inc: {
+                    processedEmails: 1,
+                    failedEmails: 1
+                  }
+                },
+                {
+                  arrayFilters: [{ "recFilter.email": rec.email }]
+                }
+              )
             }
             item.recipientDetails.push(detail)
           }
@@ -442,15 +572,18 @@ async function runEmailJob(jobId: string, batch: any, files: any[], options: Ema
       }
 
       await EmailJob.updateOne(
-        { _id: jobId },
+        { _id: jobId, "items.fileId": String(file._id) },
         { 
-          $push: { items: item },
+          $set: { 
+            "items.$.status": item.status,
+            "items.$.error": item.error 
+          },
           $inc: { 
             processedItems: 1,
             sentItems: item.status === 'sent' ? 1 : 0,
             failedItems: item.status === 'failed' ? 1 : 0,
             skippedItems: item.status === 'skipped' ? 1 : 0,
-            partialItems: item.status === 'partial' ? 1 : 0  // #14: count partial sends
+            partialItems: item.status === 'partial' ? 1 : 0
           }
         }
       )
@@ -606,6 +739,7 @@ gradebookExportsRouter.post('/batches/:batchId/email-preview', requireAuth(['ADM
       includeMother: req.body?.includeMother !== false,
       includeStudent: req.body?.includeStudent !== false,
       customMessage: String(req.body?.customMessage || ''),
+      overrideEmail: req.body?.overrideEmail ? String(req.body.overrideEmail) : undefined,
       selectedFileIds: Array.isArray(req.body?.selectedFileIds) ? req.body.selectedFileIds.map((id: unknown) => String(id)) : []
     }
 
@@ -650,7 +784,7 @@ gradebookExportsRouter.post('/batches/:batchId/email-preview', requireAuth(['ADM
 
 gradebookExportsRouter.post('/batches/:batchId/send', requireAuth(['ADMIN', 'SUBADMIN', 'AEFE']), async (req, res) => {
   try {
-    const { selectedFileIds, testEmailOverride, templateId } = req.body
+    const { selectedFileIds, testEmailOverride, templateId, overrideEmail } = req.body
     const includeFather = req.body.includeFather !== false
     const includeMother = req.body.includeMother !== false
     const includeStudent = req.body.includeStudent !== false
@@ -679,6 +813,37 @@ gradebookExportsRouter.post('/batches/:batchId/send', requireAuth(['ADMIN', 'SUB
 
     await hydrateLatestEmails(files)
 
+    let totalEmails = 0
+    const items = files.map(file => {
+      let recipientsToProcess: Array<{ email: string, type: 'father' | 'mother' | 'student' | 'override' }> = []
+      if (testEmailOverride) {
+        recipientsToProcess = [{ email: testEmailOverride, type: 'override' }]
+      } else {
+        recipientsToProcess = buildRecipientsWithTypes(file, {
+          includeFather,
+          includeMother,
+          includeStudent,
+          customMessage,
+          overrideEmail: overrideEmail ? String(overrideEmail).trim() : undefined,
+          selectedFileIds: files.map(f => String(f._id))
+        })
+      }
+      totalEmails += recipientsToProcess.length
+
+      return {
+        fileId: String(file._id),
+        studentId: String(file.studentId || ''),
+        studentName: `${file.firstName} ${file.lastName}`.trim(),
+        recipients: recipientsToProcess.map(r => r.email),
+        recipientDetails: recipientsToProcess.map(r => ({
+          email: r.email,
+          type: r.type,
+          status: 'pending'
+        })),
+        status: 'pending'
+      }
+    })
+
     const jobId = new mongoose.Types.ObjectId().toString()
     const job = new EmailJob({
       _id: jobId,
@@ -688,20 +853,47 @@ gradebookExportsRouter.post('/batches/:batchId/send', requireAuth(['ADMIN', 'SUB
       totalItems: files.length,
       status: 'running',
       isTest: !!testEmailOverride,
+      totalEmails,
+      processedEmails: 0,
+      sentEmails: 0,
+      failedEmails: 0,
       options: {
         includeFather,
         includeMother,
         includeStudent,
         customMessage,
+        overrideEmail: overrideEmail ? String(overrideEmail).trim() : undefined,
         selectedFileIds: files.map(f => String(f._id)),
         testEmailOverride
-      }
+      },
+      items
     })
     await job.save()
 
+    if (overrideEmail && String(overrideEmail).trim() && files.length === 1) {
+      const file = files[0]
+      const studentName = `${file.firstName || ''} ${file.lastName || ''}`.trim()
+      await TemplateChangeSuggestion.create({
+        subAdminId: String((req as any).user?.id || (req as any).user?.userId || ''),
+        type: 'alternative_email',
+        originalText: studentName,
+        suggestedText: String(overrideEmail).trim().toLowerCase(),
+        status: 'approved'
+      })
+    }
+
     // Use the first batch as a reference for SMTP settings/context
     const baseUrl = getBaseUrl(req)
-    runEmailJob(jobId, batch, files, { includeFather, includeMother, includeStudent, customMessage, selectedFileIds: files.map(f => String(f._id)), testEmailOverride, templateId }, baseUrl)
+    runEmailJob(jobId, batch, files, {
+      includeFather,
+      includeMother,
+      includeStudent,
+      customMessage,
+      overrideEmail: overrideEmail ? String(overrideEmail).trim() : undefined,
+      selectedFileIds: files.map(f => String(f._id)),
+      testEmailOverride,
+      templateId
+    }, baseUrl)
     res.json({ jobId })
   } catch (error: any) {
     res.status(500).json({ error: 'send_failed', message: error.message })

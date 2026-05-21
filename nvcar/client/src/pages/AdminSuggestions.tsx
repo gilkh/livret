@@ -5,7 +5,7 @@ import { Clock, Calendar, RotateCcw, FileText } from 'lucide-react'
 type Suggestion = {
     _id: string
     subAdminId: string
-    type?: 'template_edit' | 'semester_request' | 'next_year_request' | 'reopen_request'
+    type?: 'template_edit' | 'semester_request' | 'next_year_request' | 'reopen_request' | 'alternative_email'
     templateId?: string
     pageIndex?: number
     blockIndex?: number
@@ -24,6 +24,9 @@ export default function AdminSuggestions() {
     const [error, setError] = useState('')
     const [processing, setProcessing] = useState<string | null>(null)
     const [totalSubadmins, setTotalSubadmins] = useState<number | null>(null)
+
+    const mainSuggestions = suggestions.filter(s => s.type !== 'alternative_email')
+    const alternativeEmails = suggestions.filter(s => s.type === 'alternative_email')
 
     useEffect(() => {
         loadSuggestions()
@@ -94,11 +97,11 @@ export default function AdminSuggestions() {
                 {error && <div className="note" style={{ color: '#dc2626', background: '#fef2f2', padding: 12, borderRadius: 8, border: '1px solid #fecaca', marginTop: 16 }}>{error}</div>}
 
                 <div style={{ marginTop: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
-                    {suggestions.length === 0 && !loading && (
+                    {mainSuggestions.length === 0 && !loading && (
                         <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>Aucune demande en attente</div>
                     )}
 
-                    {suggestions.map(s => (
+                    {mainSuggestions.map(s => (
                         <div key={s._id} style={{
                             padding: 20,
                             border: '1px solid #e2e8f0',
@@ -195,6 +198,51 @@ export default function AdminSuggestions() {
                             )}
                         </div>
                     ))}
+                </div>
+            </div>
+
+            {/* Section alternative emails */}
+            <div className="card" style={{ marginTop: 24 }}>
+                <h3 className="title" style={{ fontSize: 22, marginBottom: 8, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    📧 Envois vers adresses alternatives
+                </h3>
+                <div className="note" style={{ fontSize: 14, color: '#64748b', marginBottom: 16 }}>
+                    Historique des bulletins envoyés vers des adresses e-mail de contournement (saisies manuellement par les sous-admins)
+                </div>
+
+                <div style={{ overflowX: 'auto', background: 'white', borderRadius: 12, border: '1px solid #e2e8f0' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 14 }}>
+                        <thead>
+                            <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                                <th style={{ padding: '12px 16px', fontWeight: 600, color: '#475569' }}>Élève</th>
+                                <th style={{ padding: '12px 16px', fontWeight: 600, color: '#475569' }}>Adresse e-mail saisie</th>
+                                <th style={{ padding: '12px 16px', fontWeight: 600, color: '#475569' }}>Envoyé par</th>
+                                <th style={{ padding: '12px 16px', fontWeight: 600, color: '#475569' }}>Date d'envoi</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {alternativeEmails.length === 0 ? (
+                                <tr>
+                                    <td colSpan={4} style={{ padding: '24px', textAlign: 'center', color: '#94a3b8' }}>
+                                        Aucun envoi vers une adresse alternative enregistré
+                                    </td>
+                                </tr>
+                            ) : (
+                                alternativeEmails.map((ae) => (
+                                    <tr key={ae._id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                        <td style={{ padding: '12px 16px', fontWeight: 600, color: '#0f172a' }}>{ae.originalText}</td>
+                                        <td style={{ padding: '12px 16px', color: '#2563eb', fontFamily: 'monospace' }}>{ae.suggestedText}</td>
+                                        <td style={{ padding: '12px 16px', color: '#475569' }}>
+                                            {ae.subAdmin?.displayName || ae.subAdmin?.email || 'Sous-admin'}
+                                        </td>
+                                        <td style={{ padding: '12px 16px', color: '#64748b' }}>
+                                            {new Date(ae.createdAt).toLocaleString()}
+                                        </td>
+                                    </tr>
+                                ))
+                            )}
+                        </tbody>
+                    </table>
                 </div>
             </div>
         </div>

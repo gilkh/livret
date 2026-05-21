@@ -4,6 +4,7 @@ import { TemplateChangeSuggestion } from '../models/TemplateChangeSuggestion'
 import { GradebookTemplate } from '../models/GradebookTemplate'
 import { SchoolYear } from '../models/SchoolYear'
 import { User } from '../models/User'
+import { OutlookUser } from '../models/OutlookUser'
 
 export const suggestionsRouter = Router()
 
@@ -153,8 +154,14 @@ suggestionsRouter.get('/', requireAuth(['ADMIN']), async (req, res) => {
 
         // Populate subAdmin details manually or via populate if schema allowed ref
         const subAdminIds = [...new Set(suggestions.map(s => s.subAdminId))]
-        const subAdmins = await User.find({ _id: { $in: subAdminIds } }).lean()
-        const subAdminMap = subAdmins.reduce((acc, curr) => ({ ...acc, [String(curr._id)]: curr }), {} as any)
+        const [subAdmins, outlookSubAdmins] = await Promise.all([
+            User.find({ _id: { $in: subAdminIds } }).lean(),
+            OutlookUser.find({ _id: { $in: subAdminIds } }).lean()
+        ])
+        const subAdminMap = [
+            ...subAdmins,
+            ...outlookSubAdmins
+        ].reduce((acc, curr) => ({ ...acc, [String(curr._id)]: curr }), {} as any)
 
         // Populate template names
         const templateIds = [...new Set(suggestions.map(s => s.templateId).filter(Boolean))]

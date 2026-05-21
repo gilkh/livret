@@ -52,7 +52,7 @@ type EmailPreview = {
 type RecipientStatus = {
   email: string
   type: 'father' | 'mother' | 'student' | 'override'
-  status: 'pending' | 'sent' | 'failed'
+  status: 'pending' | 'sent' | 'failed' | 'skipped'
   error?: string
 }
 
@@ -64,6 +64,10 @@ type EmailJob = {
   sentItems: number
   skippedItems: number
   failedItems: number
+  totalEmails?: number
+  processedEmails?: number
+  sentEmails?: number
+  failedEmails?: number
   error?: string
   items: Array<{
     fileId: string
@@ -75,6 +79,43 @@ type EmailJob = {
   }>
   creatorName?: string
   startedAt?: string
+  options?: {
+    includeFather: boolean
+    includeMother: boolean
+    includeStudent: boolean
+    customMessage: string
+    overrideEmail?: string
+    selectedFileIds: string[]
+    testEmailOverride?: string
+  }
+}
+
+const getRecipientsForDisplay = (
+  item: { recipientDetails?: RecipientStatus[] },
+  jobOptions: { overrideEmail?: string } | undefined
+): RecipientStatus[] => {
+  if (!item.recipientDetails || item.recipientDetails.length === 0) {
+    return []
+  }
+
+  const isOverride = !!jobOptions?.overrideEmail
+  if (!isOverride) {
+    return item.recipientDetails
+  }
+
+  const displayedTypes: Array<'father' | 'mother' | 'student'> = ['father', 'mother', 'student']
+  return displayedTypes.map(type => {
+    const existing = item.recipientDetails?.find(r => r.type === type)
+    if (existing) {
+      return existing
+    }
+    return {
+      email: 'Non envoyé',
+      type,
+      status: 'skipped' as const,
+      error: 'Non envoyé (autre adresse sélectionnée)'
+    }
+  })
 }
 
 export default function SubAdminExportedGradebooks() {
@@ -86,7 +127,9 @@ export default function SubAdminExportedGradebooks() {
   const [includeFather, setIncludeFather] = useState(true)
   const [includeMother, setIncludeMother] = useState(true)
   const [includeStudent, setIncludeStudent] = useState(true)
-  const [customMessage, setCustomMessage] = useState('')
+  const [overrideEmail, setOverrideEmail] = useState('')
+  const [overrideIncludeFather, setOverrideIncludeFather] = useState(true)
+  const [overrideIncludeMother, setOverrideIncludeMother] = useState(false)
   const [emailPreview, setEmailPreview] = useState<EmailPreview | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
   const [jobId, setJobId] = useState('')
@@ -98,6 +141,11 @@ export default function SubAdminExportedGradebooks() {
   const [zipDownloadLoading, setZipDownloadLoading] = useState(false)
   const [jobHistory, setJobHistory] = useState<EmailJob[]>([])
   const [historyLoading, setHistoryLoading] = useState(false)
+  const [jobSearchQuery, setJobSearchQuery] = useState('')
+
+  useEffect(() => {
+    setJobSearchQuery('')
+  }, [emailJob, jobId])
   const userRole = (sessionStorage.getItem('role') || localStorage.getItem('role') || '').trim()
   const isRPP = userRole === 'AEFE' || window.location.pathname.includes('/aefe/')
   
@@ -269,6 +317,15 @@ export default function SubAdminExportedGradebooks() {
 
   const allFilesForLot: ExportedFile[] = activeFiles
 
+  // A lookup of all exported files in the system, across all batches
+  const allSystemFiles = batches.flatMap(batch => 
+    batch.files.map(file => ({
+      ...file,
+      batchId: batch._id,
+      semester: batch.semester
+    }))
+  )
+
   const uniqueFileVersionPairs = Array.from(
     new Map(allFilesForLot.map(f => [`${f.assignmentId}-${f.version}`, f])).values()
   ).sort((a, b) => `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`))
@@ -294,7 +351,7 @@ export default function SubAdminExportedGradebooks() {
   // Calculate available emails for current selection
   const emailStats = (() => {
     let p = 0, m = 0, e = 0
-    const selectedFiles = allFilesForLot.filter(f => selectedFileIds.includes(f._id))
+    const selectedFiles = allSystemFiles.filter(f => selectedFileIds.includes(f._id))
     selectedFiles.forEach(f => {
       if (f.emails?.father) p++
       if (f.emails?.mother) m++
@@ -303,9 +360,47 @@ export default function SubAdminExportedGradebooks() {
     return { p, m, e }
   })()
 
+  // Calculate actual recipient count for standard database emails
+  const getStandardRecipientsCount = () => {
+    let total = 0
+    const selectedFiles = allSystemFiles.filter(f => selectedFileIds.includes(f._id))
+    
+    selectedFiles.forEach(file => {
+      const recipientsSet = new Set<string>()
+      
+      if (includeFather) {
+        const email = (file.emails?.father || '').trim().toLowerCase()
+        if (email && email.includes('@')) recipientsSet.add(email)
+      }
+      if (includeMother) {
+        const email = (file.emails?.mother || '').trim().toLowerCase()
+        if (email && email.includes('@')) recipientsSet.add(email)
+      }
+      if (includeStudent) {
+        const email = (file.emails?.student || '').trim().toLowerCase()
+        if (email && email.includes('@')) recipientsSet.add(email)
+      }
+      
+      total += recipientsSet.size
+    })
+    
+    return total
+  }
+
+  // Clear alternative email if selected count is not exactly 1
+  useEffect(() => {
+    if (selectedFileIds.length !== 1) {
+      setOverrideEmail('')
+    }
+  }, [selectedFileIds])
+
+  // Clear selections only when the school year changes
+  useEffect(() => {
+    setSelectedFileIds([])
+  }, [selectedYearName])
+
   useEffect(() => {
     if (!selectedLot && !selectedContext) {
-      setSelectedFileIds([])
       setScopeLevel('')
       setScopeClassName('')
       setScopeStudentId('')
@@ -314,7 +409,7 @@ export default function SubAdminExportedGradebooks() {
       return
     }
     const bId = selectedContext 
-      ? libraryTree[selectedContext.level]?.[selectedContext.className]?.[selectedContext.semester]?.batches[0]?._id
+      ? libraryTree[selectedContext.level]?.[selectedContext.className || '']?.[selectedContext.semester || '']?.batches[0]?._id
       : selectedLot?.batches[0]?._id
     
     loadJobHistory(bId)
@@ -343,7 +438,7 @@ export default function SubAdminExportedGradebooks() {
         setEmailJob(response.data)
         if (response.data?.status === 'completed' || response.data?.status === 'failed') {
           loadJobHistory(selectedContext 
-            ? libraryTree[selectedContext.level]?.[selectedContext.className]?.[selectedContext.semester]?.batches[0]?._id
+            ? libraryTree[selectedContext.level]?.[selectedContext.className || '']?.[selectedContext.semester || '']?.batches[0]?._id
             : selectedLot?.batches[0]?._id)
           return // stop polling
         }
@@ -370,14 +465,20 @@ export default function SubAdminExportedGradebooks() {
       setPreviewLoading(true)
       // Find the batch ID of the first selected file to provide a valid sample
       const firstFileId = selectedFileIds[0]
-      const firstFile = allFilesForLot.find(f => f._id === firstFileId)
+      const firstFile = allSystemFiles.find(f => f._id === firstFileId)
       const bId = firstFile?.batchId || (selectedContext 
-        ? libraryTree[selectedContext.level]?.[selectedContext.className]?.[selectedContext.semester]?.batches[0]?._id
+        ? libraryTree[selectedContext.level]?.[selectedContext.className || '']?.[selectedContext.semester || '']?.batches[0]?._id
         : selectedLot?.batches[0]?._id)
 
       if (!bId) throw new Error("Lot introuvable")
       
-      const response = await api.post(`/gradebook-exports/batches/${bId}/email-preview`, { selectedFileIds, includeFather, includeMother, includeStudent, customMessage })
+      const response = await api.post(`/gradebook-exports/batches/${bId}/email-preview`, {
+        selectedFileIds,
+        includeFather,
+        includeMother,
+        includeStudent,
+        overrideEmail: undefined
+      })
       setEmailPreview(response.data)
       setShowPreviewModal(true)
     } catch (e: any) {
@@ -390,7 +491,7 @@ export default function SubAdminExportedGradebooks() {
     
     // Always show quality choice modal if not already forced
     if (!forcedQuality) {
-      const selectedAssignments = allFilesForLot.filter(f => selectedFileIds.includes(f._id))
+      const selectedAssignments = allSystemFiles.filter(f => selectedFileIds.includes(f._id))
       const selectedAssignmentIds = new Set(selectedAssignments.map(f => f.assignmentId))
       
       const allPossibleFiles = batches.flatMap(b => b.files)
@@ -413,7 +514,7 @@ export default function SubAdminExportedGradebooks() {
       
       let finalFileIds = selectedFileIds
       if (forcedQuality) {
-        const selectedAssignments = allFilesForLot.filter(f => selectedFileIds.includes(f._id))
+        const selectedAssignments = allSystemFiles.filter(f => selectedFileIds.includes(f._id))
         
         // When quality is forced, we search across ALL batches for the correct quality version of these students
         const allPossibleFilesWithBatch = batches.flatMap(b => b.files.map(f => ({ ...f, batchId: b._id })))
@@ -430,9 +531,9 @@ export default function SubAdminExportedGradebooks() {
       
       // Use the batch ID of the first file for the job association
       const firstFileId = finalFileIds[0]
-      const firstFile = allFilesForLot.find(f => f._id === firstFileId)
+      const firstFile = allSystemFiles.find(f => f._id === firstFileId)
       const bId = firstFile?.batchId || (selectedContext 
-        ? libraryTree[selectedContext.level]?.[selectedContext.className]?.[selectedContext.semester]?.batches[0]?._id
+        ? libraryTree[selectedContext.level]?.[selectedContext.className || '']?.[selectedContext.semester || '']?.batches[0]?._id
         : selectedLot?.batches[0]?._id)
 
       if (!bId) throw new Error("Lot introuvable")
@@ -442,7 +543,92 @@ export default function SubAdminExportedGradebooks() {
         includeFather,
         includeMother,
         includeStudent,
-        customMessage
+        overrideEmail: undefined
+      })
+      setJobId(res.data.jobId)
+      setRightTab('history')
+    } catch (e: any) { setError(e.response?.data?.message || 'Erreur envoi') } finally { setSendLoading(false) }
+  }
+
+  const previewOverrideEmail = async () => {
+    if (selectedFileIds.length !== 1 || !overrideEmail.trim()) return
+    try {
+      setPreviewLoading(true)
+      const firstFileId = selectedFileIds[0]
+      const firstFile = allSystemFiles.find(f => f._id === firstFileId)
+      const bId = firstFile?.batchId || (selectedContext 
+        ? libraryTree[selectedContext.level]?.[selectedContext.className || '']?.[selectedContext.semester || '']?.batches[0]?._id
+        : selectedLot?.batches[0]?._id)
+
+      if (!bId) throw new Error("Lot introuvable")
+      
+      const response = await api.post(`/gradebook-exports/batches/${bId}/email-preview`, {
+        selectedFileIds,
+        includeFather: overrideIncludeFather,
+        includeMother: overrideIncludeMother,
+        includeStudent: false,
+        overrideEmail: overrideEmail.trim()
+      })
+      setEmailPreview(response.data)
+      setShowPreviewModal(true)
+    } catch (e: any) {
+      setError(e.response?.data?.message || 'Erreur aperçu')
+    } finally { setPreviewLoading(false) }
+  }
+
+  const sendOverrideEmails = async (forcedQuality?: 'high' | 'compressed') => {
+    if (selectedFileIds.length !== 1 || !overrideEmail.trim()) return
+    
+    if (!forcedQuality) {
+      const selectedAssignments = allSystemFiles.filter(f => selectedFileIds.includes(f._id))
+      const selectedAssignmentIds = new Set(selectedAssignments.map(f => f.assignmentId))
+      
+      const allPossibleFiles = batches.flatMap(b => b.files)
+      const relevantFiles = allPossibleFiles.filter(f => selectedAssignmentIds.has(f.assignmentId))
+      const availableQualities = new Set(relevantFiles.map(f => f.quality || 'high'))
+      
+      setExportQualityChoice({ 
+        callback: (hq) => sendOverrideEmails(hq ? 'high' : 'compressed'),
+        available: {
+          sd: availableQualities.has('compressed'),
+          hd: availableQualities.has('high')
+        }
+      })
+      return
+    }
+
+    try {
+      setSendLoading(true)
+      
+      let finalFileIds = selectedFileIds
+      if (forcedQuality) {
+        const selectedAssignments = allSystemFiles.filter(f => selectedFileIds.includes(f._id))
+        const allPossibleFilesWithBatch = batches.flatMap(b => b.files.map(f => ({ ...f, batchId: b._id })))
+        
+        finalFileIds = selectedAssignments.map(s => {
+          const match = allPossibleFilesWithBatch.find(f => 
+            f.assignmentId === s.assignmentId && 
+            f.version === s.version && 
+            (f.quality === forcedQuality || (!f.quality && forcedQuality === 'high'))
+          )
+          return match ? match._id : s._id
+        })
+      }
+      
+      const firstFileId = finalFileIds[0]
+      const firstFile = allSystemFiles.find(f => f._id === firstFileId)
+      const bId = firstFile?.batchId || (selectedContext 
+        ? libraryTree[selectedContext.level]?.[selectedContext.className || '']?.[selectedContext.semester || '']?.batches[0]?._id
+        : selectedLot?.batches[0]?._id)
+
+      if (!bId) throw new Error("Lot introuvable")
+
+      const res = await api.post(`/gradebook-exports/batches/${bId}/send`, { 
+        selectedFileIds: finalFileIds,
+        includeFather: overrideIncludeFather,
+        includeMother: overrideIncludeMother,
+        includeStudent: false,
+        overrideEmail: overrideEmail.trim()
       })
       setJobId(res.data.jobId)
       setRightTab('history')
@@ -491,7 +677,7 @@ export default function SubAdminExportedGradebooks() {
     if (!window.confirm('Supprimer ce fichier ?')) return
     try {
       // Find which batch this file belongs to
-      const file = allFilesForLot.find(f => f._id === fileId)
+      const file = allSystemFiles.find(f => f._id === fileId)
       const bId = file?.batchId
       if (!bId) throw new Error('Batch not found')
 
@@ -681,7 +867,7 @@ export default function SubAdminExportedGradebooks() {
               </div>
               {(selectedLot || selectedContext) && (
                 <div style={{ display: 'flex', gap: 6 }}>
-                  <button className="btn-action-small" onClick={() => setSelectedFileIds(allFilesForLot.map((file) => file._id))} title="Tout sélectionner">
+                  <button className="btn-action-small" onClick={() => setSelectedFileIds(prev => Array.from(new Set([...prev, ...allFilesForLot.map((file) => file._id)])))} title="Tout sélectionner">
                     <CheckSquare size={14} /> Tout
                   </button>
                   <button className="btn-action-small" onClick={() => setSelectedFileIds([])} title="Tout désélectionner">
@@ -689,15 +875,15 @@ export default function SubAdminExportedGradebooks() {
                   </button>
                   {(() => {
                     // Check if all selected items have SD/HD available
-                    const selectedFiles = allFilesForLot.filter(f => selectedFileIds.includes(f._id))
+                    const selectedFiles = allSystemFiles.filter(f => selectedFileIds.includes(f._id))
                     
                     const allHaveSD = selectedFiles.length > 0 && selectedFiles.every(f => {
-                      const allInstances = activeBatches.flatMap(b => b.files).filter(inst => inst.assignmentId === f.assignmentId && inst.version === f.version)
+                      const allInstances = batches.flatMap(b => b.files).filter(inst => inst.assignmentId === f.assignmentId && inst.version === f.version)
                       return allInstances.some(inst => inst.quality === 'compressed')
                     })
                     
                     const allHaveHD = selectedFiles.length > 0 && selectedFiles.every(f => {
-                      const allInstances = activeBatches.flatMap(b => b.files).filter(inst => inst.assignmentId === f.assignmentId && inst.version === f.version)
+                      const allInstances = batches.flatMap(b => b.files).filter(inst => inst.assignmentId === f.assignmentId && inst.version === f.version)
                       return allInstances.some(inst => inst.quality === 'high')
                     })
 
@@ -859,7 +1045,7 @@ export default function SubAdminExportedGradebooks() {
                 </div>
               ) : (
                 selectedFileIds.map((id) => {
-                  const file = allFilesForLot.find(f => f._id === id);
+                  const file = allSystemFiles.find(f => f._id === id);
                   if (!file) return null;
                   return (
                     <div key={id} className="selected-item">
@@ -946,20 +1132,7 @@ export default function SubAdminExportedGradebooks() {
                     </div>
                   </div>
 
-                  {/* #1: Custom message textarea */}
-                  <div className="config-section" style={{ marginTop: 12 }}>
-                    <h3 className="section-title" style={{ marginBottom: 8 }}>Message <span style={{ fontWeight: 400, color: '#94a3b8', fontSize: 11 }}>(optionnel)</span></h3>
-                    <textarea
-                      className="modern-textarea"
-                      rows={3}
-                      placeholder="Message personnalisé qui apparaîtra dans l'email envoyé aux familles..."
-                      value={customMessage}
-                      onChange={e => setCustomMessage(e.target.value)}
-                      style={{ minHeight: 'unset' }}
-                    />
-                  </div>
-
-                  <div className="action-footer" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div className="action-footer" style={{ display: 'flex', flexDirection: 'column', gap: 10, borderBottom: selectedFileIds.length === 1 ? '1px solid #e2e8f0' : 'none', paddingBottom: selectedFileIds.length === 1 ? 16 : 0 }}>
                     <button className="btn secondary" style={{ width: '100%' }} onClick={previewEmail} disabled={(!selectedLot && !selectedContext) || selectedFileIds.length === 0 || previewLoading}>
                       {previewLoading ? <RefreshCcw size={16} className="spin" /> : <Eye size={16} />} Aperçu du modèle d'email
                     </button>
@@ -967,22 +1140,85 @@ export default function SubAdminExportedGradebooks() {
                       className="btn btn-primary" 
                       style={{ width: '100%' }} 
                       onClick={() => sendEmails()} 
-                      disabled={(!selectedLot && !selectedContext) || selectedFileIds.length === 0 || sendLoading || (includeFather ? emailStats.p : 0) + (includeMother ? emailStats.m : 0) + (includeStudent ? emailStats.e : 0) === 0}
-                      title={(includeFather ? emailStats.p : 0) + (includeMother ? emailStats.m : 0) + (includeStudent ? emailStats.e : 0) === 0 && selectedFileIds.length > 0 ? 'Aucun destinataire disponible pour la sélection actuelle' : ''}
+                      disabled={(!selectedLot && !selectedContext) || selectedFileIds.length === 0 || sendLoading || getStandardRecipientsCount() === 0}
+                      title={getStandardRecipientsCount() === 0 && selectedFileIds.length > 0 ? 'Aucun destinataire disponible pour la sélection actuelle' : ''}
                     >
-                      {/* #9: Show recipient count alongside file count */}
                       <Send size={18} />
                       {selectedFileIds.length > 0
-                        ? `Envoyer — ${selectedFileIds.length} carnet${selectedFileIds.length > 1 ? 's' : ''} · ${(includeFather ? emailStats.p : 0) + (includeMother ? emailStats.m : 0) + (includeStudent ? emailStats.e : 0)} destinataire${(includeFather ? emailStats.p : 0) + (includeMother ? emailStats.m : 0) + (includeStudent ? emailStats.e : 0) !== 1 ? 's' : ''}`
+                        ? `Envoyer — ${selectedFileIds.length} carnet${selectedFileIds.length > 1 ? 's' : ''} · ${getStandardRecipientsCount()} destinataire${getStandardRecipientsCount() !== 1 ? 's' : ''}`
                         : 'Lancer la distribution'
                       }
                     </button>
                   </div>
 
+                  {/* Option: Envoyer à une autre adresse (only when exactly 1 gradebook is selected) */}
+                  {selectedFileIds.length === 1 && (
+                    <div className="alternative-delivery-card animate-fade-in">
+                      <h3 className="alt-title">
+                        <Mail size={16} /> Envoyer à une autre adresse
+                      </h3>
+                      
+                      <input
+                        type="email"
+                        className="alt-input"
+                        placeholder="parent.alternative@example.com"
+                        value={overrideEmail}
+                        onChange={e => setOverrideEmail(e.target.value)}
+                      />
+
+                      <div>
+                        <span className="alt-role-label">
+                          Rôle destinataire :
+                        </span>
+                        <div className="alt-role-grid">
+                          <button
+                            type="button"
+                            className={`alt-role-btn ${overrideIncludeFather ? 'active' : ''}`}
+                            onClick={() => {
+                              setOverrideIncludeFather(true)
+                              setOverrideIncludeMother(false)
+                            }}
+                          >
+                            <Users size={14} /> Père
+                          </button>
+                          <button
+                            type="button"
+                            className={`alt-role-btn ${overrideIncludeMother ? 'active' : ''}`}
+                            onClick={() => {
+                              setOverrideIncludeMother(true)
+                              setOverrideIncludeFather(false)
+                            }}
+                          >
+                            <Users size={14} /> Mère
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="alt-actions-grid">
+                        <button
+                          type="button"
+                          className="alt-btn-preview"
+                          onClick={previewOverrideEmail}
+                          disabled={previewLoading || !overrideEmail.trim() || !overrideEmail.includes('@') || (!overrideIncludeFather && !overrideIncludeMother)}
+                        >
+                          <Eye size={14} /> Aperçu
+                        </button>
+                        <button
+                          type="button"
+                          className="alt-btn-send"
+                          onClick={() => sendOverrideEmails()}
+                          disabled={sendLoading || !overrideEmail.trim() || !overrideEmail.includes('@') || (!overrideIncludeFather && !overrideIncludeMother)}
+                        >
+                          <Send size={14} /> Envoyer
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Removed inline preview, now in modal */}
 
                   {emailJob && (
-                    <div className="job-status-card" style={{ marginTop: 12 }}>
+                    <div className={`job-status-card ${emailJob.status} animate-fade-in`} style={{ marginTop: 12 }}>
                       <div className="status-header">
                         <span className="status-title">Distribution en cours</span>
                         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -1000,37 +1236,75 @@ export default function SubAdminExportedGradebooks() {
                         <div 
                           className="status-bar-fill" 
                           style={{ 
-                            width: `${emailJob.totalItems > 0 ? (emailJob.processedItems / emailJob.totalItems) * 100 : 0}%`,
+                            width: `${(emailJob.totalEmails ?? emailJob.totalItems) > 0 ? ((emailJob.processedEmails ?? emailJob.processedItems) / (emailJob.totalEmails ?? emailJob.totalItems)) * 100 : 0}%`,
                             background: emailJob.status === 'completed' ? '#22c55e' : undefined
                           }} 
                         />
                       </div>
-                      <div className="status-stats">
-                        <span className="stat sent">{emailJob.sentItems} Envoyés</span>
-                        <span className="stat failed">{emailJob.failedItems} Échecs</span>
-                        <span className="stat total">{emailJob.processedItems}/{emailJob.totalItems}</span>
+                      
+                      <div className="status-stats" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+                          <span className="stat sent">
+                            {emailJob.sentEmails ?? emailJob.sentItems} Envoyés
+                          </span>
+                          {emailJob.failedEmails !== undefined && emailJob.failedEmails > 0 && (
+                            <span className="stat failed">
+                              {emailJob.failedEmails} Échecs
+                            </span>
+                          )}
+                          <span className="stat total">
+                            Emails : {emailJob.processedEmails ?? emailJob.processedItems}/{emailJob.totalEmails ?? emailJob.totalItems}
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', fontSize: '10px', color: '#64748b' }}>
+                          <span>Carnets : {emailJob.processedItems}/{emailJob.totalItems} traités</span>
+                        </div>
                       </div>
+
+                      {emailJob.items.length > 5 && (
+                        <div style={{ margin: '4px 0 8px' }}>
+                          <input 
+                            type="text" 
+                            className="modern-select compact" 
+                            placeholder="Rechercher un élève..." 
+                            value={jobSearchQuery}
+                            onChange={(e) => setJobSearchQuery(e.target.value)}
+                            style={{ width: '100%', height: 32, padding: '6px 12px', fontSize: '12px' }}
+                          />
+                        </div>
+                      )}
                       
                       <div className="job-items-list mini scrollable">
-                        {emailJob.items.map((item) => (
-                          <div key={item.fileId} className={`job-item-row-granular ${item.status}`}>
-                            <div className="job-item-main">
-                              <span className="item-name">{item.studentName}</span>
-                              <span className={`item-status-tag ${item.status}`}>{item.status.toUpperCase()}</span>
-                            </div>
-                            {item.recipientDetails && item.recipientDetails.length > 0 && (
-                              <div className="recipient-progress-list">
-                                {item.recipientDetails.map((rd, idx) => (
-                                  <div key={idx} className={`recipient-progress-item ${rd.status}`}>
-                                    <span className="rd-type">{rd.type === 'father' ? 'Père' : rd.type === 'mother' ? 'Mère' : rd.type === 'student' ? 'Élève' : 'Test'}</span>
-                                    <span className="rd-status">{rd.status === 'sent' ? 'Succès' : rd.status === 'failed' ? 'Échec' : 'Envoi...'}</span>
-                                  </div>
-                                ))}
+                        {emailJob.items
+                          .filter(item => !jobSearchQuery || item.studentName.toLowerCase().includes(jobSearchQuery.toLowerCase()))
+                          .map((item) => (
+                            <div key={item.fileId} className={`job-item-row-granular ${item.status}`}>
+                              <div className="job-item-main">
+                                <span className="item-name">{item.studentName}</span>
+                                <span className={`item-status-tag ${item.status}`}>{item.status.toUpperCase()}</span>
                               </div>
-                            )}
-                            {item.error && !item.recipientDetails?.length && <div className="item-error-msg">{item.error}</div>}
-                          </div>
-                        ))}
+                              {item.recipientDetails && item.recipientDetails.length > 0 && (
+                                <div className="recipient-progress-list">
+                                  {getRecipientsForDisplay(item, emailJob.options).map((rd, idx) => (
+                                    <div key={idx} className={`recipient-progress-item ${rd.status}`}>
+                                      <span className="rd-type">{rd.type === 'father' ? 'Père' : rd.type === 'mother' ? 'Mère' : rd.type === 'student' ? 'Élève' : 'Test'}</span>
+                                      <span className="rd-status" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                        {rd.status === 'sent' && 'Succès'}
+                                        {rd.status === 'failed' && 'Échec'}
+                                        {rd.status === 'skipped' && 'Non envoyé'}
+                                        {rd.status === 'pending' && (
+                                          <>
+                                            <RefreshCcw size={10} className="spin" /> Envoi...
+                                          </>
+                                        )}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              {item.error && !item.recipientDetails?.length && <div className="item-error-msg">{item.error}</div>}
+                            </div>
+                          ))}
                       </div>
                     </div>
                   )}
@@ -1047,117 +1321,129 @@ export default function SubAdminExportedGradebooks() {
                         const jid = (job as any)._id || job.id
                         const active = (emailJob as any)?._id === jid || emailJob?.id === jid
                         return (
-                          <button
-                            key={jid}
-                            className={`history-item ${active ? 'active' : ''}`}
-                            onClick={() => {
-                              setJobId('')
-                              setEmailJob(job)
-                            }}
-                          >
-                            <div className="history-item-top">
-                              <span className="history-user" style={{ color: active ? '#4f46e5' : undefined }}>
-                                <Users size={12} style={{ marginRight: 4 }} /> {job.creatorName}
-                              </span>
-                              <span className={`history-status-badge ${job.status}`}>{job.status}</span>
-                            </div>
-
-                            <div className="history-item-mid">
-                              <span className="history-student-name">
-                                {job.items.length === 1 
-                                  ? job.items[0].studentName 
-                                  : job.items.length > 0 
-                                    ? `${job.items[0].studentName} + ${job.items.length - 1} autres`
-                                    : 'Sans élève'}
-                              </span>
-                              
-                              {job.items.length === 1 && job.items[0].recipientDetails && (
-                                <div className="history-pme-mini">
-                                  {['father', 'mother', 'student'].map(type => {
-                                    const rd = job.items[0].recipientDetails?.find(r => r.type === type);
-                                    if (!rd) return null;
-                                    return (
-                                      <div 
-                                        key={type} 
-                                        className={`status-dot ${rd.status}`}
-                                        title={`${type === 'father' ? 'Père' : type === 'mother' ? 'Mère' : 'Élève'}: ${rd.status}`}
-                                      >
-                                        {type[0].toUpperCase()}
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              )}
-                            </div>
-
-                            <div className="history-item-bottom">
-                              <span className="history-date">{job.startedAt ? new Date(job.startedAt).toLocaleString('fr-FR') : '—'}</span>
-                              <span className="history-count" style={{ fontWeight: 700 }}>{job.sentItems}/{job.totalItems}</span>
-                            </div>
-                          </button>
-                        )
-                      })}
-                    </div>
-                  )}
-                  
-                  {/* Selected Job Details from History */}
-                  {emailJob && rightTab === 'history' && (
-                    <div className="job-status-card" style={{ marginTop: 24, borderTop: '2px solid #e2e8f0', paddingTop: 20 }}>
-                      <div className="status-header">
-                        <div style={{ display: 'flex', flexDirection: 'column' }}>
-                          <span className="status-title">Détails de l'envoi</span>
-                          <span style={{ fontSize: 11, color: '#64748b' }}>Par {emailJob.creatorName}</span>
-                        </div>
-                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                          <span className={`status-tag ${emailJob.status}`}>{emailJob.status}</span>
-                          <button 
-                            className="btn-close-mini" 
-                            onClick={() => setEmailJob(null)}
-                            title="Masquer les détails"
-                          >
-                            <X size={14} />
-                          </button>
-                        </div>
-                      </div>
-                      
-                      <div className="status-stats" style={{ margin: '16px 0' }}>
-                        <span className="stat sent">{emailJob.sentItems} Envoyés</span>
-                        <span className="stat failed">{emailJob.failedItems} Échecs</span>
-                        <span className="stat total">{emailJob.processedItems}/{emailJob.totalItems}</span>
-                      </div>
-
-                      <div className="job-items-list mini scrollable" style={{ maxHeight: 400 }}>
-                        {emailJob.items.map((item) => (
-                          <div key={item.fileId} className={`job-item-row-granular history ${item.status}`}>
-                            <div className="job-item-main">
-                              <span className="item-name" style={{ fontWeight: 700, fontSize: 13 }}>{item.studentName}</span>
-                              <span className={`item-status-tag ${item.status}`} style={{ fontSize: 10 }}>{item.status.toUpperCase()}</span>
-                            </div>
-                            
-                            {item.recipientDetails && item.recipientDetails.length > 0 ? (
-                              <div className="recipient-details-grid">
-                                {item.recipientDetails.map((rd, idx) => (
-                                  <div key={idx} className={`recipient-detail-card ${rd.status}`}>
-                                    <div className="rd-header">
-                                      <span className="rd-type-label">{rd.type === 'father' ? 'Père' : rd.type === 'mother' ? 'Mère' : rd.type === 'student' ? 'Élève' : 'Test'}</span>
-                                      <span className="rd-status-icon">{rd.status === 'sent' ? <CheckCircle2 size={10} /> : <XCircle size={10} />}</span>
-                                    </div>
-                                    <div className="rd-email">{rd.email}</div>
-                                    {rd.error && <div className="rd-error">{rd.error}</div>}
-                                  </div>
-                                ))}
+                          <div key={jid} className="history-item-wrapper">
+                            <button
+                              className={`history-item compact ${active ? 'active' : ''}`}
+                              onClick={() => {
+                                if (active) {
+                                  setEmailJob(null)
+                                } else {
+                                  setJobId('')
+                                  setEmailJob(job)
+                                }
+                              }}
+                            >
+                              <div className="history-item-row">
+                                <span className="history-user-compact">
+                                  <Users size={10} style={{ marginRight: 3, flexShrink: 0 }} />
+                                  {job.creatorName}
+                                </span>
+                                <span className={`history-status-badge ${job.status}`}>{job.status}</span>
                               </div>
-                            ) : (
-                              <>
-                                <div style={{ fontSize: 11, color: '#64748b', display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 4 }}>
-                                  <Mail size={12} /> {item.recipients && item.recipients.length > 0 ? item.recipients.join(', ') : 'Aucun destinataire'}
+                              <div className="history-item-row">
+                                <span className="history-student-name compact">
+                                  {job.items.length === 1 
+                                    ? job.items[0].studentName 
+                                    : job.items.length > 0 
+                                      ? `${job.items[0].studentName} + ${job.items.length - 1}`
+                                      : 'Sans élève'}
+                                </span>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                  {job.items.length === 1 && job.items[0].recipientDetails && (
+                                    <div className="history-pme-mini">
+                                      {['father', 'mother', 'student'].map(type => {
+                                        const rd = getRecipientsForDisplay(job.items[0], job.options).find(r => r.type === type);
+                                        if (!rd) return null;
+                                        return (
+                                          <div 
+                                            key={type} 
+                                            className={`status-dot ${rd.status}`}
+                                            title={`${type === 'father' ? 'Père' : type === 'mother' ? 'Mère' : 'Élève'}: ${rd.status === 'skipped' ? 'Non envoyé' : rd.status}`}
+                                          >
+                                            {type[0].toUpperCase()}
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                  <span className="history-count-compact">
+                                    {job.totalEmails !== undefined 
+                                      ? `${job.sentEmails ?? 0}/${job.totalEmails}` 
+                                      : `${job.sentItems}/${job.totalItems}`}
+                                  </span>
                                 </div>
-                                {item.error && <div style={{ fontSize: 10, color: '#dc2626', marginTop: 2 }}>Erreur: {item.error}</div>}
-                              </>
+                              </div>
+                              <div className="history-date-line">
+                                {job.startedAt ? new Date(job.startedAt).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'}
+                              </div>
+                            </button>
+
+                            {/* Inline details — directly under the clicked item */}
+                            {active && emailJob && rightTab === 'history' && (
+                              <div className="history-inline-details animate-fade-in">
+                                <div className="inline-details-bar">
+                                  <div className="status-bar-wrapper" style={{ flex: 1 }}>
+                                    <div 
+                                      className="status-bar-fill" 
+                                      style={{ 
+                                        width: `${(emailJob.totalEmails ?? emailJob.totalItems) > 0 ? ((emailJob.processedEmails ?? emailJob.processedItems) / (emailJob.totalEmails ?? emailJob.totalItems)) * 100 : 0}%`,
+                                        background: emailJob.status === 'completed' ? '#22c55e' : emailJob.status === 'failed' ? '#ef4444' : undefined
+                                      }} 
+                                    />
+                                  </div>
+                                  <span className="inline-stats-label">
+                                    {emailJob.totalEmails !== undefined 
+                                      ? `${emailJob.sentEmails ?? 0} envoyés`
+                                      : `${emailJob.sentItems} envoyés`}
+                                    {((emailJob.failedEmails ?? emailJob.failedItems) > 0) && (
+                                      <span style={{ color: '#dc2626' }}> · {emailJob.failedEmails ?? emailJob.failedItems} échecs</span>
+                                    )}
+                                  </span>
+                                </div>
+
+                                {emailJob.items.length > 5 && (
+                                  <input 
+                                    type="text" 
+                                    className="modern-select compact" 
+                                    placeholder="Rechercher..." 
+                                    value={jobSearchQuery}
+                                    onChange={(e) => setJobSearchQuery(e.target.value)}
+                                    style={{ width: '100%', height: 28, padding: '4px 10px', fontSize: '11px', marginBottom: 6 }}
+                                  />
+                                )}
+
+                                <div className="inline-items-list scrollable">
+                                  {emailJob.items
+                                    .filter(item => !jobSearchQuery || item.studentName.toLowerCase().includes(jobSearchQuery.toLowerCase()))
+                                    .map((item) => (
+                                      <div key={item.fileId} className={`inline-item-row ${item.status}`}>
+                                        <div className="inline-item-header">
+                                          <span className="inline-item-name">{item.studentName}</span>
+                                          <span className={`inline-item-badge ${item.status}`}>{item.status}</span>
+                                        </div>
+                                        {item.recipientDetails && item.recipientDetails.length > 0 ? (
+                                          <div className="inline-recipient-chips">
+                                            {getRecipientsForDisplay(item, emailJob.options).map((rd, idx) => (
+                                              <div key={idx} className={`recipient-chip ${rd.status}`} title={rd.error || rd.email}>
+                                                <span className="chip-icon">
+                                                  {rd.status === 'sent' ? <CheckCircle2 size={9} /> : rd.status === 'failed' ? <XCircle size={9} /> : rd.status === 'skipped' ? <AlertCircle size={9} /> : <RefreshCcw size={9} className="spin" />}
+                                                </span>
+                                                <span className="chip-label">{rd.type === 'father' ? 'P' : rd.type === 'mother' ? 'M' : rd.type === 'student' ? 'É' : 'T'}</span>
+                                                <span className="chip-email">{rd.email}</span>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        ) : item.error ? (
+                                          <div className="inline-item-error">{item.error}</div>
+                                        ) : null}
+                                      </div>
+                                    ))}
+                                </div>
+                              </div>
                             )}
                           </div>
-                        ))}
-                      </div>
+                        )
+                      })}
                     </div>
                   )}
                 </div>
@@ -1220,7 +1506,7 @@ export default function SubAdminExportedGradebooks() {
               <button className="btn secondary" onClick={() => setShowPreviewModal(false)}>Fermer</button>
               {/* #6: Integrate quality choice into preview footer — no double-modal */}
               {(() => {
-                const selAssignments = allFilesForLot.filter(f => selectedFileIds.includes(f._id))
+                const selAssignments = allSystemFiles.filter(f => selectedFileIds.includes(f._id))
                 const allPossible = batches.flatMap(b => b.files)
                 const relevant = allPossible.filter(f => selAssignments.some(s => s.assignmentId === (f as any).assignmentId))
                 const quals = new Set(relevant.map((f: any) => f.quality || 'high'))

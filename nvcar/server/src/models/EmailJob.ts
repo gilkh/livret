@@ -28,6 +28,10 @@ export interface IEmailJob extends Document {
   skippedItems: number
   failedItems: number
   partialItems: number
+  totalEmails?: number
+  processedEmails?: number
+  sentEmails?: number
+  failedEmails?: number
   startedAt: Date
   updatedAt: Date
   completedAt?: Date
@@ -36,6 +40,7 @@ export interface IEmailJob extends Document {
     includeMother: boolean
     includeStudent: boolean
     customMessage: string
+    overrideEmail?: string
     selectedFileIds: string[]
     testEmailOverride?: string
   }
@@ -55,6 +60,10 @@ const emailJobSchema = new Schema<IEmailJob>({
   skippedItems: { type: Number, default: 0 },
   failedItems: { type: Number, default: 0 },
   partialItems: { type: Number, default: 0 },
+  totalEmails: { type: Number, default: 0 },
+  processedEmails: { type: Number, default: 0 },
+  sentEmails: { type: Number, default: 0 },
+  failedEmails: { type: Number, default: 0 },
   startedAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
   completedAt: { type: Date },
@@ -63,6 +72,7 @@ const emailJobSchema = new Schema<IEmailJob>({
     includeMother: { type: Boolean, default: true },
     includeStudent: { type: Boolean, default: true },
     customMessage: { type: String },
+    overrideEmail: { type: String },
     selectedFileIds: [{ type: String }],
     testEmailOverride: { type: String }
   },

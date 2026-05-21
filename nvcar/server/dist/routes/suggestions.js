@@ -7,6 +7,7 @@ const TemplateChangeSuggestion_1 = require("../models/TemplateChangeSuggestion")
 const GradebookTemplate_1 = require("../models/GradebookTemplate");
 const SchoolYear_1 = require("../models/SchoolYear");
 const User_1 = require("../models/User");
+const OutlookUser_1 = require("../models/OutlookUser");
 exports.suggestionsRouter = (0, express_1.Router)();
 const findBlockById = (pages, blockId) => {
     const id = String(blockId || '').trim();
@@ -134,8 +135,14 @@ exports.suggestionsRouter.get('/', (0, auth_1.requireAuth)(['ADMIN']), async (re
             .lean();
         // Populate subAdmin details manually or via populate if schema allowed ref
         const subAdminIds = [...new Set(suggestions.map(s => s.subAdminId))];
-        const subAdmins = await User_1.User.find({ _id: { $in: subAdminIds } }).lean();
-        const subAdminMap = subAdmins.reduce((acc, curr) => ({ ...acc, [String(curr._id)]: curr }), {});
+        const [subAdmins, outlookSubAdmins] = await Promise.all([
+            User_1.User.find({ _id: { $in: subAdminIds } }).lean(),
+            OutlookUser_1.OutlookUser.find({ _id: { $in: subAdminIds } }).lean()
+        ]);
+        const subAdminMap = [
+            ...subAdmins,
+            ...outlookSubAdmins
+        ].reduce((acc, curr) => ({ ...acc, [String(curr._id)]: curr }), {});
         // Populate template names
         const templateIds = [...new Set(suggestions.map(s => s.templateId).filter(Boolean))];
         const templates = await GradebookTemplate_1.GradebookTemplate.find({ _id: { $in: templateIds } }).select('name').lean();
