@@ -471,6 +471,24 @@
   height: 50px;
 }
 
+.ebe-col-resize-handle:active::after {
+  background: #2563eb;
+  height: 100%;
+  width: 4px;
+}
+
+.ebe-col-resize-handle.dragging::after {
+  background: #2563eb;
+  height: 100%;
+  width: 4px;
+}
+
+/* Prevent text selection during column resize drag */
+body.ebe-col-resizing {
+  user-select: none;
+  cursor: col-resize !important;
+}
+
 .ebe-cols-mgmt {
   display: flex;
   flex-direction: column;
