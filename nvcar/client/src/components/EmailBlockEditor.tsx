@@ -31,6 +31,14 @@ const BLOCK_TYPES: { type: BlockType; label: string; icon: any }[] = [
   { type: 'banner', label: 'Bannière rouge', icon: PanelTop },
 ]
 
+const FONT_FAMILIES = [
+  { label: 'Arial', value: 'Arial, sans-serif' },
+  { label: 'Times New Roman', value: "'Times New Roman', Times, serif" },
+  { label: 'Georgia', value: 'Georgia, serif' },
+  { label: 'Verdana', value: 'Verdana, sans-serif' },
+  { label: 'Courier New', value: "'Courier New', Courier, monospace" },
+]
+
 const VARIABLES = [
   { key: '{{studentName}}', label: 'Nom élève' },
   { key: '{{yearName}}', label: 'Année' },
@@ -41,14 +49,14 @@ const VARIABLES = [
 
 function defaultProps(type: BlockType): Record<string, any> {
   switch (type) {
-    case 'heading': return { text: 'Titre', fontSize: 24, fontWeight: '800', color: '#1e293b', alignment: 'center', bg: '' }
-    case 'text': return { text: 'Votre texte ici...', fontSize: 16, color: '#334155', alignment: 'left', lineHeight: 1.6, bg: '' }
+    case 'heading': return { text: 'Titre', fontSize: 24, fontWeight: '800', color: '#1e293b', alignment: 'center', bg: '', fontFamily: 'Arial, sans-serif' }
+    case 'text': return { text: 'Votre texte ici...', fontSize: 16, color: '#334155', alignment: 'left', lineHeight: 1.6, bg: '', fontFamily: 'Arial, sans-serif' }
     case 'image': return { src: 'https://via.placeholder.com/560x120?text=Logo', alt: 'Image', imgWidth: 100, alignment: 'center' }
     case 'divider': return { borderColor: '#e2e8f0', borderWidth: 2 }
     case 'spacer': return { height: 24 }
-    case 'button': return { buttonText: 'Cliquer ici', buttonUrl: '#', buttonColor: '#3b82f6', buttonTextColor: '#fff', borderRadius: 8, fontSize: 16, alignment: 'center' }
-    case 'info-table': return { rows: [{ label: 'Année scolaire', value: '{{yearName}}' }, { label: 'Niveau', value: '{{level}}' }, { label: 'Classe', value: '{{className}}' }], tableBg: '#f8fafc', borderColor: '#e2e8f0', labelColor: '#64748b', valueColor: '#1e293b' }
-    case 'banner': return { bgColor: '#dc2626', borderColor: '#b91c1c', borderWidth: 2, borderRadius: 6, paddingTop: 12, paddingBottom: 12, paddingLeft: 20, paddingRight: 20, lines: [{ text: 'Année Scolaire {{yearName}}', fontSize: 14, color: '#ffffff', alignment: 'left' }, { text: 'Classe: {{className}}', fontSize: 14, color: '#ffffff', alignment: 'right' }] }
+    case 'button': return { buttonText: 'Cliquer ici', buttonUrl: '#', buttonColor: '#3b82f6', buttonTextColor: '#fff', borderRadius: 8, fontSize: 16, alignment: 'center', fontFamily: 'Arial, sans-serif' }
+    case 'info-table': return { rows: [{ label: 'Année scolaire', value: '{{yearName}}' }, { label: 'Niveau', value: '{{level}}' }, { label: 'Classe', value: '{{className}}' }], tableBg: '#f8fafc', borderColor: '#e2e8f0', labelColor: '#64748b', valueColor: '#1e293b', fontFamily: 'Arial, sans-serif' }
+    case 'banner': return { bgColor: '#dc2626', borderColor: '#b91c1c', borderWidth: 2, borderRadius: 6, paddingTop: 12, paddingBottom: 12, paddingLeft: 20, paddingRight: 20, fontFamily: 'Arial, sans-serif', lines: [{ text: 'Année Scolaire {{yearName}}', fontSize: 14, color: '#ffffff', alignment: 'left' }, { text: 'Classe: {{className}}', fontSize: 14, color: '#ffffff', alignment: 'right' }] }
     case 'columns': return { columnGap: 20, verticalAlign: 'top', padding: '10px 0' }
     default: return {}
   }
@@ -61,9 +69,9 @@ export function blocksToHtml(blocks: EmailBlock[]): string {
       const p = b.props
       switch (b.type) {
         case 'heading':
-          return `<div style="font-size:${p.fontSize||24}px;font-weight:${p.fontWeight||'800'};color:${p.color||'#1e293b'};text-align:${p.alignment||'center'};${p.bg?`background-color:${p.bg};`:''}padding:${p.paddingTop??8}px ${p.paddingRight??0}px ${p.paddingBottom??8}px ${p.paddingLeft??0}px;">${p.text||''}</div>`
+          return `<div style="font-family:${p.fontFamily || 'Arial, sans-serif'};font-size:${p.fontSize||24}px;font-weight:${p.fontWeight||'800'};color:${p.color||'#1e293b'};text-align:${p.alignment||'center'};${p.bg?`background-color:${p.bg};`:''}padding:${p.paddingTop??8}px ${p.paddingRight??0}px ${p.paddingBottom??8}px ${p.paddingLeft??0}px;">${p.text||''}</div>`
         case 'text':
-          return `<div style="font-size:${p.fontSize||16}px;color:${p.color||'#334155'};text-align:${p.alignment||'left'};line-height:${p.lineHeight||1.6};${p.bg?`background-color:${p.bg};`:''}padding:${p.paddingTop??8}px ${p.paddingRight??0}px ${p.paddingBottom??8}px ${p.paddingLeft??0}px;">${(p.text||'').replace(/\n/g,'<br/>')}</div>`
+          return `<div style="font-family:${p.fontFamily || 'Arial, sans-serif'};font-size:${p.fontSize||16}px;color:${p.color||'#334155'};text-align:${p.alignment||'left'};line-height:${p.lineHeight||1.6};${p.bg?`background-color:${p.bg};`:''}padding:${p.paddingTop??8}px ${p.paddingRight??0}px ${p.paddingBottom??8}px ${p.paddingLeft??0}px;">${(p.text||'').replace(/\n/g,'<br/>')}</div>`
         case 'image':
           return `<div style="text-align:${p.alignment||'center'};padding:${p.paddingTop??8}px ${p.paddingRight??0}px ${p.paddingBottom??8}px ${p.paddingLeft??0}px;"><img src="${p.src||''}" alt="${p.alt||''}" width="${p.imgWidth||100}%" style="max-width:${p.imgWidth||100}%;height:auto;display:inline-block;" /></div>`
         case 'divider':
@@ -71,10 +79,11 @@ export function blocksToHtml(blocks: EmailBlock[]): string {
         case 'spacer':
           return `<div style="height:${p.height||20}px;"></div>`
         case 'button':
-          return `<div style="text-align:${p.alignment||'center'};padding:12px 0;"><a href="${p.buttonUrl||'#'}" style="display:inline-block;padding:12px 28px;background:${p.buttonColor||'#3b82f6'};color:${p.buttonTextColor||'#fff'};border-radius:${p.borderRadius||8}px;font-size:${p.fontSize||16}px;font-weight:600;text-decoration:none;">${p.buttonText||'Button'}</a></div>`
+          return `<div style="text-align:${p.alignment||'center'};padding:12px 0;"><a href="${p.buttonUrl||'#'}" style="display:inline-block;padding:12px 28px;background:${p.buttonColor||'#3b82f6'};color:${p.buttonTextColor||'#fff'};border-radius:${p.borderRadius||8}px;font-size:${p.fontSize||16}px;font-weight:600;text-decoration:none;font-family:${p.fontFamily || 'Arial, sans-serif'};">${p.buttonText||'Button'}</a></div>`
         case 'info-table': {
+          const ff = p.fontFamily || 'Arial, sans-serif'
           const rows = (p.rows || []).map((r: any) =>
-            `<tr><td style="padding:6px 0;font-size:14px;color:${p.labelColor||'#64748b'};width:140px;">${r.label}</td><td style="padding:6px 0;font-size:14px;font-weight:700;color:${p.valueColor||'#1e293b'};">${r.value}</td></tr>`
+            `<tr><td style="padding:6px 0;font-size:14px;color:${p.labelColor||'#64748b'};width:140px;font-family:${ff};">${r.label}</td><td style="padding:6px 0;font-size:14px;font-weight:700;color:${p.valueColor||'#1e293b'};font-family:${ff};">${r.value}</td></tr>`
           ).join('')
           return `<div style="background:${p.tableBg||'#f8fafc'};border-radius:10px;padding:16px;border:1px solid ${p.borderColor||'#e2e8f0'};margin:8px 0;"><table style="width:100%;border-collapse:collapse;">${rows}</table></div>`
         }
@@ -87,7 +96,7 @@ export function blocksToHtml(blocks: EmailBlock[]): string {
             if (p.rightText) bannerLines.push({ text: p.rightText, fontSize: p.rightFontSize || 14, color: p.rightColor || '#ffffff', alignment: 'right' })
           }
           const lines = bannerLines.map((line: any) =>
-            `<div style="font-size:${line.fontSize||14}px;color:${line.color||'#ffffff'};text-align:${line.alignment||'left'};font-weight:600;padding:2px 0;">${(line.text||'').replace(/\n/g,'<br/>')}</div>`
+            `<div style="font-family:${p.fontFamily || 'Arial, sans-serif'};font-size:${line.fontSize||14}px;color:${line.color||'#ffffff'};text-align:${line.alignment||'left'};font-weight:600;padding:2px 0;">${(line.text||'').replace(/\n/g,'<br/>')}</div>`
           ).join('')
           return `<div style="background:${p.bgColor||'#dc2626'};border:${p.borderWidth||2}px solid ${p.borderColor||'#b91c1c'};border-radius:${p.borderRadius||6}px;padding:${p.paddingTop??12}px ${p.paddingRight??20}px ${p.paddingBottom??12}px ${p.paddingLeft??20}px;margin:8px 0;">${lines}</div>`
         }
@@ -481,9 +490,9 @@ export default function EmailBlockEditor({ blocks, onChange }: Props) {
     const p = block.props
     switch (block.type) {
       case 'heading':
-        return <div style={{ fontSize: p.fontSize, fontWeight: p.fontWeight, color: p.color, textAlign: p.alignment, background: p.bg || 'transparent', padding: `${p.paddingTop??8}px ${p.paddingRight??0}px ${p.paddingBottom??8}px ${p.paddingLeft??0}px` }}>{highlightVars(p.text)}</div>
+        return <div style={{ fontFamily: p.fontFamily, fontSize: p.fontSize, fontWeight: p.fontWeight, color: p.color, textAlign: p.alignment, background: p.bg || 'transparent', padding: `${p.paddingTop??8}px ${p.paddingRight??0}px ${p.paddingBottom??8}px ${p.paddingLeft??0}px` }}>{highlightVars(p.text)}</div>
       case 'text':
-        return <div style={{ fontSize: p.fontSize, color: p.color, textAlign: p.alignment, lineHeight: p.lineHeight, background: p.bg || 'transparent', padding: `${p.paddingTop??8}px ${p.paddingRight??0}px ${p.paddingBottom??8}px ${p.paddingLeft??0}px`, whiteSpace: 'pre-wrap' }}>{highlightVars(p.text)}</div>
+        return <div style={{ fontFamily: p.fontFamily, fontSize: p.fontSize, color: p.color, textAlign: p.alignment, lineHeight: p.lineHeight, background: p.bg || 'transparent', padding: `${p.paddingTop??8}px ${p.paddingRight??0}px ${p.paddingBottom??8}px ${p.paddingLeft??0}px`, whiteSpace: 'pre-wrap' }}>{highlightVars(p.text)}</div>
       case 'image':
         return <div style={{ textAlign: p.alignment, padding: `${p.paddingTop??8}px ${p.paddingRight??0}px ${p.paddingBottom??8}px ${p.paddingLeft??0}px` }}><img src={p.src} alt={p.alt} style={{ maxWidth: `${p.imgWidth}%`, height: 'auto' }} /></div>
       case 'divider':
@@ -491,11 +500,11 @@ export default function EmailBlockEditor({ blocks, onChange }: Props) {
       case 'spacer':
         return <div style={{ height: p.height, background: 'repeating-linear-gradient(45deg, transparent, transparent 4px, rgba(0,0,0,0.03) 4px, rgba(0,0,0,0.03) 8px)' }} />
       case 'button':
-        return <div style={{ textAlign: p.alignment, padding: '12px 0' }}><span style={{ display: 'inline-block', padding: '12px 28px', background: p.buttonColor, color: p.buttonTextColor, borderRadius: p.borderRadius, fontSize: p.fontSize, fontWeight: 600 }}>{p.buttonText}</span></div>
+        return <div style={{ textAlign: p.alignment, padding: '12px 0' }}><span style={{ display: 'inline-block', padding: '12px 28px', background: p.buttonColor, color: p.buttonTextColor, borderRadius: p.borderRadius, fontSize: p.fontSize, fontWeight: 600, fontFamily: p.fontFamily }}>{p.buttonText}</span></div>
       case 'info-table':
         return (
           <div style={{ background: p.tableBg, borderRadius: 10, padding: 16, border: `1px solid ${p.borderColor}` }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: p.fontFamily }}>
               <tbody>
                 {(p.rows || []).map((r: any, i: number) => (
                   <tr key={i}><td style={{ padding: '6px 0', fontSize: 14, color: p.labelColor, width: 140 }}>{r.label}</td><td style={{ padding: '6px 0', fontSize: 14, fontWeight: 700, color: p.valueColor }}>{highlightVars(r.value)}</td></tr>
@@ -518,7 +527,8 @@ export default function EmailBlockEditor({ blocks, onChange }: Props) {
               border: `${p.borderWidth || 2}px solid ${p.borderColor || '#b91c1c'}`,
               borderRadius: p.borderRadius || 6,
               padding: `${p.paddingTop??12}px ${p.paddingRight??20}px ${p.paddingBottom??12}px ${p.paddingLeft??20}px`,
-              margin: '8px 0'
+              margin: '8px 0',
+              fontFamily: p.fontFamily
             }}>
               {(resolvedLines || []).map((line: any, i: number) => (
                 <div key={i} style={{
@@ -688,6 +698,10 @@ export default function EmailBlockEditor({ blocks, onChange }: Props) {
             }
             <label>Taille police</label>
             <input type="number" className="ebe-input" value={p.fontSize || 16} onChange={e => set('fontSize', +e.target.value)} />
+            <label>Police</label>
+            <select className="ebe-input" value={p.fontFamily || 'Arial, sans-serif'} onChange={e => set('fontFamily', e.target.value)}>
+              {FONT_FAMILIES.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+            </select>
             <label>Couleur</label>
             <div className="ebe-color-row"><input type="color" value={p.color || '#000000'} onChange={e => set('color', e.target.value)} /><input className="ebe-input" value={p.color || ''} onChange={e => set('color', e.target.value)} /></div>
             <label>Alignement</label>
@@ -813,6 +827,10 @@ export default function EmailBlockEditor({ blocks, onChange }: Props) {
           <input className="ebe-input" value={p.buttonText || ''} onChange={e => set('buttonText', e.target.value)} />
           <label>URL</label>
           <input className="ebe-input" value={p.buttonUrl || ''} onChange={e => set('buttonUrl', e.target.value)} />
+          <label>Police</label>
+          <select className="ebe-input" value={p.fontFamily || 'Arial, sans-serif'} onChange={e => set('fontFamily', e.target.value)}>
+            {FONT_FAMILIES.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+          </select>
           <label>Couleur fond</label>
           <div className="ebe-color-row"><input type="color" value={p.buttonColor || '#3b82f6'} onChange={e => set('buttonColor', e.target.value)} /><input className="ebe-input" value={p.buttonColor || ''} onChange={e => set('buttonColor', e.target.value)} /></div>
           <label>Couleur texte</label>
@@ -847,6 +865,10 @@ export default function EmailBlockEditor({ blocks, onChange }: Props) {
           <input type="number" className="ebe-input" min={0} max={10} value={p.borderWidth || 2} onChange={e => set('borderWidth', +e.target.value)} />
           <label>Rayon bordure</label>
           <input type="range" min={0} max={20} value={p.borderRadius || 6} onChange={e => set('borderRadius', +e.target.value)} /><span>{p.borderRadius || 6}px</span>
+          <label>Police</label>
+          <select className="ebe-input" value={p.fontFamily || 'Arial, sans-serif'} onChange={e => set('fontFamily', e.target.value)}>
+            {FONT_FAMILIES.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+          </select>
           
           <div className="ebe-banner-lines-section" style={{ marginTop: 16 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
@@ -917,6 +939,14 @@ export default function EmailBlockEditor({ blocks, onChange }: Props) {
           <button className="ebe-add-row" onClick={() => set('rows', [...(p.rows || []), { label: 'Label', value: 'Valeur' }])}>+ Ajouter ligne</button>
           <label>Fond tableau</label>
           <div className="ebe-color-row"><input type="color" value={p.tableBg || '#f8fafc'} onChange={e => set('tableBg', e.target.value)} /><input className="ebe-input" value={p.tableBg || ''} onChange={e => set('tableBg', e.target.value)} /></div>
+          <label>Couleur des labels</label>
+          <div className="ebe-color-row"><input type="color" value={p.labelColor || '#64748b'} onChange={e => set('labelColor', e.target.value)} /><input className="ebe-input" value={p.labelColor || ''} onChange={e => set('labelColor', e.target.value)} /></div>
+          <label>Couleur des valeurs</label>
+          <div className="ebe-color-row"><input type="color" value={p.valueColor || '#1e293b'} onChange={e => set('valueColor', e.target.value)} /><input className="ebe-input" value={p.valueColor || ''} onChange={e => set('valueColor', e.target.value)} /></div>
+          <label>Police</label>
+          <select className="ebe-input" value={p.fontFamily || 'Arial, sans-serif'} onChange={e => set('fontFamily', e.target.value)}>
+            {FONT_FAMILIES.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+          </select>
         </>}
       </div>
     )
