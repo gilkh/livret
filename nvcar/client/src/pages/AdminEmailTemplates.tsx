@@ -825,91 +825,109 @@ export default function AdminEmailTemplates() {
                 </div>
               )}
 
-              {!loading && filteredTemplates.map(tpl => (
-                <div key={tpl._id} className="template-card">
-                  <div className="template-card-header">
-                    <div className="template-title-area">
-                      <div className="template-icon-circle">
-                        <Mail size={20} />
+              {!loading && filteredTemplates.map(tpl => {
+                const yearName = tpl.schoolYearId
+                  ? schoolYears.find((y: any) => y._id === tpl.schoolYearId)?.name
+                  : null
+                const levelCount = tpl.linkedLevels?.length || 0
+                const classCount = tpl.linkedClasses?.length || 0
+                const isDefault = !levelCount && !classCount
+
+                return (
+                <div key={tpl._id} className="tpl-card">
+                  <div className="tpl-card-accent" />
+
+                  <div className="tpl-card-top">
+                    <div className="tpl-card-identity">
+                      <div className="tpl-card-icon">
+                        <Mail size={18} />
                       </div>
-                      <h3>{tpl.name}</h3>
-                      {tpl.schoolYearId ? (
-                        <span className="year-badge">{schoolYears.find((y: any) => y._id === tpl.schoolYearId)?.name || '?'}</span>
-                      ) : (
-                        <span className="year-badge generic">Toutes</span>
-                      )}
+                      <div className="tpl-card-title-block">
+                        <h3 className="tpl-card-name">{tpl.name}</h3>
+                        <span className={`tpl-card-year ${!yearName ? 'tpl-card-year-generic' : ''}`}>
+                          {yearName || 'Toutes les ann\u00e9es'}
+                        </span>
+                      </div>
                     </div>
-                    <div className="template-actions">
+                    <div className="tpl-card-actions">
                       <button
-                        className="btn-action export"
+                        className="tpl-act-btn tpl-act-export"
                         onClick={() => handleExport(tpl._id)}
                         title="Exporter"
                         disabled={exportingId === tpl._id}
                       >
-                        {exportingId === tpl._id ? <RefreshCcw size={16} className="spin-slow" /> : <Download size={16} />}
+                        {exportingId === tpl._id ? <RefreshCcw size={15} className="spin-slow" /> : <Download size={15} />}
                       </button>
-                      <button className="btn-action edit" onClick={() => handleEdit(tpl)} title="Modifier">
-                        <Edit2 size={16} />
+                      <button className="tpl-act-btn tpl-act-edit" onClick={() => handleEdit(tpl)} title="Modifier">
+                        <Edit2 size={15} />
                       </button>
-                      <button className="btn-action delete" onClick={() => handleDelete(tpl._id)} title="Supprimer">
-                        <Trash2 size={16} />
+                      <button className="tpl-act-btn tpl-act-delete" onClick={() => handleDelete(tpl._id)} title="Supprimer">
+                        <Trash2 size={15} />
                       </button>
                     </div>
                   </div>
-                  
-                  <div className="template-card-body">
-                    <div className="subject-preview">
-                      <span className="label">Sujet de l'email</span>
-                      <p className="subject-text">{tpl.subject}</p>
-                    </div>
-                    
-                    <div className="template-links-modern">
-                      {tpl.linkedLevels?.length > 0 && (
-                        <div className="link-group-modern">
-                          <div className="link-header">
-                            <Layers size={14} />
-                            <span className="link-label">Niveaux</span>
-                          </div>
-                          <div className="link-tags-scroll">
-                            {tpl.linkedLevels?.map(l => <span key={l} className="tag-modern level-tag-modern">{l}</span>)}
-                          </div>
-                        </div>
-                      )}
-                      
-                      {tpl.linkedClasses?.length > 0 && (
-                        <div className="link-group-modern">
-                          <div className="link-header">
-                            <Users size={14} />
-                            <span className="link-label">Classes</span>
-                          </div>
-                          <div className="link-tags-scroll">
-                            {tpl.linkedClasses?.map(l => <span key={l} className="tag-modern class-tag-modern">{l}</span>)}
-                          </div>
-                        </div>
-                      )}
-                      
-                      {(!tpl.linkedLevels?.length && !tpl.linkedClasses?.length) && (
-                        <div className="default-badge-modern">
-                          <CheckCircle2 size={14} />
-                          <span>Modèle par défaut</span>
-                        </div>
-                      )}
-                    </div>
 
-                    <div className="card-footer-actions">
-                      <button 
-                        className="btn-use-template" 
-                        onClick={() => {
-                          setSelectedTemplateId(tpl._id)
-                          setActiveTab('distribution')
-                        }}
-                      >
-                        <Send size={16} /> Utiliser ce modèle
-                      </button>
+                  <div className="tpl-card-subject">
+                    <span className="tpl-subject-label">Objet</span>
+                    <span className="tpl-subject-value">{tpl.subject}</span>
+                  </div>
+
+                  {tpl.blocks && tpl.blocks.length > 0 && (
+                    <div className="tpl-card-preview">
+                      <div className="tpl-preview-strip">
+                        {tpl.blocks.slice(0, 3).map((block, i) => (
+                          <div key={i} className={`tpl-preview-block tpl-preview-${block.type}`}>
+                            {block.type === 'heading' && <div className="tpl-mock-heading" />}
+                            {block.type === 'text' && <div className="tpl-mock-text"><div /><div className="short" /></div>}
+                            {block.type === 'image' && <div className="tpl-mock-image"><ImageIcon size={12} /></div>}
+                            {block.type === 'divider' && <div className="tpl-mock-divider" />}
+                            {block.type === 'button' && <div className="tpl-mock-button" />}
+                          </div>
+                        ))}
+                        {tpl.blocks.length > 3 && <div className="tpl-preview-more">+{tpl.blocks.length - 3}</div>}
+                      </div>
                     </div>
+                  )}
+
+                  <div className="tpl-card-links">
+                    {isDefault ? (
+                      <div className="tpl-link-chip tpl-link-default">
+                        <CheckCircle2 size={13} />
+                        <span>Mod\u00e8le par d\u00e9faut</span>
+                      </div>
+                    ) : (
+                      <>
+                        {levelCount > 0 && (
+                          <div className="tpl-link-chip tpl-link-levels" title={tpl.linkedLevels.join(', ')}>
+                            <Layers size={13} />
+                            <span>{levelCount} niveau{levelCount > 1 ? 'x' : ''}</span>
+                          </div>
+                        )}
+                        {classCount > 0 && (
+                          <div className="tpl-link-chip tpl-link-classes" title={tpl.linkedClasses.join(', ')}>
+                            <Users size={13} />
+                            <span>{classCount} classe{classCount > 1 ? 's' : ''}</span>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+
+                  <div className="tpl-card-footer">
+                    <button
+                      className="tpl-use-btn"
+                      onClick={() => {
+                        setSelectedTemplateId(tpl._id)
+                        setActiveTab('distribution')
+                      }}
+                    >
+                      <Send size={14} />
+                      <span>Utiliser</span>
+                    </button>
                   </div>
                 </div>
-              ))}
+                )
+              })}
             </div>
           ) : (
             <div className="template-editor glass-card full-width">
