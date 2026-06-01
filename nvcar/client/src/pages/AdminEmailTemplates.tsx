@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
-import { Plus, Edit2, Trash2, Mail, Save, X, Eye, Image as ImageIcon, Send, RefreshCcw, CheckCircle, AlertCircle, History, Package, FolderArchive, FileDown, Archive, Layout, CheckSquare, Square, Users, CheckCircle2, XCircle, MailPlus, Layers } from 'lucide-react'
+import { Plus, Edit2, Trash2, Mail, Save, X, Eye, Image as ImageIcon, Send, RefreshCcw, CheckCircle, AlertCircle, History, Package, FolderArchive, FileDown, Archive, Layout, CheckSquare, Square, Users, CheckCircle2, XCircle, MailPlus, Layers, Download, Upload, AlertTriangle } from 'lucide-react'
 import api from '../api'
 import './AdminEmailTemplates.css'
 import EmailBlockEditor, { DEFAULT_BLOCKS, blocksToHtml, EmailBlock } from '../components/EmailBlockEditor'
@@ -12,6 +12,7 @@ type EmailTemplate = {
   blocks?: EmailBlock[]
   linkedLevels: string[]
   linkedClasses: string[]
+  schoolYearId?: string
 }
 
 type ExportedFile = {
@@ -107,22 +108,41 @@ export default function AdminEmailTemplates() {
     bodyHtml: '',
     blocks: [] as EmailBlock[],
     linkedLevels: [] as string[],
-    linkedClasses: [] as string[]
+    linkedClasses: [] as string[],
+    schoolYearId: ''
   })
   
   const [editorType, setEditorType] = useState<'visual' | 'html'>('visual')
   const [searchQuery, setSearchQuery] = useState('')
 
+  // Templates tab year filter & import/export
+  const [selectedTemplateYearId, setSelectedTemplateYearId] = useState('')
+  const [exportingId, setExportingId] = useState<string | null>(null)
+  const [importing, setImporting] = useState(false)
+  const [conflictMap, setConflictMap] = useState<Record<string, { templateId: string; templateName: string }>>({})
+  const [exportSuccess, setExportSuccess] = useState('')
+  const [showImportModal, setShowImportModal] = useState(false)
+  const [serverExports, setServerExports] = useState<{ fileName: string; size: number; mtime: string; exportedByName?: string; timestamp?: string }[]>([])
+  const [loadingExports, setLoadingExports] = useState(false)
+
   const filteredTemplates = useMemo(() => {
-    if (!searchQuery) return templates
-    const lowSearch = searchQuery.toLowerCase()
-    return templates.filter(t => 
-      t.name.toLowerCase().includes(lowSearch) || 
-      t.subject.toLowerCase().includes(lowSearch) ||
-      (t.linkedLevels || []).some(l => l.toLowerCase().includes(lowSearch)) ||
-      (t.linkedClasses || []).some(c => c.toLowerCase().includes(lowSearch))
-    )
-  }, [templates, searchQuery])
+    let result = templates
+    if (selectedTemplateYearId) {
+      result = result.filter(t =>
+        !t.schoolYearId || t.schoolYearId === selectedTemplateYearId
+      )
+    }
+    if (searchQuery) {
+      const lowSearch = searchQuery.toLowerCase()
+      result = result.filter(t => 
+        t.name.toLowerCase().includes(lowSearch) || 
+        t.subject.toLowerCase().includes(lowSearch) ||
+        (t.linkedLevels || []).some(l => l.toLowerCase().includes(lowSearch)) ||
+        (t.linkedClasses || []).some(c => c.toLowerCase().includes(lowSearch))
+      )
+    }
+    return result
+  }, [templates, selectedTemplateYearId, searchQuery])
 
   // Distribution State
   const [batches, setBatches] = useState<ExportBatch[]>([])
@@ -195,9 +215,11 @@ export default function AdminEmailTemplates() {
 
   useEffect(() => {
     loadTemplatesData()
+    if (activeTab === 'templates' || activeTab === 'distribution') {
+      loadYears()
+    }
     if (activeTab === 'distribution') {
       loadBatches()
-      loadYears()
     }
     if (activeTab === 'history') {
       fetchAllJobs()
@@ -214,12 +236,13 @@ export default function AdminEmailTemplates() {
       const activeSeq = activeYear?.sequence || 999999
       const availableYears = years.filter((y: any) => (y.sequence || 0) <= activeSeq)
 
-      if (activeYear && !selectedYearName) {
-        setSelectedYearName(activeYear.name)
-      } else if (availableYears.length > 0 && !selectedYearName) {
-        // Pick the most recent available year
+      if (activeYear) {
+        if (!selectedYearName) setSelectedYearName(activeYear.name)
+        if (!selectedTemplateYearId) setSelectedTemplateYearId(activeYear._id)
+      } else if (availableYears.length > 0) {
         const sorted = [...availableYears].sort((a, b) => (b.sequence || 0) - (a.sequence || 0))
-        setSelectedYearName(sorted[0].name)
+        if (!selectedYearName) setSelectedYearName(sorted[0].name)
+        if (!selectedTemplateYearId) setSelectedTemplateYearId(sorted[0]._id)
       }
     } catch (err) {
       console.error(err)
@@ -408,7 +431,8 @@ export default function AdminEmailTemplates() {
       bodyHtml: blocksToHtml(newBlocks),
       blocks: newBlocks,
       linkedLevels: [],
-      linkedClasses: []
+      linkedClasses: [],
+      schoolYearId: selectedTemplateYearId || ''
     })
     setEditorType('visual')
     setShowForm(true)
@@ -422,7 +446,8 @@ export default function AdminEmailTemplates() {
       bodyHtml: tpl.bodyHtml,
       blocks: tpl.blocks || [],
       linkedLevels: tpl.linkedLevels || [],
-      linkedClasses: tpl.linkedClasses || []
+      linkedClasses: tpl.linkedClasses || [],
+      schoolYearId: tpl.schoolYearId || ''
     })
     setEditorType(tpl.blocks && tpl.blocks.length > 0 ? 'visual' : 'html')
     setShowForm(true)
@@ -437,6 +462,78 @@ export default function AdminEmailTemplates() {
       alert(err.response?.data?.error || 'Erreur')
     }
   }
+
+  const handleExport = async (templateId: string) => {
+    setExportingId(templateId)
+    setExportSuccess('')
+    try {
+      const exportRes = await api.post(`/email-templates/${templateId}/export`)
+      const { fileName, path: filePath } = exportRes.data
+      setExportSuccess(`Modèle exporté avec succès: ${fileName} — Emplacement: ${filePath}`)
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Erreur lors de l\'export')
+    } finally {
+      setExportingId(null)
+    }
+  }
+
+  const openImportModal = async () => {
+    setShowImportModal(true)
+    setLoadingExports(true)
+    try {
+      const res = await api.get('/email-templates/exports')
+      setServerExports(Array.isArray(res.data) ? res.data : [])
+    } catch (err) {
+      console.error(err)
+      setServerExports([])
+    } finally {
+      setLoadingExports(false)
+    }
+  }
+
+  const handleImportFromServer = async (fileName: string) => {
+    setImporting(true)
+    try {
+      const res = await api.post(`/email-templates/import-server/${fileName}`)
+      setTemplates(prev => [res.data, ...prev])
+      setShowImportModal(false)
+      alert('Modèle importé avec succès')
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Erreur lors de l\'import')
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  const loadConflicts = async (yearId: string) => {
+    if (!yearId) {
+      setConflictMap({})
+      return
+    }
+    try {
+      const res = await api.get(`/email-templates/conflicts?schoolYearId=${yearId}`)
+      const map: Record<string, { templateId: string; templateName: string }> = {}
+      for (const tpl of (res.data || [])) {
+        for (const l of tpl.linkedLevels || []) {
+          map[`level:${l}`] = { templateId: tpl._id, templateName: tpl.name }
+        }
+        for (const c of tpl.linkedClasses || []) {
+          map[`class:${c}`] = { templateId: tpl._id, templateName: tpl.name }
+        }
+      }
+      setConflictMap(map)
+    } catch (err) {
+      console.error(err)
+    }
+  }
+
+  useEffect(() => {
+    if (showForm && formState.schoolYearId) {
+      loadConflicts(formState.schoolYearId)
+    } else {
+      setConflictMap({})
+    }
+  }, [showForm, formState.schoolYearId])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -643,6 +740,21 @@ export default function AdminEmailTemplates() {
       {activeTab === 'templates' && (
         <>
           <div className="section-header-actions">
+            <div className="template-year-bar">
+              <select
+                className="modern-select compact"
+                value={selectedTemplateYearId}
+                onChange={(e) => setSelectedTemplateYearId(e.target.value)}
+              >
+                <option value="">Toutes les années</option>
+                {schoolYears
+                  .sort((a, b) => (b.sequence || 0) - (a.sequence || 0))
+                  .map((year: any) => (
+                    <option key={year._id} value={year._id}>{year.name}</option>
+                  ))
+                }
+              </select>
+            </div>
             <div className="search-filter-group">
               <div className="search-input-wrapper">
                 <ImageIcon size={18} className="search-icon" />
@@ -655,12 +767,28 @@ export default function AdminEmailTemplates() {
                 />
               </div>
             </div>
+            <button
+              className="btn-secondary-outline"
+              onClick={openImportModal}
+              disabled={importing}
+            >
+              {importing ? <RefreshCcw size={18} className="spin-slow" /> : <Upload size={18} />}
+              Importer
+            </button>
             <button className="btn-premium" onClick={handleCreate}>
               <Plus size={20} /> Nouveau Modèle
             </button>
           </div>
 
           {error && <div className="error-banner">{error}</div>}
+
+          {exportSuccess && (
+            <div className="success-banner">
+              <CheckCircle size={18} />
+              <span>{exportSuccess}</span>
+              <button onClick={() => setExportSuccess('')} className="dismiss-btn">&times;</button>
+            </div>
+          )}
 
           {!showForm ? (
             <div className="templates-grid">
@@ -705,8 +833,21 @@ export default function AdminEmailTemplates() {
                         <Mail size={20} />
                       </div>
                       <h3>{tpl.name}</h3>
+                      {tpl.schoolYearId ? (
+                        <span className="year-badge">{schoolYears.find((y: any) => y._id === tpl.schoolYearId)?.name || '?'}</span>
+                      ) : (
+                        <span className="year-badge generic">Toutes</span>
+                      )}
                     </div>
                     <div className="template-actions">
+                      <button
+                        className="btn-action export"
+                        onClick={() => handleExport(tpl._id)}
+                        title="Exporter"
+                        disabled={exportingId === tpl._id}
+                      >
+                        {exportingId === tpl._id ? <RefreshCcw size={16} className="spin-slow" /> : <Download size={16} />}
+                      </button>
                       <button className="btn-action edit" onClick={() => handleEdit(tpl)} title="Modifier">
                         <Edit2 size={16} />
                       </button>
@@ -824,6 +965,23 @@ export default function AdminEmailTemplates() {
                     />
                     <small className="help-text">Variables: {'{{studentName}}, {{yearName}}, {{level}}, {{className}}, {{schoolName}}'}</small>
                   </div>
+
+                  <div className="form-group flex-1">
+                    <label>Année scolaire</label>
+                    <select
+                      className="modern-input"
+                      value={formState.schoolYearId}
+                      onChange={e => setFormState({...formState, schoolYearId: e.target.value})}
+                    >
+                      <option value="">Toutes les années</option>
+                      {schoolYears
+                        .sort((a, b) => (b.sequence || 0) - (a.sequence || 0))
+                        .map((year: any) => (
+                          <option key={year._id} value={year._id}>{year.name}</option>
+                        ))
+                      }
+                    </select>
+                  </div>
                 </div>
                 
                 <div className="editor-main-layout">
@@ -851,34 +1009,52 @@ export default function AdminEmailTemplates() {
                     <div className="link-section glass-panel">
                       <h4><Package size={16} /> Lier aux Niveaux</h4>
                       <div className="checkbox-grid-compact">
-                        {allLevels?.map(level => (
-                          <label key={level._id || level.name} className="checkbox-label-modern">
-                            <input 
-                              type="checkbox" 
-                              checked={formState.linkedLevels.includes(level.name)}
-                              onChange={() => toggleLevel(level.name)}
-                            />
-                            <span className="check-custom"></span>
-                            {level.name}
-                          </label>
-                        ))}
+                        {allLevels?.map(level => {
+                          const conflict = conflictMap[`level:${level.name}`]
+                          const isConflict = conflict && conflict.templateId !== editingTemplate?._id
+                          return (
+                            <label key={level._id || level.name} className="checkbox-label-modern">
+                              <input 
+                                type="checkbox" 
+                                checked={formState.linkedLevels.includes(level.name)}
+                                onChange={() => toggleLevel(level.name)}
+                              />
+                              <span className="check-custom"></span>
+                              {level.name}
+                              {isConflict && (
+                                <span className="conflict-warning" title={`Déjà assigné à: ${conflict.templateName}`}>
+                                  <AlertTriangle size={12} /> {conflict.templateName}
+                                </span>
+                              )}
+                            </label>
+                          )
+                        })}
                       </div>
                     </div>
                     
                     <div className="link-section glass-panel mt-4">
                       <h4><Layout size={16} /> Lier aux Classes</h4>
                       <div className="checkbox-grid-compact">
-                        {allClasses?.map(cls => (
-                          <label key={cls._id || cls.name} className="checkbox-label-modern">
-                            <input 
-                              type="checkbox" 
-                              checked={formState.linkedClasses.includes(cls.name)}
-                              onChange={() => toggleClass(cls.name)}
-                            />
-                            <span className="check-custom"></span>
-                            {cls.name}
-                          </label>
-                        ))}
+                        {allClasses?.map(cls => {
+                          const conflict = conflictMap[`class:${cls.name}`]
+                          const isConflict = conflict && conflict.templateId !== editingTemplate?._id
+                          return (
+                            <label key={cls._id || cls.name} className="checkbox-label-modern">
+                              <input 
+                                type="checkbox" 
+                                checked={formState.linkedClasses.includes(cls.name)}
+                                onChange={() => toggleClass(cls.name)}
+                              />
+                              <span className="check-custom"></span>
+                              {cls.name}
+                              {isConflict && (
+                                <span className="conflict-warning" title={`Déjà assigné à: ${conflict.templateName}`}>
+                                  <AlertTriangle size={12} /> {conflict.templateName}
+                                </span>
+                              )}
+                            </label>
+                          )
+                        })}
                       </div>
                     </div>
                     
@@ -1406,6 +1582,76 @@ export default function AdminEmailTemplates() {
                 })}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* Import from server modal */}
+      {showImportModal && (
+        <div className="modal-overlay" onClick={() => setShowImportModal(false)}>
+          <div className="import-modal" onClick={e => e.stopPropagation()}>
+            <div className="import-modal-header">
+              <div className="import-modal-title">
+                <FolderArchive size={20} />
+                <h3>Importer un modèle</h3>
+              </div>
+              <button className="modal-close-btn" onClick={() => setShowImportModal(false)}>
+                <X size={20} />
+              </button>
+            </div>
+            <div className="import-modal-body">
+              {loadingExports ? (
+                <div className="import-loading">
+                  <RefreshCcw size={28} className="spin-slow" />
+                  <p>Chargement des exports...</p>
+                </div>
+              ) : serverExports.length === 0 ? (
+                <div className="import-empty">
+                  <Archive size={48} />
+                  <h4>Aucun export trouvé</h4>
+                  <p>Le dossier des exports est vide. Exportez d'abord un modèle pour pouvoir le réimporter.</p>
+                </div>
+              ) : (
+                <div className="import-file-list">
+                  <p className="import-hint">
+                    Sélectionnez un fichier exporté depuis le dossier du serveur:
+                  </p>
+                  {serverExports.map((file, idx) => (
+                    <div key={idx} className="import-file-item">
+                      <div className="import-file-info">
+                        <div className="import-file-name">
+                          <Archive size={16} />
+                          <span>{file.fileName}</span>
+                        </div>
+                        <div className="import-file-meta">
+                          <span>{(file.size / 1024).toFixed(1)} Ko</span>
+                          <span className="meta-sep">&middot;</span>
+                          <span>{new Date(file.mtime).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                          {file.exportedByName && (
+                            <>
+                              <span className="meta-sep">&middot;</span>
+                              <span>{file.exportedByName}</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                      <button
+                        className="btn-import-pick"
+                        disabled={importing}
+                        onClick={() => handleImportFromServer(file.fileName)}
+                      >
+                        {importing ? (
+                          <RefreshCcw size={14} className="spin" />
+                        ) : (
+                          <Upload size={14} />
+                        )}
+                        Importer
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
