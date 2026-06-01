@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
-import { Plus, Edit2, Trash2, Mail, Save, X, Eye, Image as ImageIcon, Send, RefreshCcw, CheckCircle, AlertCircle, History, Package, FolderArchive, FileDown, Archive, Layout, CheckSquare, Square, Users, CheckCircle2, XCircle, MailPlus, Layers, Download, Upload, AlertTriangle } from 'lucide-react'
+import { Plus, Edit2, Trash2, Mail, Save, X, Eye, Image as ImageIcon, Send, RefreshCcw, CheckCircle, AlertCircle, History, Package, FolderArchive, FileDown, Archive, Layout, CheckSquare, Square, Users, CheckCircle2, XCircle, MailPlus, Layers, Download, Upload, AlertTriangle, Clock, Filter, Search, Calendar, TrendingUp, BarChart3, ChevronDown, ChevronRight, User, MailOpen, MailX, MailCheck } from 'lucide-react'
 import api from '../api'
 import './AdminEmailTemplates.css'
 import EmailBlockEditor, { DEFAULT_BLOCKS, blocksToHtml, EmailBlock } from '../components/EmailBlockEditor'
@@ -68,26 +68,65 @@ type EmailPreview = {
 }
 
 type EmailJob = {
+  _id: string
   id: string
+  batchId: string
+  createdBy: string
   status: 'queued' | 'running' | 'completed' | 'failed'
   totalItems: number
   processedItems: number
   sentItems: number
   skippedItems: number
   failedItems: number
+  partialItems: number
+  totalEmails: number
+  processedEmails: number
+  sentEmails: number
+  failedEmails: number
   error?: string
   items: Array<{
     fileId: string
+    studentId: string
     studentName: string
     recipients: string[]
-    status: 'pending' | 'sent' | 'skipped' | 'failed'
+    recipientDetails?: Array<{
+      email: string
+      type: 'father' | 'mother' | 'student' | 'override'
+      status: 'pending' | 'sent' | 'failed'
+      error?: string
+    }>
+    status: 'pending' | 'sent' | 'skipped' | 'failed' | 'partial'
     error?: string
   }>
   creatorName?: string
   startedAt?: string
+  completedAt?: string
   createdAt?: string
+  updatedAt?: string
   isTest?: boolean
-  options?: any
+  options?: {
+    includeFather?: boolean
+    includeMother?: boolean
+    includeStudent?: boolean
+    customMessage?: string
+    overrideEmail?: string
+    testEmailOverride?: string
+    templateId?: string
+    quality?: string
+    selectedFileIds?: string[]
+    [key: string]: any
+  }
+  batchInfo?: {
+    groupLabel: string
+    yearName: string
+    semester: string
+    createdBy: string
+    creatorRole: string
+  }
+  creatorInfo?: {
+    displayName: string
+    role: string
+  }
 }
 
 export default function AdminEmailTemplates() {
@@ -180,6 +219,13 @@ export default function AdminEmailTemplates() {
   const [historyLoading, setHistoryLoading] = useState(false)
   const [testSuccess, setTestSuccess] = useState(false)
   const [expandedJobId, setExpandedJobId] = useState<string | null>(null)
+  const [historySearch, setHistorySearch] = useState('')
+  const [historyFilterStatus, setHistoryFilterStatus] = useState<string>('')
+  const [historyFilterType, setHistoryFilterType] = useState<string>('')
+  const [historyFilterAuthor, setHistoryFilterAuthor] = useState<string>('')
+  const [historyFilterYear, setHistoryFilterYear] = useState<string>('')
+  const [historyPage, setHistoryPage] = useState(1)
+  const historyPageSize = 20
 
   // Grouping Logic
   const groupedLots = useMemo(() => {
@@ -211,6 +257,93 @@ export default function AdminEmailTemplates() {
   const selectedLot = useMemo(() => {
     return groupedLots.find(l => l.key === selectedGroupKey) || null
   }, [groupedLots, selectedGroupKey])
+
+
+  // History filtering and stats
+  const historyAuthors = useMemo(() => {
+    const authors = new Map<string, string>()
+    allJobs.forEach(job => {
+      const name = job.creatorInfo?.displayName || job.creatorName || 'Système'
+      const id = job.createdBy?.toString() || name
+      if (!authors.has(id)) authors.set(id, name)
+    })
+    return Array.from(authors.entries()).map(([id, name]) => ({ id, name }))
+  }, [allJobs])
+
+  const historyYears = useMemo(() => {
+    const years = new Set<string>()
+    allJobs.forEach(job => {
+      if (job.batchInfo?.yearName) years.add(job.batchInfo.yearName)
+    })
+    return Array.from(years).sort().reverse()
+  }, [allJobs])
+
+  const filteredHistoryJobs = useMemo(() => {
+    let result = [...allJobs]
+    if (historySearch) {
+      const low = historySearch.toLowerCase()
+      result = result.filter(job => {
+        const author = job.creatorInfo?.displayName || job.creatorName || ''
+        const batchLabel = job.batchInfo?.groupLabel || ''
+        const yearName = job.batchInfo?.yearName || ''
+        const semester = job.batchInfo?.semester || ''
+        const items = job.items?.map(i => i.studentName).join(' ') || ''
+        return author.toLowerCase().includes(low)
+          || batchLabel.toLowerCase().includes(low)
+          || yearName.toLowerCase().includes(low)
+          || semester.toLowerCase().includes(low)
+          || items.toLowerCase().includes(low)
+      })
+    }
+    if (historyFilterStatus) {
+      result = result.filter(job => job.status === historyFilterStatus)
+    }
+    if (historyFilterType) {
+      result = result.filter(job => historyFilterType === 'test' ? job.isTest : !job.isTest)
+    }
+    if (historyFilterAuthor) {
+      result = result.filter(job => {
+        const name = job.creatorInfo?.displayName || job.creatorName || 'Système'
+        const id = job.createdBy?.toString() || name
+        return id === historyFilterAuthor
+      })
+    }
+    if (historyFilterYear) {
+      result = result.filter(job => job.batchInfo?.yearName === historyFilterYear)
+    }
+    return result
+  }, [allJobs, historySearch, historyFilterStatus, historyFilterType, historyFilterAuthor, historyFilterYear])
+
+  const pagedHistoryJobs = useMemo(() => {
+    const start = (historyPage - 1) * historyPageSize
+    return filteredHistoryJobs.slice(start, start + historyPageSize)
+  }, [filteredHistoryJobs, historyPage, historyPageSize])
+
+  const historyTotalPages = Math.ceil(filteredHistoryJobs.length / historyPageSize)
+
+  const historyStats = useMemo(() => {
+    const total = allJobs.length
+    const completed = allJobs.filter(j => j.status === 'completed').length
+    const failed = allJobs.filter(j => j.status === 'failed').length
+    const running = allJobs.filter(j => j.status === 'running').length
+    const realJobs = allJobs.filter(j => !j.isTest)
+    const testJobs = allJobs.filter(j => j.isTest)
+    const totalEmailsSent = realJobs.reduce((sum, j) => sum + (j.sentEmails || j.sentItems || 0), 0)
+    const totalEmailsFailed = realJobs.reduce((sum, j) => sum + (j.failedEmails || j.failedItems || 0), 0)
+    const totalStudentsNotified = realJobs.reduce((sum, j) => sum + (j.sentItems || 0), 0)
+    const successRate = total > 0 ? Math.round((completed / total) * 100) : 0
+    return { total, completed, failed, running, realJobs: realJobs.length, testJobs: testJobs.length, totalEmailsSent, totalEmailsFailed, totalStudentsNotified, successRate }
+  }, [allJobs])
+
+  const getJobDuration = (job: EmailJob) => {
+    const start = job.startedAt || job.createdAt
+    const end = job.completedAt || job.updatedAt
+    if (!start || !end) return null
+    const ms = new Date(end).getTime() - new Date(start).getTime()
+    if (ms < 1000) return `${ms}ms`
+    if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`
+    return `${(ms / 60000).toFixed(1)}m`
+  }
 
 
   useEffect(() => {
@@ -1469,138 +1602,334 @@ export default function AdminEmailTemplates() {
       )}
 
       {activeTab === 'history' && (
-        <div className="history-layout glass-panel">
-          <div className="history-header">
-            <h3><History size={20} /> Historique des envois</h3>
+        <div className="history-page-v2">
+          {/* Stats Dashboard */}
+          <div className="history-stats-grid">
+            <div className="history-stat-card stat-total">
+              <div className="stat-icon-wrap"><BarChart3 size={20} /></div>
+              <div className="stat-body">
+                <span className="stat-value">{historyStats.total}</span>
+                <span className="stat-label">Envois totaux</span>
+              </div>
+            </div>
+            <div className="history-stat-card stat-sent">
+              <div className="stat-icon-wrap"><MailCheck size={20} /></div>
+              <div className="stat-body">
+                <span className="stat-value">{historyStats.totalEmailsSent}</span>
+                <span className="stat-label">Emails envoyés</span>
+              </div>
+            </div>
+            <div className="history-stat-card stat-students">
+              <div className="stat-icon-wrap"><Users size={20} /></div>
+              <div className="stat-body">
+                <span className="stat-value">{historyStats.totalStudentsNotified}</span>
+                <span className="stat-label">Élèves notifiés</span>
+              </div>
+            </div>
+            <div className="history-stat-card stat-rate">
+              <div className="stat-icon-wrap"><TrendingUp size={20} /></div>
+              <div className="stat-body">
+                <span className="stat-value">{historyStats.successRate}%</span>
+                <span className="stat-label">Taux de réussite</span>
+              </div>
+            </div>
+            <div className="history-stat-card stat-failed">
+              <div className="stat-icon-wrap"><MailX size={20} /></div>
+              <div className="stat-body">
+                <span className="stat-value">{historyStats.totalEmailsFailed}</span>
+                <span className="stat-label">Emails échoués</span>
+              </div>
+            </div>
+            <div className="history-stat-card stat-tests">
+              <div className="stat-icon-wrap"><MailOpen size={20} /></div>
+              <div className="stat-body">
+                <span className="stat-value">{historyStats.testJobs}</span>
+                <span className="stat-label">Envois test</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Filters Bar */}
+          <div className="history-filters-bar">
+            <div className="history-search-wrap">
+              <Search size={16} className="history-search-icon" />
+              <input
+                type="text"
+                placeholder="Rechercher par auteur, année, élève..."
+                className="history-search-input"
+                value={historySearch}
+                onChange={e => { setHistorySearch(e.target.value); setHistoryPage(1) }}
+              />
+            </div>
+            <select className="history-filter-select" value={historyFilterStatus} onChange={e => { setHistoryFilterStatus(e.target.value); setHistoryPage(1) }}>
+              <option value="">Tous les statuts</option>
+              <option value="completed">Terminé</option>
+              <option value="running">En cours</option>
+              <option value="failed">Échoué</option>
+              <option value="queued">En attente</option>
+            </select>
+            <select className="history-filter-select" value={historyFilterType} onChange={e => { setHistoryFilterType(e.target.value); setHistoryPage(1) }}>
+              <option value="">Tous les types</option>
+              <option value="real">Envoi réel</option>
+              <option value="test">Test</option>
+            </select>
+            <select className="history-filter-select" value={historyFilterAuthor} onChange={e => { setHistoryFilterAuthor(e.target.value); setHistoryPage(1) }}>
+              <option value="">Tous les auteurs</option>
+              {historyAuthors.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </select>
+            <select className="history-filter-select" value={historyFilterYear} onChange={e => { setHistoryFilterYear(e.target.value); setHistoryPage(1) }}>
+              <option value="">Toutes les années</option>
+              {historyYears.map(y => <option key={y} value={y}>{y}</option>)}
+            </select>
+            {(historySearch || historyFilterStatus || historyFilterType || historyFilterAuthor || historyFilterYear) && (
+              <button className="history-clear-filters" onClick={() => { setHistorySearch(''); setHistoryFilterStatus(''); setHistoryFilterType(''); setHistoryFilterAuthor(''); setHistoryFilterYear(''); setHistoryPage(1) }}>
+                <X size={14} /> Réinitialiser
+              </button>
+            )}
+            <div className="history-filters-spacer" />
+            <span className="history-count-label">{filteredHistoryJobs.length} résultat{filteredHistoryJobs.length !== 1 ? 's' : ''}</span>
             <button className="btn secondary mini" onClick={fetchAllJobs} disabled={loading}>
               <RefreshCcw size={14} className={loading ? 'spin' : ''} /> Actualiser
             </button>
           </div>
-          
-          <div className="history-table-wrap">
-            <table className="history-table-detailed">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Type / Auteur</th>
-                  <th>Configuration</th>
-                  <th>Résultat</th>
-                  <th>Statut</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {allJobs.length === 0 && !loading && (
-                  <tr>
-                    <td colSpan={6} className="empty-history">Aucun historique trouvé</td>
-                  </tr>
-                )}
-                {allJobs.map(job => {
-                  const isExpanded = expandedJobId === job._id
-                  const template = templates.find(t => t._id === job.options?.templateId)
-                  return (
-                    <React.Fragment key={job._id}>
-                      <tr className={`history-main-row ${isExpanded ? 'expanded' : ''}`} onClick={() => setExpandedJobId(isExpanded ? null : job._id)}>
-                        <td>
-                          <div className="date-time">
-                            <span className="d">{new Date(job.createdAt || job.startedAt).toLocaleDateString()}</span>
-                            <span className="t">{new Date(job.createdAt || job.startedAt).toLocaleTimeString()}</span>
-                          </div>
-                        </td>
-                        <td>
-                          <div className="job-identity">
-                            <span className={`type-badge ${job.isTest ? 'test' : 'real'}`}>
-                              {job.isTest ? 'TEST' : 'ENVOI RÉEL'}
-                            </span>
-                            <span className="author">{job.creatorName || 'Système'}</span>
-                          </div>
-                        </td>
-                        <td>
-                          <div className="job-config-info">
-                            <div className="recipients-icons">
-                              <span className={`icon-pill ${job.options?.includeFather ? 'active' : ''}`} title="Père">P</span>
-                              <span className={`icon-pill ${job.options?.includeMother ? 'active' : ''}`} title="Mère">M</span>
-                              <span className={`icon-pill ${job.options?.includeStudent ? 'active' : ''}`} title="Élève">E</span>
-                            </div>
-                            <span className="quality-badge">{job.options?.quality === 'high' ? 'HD' : 'SD'}</span>
-                            <span className="tpl-name" title={template?.name || 'Automatique'}>
-                              {template?.name || 'Auto'}
-                            </span>
-                          </div>
-                        </td>
-                        <td>
-                          <div className="job-stats-summary">
-                            <span className="stat total" title="Total">{job.totalItems} <Users size={12} /></span>
-                            <span className="stat sent" title="Envoyés">{job.sentItems} <CheckCircle2 size={12} /></span>
-                            {job.failedItems > 0 && <span className="stat failed" title="Échecs">{job.failedItems} <XCircle size={12} /></span>}
-                            {job.skippedItems > 0 && <span className="stat skipped" title="Ignorés">{job.skippedItems} <AlertCircle size={12} /></span>}
-                          </div>
-                        </td>
-                        <td>
-                          <span className={`status-badge ${job.status}`}>
-                            {job.status === 'completed' ? 'Terminé' : job.status === 'running' ? 'En cours' : 'Échec'}
+
+          {/* Job Cards List */}
+          <div className="history-jobs-list">
+            {loading && allJobs.length === 0 && (
+              <div className="history-loading-state">
+                <RefreshCcw size={40} className="spin-slow" />
+                <p>Chargement de l'historique...</p>
+              </div>
+            )}
+
+            {!loading && allJobs.length === 0 && (
+              <div className="history-empty-state">
+                <div className="empty-icon-wrap"><History size={64} /></div>
+                <h3>Aucun envoi enregistré</h3>
+                <p>Les envois d'emails apparaîtront ici une fois distribués.</p>
+              </div>
+            )}
+
+            {!loading && allJobs.length > 0 && filteredHistoryJobs.length === 0 && (
+              <div className="history-empty-state">
+                <div className="empty-icon-wrap"><Search size={64} /></div>
+                <h3>Aucun résultat</h3>
+                <p>Aucun envoi ne correspond à vos filtres.</p>
+                <button className="btn secondary" onClick={() => { setHistorySearch(''); setHistoryFilterStatus(''); setHistoryFilterType(''); setHistoryFilterAuthor(''); setHistoryFilterYear(''); setHistoryPage(1) }}>
+                  Effacer les filtres
+                </button>
+              </div>
+            )}
+
+            {pagedHistoryJobs.map(job => {
+              const isExpanded = expandedJobId === job._id
+              const template = templates.find(t => t._id === job.options?.templateId)
+              const duration = getJobDuration(job)
+              const sentCount = job.sentEmails || job.sentItems || 0
+              const failedCount = job.failedEmails || job.failedItems || 0
+              const skippedCount = job.skippedItems || 0
+              const partialCount = job.partialItems || 0
+              const totalEmailCount = job.totalEmails || job.totalItems || 0
+              const progressPct = job.totalItems > 0 ? Math.round((job.processedItems / job.totalItems) * 100) : 0
+              const authorName = job.creatorInfo?.displayName || job.creatorName || 'Système'
+              const authorRole = job.creatorInfo?.role || job.batchInfo?.creatorRole || ''
+
+              return (
+                <div key={job._id} className={`history-job-card ${isExpanded ? 'expanded' : ''} ${job.status}`}>
+                  <div className="job-card-main" onClick={() => setExpandedJobId(isExpanded ? null : job._id)}>
+                    <div className={`job-status-indicator ${job.status}`}>
+                      {job.status === 'completed' && <CheckCircle2 size={18} />}
+                      {job.status === 'running' && <RefreshCcw size={18} className="spin" />}
+                      {job.status === 'failed' && <XCircle size={18} />}
+                      {job.status === 'queued' && <Clock size={18} />}
+                    </div>
+                    <div className="job-card-content">
+                      <div className="job-card-top-row">
+                        <div className="job-card-title-area">
+                          <span className={`type-badge ${job.isTest ? 'test' : 'real'}`}>
+                            {job.isTest ? 'TEST' : 'ENVOI RÉEL'}
                           </span>
-                        </td>
-                        <td>
-                          <button className="btn-icon">
-                            {isExpanded ? <Plus size={16} style={{ transform: 'rotate(45deg)' }} /> : <Eye size={16} />}
-                          </button>
-                        </td>
-                      </tr>
-                      {isExpanded && (
-                        <tr className="history-details-row">
-                          <td colSpan={6}>
-                            <div className="job-details-content">
-                              <div className="details-header">
-                                <h4>Détail de l'envoi</h4>
-                                {job.error && <div className="job-global-error">Erreur globale: {job.error}</div>}
-                              </div>
-                              <div className="items-list-scroll">
-                                <table className="job-items-table">
-                                  <thead>
-                                    <tr>
-                                      <th>Élève</th>
-                                      <th>Destinataires</th>
-                                      <th>Statut</th>
-                                      <th>Détail / Erreur</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {job.items?.map((item, idx) => (
-                                      <tr key={idx}>
-                                        <td>{item.studentName || 'Élève inconnu'}</td>
-                                        <td>
-                                          <div className="item-recipients">
-                                            {item.recipients?.map((r, ri) => (
-                                              <span key={ri} className="recipient-pill" title={r}>{r}</span>
-                                            ))}
-                                            {!item.recipients?.length && <span className="text-muted">Aucun</span>}
-                                          </div>
-                                        </td>
-                                        <td>
-                                          <span className={`status-pill-small ${item.status}`}>
-                                            {item.status === 'sent' ? 'Envoyé' : item.status === 'skipped' ? 'Ignoré' : 'Échec'}
-                                          </span>
-                                        </td>
-                                        <td className="item-error-cell">{item.error || '-'}</td>
-                                      </tr>
-                                    ))}
-                                    {(!job.items || job.items.length === 0) && (
-                                      <tr><td colSpan={4} className="text-center p-4 text-muted">Aucun détail disponible pour cet envoi</td></tr>
-                                    )}
-                                  </tbody>
-                                </table>
-                              </div>
-                            </div>
-                          </td>
-                        </tr>
+                          <span className="job-author-name">
+                            <User size={13} /> {authorName}
+                          </span>
+                          {authorRole && (
+                            <span className={`job-author-role role-${authorRole.toLowerCase()}`}>
+                              {authorRole}
+                            </span>
+                          )}
+                        </div>
+                        <div className="job-card-date-area">
+                          <Calendar size={13} />
+                          <span className="job-date">{new Date(job.createdAt || job.startedAt || '').toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                          <span className="job-time">{new Date(job.createdAt || job.startedAt || '').toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</span>
+                          {duration && (
+                            <span className="job-duration"><Clock size={12} /> {duration}</span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="job-card-meta-row">
+                        {job.batchInfo?.yearName && (
+                          <span className="job-meta-chip chip-year"><Layers size={12} /> {job.batchInfo.yearName}</span>
+                        )}
+                        {job.batchInfo?.semester && (
+                          <span className="job-meta-chip chip-semester"><Calendar size={12} /> {job.batchInfo.semester}</span>
+                        )}
+                        {job.batchInfo?.groupLabel && (
+                          <span className="job-meta-chip chip-group"><FolderArchive size={12} /> {job.batchInfo.groupLabel}</span>
+                        )}
+                        <span className="job-meta-sep">|</span>
+                        <span className="job-recipients-config">
+                          <span className={`icon-pill ${job.options?.includeFather ? 'active' : ''}`} title="Père">P</span>
+                          <span className={`icon-pill ${job.options?.includeMother ? 'active' : ''}`} title="Mère">M</span>
+                          <span className={`icon-pill ${job.options?.includeStudent ? 'active' : ''}`} title="Élève">E</span>
+                        </span>
+                        {job.options?.quality && (
+                          <span className="quality-badge">{job.options.quality === 'high' ? 'HD' : 'SD'}</span>
+                        )}
+                        {template && (
+                          <span className="job-template-chip"><Mail size={12} /> {template.name}</span>
+                        )}
+                        {job.options?.testEmailOverride && (
+                          <span className="job-override-chip" title={`Envoyé à: ${job.options.testEmailOverride}`}>@ {job.options.testEmailOverride}</span>
+                        )}
+                      </div>
+                      <div className="job-card-stats-row">
+                        <div className="job-stat-group">
+                          <span className="js-stat js-total" title="Total élèves"><Users size={13} /> {job.totalItems}</span>
+                          <span className="js-stat js-sent" title="Envoyés"><MailCheck size={13} /> {sentCount}</span>
+                          {partialCount > 0 && <span className="js-stat js-partial" title="Partiels"><AlertCircle size={13} /> {partialCount}</span>}
+                          {skippedCount > 0 && <span className="js-stat js-skipped" title="Ignorés"><AlertTriangle size={13} /> {skippedCount}</span>}
+                          {failedCount > 0 && <span className="js-stat js-failed" title="Échoués"><MailX size={13} /> {failedCount}</span>}
+                        </div>
+                        {totalEmailCount > 0 && (
+                          <div className="job-emails-count">
+                            <Mail size={12} /> {job.sentEmails || 0}/{totalEmailCount} emails
+                          </div>
+                        )}
+                        <div className="job-progress-bar-wrap">
+                          <div className="job-progress-bar">
+                            <div className={`job-progress-fill status-${job.status}`} style={{ width: `${progressPct}%` }} />
+                          </div>
+                          <span className="job-progress-pct">{progressPct}%</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="job-expand-btn">
+                      {isExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                    </div>
+                  </div>
+
+                  {isExpanded && (
+                    <div className="job-card-details">
+                      <div className="details-top-bar">
+                        <h4>Détail de l'envoi</h4>
+                        <div className="details-summary-pills">
+                          <span className="detail-pill pill-sent">{sentCount} envoyé{sentCount !== 1 ? 's' : ''}</span>
+                          {failedCount > 0 && <span className="detail-pill pill-failed">{failedCount} échoué{failedCount !== 1 ? 's' : ''}</span>}
+                          {skippedCount > 0 && <span className="detail-pill pill-skipped">{skippedCount} ignoré{skippedCount !== 1 ? 's' : ''}</span>}
+                          {partialCount > 0 && <span className="detail-pill pill-partial">{partialCount} partiel{partialCount !== 1 ? 's' : ''}</span>}
+                        </div>
+                      </div>
+                      {job.error && (
+                        <div className="job-global-error-banner">
+                          <AlertCircle size={16} /> Erreur globale: {job.error}
+                        </div>
                       )}
-                    </React.Fragment>
-                  )
-                })}
-              </tbody>
-            </table>
+                      <div className="details-time-info">
+                        {job.startedAt && (
+                          <span><Clock size={13} /> Début: {new Date(job.startedAt).toLocaleString('fr-FR')}</span>
+                        )}
+                        {job.completedAt && (
+                          <span><CheckCircle2 size={13} /> Fin: {new Date(job.completedAt).toLocaleString('fr-FR')}</span>
+                        )}
+                        {duration && (
+                          <span><TrendingUp size={13} /> Durée: {duration}</span>
+                        )}
+                      </div>
+                      {job.options?.customMessage && (
+                        <div className="details-custom-msg">
+                          <Mail size={13} /> Message personnalisé: {job.options.customMessage}
+                        </div>
+                      )}
+                      <div className="details-items-list">
+                        <table className="job-items-table-v2">
+                          <thead>
+                            <tr>
+                              <th>Élève</th>
+                              <th>Destinataires</th>
+                              <th>Statut</th>
+                              <th>Détail</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {job.items?.map((item, idx) => (
+                              <tr key={idx} className={`item-row-${item.status}`}>
+                                <td>
+                                  <div className="item-student-cell">
+                                    <User size={14} />
+                                    <span>{item.studentName || 'Élève inconnu'}</span>
+                                  </div>
+                                </td>
+                                <td>
+                                  <div className="item-recipients-v2">
+                                    {item.recipientDetails && item.recipientDetails.length > 0 ? (
+                                      item.recipientDetails.map((rd, ri) => (
+                                        <span key={ri} className={`recipient-chip rc-${rd.status} rc-${rd.type}`} title={rd.error || rd.email}>
+                                          <span className="rc-type">{rd.type === 'father' ? 'P' : rd.type === 'mother' ? 'M' : rd.type === 'student' ? 'E' : '@'}</span>
+                                          <span className="rc-email">{rd.email}</span>
+                                          {rd.status === 'failed' && <XCircle size={10} className="rc-failed-icon" />}
+                                          {rd.status === 'sent' && <CheckCircle size={10} className="rc-sent-icon" />}
+                                        </span>
+                                      ))
+                                    ) : (
+                                      item.recipients?.map((r, ri) => (
+                                        <span key={ri} className="recipient-chip rc-default" title={r}>{r}</span>
+                                      ))
+                                    )}
+                                    {(!item.recipients?.length && !item.recipientDetails?.length) && (
+                                      <span className="no-recipients">Aucun</span>
+                                    )}
+                                  </div>
+                                </td>
+                                <td>
+                                  <span className={`item-status-badge isb-${item.status}`}>
+                                    {item.status === 'sent' ? 'Envoyé' : item.status === 'skipped' ? 'Ignoré' : item.status === 'partial' ? 'Partiel' : item.status === 'failed' ? 'Échoué' : 'En attente'}
+                                  </span>
+                                </td>
+                                <td className="item-error-cell">
+                                  {item.error ? (
+                                    <span className="item-error-text" title={item.error}>{item.error}</span>
+                                  ) : (
+                                    <span className="item-no-error">—</span>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                            {(!job.items || job.items.length === 0) && (
+                              <tr><td colSpan={4} className="no-items-row">Aucun détail disponible pour cet envoi</td></tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
+
+          {/* Pagination */}
+          {historyTotalPages > 1 && (
+            <div className="history-pagination">
+              <button className="page-btn" disabled={historyPage <= 1} onClick={() => setHistoryPage(p => p - 1)}>
+                Précédent
+              </button>
+              <span className="page-info">Page {historyPage} / {historyTotalPages}</span>
+              <button className="page-btn" disabled={historyPage >= historyTotalPages} onClick={() => setHistoryPage(p => p + 1)}>
+                Suivant
+              </button>
+            </div>
+          )}          
         </div>
       )}
 

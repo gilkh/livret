@@ -1004,8 +1004,41 @@ gradebookExportsRouter.get('/email-jobs/mine', requireAuth(['ADMIN', 'SUBADMIN',
 
 gradebookExportsRouter.get('/email-jobs', requireAuth(['ADMIN', 'SUBADMIN', 'AEFE']), async (req, res) => {
   try {
-    const jobs = await EmailJob.find().sort({ createdAt: -1 }).limit(100).lean()
-    res.json(jobs)
+    const jobs = await EmailJob.find().sort({ createdAt: -1 }).limit(200).lean()
+
+    // Enrich jobs with batch metadata
+    const batchIds = [...new Set(jobs.map(j => j.batchId?.toString()).filter(Boolean))]
+    const batches = await ExportedGradebookBatch.find({ _id: { $in: batchIds } })
+      .select('_id groupLabel yearName semester createdBy creatorRole')
+      .lean()
+    const batchMap = new Map(batches.map(b => [b._id.toString(), b]))
+
+    // Enrich with creator display names
+    const creatorIds = [...new Set(jobs.map(j => j.createdBy?.toString()).filter(Boolean))]
+    const { User } = await import('../models/User')
+    const creators = await User.find({ _id: { $in: creatorIds } }).select('_id displayName role').lean()
+    const creatorMap = new Map(creators.map(u => [u._id.toString(), u]))
+
+    const enriched = jobs.map(job => {
+      const batch = batchMap.get(job.batchId?.toString())
+      const creator = creatorMap.get(job.createdBy?.toString())
+      return {
+        ...job,
+        batchInfo: batch ? {
+          groupLabel: batch.groupLabel,
+          yearName: batch.yearName,
+          semester: batch.semester,
+          createdBy: batch.createdBy,
+          creatorRole: batch.creatorRole,
+        } : null,
+        creatorInfo: creator ? {
+          displayName: creator.displayName,
+          role: creator.role,
+        } : null,
+      }
+    })
+
+    res.json(enriched)
   } catch (error: any) {
     res.status(500).json({ error: 'fetch_all_jobs_failed', message: error.message })
   }

@@ -15,6 +15,7 @@ const jszip_1 = __importDefault(require("jszip"));
 const pptxImporter_1 = require("../utils/pptxImporter");
 const templateUtils_1 = require("../utils/templateUtils");
 const cache_1 = require("../utils/cache");
+const zipHelpers_1 = require("../utils/zipHelpers");
 const User_1 = require("../models/User");
 const OutlookUser_1 = require("../models/OutlookUser");
 const Setting_1 = require("../models/Setting");
@@ -25,85 +26,6 @@ const normalizeAllowedSubAdmins = (value) => {
     if (!Array.isArray(value))
         return undefined;
     return value.map((v) => String(v).trim()).filter((v) => v);
-};
-const uploadsRootDir = path_1.default.resolve(process.cwd(), 'public', 'uploads');
-const publicRootDir = path_1.default.resolve(process.cwd(), 'public');
-const normalizeUploadsUrl = (raw) => {
-    const value = String(raw || '').trim().replace(/\\/g, '/');
-    if (!value)
-        return null;
-    const uploadsIdx = value.indexOf('/uploads/');
-    if (uploadsIdx < 0)
-        return null;
-    let normalized = value.slice(uploadsIdx);
-    const queryStart = normalized.search(/[?#]/);
-    if (queryStart >= 0)
-        normalized = normalized.slice(0, queryStart);
-    normalized = `/${normalized.replace(/^\/+/, '')}`;
-    if (!normalized.startsWith('/uploads/'))
-        return null;
-    const normalizedPath = path_1.default.posix.normalize(normalized.slice(1));
-    if (!normalizedPath.startsWith('uploads/'))
-        return null;
-    return `/${normalizedPath}`;
-};
-const collectTemplateUploadUrls = (value, urls) => {
-    if (value == null)
-        return;
-    if (typeof value === 'string') {
-        const normalized = normalizeUploadsUrl(value);
-        if (normalized)
-            urls.add(normalized);
-        return;
-    }
-    if (Array.isArray(value)) {
-        for (const item of value)
-            collectTemplateUploadUrls(item, urls);
-        return;
-    }
-    if (typeof value === 'object') {
-        for (const key of Object.keys(value))
-            collectTemplateUploadUrls(value[key], urls);
-    }
-};
-const normalizeTemplateUploadUrls = (value) => {
-    if (value == null)
-        return value;
-    if (typeof value === 'string') {
-        return normalizeUploadsUrl(value) || value;
-    }
-    if (Array.isArray(value)) {
-        return value.map(item => normalizeTemplateUploadUrls(item));
-    }
-    if (typeof value === 'object') {
-        const out = {};
-        for (const key of Object.keys(value)) {
-            out[key] = normalizeTemplateUploadUrls(value[key]);
-        }
-        return out;
-    }
-    return value;
-};
-const uploadUrlToAbsoluteFilePath = (url) => {
-    const normalizedUrl = normalizeUploadsUrl(url);
-    if (!normalizedUrl)
-        return null;
-    const relativeFromPublic = normalizedUrl.replace(/^\/+/, '');
-    const absolutePath = path_1.default.resolve(publicRootDir, relativeFromPublic);
-    if (absolutePath !== uploadsRootDir && !absolutePath.startsWith(uploadsRootDir + path_1.default.sep)) {
-        return null;
-    }
-    return absolutePath;
-};
-const zipEntryToUploadAbsolutePath = (entryName) => {
-    const normalizedEntry = path_1.default.posix.normalize(String(entryName || '').replace(/\\/g, '/'));
-    if (!normalizedEntry.startsWith('uploads/') || normalizedEntry.includes('..'))
-        return null;
-    const absolutePath = path_1.default.resolve(publicRootDir, normalizedEntry);
-    if (absolutePath !== uploadsRootDir && !absolutePath.startsWith(uploadsRootDir + path_1.default.sep)) {
-        return null;
-    }
-    return absolutePath;
 };
 const validateAllowedSubAdmins = async (ids) => {
     const unique = [...new Set(ids)];
@@ -189,7 +111,7 @@ exports.templatesRouter.post('/import-package', (0, auth_1.requireAuth)(['ADMIN'
         let templateData;
         try {
             templateData = JSON.parse(jsonContent);
-            templateData = normalizeTemplateUploadUrls(templateData);
+            templateData = (0, zipHelpers_1.normalizeTemplateUploadUrls)(templateData);
         }
         catch (e) {
             return res.status(400).json({ error: 'invalid_json' });
@@ -201,7 +123,7 @@ exports.templatesRouter.post('/import-package', (0, auth_1.requireAuth)(['ADMIN'
                 const entry = zip.files[entryName];
                 if (!entry || entry.dir)
                     continue;
-                const targetPath = zipEntryToUploadAbsolutePath(entryName);
+                const targetPath = (0, zipHelpers_1.zipEntryToUploadAbsolutePath)(entryName);
                 if (!targetPath)
                     continue;
                 const content = await entry.async('nodebuffer');
@@ -367,18 +289,12 @@ exports.templatesRouter.get('/:id/export-package', (0, auth_1.requireAuth)(['ADM
         };
         // Collect every uploaded asset referenced by the template payload.
         const referencedUploadUrls = new Set();
-        collectTemplateUploadUrls(exportData, referencedUploadUrls);
+        (0, zipHelpers_1.collectTemplateUploadUrls)(exportData, referencedUploadUrls);
         const includedAssets = [];
         const missingAssets = [];
         // Create archive
         const archive = (0, archiver_1.default)('zip', { zlib: { level: 9 } });
-        // Determine target directory: .../nvcar/temps
-        // process.cwd() is .../nvcar/server
-        // So ../temps is .../nvcar/temps
-        const targetDir = path_1.default.join(process.cwd(), '../temps');
-        if (!fs_1.default.existsSync(targetDir)) {
-            fs_1.default.mkdirSync(targetDir, { recursive: true });
-        }
+        const targetDir = (0, zipHelpers_1.ensureTempDir)('');
         const fileName = `${template.name.replace(/[^a-z0-9]/gi, '_')}_export.zip`;
         const filePath = path_1.default.join(targetDir, fileName);
         // Check if file exists
@@ -406,7 +322,7 @@ exports.templatesRouter.get('/:id/export-package', (0, auth_1.requireAuth)(['ADM
             archive.append(JSON.stringify(exportData, null, 2), { name: 'template.json' });
             // Add all referenced uploaded files when they exist on disk.
             for (const uploadUrl of Array.from(referencedUploadUrls).sort()) {
-                const sourcePath = uploadUrlToAbsoluteFilePath(uploadUrl);
+                const sourcePath = (0, zipHelpers_1.uploadUrlToAbsoluteFilePath)(uploadUrl);
                 const zipPath = uploadUrl.replace(/^\/+/, '');
                 if (!sourcePath || !fs_1.default.existsSync(sourcePath) || !fs_1.default.statSync(sourcePath).isFile()) {
                     missingAssets.push(uploadUrl);
@@ -454,9 +370,7 @@ pause
 // List exported packages in ../temps
 exports.templatesRouter.get('/exports', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN']), async (req, res) => {
     try {
-        const targetDir = path_1.default.join(process.cwd(), '../temps');
-        if (!fs_1.default.existsSync(targetDir))
-            return res.json([]);
+        const targetDir = (0, zipHelpers_1.ensureTempDir)('');
         const files = fs_1.default.readdirSync(targetDir).filter(f => f.endsWith('.zip'));
         const list = files.map(f => {
             const p = path_1.default.join(targetDir, f);
@@ -482,7 +396,7 @@ exports.templatesRouter.get('/exports', (0, auth_1.requireAuth)(['ADMIN', 'SUBAD
 exports.templatesRouter.get('/exports/:fileName', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN']), async (req, res) => {
     try {
         const { fileName } = req.params;
-        const targetDir = path_1.default.join(process.cwd(), '../temps');
+        const targetDir = (0, zipHelpers_1.ensureTempDir)('');
         const filePath = path_1.default.join(targetDir, fileName);
         if (!fs_1.default.existsSync(filePath))
             return res.status(404).json({ error: 'not_found' });
@@ -497,7 +411,7 @@ exports.templatesRouter.get('/exports/:fileName', (0, auth_1.requireAuth)(['ADMI
 exports.templatesRouter.delete('/exports/:fileName', (0, auth_1.requireAuth)(['ADMIN', 'SUBADMIN']), async (req, res) => {
     try {
         const { fileName } = req.params;
-        const targetDir = path_1.default.join(process.cwd(), '../temps');
+        const targetDir = (0, zipHelpers_1.ensureTempDir)('');
         const filePath = path_1.default.join(targetDir, fileName);
         if (!fs_1.default.existsSync(filePath))
             return res.status(404).json({ error: 'not_found' });
