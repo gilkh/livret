@@ -7,6 +7,7 @@ export interface IEmailTemplate extends Document {
   blocks: any[] | null
   linkedLevels: string[]
   linkedClasses: string[]
+  schoolYearId: string
   createdAt: Date
   updatedAt: Date
 }
@@ -18,6 +19,7 @@ const EmailTemplateSchema = new Schema({
   blocks: { type: Schema.Types.Mixed, default: null },
   linkedLevels: [{ type: String }],
   linkedClasses: [{ type: String }],
+  schoolYearId: { type: String, default: '' },
 }, { timestamps: true })
 
 export const EmailTemplate = mongoose.model<IEmailTemplate>('EmailTemplate', EmailTemplateSchema)

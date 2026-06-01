@@ -1,9 +1,9 @@
 import React, { useState, useCallback, useRef } from 'react'
-import { Type, AlignLeft, Image, Minus, Square, MousePointer, Table2, Trash2, Copy, ChevronUp, ChevronDown, GripVertical, Columns, Plus, X, Upload } from 'lucide-react'
+import { Type, AlignLeft, Image, Minus, Square, MousePointer, Table2, Trash2, Copy, ChevronUp, ChevronDown, GripVertical, Columns, Plus, X, Upload, PanelTop } from 'lucide-react'
 import './EmailBlockEditor.css'
 
 // Types
-export type BlockType = 'heading' | 'text' | 'image' | 'divider' | 'spacer' | 'button' | 'info-table' | 'columns'
+export type BlockType = 'heading' | 'text' | 'image' | 'divider' | 'spacer' | 'button' | 'info-table' | 'columns' | 'banner'
 
 export interface EmailBlock {
   id: string
@@ -28,6 +28,15 @@ const BLOCK_TYPES: { type: BlockType; label: string; icon: any }[] = [
   { type: 'spacer', label: 'Espace', icon: Square },
   { type: 'button', label: 'Bouton', icon: MousePointer },
   { type: 'info-table', label: 'Tableau Info', icon: Table2 },
+  { type: 'banner', label: 'Bannière rouge', icon: PanelTop },
+]
+
+const FONT_FAMILIES = [
+  { label: 'Arial', value: 'Arial, sans-serif' },
+  { label: 'Times New Roman', value: "'Times New Roman', Times, serif" },
+  { label: 'Georgia', value: 'Georgia, serif' },
+  { label: 'Verdana', value: 'Verdana, sans-serif' },
+  { label: 'Courier New', value: "'Courier New', Courier, monospace" },
 ]
 
 const VARIABLES = [
@@ -40,13 +49,14 @@ const VARIABLES = [
 
 function defaultProps(type: BlockType): Record<string, any> {
   switch (type) {
-    case 'heading': return { text: 'Titre', fontSize: 24, fontWeight: '800', color: '#1e293b', alignment: 'center', bg: '' }
-    case 'text': return { text: 'Votre texte ici...', fontSize: 16, color: '#334155', alignment: 'left', lineHeight: 1.6, bg: '' }
+    case 'heading': return { text: 'Titre', fontSize: 24, fontWeight: '800', color: '#1e293b', alignment: 'center', bg: '', fontFamily: 'Arial, sans-serif' }
+    case 'text': return { text: 'Votre texte ici...', fontSize: 16, color: '#334155', alignment: 'left', lineHeight: 1.6, bg: '', fontFamily: 'Arial, sans-serif' }
     case 'image': return { src: 'https://via.placeholder.com/560x120?text=Logo', alt: 'Image', imgWidth: 100, alignment: 'center' }
     case 'divider': return { borderColor: '#e2e8f0', borderWidth: 2 }
     case 'spacer': return { height: 24 }
-    case 'button': return { buttonText: 'Cliquer ici', buttonUrl: '#', buttonColor: '#3b82f6', buttonTextColor: '#fff', borderRadius: 8, fontSize: 16, alignment: 'center' }
-    case 'info-table': return { rows: [{ label: 'Année scolaire', value: '{{yearName}}' }, { label: 'Niveau', value: '{{level}}' }, { label: 'Classe', value: '{{className}}' }], tableBg: '#f8fafc', borderColor: '#e2e8f0', labelColor: '#64748b', valueColor: '#1e293b' }
+    case 'button': return { buttonText: 'Cliquer ici', buttonUrl: '#', buttonColor: '#3b82f6', buttonTextColor: '#fff', borderRadius: 8, fontSize: 16, alignment: 'center', fontFamily: 'Arial, sans-serif' }
+    case 'info-table': return { rows: [{ label: 'Année scolaire', value: '{{yearName}}' }, { label: 'Niveau', value: '{{level}}' }, { label: 'Classe', value: '{{className}}' }], tableBg: '#f8fafc', borderColor: '#e2e8f0', labelColor: '#64748b', valueColor: '#1e293b', fontFamily: 'Arial, sans-serif' }
+    case 'banner': return { bgColor: '#dc2626', borderColor: '#b91c1c', borderWidth: 2, borderRadius: 6, paddingTop: 12, paddingBottom: 12, paddingLeft: 20, paddingRight: 20, fontFamily: 'Arial, sans-serif', lines: [{ text: 'Année Scolaire {{yearName}}', fontSize: 14, color: '#ffffff', alignment: 'left' }, { text: 'Classe: {{className}}', fontSize: 14, color: '#ffffff', alignment: 'right' }] }
     case 'columns': return { columnGap: 20, verticalAlign: 'top', padding: '10px 0' }
     default: return {}
   }
@@ -59,9 +69,9 @@ export function blocksToHtml(blocks: EmailBlock[]): string {
       const p = b.props
       switch (b.type) {
         case 'heading':
-          return `<div style="font-size:${p.fontSize||24}px;font-weight:${p.fontWeight||'800'};color:${p.color||'#1e293b'};text-align:${p.alignment||'center'};${p.bg?`background-color:${p.bg};`:''}padding:${p.paddingTop??8}px ${p.paddingRight??0}px ${p.paddingBottom??8}px ${p.paddingLeft??0}px;">${p.text||''}</div>`
+          return `<div style="font-family:${p.fontFamily || 'Arial, sans-serif'};font-size:${p.fontSize||24}px;font-weight:${p.fontWeight||'800'};color:${p.color||'#1e293b'};text-align:${p.alignment||'center'};${p.bg?`background-color:${p.bg};`:''}padding:${p.paddingTop??8}px ${p.paddingRight??0}px ${p.paddingBottom??8}px ${p.paddingLeft??0}px;">${p.text||''}</div>`
         case 'text':
-          return `<div style="font-size:${p.fontSize||16}px;color:${p.color||'#334155'};text-align:${p.alignment||'left'};line-height:${p.lineHeight||1.6};${p.bg?`background-color:${p.bg};`:''}padding:${p.paddingTop??8}px ${p.paddingRight??0}px ${p.paddingBottom??8}px ${p.paddingLeft??0}px;">${(p.text||'').replace(/\n/g,'<br/>')}</div>`
+          return `<div style="font-family:${p.fontFamily || 'Arial, sans-serif'};font-size:${p.fontSize||16}px;color:${p.color||'#334155'};text-align:${p.alignment||'left'};line-height:${p.lineHeight||1.6};${p.bg?`background-color:${p.bg};`:''}padding:${p.paddingTop??8}px ${p.paddingRight??0}px ${p.paddingBottom??8}px ${p.paddingLeft??0}px;">${(p.text||'').replace(/\n/g,'<br/>')}</div>`
         case 'image':
           return `<div style="text-align:${p.alignment||'center'};padding:${p.paddingTop??8}px ${p.paddingRight??0}px ${p.paddingBottom??8}px ${p.paddingLeft??0}px;"><img src="${p.src||''}" alt="${p.alt||''}" width="${p.imgWidth||100}%" style="max-width:${p.imgWidth||100}%;height:auto;display:inline-block;" /></div>`
         case 'divider':
@@ -69,17 +79,34 @@ export function blocksToHtml(blocks: EmailBlock[]): string {
         case 'spacer':
           return `<div style="height:${p.height||20}px;"></div>`
         case 'button':
-          return `<div style="text-align:${p.alignment||'center'};padding:12px 0;"><a href="${p.buttonUrl||'#'}" style="display:inline-block;padding:12px 28px;background:${p.buttonColor||'#3b82f6'};color:${p.buttonTextColor||'#fff'};border-radius:${p.borderRadius||8}px;font-size:${p.fontSize||16}px;font-weight:600;text-decoration:none;">${p.buttonText||'Button'}</a></div>`
+          return `<div style="text-align:${p.alignment||'center'};padding:12px 0;"><a href="${p.buttonUrl||'#'}" style="display:inline-block;padding:12px 28px;background:${p.buttonColor||'#3b82f6'};color:${p.buttonTextColor||'#fff'};border-radius:${p.borderRadius||8}px;font-size:${p.fontSize||16}px;font-weight:600;text-decoration:none;font-family:${p.fontFamily || 'Arial, sans-serif'};">${p.buttonText||'Button'}</a></div>`
         case 'info-table': {
+          const ff = p.fontFamily || 'Arial, sans-serif'
           const rows = (p.rows || []).map((r: any) =>
-            `<tr><td style="padding:6px 0;font-size:14px;color:${p.labelColor||'#64748b'};width:140px;">${r.label}</td><td style="padding:6px 0;font-size:14px;font-weight:700;color:${p.valueColor||'#1e293b'};">${r.value}</td></tr>`
+            `<tr><td style="padding:6px 0;font-size:14px;color:${p.labelColor||'#64748b'};width:140px;font-family:${ff};">${r.label}</td><td style="padding:6px 0;font-size:14px;font-weight:700;color:${p.valueColor||'#1e293b'};font-family:${ff};">${r.value}</td></tr>`
           ).join('')
           return `<div style="background:${p.tableBg||'#f8fafc'};border-radius:10px;padding:16px;border:1px solid ${p.borderColor||'#e2e8f0'};margin:8px 0;"><table style="width:100%;border-collapse:collapse;">${rows}</table></div>`
         }
-        case 'columns': {
-          const cols = (b.children || []).map(colBlocks => 
-            `<td width="${Math.floor(100 / (b.children?.length || 1))}%" valign="${p.verticalAlign || 'top'}" style="padding:0 ${p.columnGap / 2 || 10}px;">${renderBlocks(colBlocks)}</td>`
+        case 'banner': {
+          // Fallback for legacy props
+          let bannerLines = p.lines || []
+          if (bannerLines.length === 0 && (p.leftText || p.rightText)) {
+            bannerLines = []
+            if (p.leftText) bannerLines.push({ text: p.leftText, fontSize: p.leftFontSize || 14, color: p.leftColor || '#ffffff', alignment: 'left' })
+            if (p.rightText) bannerLines.push({ text: p.rightText, fontSize: p.rightFontSize || 14, color: p.rightColor || '#ffffff', alignment: 'right' })
+          }
+          const lines = bannerLines.map((line: any) =>
+            `<div style="font-family:${p.fontFamily || 'Arial, sans-serif'};font-size:${line.fontSize||14}px;color:${line.color||'#ffffff'};text-align:${line.alignment||'left'};font-weight:600;padding:2px 0;">${(line.text||'').replace(/\n/g,'<br/>')}</div>`
           ).join('')
+          return `<div style="background:${p.bgColor||'#dc2626'};border:${p.borderWidth||2}px solid ${p.borderColor||'#b91c1c'};border-radius:${p.borderRadius||6}px;padding:${p.paddingTop??12}px ${p.paddingRight??20}px ${p.paddingBottom??12}px ${p.paddingLeft??20}px;margin:8px 0;">${lines}</div>`
+        }
+        case 'columns': {
+          const numCols = b.children?.length || 1
+          const cw = p.columnWidths || null
+          const cols = (b.children || []).map((colBlocks, i) => {
+            const w = cw && cw[i] != null ? cw[i] : Math.floor(100 / numCols)
+            return `<td width="${w}%" valign="${p.verticalAlign || 'top'}" style="padding:0 ${p.columnGap / 2 || 10}px;">${renderBlocks(colBlocks)}</td>`
+          }).join('')
           return `<div style="padding:${p.padding || '10px 0'}"><table width="100%" border="0" cellspacing="0" cellpadding="0"><tr>${cols}</tr></table></div>`
         }
         default: return ''
@@ -155,7 +182,7 @@ export default function EmailBlockEditor({ blocks, onChange }: Props) {
   const duplicateBlockRecursive = (blks: EmailBlock[], id: string): EmailBlock[] => {
     const idx = blks.findIndex(b => b.id === id)
     if (idx >= 0) {
-      const copy = { ...blks[idx], id: uid(), props: { ...blks[idx].props } }
+      const copy = { ...blks[idx], id: uid(), props: { ...blks[idx].props, ...(blks[idx].props.columnWidths ? { columnWidths: [...blks[idx].props.columnWidths] } : {}) } }
       if (copy.children) {
         copy.children = copy.children.map(col => col.map(child => ({ ...child, id: uid() })))
       }
@@ -273,7 +300,10 @@ export default function EmailBlockEditor({ blocks, onChange }: Props) {
   const addColumn = (parentId: string) => {
     const update = (blks: EmailBlock[]): EmailBlock[] => {
       return blks.map(b => {
-        if (b.id === parentId && b.children) return { ...b, children: [...b.children, []] }
+        if (b.id === parentId && b.children) {
+          const n = b.children.length + 1
+          return { ...b, children: [...b.children, []], props: { ...b.props, columnWidths: Array(n).fill(Math.round(1000 / n) / 10) } }
+        }
         if (b.children) return { ...b, children: b.children.map(update) }
         return b
       })
@@ -288,7 +318,7 @@ export default function EmailBlockEditor({ blocks, onChange }: Props) {
     const newRow: EmailBlock = {
       id: uid(),
       type: 'columns',
-      props: defaultProps('columns'),
+      props: { ...defaultProps('columns'), columnWidths: [50, 50] },
       children: [[{ ...target }], []]
     }
 
@@ -332,7 +362,15 @@ export default function EmailBlockEditor({ blocks, onChange }: Props) {
         if (b.id === parentId && b.children) {
           const nextCols = [...b.children]
           nextCols.splice(idx, 1)
-          return { ...b, children: nextCols }
+          const n = nextCols.length
+          const cw = b.props.columnWidths
+            ? (() => {
+                const w = [...b.props.columnWidths]
+                w.splice(idx, 1)
+                return normalizeColumnWidths(w.length > 0 ? w : Array(n).fill(Math.round(1000 / n) / 10))
+              })()
+            : undefined
+          return { ...b, children: nextCols, props: { ...b.props, ...(cw ? { columnWidths: cw } : {}) } }
         }
         if (b.children) return { ...b, children: b.children.map(update) }
         return b
@@ -379,14 +417,82 @@ export default function EmailBlockEditor({ blocks, onChange }: Props) {
     document.body.style.cursor = isVertical ? 'ns-resize' : 'ew-resize'
   }
 
+  const normalizeColumnWidths = (widths: number[]): number[] => {
+    const sum = widths.reduce((a, b) => a + b, 0)
+    if (Math.abs(sum - 100) < 0.01) return widths
+    const factor = 100 / sum
+    return widths.map(w => Math.round(w * factor * 10) / 10)
+  }
+
+  const handleColumnResizeStart = (e: React.MouseEvent, columnsBlockId: string, colIdx: number) => {
+    e.preventDefault()
+    e.stopPropagation()
+
+    const block = findBlockRecursive(blocks, columnsBlockId)
+    if (!block || !block.children) return
+
+    const numCols = block.children.length
+    const cw = block.props.columnWidths || Array(numCols).fill(100 / numCols)
+    const startWidths = [...cw]
+    const startX = e.clientX
+
+    const containerEl = (e.target as HTMLElement).parentElement
+    if (!containerEl) return
+    const containerWidth = containerEl.getBoundingClientRect().width
+    if (containerWidth <= 0) return
+
+    const leftIdx = colIdx
+    const rightIdx = colIdx + 1
+    const totalPairWidth = startWidths[leftIdx] + startWidths[rightIdx]
+
+    const currentWidthsRef = { current: [...startWidths] }
+
+    const move = (me: MouseEvent) => {
+      const deltaX = me.clientX - startX
+      const deltaPercent = (deltaX / containerWidth) * 100
+      const minW = 8
+
+      let newLeft = startWidths[leftIdx] + deltaPercent
+      let newRight = startWidths[rightIdx] - deltaPercent
+
+      if (newLeft < minW) { newLeft = minW; newRight = totalPairWidth - minW }
+      if (newRight < minW) { newRight = minW; newLeft = totalPairWidth - minW }
+
+      const widths = [...startWidths]
+      widths[leftIdx] = newLeft
+      widths[rightIdx] = newRight
+      currentWidthsRef.current = normalizeColumnWidths(widths)
+
+      if (containerEl) {
+        const colEls = containerEl.querySelectorAll<HTMLElement>('.ebe-column')
+        currentWidthsRef.current.forEach((w, i) => {
+          if (colEls[i]) colEls[i].style.flex = `0 0 ${w}%`
+        })
+      }
+    }
+
+    const end = () => {
+      document.removeEventListener('mousemove', move)
+      document.removeEventListener('mouseup', end)
+      document.body.style.cursor = ''
+      document.body.classList.remove('ebe-col-resizing')
+      updateBlock(columnsBlockId, { columnWidths: currentWidthsRef.current })
+    }
+
+    document.addEventListener('mousemove', move)
+    document.addEventListener('mouseup', end)
+    document.body.style.cursor = 'col-resize'
+    document.body.classList.add('ebe-col-resizing')
+  }
+
   // Renderers
   const renderBlockPreview = (block: EmailBlock) => {
     const p = block.props
     switch (block.type) {
       case 'heading':
-        return <div style={{ fontSize: p.fontSize, fontWeight: p.fontWeight, color: p.color, textAlign: p.alignment, background: p.bg || 'transparent', padding: `${p.paddingTop??8}px ${p.paddingRight??0}px ${p.paddingBottom??8}px ${p.paddingLeft??0}px` }}>{highlightVars(p.text)}</div>
+        return <div style={{ fontFamily: p.fontFamily, fontSize: p.fontSize, fontWeight: p.fontWeight, color: p.color, textAlign: p.alignment, background: p.bg || 'transparent', padding: `${p.paddingTop??8}px ${p.paddingRight??0}px ${p.paddingBottom??8}px ${p.paddingLeft??0}px` }}>{highlightVars(p.text)}</div>
       case 'text':
-        return <div style={{ fontSize: p.fontSize, color: p.color, textAlign: p.alignment, lineHeight: p.lineHeight, background: p.bg || 'transparent', padding: `${p.paddingTop??8}px ${p.paddingRight??0}px ${p.paddingBottom??8}px ${p.paddingLeft??0}px`, whiteSpace: 'pre-wrap' }}>{highlightVars(p.text)}</div>
+        return <div style={{ fontFamily: p.fontFamily, fontSize: p.fontSize, color: p.color, textAlign: p.alignment, lineHeight: p.lineHeight, background: p.bg || 'transparent', padding: `${p.paddingTop??8}px ${p.paddingRight??0}px ${p.paddingBottom??8}px ${p.paddingLeft??0}px`, whiteSpace: 'pre-wrap' }}>{highlightVars(p.text)}</div>
       case 'image':
         return <div style={{ textAlign: p.alignment, padding: `${p.paddingTop??8}px ${p.paddingRight??0}px ${p.paddingBottom??8}px ${p.paddingLeft??0}px` }}><img src={p.src} alt={p.alt} style={{ maxWidth: `${p.imgWidth}%`, height: 'auto' }} /></div>
       case 'divider':
@@ -394,11 +500,11 @@ export default function EmailBlockEditor({ blocks, onChange }: Props) {
       case 'spacer':
         return <div style={{ height: p.height, background: 'repeating-linear-gradient(45deg, transparent, transparent 4px, rgba(0,0,0,0.03) 4px, rgba(0,0,0,0.03) 8px)' }} />
       case 'button':
-        return <div style={{ textAlign: p.alignment, padding: '12px 0' }}><span style={{ display: 'inline-block', padding: '12px 28px', background: p.buttonColor, color: p.buttonTextColor, borderRadius: p.borderRadius, fontSize: p.fontSize, fontWeight: 600 }}>{p.buttonText}</span></div>
+        return <div style={{ textAlign: p.alignment, padding: '12px 0' }}><span style={{ display: 'inline-block', padding: '12px 28px', background: p.buttonColor, color: p.buttonTextColor, borderRadius: p.borderRadius, fontSize: p.fontSize, fontWeight: 600, fontFamily: p.fontFamily }}>{p.buttonText}</span></div>
       case 'info-table':
         return (
           <div style={{ background: p.tableBg, borderRadius: 10, padding: 16, border: `1px solid ${p.borderColor}` }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: p.fontFamily }}>
               <tbody>
                 {(p.rows || []).map((r: any, i: number) => (
                   <tr key={i}><td style={{ padding: '6px 0', fontSize: 14, color: p.labelColor, width: 140 }}>{r.label}</td><td style={{ padding: '6px 0', fontSize: 14, fontWeight: 700, color: p.valueColor }}>{highlightVars(r.value)}</td></tr>
@@ -407,34 +513,82 @@ export default function EmailBlockEditor({ blocks, onChange }: Props) {
             </table>
           </div>
         )
-      case 'columns':
+        case 'banner': {
+          // Fallback: if old props format (leftText/rightText), convert to lines on the fly
+          const resolvedLines = p.lines || []
+          const hasLegacyProps = p.leftText || p.rightText
+          if (resolvedLines.length === 0 && hasLegacyProps) {
+            if (p.leftText) resolvedLines.push({ text: p.leftText, fontSize: p.leftFontSize || 13, color: p.leftColor || '#ffffff', alignment: 'left' })
+            if (p.rightText) resolvedLines.push({ text: p.rightText, fontSize: p.rightFontSize || 13, color: p.rightColor || '#ffffff', alignment: 'right' })
+          }
+          return (
+            <div style={{
+              background: p.bgColor || '#dc2626',
+              border: `${p.borderWidth || 2}px solid ${p.borderColor || '#b91c1c'}`,
+              borderRadius: p.borderRadius || 6,
+              padding: `${p.paddingTop??12}px ${p.paddingRight??20}px ${p.paddingBottom??12}px ${p.paddingLeft??20}px`,
+              margin: '8px 0',
+              fontFamily: p.fontFamily
+            }}>
+              {(resolvedLines || []).map((line: any, i: number) => (
+                <div key={i} style={{
+                  fontSize: line.fontSize || 14,
+                  color: line.color || '#ffffff',
+                  textAlign: line.alignment || 'left',
+                  fontWeight: 600,
+                  padding: '2px 0'
+                }}>
+                  {highlightVars(line.text)}
+                </div>
+              ))}
+            </div>
+          )
+        }
+        case 'columns':
         return (
           <div className="ebe-columns-preview" style={{ padding: p.padding }}>
             {selectedId === block.id && <div className="ebe-row-label">Ligne — {block.children?.length || 0} col.</div>}
-            {block.children?.map((col, idx) => {
-              const isActiveCol = selectedId === block.id && activeColIdx === idx
-              return (
-                <div
-                  key={idx}
-                  className={`ebe-column ${isActiveCol ? 'col-selected' : ''}`}
-                  style={{ verticalAlign: p.verticalAlign, padding: `0 ${p.columnGap / 2}px` }}
-                  onClick={e => { e.stopPropagation(); setSelectedId(block.id); setActiveColIdx(idx) }}
-                >
-                  <div className="ebe-col-header">
-                    <span className="col-label">Col {idx + 1}</span>
-                    <span className="col-actions">
-                      <button type="button" title="Ajouter texte" onClick={e => { e.stopPropagation(); addBlockToCol(block.id, idx, 'text') }}><Plus size={12} /></button>
-                      {(block.children?.length || 0) > 1 && (
-                        <button type="button" className="danger-col" title="Supprimer colonne" onClick={e => { e.stopPropagation(); removeColumn(block.id, idx) }}><X size={12} /></button>
-                      )}
-                    </span>
-                  </div>
-                  <div className="ebe-column-inner">
-                    {renderBlockList(col, block.id, idx)}
-                  </div>
-                </div>
-              )
-            })}
+            {(() => {
+              const numCols = block.children?.length || 0
+              const cw = p.columnWidths || (numCols > 0 ? Array(numCols).fill(100 / numCols) : [])
+              return block.children?.map((col, idx) => {
+                const isActiveCol = selectedId === block.id && activeColIdx === idx
+                const colStyle: React.CSSProperties = {
+                  verticalAlign: p.verticalAlign,
+                  padding: `0 ${p.columnGap / 2}px`,
+                  flex: `0 0 ${cw[idx] ?? (100 / numCols)}%`,
+                }
+                return (
+                  <React.Fragment key={idx}>
+                    <div
+                      className={`ebe-column ${isActiveCol ? 'col-selected' : ''}`}
+                      style={colStyle}
+                      onClick={e => { e.stopPropagation(); setSelectedId(block.id); setActiveColIdx(idx) }}
+                    >
+                      <div className="ebe-col-header">
+                        <span className="col-label">Col {idx + 1}</span>
+                        <span className="col-actions">
+                          <button type="button" title="Ajouter texte" onClick={e => { e.stopPropagation(); addBlockToCol(block.id, idx, 'text') }}><Plus size={12} /></button>
+                          {(block.children?.length || 0) > 1 && (
+                            <button type="button" className="danger-col" title="Supprimer colonne" onClick={e => { e.stopPropagation(); removeColumn(block.id, idx) }}><X size={12} /></button>
+                          )}
+                        </span>
+                      </div>
+                      <div className="ebe-column-inner">
+                        {renderBlockList(col, block.id, idx)}
+                      </div>
+                    </div>
+                    {idx < numCols - 1 && selectedId === block.id && (
+                      <div
+                        className="ebe-col-resize-handle"
+                        onMouseDown={e => handleColumnResizeStart(e, block.id, idx)}
+                        onClick={e => e.stopPropagation()}
+                      />
+                    )}
+                  </React.Fragment>
+                )
+              })
+            })()}
           </div>
         )
       default: return null
@@ -544,6 +698,10 @@ export default function EmailBlockEditor({ blocks, onChange }: Props) {
             }
             <label>Taille police</label>
             <input type="number" className="ebe-input" value={p.fontSize || 16} onChange={e => set('fontSize', +e.target.value)} />
+            <label>Police</label>
+            <select className="ebe-input" value={p.fontFamily || 'Arial, sans-serif'} onChange={e => set('fontFamily', e.target.value)}>
+              {FONT_FAMILIES.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+            </select>
             <label>Couleur</label>
             <div className="ebe-color-row"><input type="color" value={p.color || '#000000'} onChange={e => set('color', e.target.value)} /><input className="ebe-input" value={p.color || ''} onChange={e => set('color', e.target.value)} /></div>
             <label>Alignement</label>
@@ -574,6 +732,38 @@ export default function EmailBlockEditor({ blocks, onChange }: Props) {
               ))}
             </div>
           </div>
+          <label>Largeurs des colonnes</label>
+          <div className="ebe-col-widths">
+            {(() => {
+              const n = selected.children?.length || 0
+              const cw = p.columnWidths || Array(n).fill(Math.round(1000 / n) / 10)
+              return selected.children?.map((_, i) => (
+                <div key={i} className="ebe-col-width-row">
+                  <span>Col {i + 1}</span>
+                  <input
+                    type="range" min={8} max={92} step={1}
+                    value={Math.round(cw[i] ?? (100 / n))}
+                    onChange={e => {
+                      const n2 = selected.children?.length || 0
+                      const current = p.columnWidths || Array(n2).fill(Math.round(1000 / n2) / 10)
+                      const next = [...current]
+                      next[i] = +e.target.value
+                      set('columnWidths', normalizeColumnWidths(next))
+                    }}
+                  />
+                  <span className="width-val">{Math.round(cw[i] ?? (100 / n))}%</span>
+                </div>
+              ))
+            })()}
+          </div>
+          <button
+            className="ebe-add-row"
+            style={{ marginTop: 8 }}
+            onClick={() => {
+              const n = selected.children?.length || 2
+              set('columnWidths', Array(n).fill(Math.round(1000 / n) / 10))
+            }}
+          >Réinitialiser largeurs égaux</button>
           <label>Espace entre colonnes</label>
           <input type="range" min={0} max={40} value={p.columnGap || 20} onChange={e => set('columnGap', +e.target.value)} /><span>{p.columnGap || 20}px</span>
           <label>Alignement vertical</label>
@@ -637,6 +827,10 @@ export default function EmailBlockEditor({ blocks, onChange }: Props) {
           <input className="ebe-input" value={p.buttonText || ''} onChange={e => set('buttonText', e.target.value)} />
           <label>URL</label>
           <input className="ebe-input" value={p.buttonUrl || ''} onChange={e => set('buttonUrl', e.target.value)} />
+          <label>Police</label>
+          <select className="ebe-input" value={p.fontFamily || 'Arial, sans-serif'} onChange={e => set('fontFamily', e.target.value)}>
+            {FONT_FAMILIES.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+          </select>
           <label>Couleur fond</label>
           <div className="ebe-color-row"><input type="color" value={p.buttonColor || '#3b82f6'} onChange={e => set('buttonColor', e.target.value)} /><input className="ebe-input" value={p.buttonColor || ''} onChange={e => set('buttonColor', e.target.value)} /></div>
           <label>Couleur texte</label>
@@ -646,6 +840,86 @@ export default function EmailBlockEditor({ blocks, onChange }: Props) {
           <label>Alignement</label>
           <div className="ebe-align-row">
             {(['left','center','right'] as const).map(a => <button key={a} className={`ebe-align-btn ${p.alignment === a ? 'active' : ''}`} onClick={() => set('alignment', a)}>{a === 'left' ? '◀' : a === 'center' ? '●' : '▶'}</button>)}
+          </div>
+        </>}
+
+        {selected.type === 'banner' && <>
+          {/* Use same fallback logic as renderBlockPreview to get resolved lines */}
+          {(() => {
+            const resolvedLines = p.lines || []
+            const hasLegacyProps = p.leftText || p.rightText
+            if (resolvedLines.length === 0 && hasLegacyProps) {
+              const migrated: Array<{text: string; fontSize: number; color: string; alignment: string}> = []
+              if (p.leftText) migrated.push({ text: p.leftText, fontSize: p.leftFontSize || 14, color: p.leftColor || '#ffffff', alignment: 'left' })
+              if (p.rightText) migrated.push({ text: p.rightText, fontSize: p.rightFontSize || 14, color: p.rightColor || '#ffffff', alignment: 'right' })
+              // Immediate migration
+              set('lines', migrated)
+            }
+            return null
+          })()}
+          <label>Couleur fond</label>
+          <div className="ebe-color-row"><input type="color" value={p.bgColor || '#dc2626'} onChange={e => set('bgColor', e.target.value)} /><input className="ebe-input" value={p.bgColor || ''} onChange={e => set('bgColor', e.target.value)} /></div>
+          <label>Couleur bordure</label>
+          <div className="ebe-color-row"><input type="color" value={p.borderColor || '#b91c1c'} onChange={e => set('borderColor', e.target.value)} /><input className="ebe-input" value={p.borderColor || ''} onChange={e => set('borderColor', e.target.value)} /></div>
+          <label>Épaisseur bordure</label>
+          <input type="number" className="ebe-input" min={0} max={10} value={p.borderWidth || 2} onChange={e => set('borderWidth', +e.target.value)} />
+          <label>Rayon bordure</label>
+          <input type="range" min={0} max={20} value={p.borderRadius || 6} onChange={e => set('borderRadius', +e.target.value)} /><span>{p.borderRadius || 6}px</span>
+          <label>Police</label>
+          <select className="ebe-input" value={p.fontFamily || 'Arial, sans-serif'} onChange={e => set('fontFamily', e.target.value)}>
+            {FONT_FAMILIES.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+          </select>
+          
+          <div className="ebe-banner-lines-section" style={{ marginTop: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <label style={{ margin: 0 }}>Lignes</label>
+              <button type="button" className="ebe-add-row" style={{ width: 'auto', padding: '4px 12px', margin: 0 }} onClick={() => set('lines', [...(p.lines || []), { text: 'Nouvelle ligne', fontSize: 14, color: '#ffffff', alignment: 'left' }])}>
+                + Ajouter ligne
+              </button>
+            </div>
+            {(p.lines || []).map((line: any, i: number) => (
+              <div key={i} className="ebe-banner-line-edit" style={{ background: '#f8fafc', borderRadius: 8, padding: 10, marginBottom: 8, border: '1px solid #e2e8f0' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b' }}>Ligne {i + 1}</span>
+                  <button type="button" className="ebe-row-del" onClick={() => {
+                    const lines = [...(p.lines || [])]; lines.splice(i, 1); set('lines', lines)
+                  }}>×</button>
+                </div>
+                <label>Texte</label>
+                <div className="ebe-var-bar">
+                  {VARIABLES.map(v => <button key={v.key} type="button" className="ebe-var-chip" onClick={() => {
+                    const lines = [...(p.lines || [])]; lines[i] = { ...lines[i], text: (lines[i].text || '') + v.key }; set('lines', lines)
+                  }}>{v.label}</button>)}
+                </div>
+                <textarea className="ebe-textarea" rows={2} value={line.text || ''} onChange={e => {
+                  const lines = [...(p.lines || [])]; lines[i] = { ...lines[i], text: e.target.value }; set('lines', lines)
+                }} />
+                <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                  <div style={{ flex: 1 }}>
+                    <label>Taille</label>
+                    <input type="number" className="ebe-input" value={line.fontSize || 14} onChange={e => {
+                      const lines = [...(p.lines || [])]; lines[i] = { ...lines[i], fontSize: +e.target.value }; set('lines', lines)
+                    }} />
+                  </div>
+                  <div style={{ flex: 2 }}>
+                    <label>Couleur</label>
+                    <div className="ebe-color-row"><input type="color" value={line.color || '#ffffff'} onChange={e => {
+                      const lines = [...(p.lines || [])]; lines[i] = { ...lines[i], color: e.target.value }; set('lines', lines)
+                    }} /><input className="ebe-input" value={line.color || ''} onChange={e => {
+                      const lines = [...(p.lines || [])]; lines[i] = { ...lines[i], color: e.target.value }; set('lines', lines)
+                    }} /></div>
+                  </div>
+                </div>
+                <label>Alignement</label>
+                <div className="ebe-align-row">
+                  {(['left','center','right'] as const).map(a => (
+                    <button key={a} className={`ebe-align-btn ${line.alignment === a ? 'active' : ''}`} onClick={() => {
+                      const lines = [...(p.lines || [])]; lines[i] = { ...lines[i], alignment: a }; set('lines', lines)
+                    }}>{a === 'left' ? '◀' : a === 'center' ? '●' : '▶'}</button>
+                  ))}
+                </div>
+              </div>
+            ))}
           </div>
         </>}
 
@@ -665,6 +939,14 @@ export default function EmailBlockEditor({ blocks, onChange }: Props) {
           <button className="ebe-add-row" onClick={() => set('rows', [...(p.rows || []), { label: 'Label', value: 'Valeur' }])}>+ Ajouter ligne</button>
           <label>Fond tableau</label>
           <div className="ebe-color-row"><input type="color" value={p.tableBg || '#f8fafc'} onChange={e => set('tableBg', e.target.value)} /><input className="ebe-input" value={p.tableBg || ''} onChange={e => set('tableBg', e.target.value)} /></div>
+          <label>Couleur des labels</label>
+          <div className="ebe-color-row"><input type="color" value={p.labelColor || '#64748b'} onChange={e => set('labelColor', e.target.value)} /><input className="ebe-input" value={p.labelColor || ''} onChange={e => set('labelColor', e.target.value)} /></div>
+          <label>Couleur des valeurs</label>
+          <div className="ebe-color-row"><input type="color" value={p.valueColor || '#1e293b'} onChange={e => set('valueColor', e.target.value)} /><input className="ebe-input" value={p.valueColor || ''} onChange={e => set('valueColor', e.target.value)} /></div>
+          <label>Police</label>
+          <select className="ebe-input" value={p.fontFamily || 'Arial, sans-serif'} onChange={e => set('fontFamily', e.target.value)}>
+            {FONT_FAMILIES.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+          </select>
         </>}
       </div>
     )

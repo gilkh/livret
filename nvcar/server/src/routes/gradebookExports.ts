@@ -135,21 +135,33 @@ const resolveEmailTemplate = async (
   cache: Map<string, any | null>,
   level: string,
   className: string,
-  templateId?: string
+  templateId?: string,
+  schoolYearId?: string
 ): Promise<any | null> => {
-  const key = templateId || `${level}::${className}`
+  const key = templateId || `${level}::${className}::${schoolYearId || ''}`
   if (cache.has(key)) return cache.get(key) ?? null
   let t: any = null
   if (templateId) t = await EmailTemplate.findById(templateId).lean()
   if (!t) {
+    const yearFilter = schoolYearId
+      ? { $or: [{ schoolYearId }, { schoolYearId: '' }, { schoolYearId: { $exists: false } }] }
+      : {}
     t = await EmailTemplate.findOne({
-      $or: [{ linkedLevels: level }, { linkedClasses: className }]
+      $and: [
+        { $or: [{ linkedLevels: level }, { linkedClasses: className }] },
+        yearFilter,
+      ]
     }).lean()
   }
   if (!t) {
+    const yearFilter = schoolYearId
+      ? { $or: [{ schoolYearId }, { schoolYearId: '' }, { schoolYearId: { $exists: false } }] }
+      : {}
     t = await EmailTemplate.findOne({
-      linkedLevels: { $size: 0 },
-      linkedClasses: { $size: 0 }
+      $and: [
+        { linkedLevels: { $size: 0 }, linkedClasses: { $size: 0 } },
+        yearFilter,
+      ]
     }).lean()
   }
   cache.set(key, t ?? null)
@@ -349,7 +361,12 @@ const buildEmailContent = async (batch: any, file: any, options: EmailJobOptions
   const level = String(file?.level || '').trim()
   const className = String(file?.className || '').trim()
   const cache = new Map<string, any>()
-  const template = await resolveEmailTemplate(cache, level, className, options.templateId)
+  let schoolYearId: string | undefined
+  if (batch?.yearName) {
+    const sy = await SchoolYear.findOne({ name: batch.yearName }).lean()
+    schoolYearId = sy?._id?.toString()
+  }
+  const template = await resolveEmailTemplate(cache, level, className, options.templateId, schoolYearId)
   return buildEmailBody(emailSettings, template, file, options, baseUrl)
 }
 
@@ -403,6 +420,13 @@ async function runEmailJob(jobId: string, batch: any, files: any[], options: Ema
     const emailSettings = await loadEmailSettings()
     const templateCache = new Map<string, any | null>()
 
+    // Resolve school year once for year-aware template resolution
+    let jobSchoolYearId: string | undefined
+    if (batch?.yearName) {
+      const sy = await SchoolYear.findOne({ name: batch.yearName }).lean()
+      jobSchoolYearId = sy?._id?.toString()
+    }
+
     // #12: wrap sendMail with a hard 15-second timeout per email
     const sendMailWithTimeout = (mailOptions: any): Promise<void> =>
       Promise.race([
@@ -415,7 +439,7 @@ async function runEmailJob(jobId: string, batch: any, files: any[], options: Ema
     for (const file of files) {
       const level = String(file?.level || '').trim()
       const className = String(file?.className || '').trim()
-      const template = await resolveEmailTemplate(templateCache, level, className, options.templateId)
+      const template = await resolveEmailTemplate(templateCache, level, className, options.templateId, jobSchoolYearId)
       const emailContent = buildEmailBody(emailSettings, template, file, options, baseUrl)
 
       let recipientsToProcess = emailContent.recipientsWithTypes.map(r => ({ ...r }))
@@ -980,8 +1004,41 @@ gradebookExportsRouter.get('/email-jobs/mine', requireAuth(['ADMIN', 'SUBADMIN',
 
 gradebookExportsRouter.get('/email-jobs', requireAuth(['ADMIN', 'SUBADMIN', 'AEFE']), async (req, res) => {
   try {
-    const jobs = await EmailJob.find().sort({ createdAt: -1 }).limit(100).lean()
-    res.json(jobs)
+    const jobs = await EmailJob.find().sort({ createdAt: -1 }).limit(200).lean()
+
+    // Enrich jobs with batch metadata
+    const batchIds = [...new Set(jobs.map(j => j.batchId?.toString()).filter(Boolean))]
+    const batches = await ExportedGradebookBatch.find({ _id: { $in: batchIds } })
+      .select('_id groupLabel yearName semester createdBy creatorRole')
+      .lean()
+    const batchMap = new Map(batches.map(b => [b._id.toString(), b]))
+
+    // Enrich with creator display names
+    const creatorIds = [...new Set(jobs.map(j => j.createdBy?.toString()).filter(Boolean))]
+    const { User } = await import('../models/User')
+    const creators = await User.find({ _id: { $in: creatorIds } }).select('_id displayName role').lean()
+    const creatorMap = new Map(creators.map(u => [u._id.toString(), u]))
+
+    const enriched = jobs.map(job => {
+      const batch = batchMap.get(job.batchId?.toString())
+      const creator = creatorMap.get(job.createdBy?.toString())
+      return {
+        ...job,
+        batchInfo: batch ? {
+          groupLabel: batch.groupLabel,
+          yearName: batch.yearName,
+          semester: batch.semester,
+          createdBy: batch.createdBy,
+          creatorRole: batch.creatorRole,
+        } : null,
+        creatorInfo: creator ? {
+          displayName: creator.displayName,
+          role: creator.role,
+        } : null,
+      }
+    })
+
+    res.json(enriched)
   } catch (error: any) {
     res.status(500).json({ error: 'fetch_all_jobs_failed', message: error.message })
   }

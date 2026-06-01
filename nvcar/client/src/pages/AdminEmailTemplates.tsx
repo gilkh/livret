@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
-import { Plus, Edit2, Trash2, Mail, Save, X, Eye, Image as ImageIcon, Send, RefreshCcw, CheckCircle, AlertCircle, History, Package, FolderArchive, FileDown, Archive, Layout, CheckSquare, Square, Users, CheckCircle2, XCircle, MailPlus, Layers } from 'lucide-react'
+import { Plus, Edit2, Trash2, Mail, Save, X, Eye, Image as ImageIcon, Send, RefreshCcw, CheckCircle, AlertCircle, History, Package, FolderArchive, FileDown, Archive, Layout, CheckSquare, Square, Users, CheckCircle2, XCircle, MailPlus, Layers, Download, Upload, AlertTriangle, Clock, Filter, Search, Calendar, TrendingUp, BarChart3, ChevronDown, ChevronRight, User, MailOpen, MailX, MailCheck } from 'lucide-react'
 import api from '../api'
 import './AdminEmailTemplates.css'
 import EmailBlockEditor, { DEFAULT_BLOCKS, blocksToHtml, EmailBlock } from '../components/EmailBlockEditor'
@@ -12,6 +12,7 @@ type EmailTemplate = {
   blocks?: EmailBlock[]
   linkedLevels: string[]
   linkedClasses: string[]
+  schoolYearId?: string
 }
 
 type ExportedFile = {
@@ -67,26 +68,65 @@ type EmailPreview = {
 }
 
 type EmailJob = {
+  _id: string
   id: string
+  batchId: string
+  createdBy: string
   status: 'queued' | 'running' | 'completed' | 'failed'
   totalItems: number
   processedItems: number
   sentItems: number
   skippedItems: number
   failedItems: number
+  partialItems: number
+  totalEmails: number
+  processedEmails: number
+  sentEmails: number
+  failedEmails: number
   error?: string
   items: Array<{
     fileId: string
+    studentId: string
     studentName: string
     recipients: string[]
-    status: 'pending' | 'sent' | 'skipped' | 'failed'
+    recipientDetails?: Array<{
+      email: string
+      type: 'father' | 'mother' | 'student' | 'override'
+      status: 'pending' | 'sent' | 'failed'
+      error?: string
+    }>
+    status: 'pending' | 'sent' | 'skipped' | 'failed' | 'partial'
     error?: string
   }>
   creatorName?: string
   startedAt?: string
+  completedAt?: string
   createdAt?: string
+  updatedAt?: string
   isTest?: boolean
-  options?: any
+  options?: {
+    includeFather?: boolean
+    includeMother?: boolean
+    includeStudent?: boolean
+    customMessage?: string
+    overrideEmail?: string
+    testEmailOverride?: string
+    templateId?: string
+    quality?: string
+    selectedFileIds?: string[]
+    [key: string]: any
+  }
+  batchInfo?: {
+    groupLabel: string
+    yearName: string
+    semester: string
+    createdBy: string
+    creatorRole: string
+  }
+  creatorInfo?: {
+    displayName: string
+    role: string
+  }
 }
 
 export default function AdminEmailTemplates() {
@@ -107,22 +147,41 @@ export default function AdminEmailTemplates() {
     bodyHtml: '',
     blocks: [] as EmailBlock[],
     linkedLevels: [] as string[],
-    linkedClasses: [] as string[]
+    linkedClasses: [] as string[],
+    schoolYearId: ''
   })
   
   const [editorType, setEditorType] = useState<'visual' | 'html'>('visual')
   const [searchQuery, setSearchQuery] = useState('')
 
+  // Templates tab year filter & import/export
+  const [selectedTemplateYearId, setSelectedTemplateYearId] = useState('')
+  const [exportingId, setExportingId] = useState<string | null>(null)
+  const [importing, setImporting] = useState(false)
+  const [conflictMap, setConflictMap] = useState<Record<string, { templateId: string; templateName: string }>>({})
+  const [exportSuccess, setExportSuccess] = useState('')
+  const [showImportModal, setShowImportModal] = useState(false)
+  const [serverExports, setServerExports] = useState<{ fileName: string; size: number; mtime: string; exportedByName?: string; timestamp?: string }[]>([])
+  const [loadingExports, setLoadingExports] = useState(false)
+
   const filteredTemplates = useMemo(() => {
-    if (!searchQuery) return templates
-    const lowSearch = searchQuery.toLowerCase()
-    return templates.filter(t => 
-      t.name.toLowerCase().includes(lowSearch) || 
-      t.subject.toLowerCase().includes(lowSearch) ||
-      (t.linkedLevels || []).some(l => l.toLowerCase().includes(lowSearch)) ||
-      (t.linkedClasses || []).some(c => c.toLowerCase().includes(lowSearch))
-    )
-  }, [templates, searchQuery])
+    let result = templates
+    if (selectedTemplateYearId) {
+      result = result.filter(t =>
+        !t.schoolYearId || t.schoolYearId === selectedTemplateYearId
+      )
+    }
+    if (searchQuery) {
+      const lowSearch = searchQuery.toLowerCase()
+      result = result.filter(t => 
+        t.name.toLowerCase().includes(lowSearch) || 
+        t.subject.toLowerCase().includes(lowSearch) ||
+        (t.linkedLevels || []).some(l => l.toLowerCase().includes(lowSearch)) ||
+        (t.linkedClasses || []).some(c => c.toLowerCase().includes(lowSearch))
+      )
+    }
+    return result
+  }, [templates, selectedTemplateYearId, searchQuery])
 
   // Distribution State
   const [batches, setBatches] = useState<ExportBatch[]>([])
@@ -160,6 +219,13 @@ export default function AdminEmailTemplates() {
   const [historyLoading, setHistoryLoading] = useState(false)
   const [testSuccess, setTestSuccess] = useState(false)
   const [expandedJobId, setExpandedJobId] = useState<string | null>(null)
+  const [historySearch, setHistorySearch] = useState('')
+  const [historyFilterStatus, setHistoryFilterStatus] = useState<string>('')
+  const [historyFilterType, setHistoryFilterType] = useState<string>('')
+  const [historyFilterAuthor, setHistoryFilterAuthor] = useState<string>('')
+  const [historyFilterYear, setHistoryFilterYear] = useState<string>('')
+  const [historyPage, setHistoryPage] = useState(1)
+  const historyPageSize = 20
 
   // Grouping Logic
   const groupedLots = useMemo(() => {
@@ -193,11 +259,100 @@ export default function AdminEmailTemplates() {
   }, [groupedLots, selectedGroupKey])
 
 
+  // History filtering and stats
+  const historyAuthors = useMemo(() => {
+    const authors = new Map<string, string>()
+    allJobs.forEach(job => {
+      const name = job.creatorInfo?.displayName || job.creatorName || 'Système'
+      const id = job.createdBy?.toString() || name
+      if (!authors.has(id)) authors.set(id, name)
+    })
+    return Array.from(authors.entries()).map(([id, name]) => ({ id, name }))
+  }, [allJobs])
+
+  const historyYears = useMemo(() => {
+    const years = new Set<string>()
+    allJobs.forEach(job => {
+      if (job.batchInfo?.yearName) years.add(job.batchInfo.yearName)
+    })
+    return Array.from(years).sort().reverse()
+  }, [allJobs])
+
+  const filteredHistoryJobs = useMemo(() => {
+    let result = [...allJobs]
+    if (historySearch) {
+      const low = historySearch.toLowerCase()
+      result = result.filter(job => {
+        const author = job.creatorInfo?.displayName || job.creatorName || ''
+        const batchLabel = job.batchInfo?.groupLabel || ''
+        const yearName = job.batchInfo?.yearName || ''
+        const semester = job.batchInfo?.semester || ''
+        const items = job.items?.map(i => i.studentName).join(' ') || ''
+        return author.toLowerCase().includes(low)
+          || batchLabel.toLowerCase().includes(low)
+          || yearName.toLowerCase().includes(low)
+          || semester.toLowerCase().includes(low)
+          || items.toLowerCase().includes(low)
+      })
+    }
+    if (historyFilterStatus) {
+      result = result.filter(job => job.status === historyFilterStatus)
+    }
+    if (historyFilterType) {
+      result = result.filter(job => historyFilterType === 'test' ? job.isTest : !job.isTest)
+    }
+    if (historyFilterAuthor) {
+      result = result.filter(job => {
+        const name = job.creatorInfo?.displayName || job.creatorName || 'Système'
+        const id = job.createdBy?.toString() || name
+        return id === historyFilterAuthor
+      })
+    }
+    if (historyFilterYear) {
+      result = result.filter(job => job.batchInfo?.yearName === historyFilterYear)
+    }
+    return result
+  }, [allJobs, historySearch, historyFilterStatus, historyFilterType, historyFilterAuthor, historyFilterYear])
+
+  const pagedHistoryJobs = useMemo(() => {
+    const start = (historyPage - 1) * historyPageSize
+    return filteredHistoryJobs.slice(start, start + historyPageSize)
+  }, [filteredHistoryJobs, historyPage, historyPageSize])
+
+  const historyTotalPages = Math.ceil(filteredHistoryJobs.length / historyPageSize)
+
+  const historyStats = useMemo(() => {
+    const total = allJobs.length
+    const completed = allJobs.filter(j => j.status === 'completed').length
+    const failed = allJobs.filter(j => j.status === 'failed').length
+    const running = allJobs.filter(j => j.status === 'running').length
+    const realJobs = allJobs.filter(j => !j.isTest)
+    const testJobs = allJobs.filter(j => j.isTest)
+    const totalEmailsSent = realJobs.reduce((sum, j) => sum + (j.sentEmails || j.sentItems || 0), 0)
+    const totalEmailsFailed = realJobs.reduce((sum, j) => sum + (j.failedEmails || j.failedItems || 0), 0)
+    const totalStudentsNotified = realJobs.reduce((sum, j) => sum + (j.sentItems || 0), 0)
+    const successRate = total > 0 ? Math.round((completed / total) * 100) : 0
+    return { total, completed, failed, running, realJobs: realJobs.length, testJobs: testJobs.length, totalEmailsSent, totalEmailsFailed, totalStudentsNotified, successRate }
+  }, [allJobs])
+
+  const getJobDuration = (job: EmailJob) => {
+    const start = job.startedAt || job.createdAt
+    const end = job.completedAt || job.updatedAt
+    if (!start || !end) return null
+    const ms = new Date(end).getTime() - new Date(start).getTime()
+    if (ms < 1000) return `${ms}ms`
+    if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`
+    return `${(ms / 60000).toFixed(1)}m`
+  }
+
+
   useEffect(() => {
     loadTemplatesData()
+    if (activeTab === 'templates' || activeTab === 'distribution') {
+      loadYears()
+    }
     if (activeTab === 'distribution') {
       loadBatches()
-      loadYears()
     }
     if (activeTab === 'history') {
       fetchAllJobs()
@@ -214,12 +369,13 @@ export default function AdminEmailTemplates() {
       const activeSeq = activeYear?.sequence || 999999
       const availableYears = years.filter((y: any) => (y.sequence || 0) <= activeSeq)
 
-      if (activeYear && !selectedYearName) {
-        setSelectedYearName(activeYear.name)
-      } else if (availableYears.length > 0 && !selectedYearName) {
-        // Pick the most recent available year
+      if (activeYear) {
+        if (!selectedYearName) setSelectedYearName(activeYear.name)
+        if (!selectedTemplateYearId) setSelectedTemplateYearId(activeYear._id)
+      } else if (availableYears.length > 0) {
         const sorted = [...availableYears].sort((a, b) => (b.sequence || 0) - (a.sequence || 0))
-        setSelectedYearName(sorted[0].name)
+        if (!selectedYearName) setSelectedYearName(sorted[0].name)
+        if (!selectedTemplateYearId) setSelectedTemplateYearId(sorted[0]._id)
       }
     } catch (err) {
       console.error(err)
@@ -408,7 +564,8 @@ export default function AdminEmailTemplates() {
       bodyHtml: blocksToHtml(newBlocks),
       blocks: newBlocks,
       linkedLevels: [],
-      linkedClasses: []
+      linkedClasses: [],
+      schoolYearId: selectedTemplateYearId || ''
     })
     setEditorType('visual')
     setShowForm(true)
@@ -422,7 +579,8 @@ export default function AdminEmailTemplates() {
       bodyHtml: tpl.bodyHtml,
       blocks: tpl.blocks || [],
       linkedLevels: tpl.linkedLevels || [],
-      linkedClasses: tpl.linkedClasses || []
+      linkedClasses: tpl.linkedClasses || [],
+      schoolYearId: tpl.schoolYearId || ''
     })
     setEditorType(tpl.blocks && tpl.blocks.length > 0 ? 'visual' : 'html')
     setShowForm(true)
@@ -437,6 +595,78 @@ export default function AdminEmailTemplates() {
       alert(err.response?.data?.error || 'Erreur')
     }
   }
+
+  const handleExport = async (templateId: string) => {
+    setExportingId(templateId)
+    setExportSuccess('')
+    try {
+      const exportRes = await api.post(`/email-templates/${templateId}/export`)
+      const { fileName, path: filePath } = exportRes.data
+      setExportSuccess(`Modèle exporté avec succès: ${fileName} — Emplacement: ${filePath}`)
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Erreur lors de l\'export')
+    } finally {
+      setExportingId(null)
+    }
+  }
+
+  const openImportModal = async () => {
+    setShowImportModal(true)
+    setLoadingExports(true)
+    try {
+      const res = await api.get('/email-templates/exports')
+      setServerExports(Array.isArray(res.data) ? res.data : [])
+    } catch (err) {
+      console.error(err)
+      setServerExports([])
+    } finally {
+      setLoadingExports(false)
+    }
+  }
+
+  const handleImportFromServer = async (fileName: string) => {
+    setImporting(true)
+    try {
+      const res = await api.post(`/email-templates/import-server/${fileName}`)
+      setTemplates(prev => [res.data, ...prev])
+      setShowImportModal(false)
+      alert('Modèle importé avec succès')
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Erreur lors de l\'import')
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  const loadConflicts = async (yearId: string) => {
+    if (!yearId) {
+      setConflictMap({})
+      return
+    }
+    try {
+      const res = await api.get(`/email-templates/conflicts?schoolYearId=${yearId}`)
+      const map: Record<string, { templateId: string; templateName: string }> = {}
+      for (const tpl of (res.data || [])) {
+        for (const l of tpl.linkedLevels || []) {
+          map[`level:${l}`] = { templateId: tpl._id, templateName: tpl.name }
+        }
+        for (const c of tpl.linkedClasses || []) {
+          map[`class:${c}`] = { templateId: tpl._id, templateName: tpl.name }
+        }
+      }
+      setConflictMap(map)
+    } catch (err) {
+      console.error(err)
+    }
+  }
+
+  useEffect(() => {
+    if (showForm && formState.schoolYearId) {
+      loadConflicts(formState.schoolYearId)
+    } else {
+      setConflictMap({})
+    }
+  }, [showForm, formState.schoolYearId])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -643,6 +873,21 @@ export default function AdminEmailTemplates() {
       {activeTab === 'templates' && (
         <>
           <div className="section-header-actions">
+            <div className="template-year-bar">
+              <select
+                className="modern-select compact"
+                value={selectedTemplateYearId}
+                onChange={(e) => setSelectedTemplateYearId(e.target.value)}
+              >
+                <option value="">Toutes les années</option>
+                {schoolYears
+                  .sort((a, b) => (b.sequence || 0) - (a.sequence || 0))
+                  .map((year: any) => (
+                    <option key={year._id} value={year._id}>{year.name}</option>
+                  ))
+                }
+              </select>
+            </div>
             <div className="search-filter-group">
               <div className="search-input-wrapper">
                 <ImageIcon size={18} className="search-icon" />
@@ -655,12 +900,28 @@ export default function AdminEmailTemplates() {
                 />
               </div>
             </div>
+            <button
+              className="btn-secondary-outline"
+              onClick={openImportModal}
+              disabled={importing}
+            >
+              {importing ? <RefreshCcw size={18} className="spin-slow" /> : <Upload size={18} />}
+              Importer
+            </button>
             <button className="btn-premium" onClick={handleCreate}>
               <Plus size={20} /> Nouveau Modèle
             </button>
           </div>
 
           {error && <div className="error-banner">{error}</div>}
+
+          {exportSuccess && (
+            <div className="success-banner">
+              <CheckCircle size={18} />
+              <span>{exportSuccess}</span>
+              <button onClick={() => setExportSuccess('')} className="dismiss-btn">&times;</button>
+            </div>
+          )}
 
           {!showForm ? (
             <div className="templates-grid">
@@ -697,78 +958,109 @@ export default function AdminEmailTemplates() {
                 </div>
               )}
 
-              {!loading && filteredTemplates.map(tpl => (
-                <div key={tpl._id} className="template-card">
-                  <div className="template-card-header">
-                    <div className="template-title-area">
-                      <div className="template-icon-circle">
-                        <Mail size={20} />
+              {!loading && filteredTemplates.map(tpl => {
+                const yearName = tpl.schoolYearId
+                  ? schoolYears.find((y: any) => y._id === tpl.schoolYearId)?.name
+                  : null
+                const levelCount = tpl.linkedLevels?.length || 0
+                const classCount = tpl.linkedClasses?.length || 0
+                const isDefault = !levelCount && !classCount
+
+                return (
+                <div key={tpl._id} className="tpl-card">
+                  <div className="tpl-card-accent" />
+
+                  <div className="tpl-card-top">
+                    <div className="tpl-card-identity">
+                      <div className="tpl-card-icon">
+                        <Mail size={18} />
                       </div>
-                      <h3>{tpl.name}</h3>
+                      <div className="tpl-card-title-block">
+                        <h3 className="tpl-card-name">{tpl.name}</h3>
+                        <span className={`tpl-card-year ${!yearName ? 'tpl-card-year-generic' : ''}`}>
+                          {yearName || 'Toutes les ann\u00e9es'}
+                        </span>
+                      </div>
                     </div>
-                    <div className="template-actions">
-                      <button className="btn-action edit" onClick={() => handleEdit(tpl)} title="Modifier">
-                        <Edit2 size={16} />
+                    <div className="tpl-card-actions">
+                      <button
+                        className="tpl-act-btn tpl-act-export"
+                        onClick={() => handleExport(tpl._id)}
+                        title="Exporter"
+                        disabled={exportingId === tpl._id}
+                      >
+                        {exportingId === tpl._id ? <RefreshCcw size={15} className="spin-slow" /> : <Download size={15} />}
                       </button>
-                      <button className="btn-action delete" onClick={() => handleDelete(tpl._id)} title="Supprimer">
-                        <Trash2 size={16} />
+                      <button className="tpl-act-btn tpl-act-edit" onClick={() => handleEdit(tpl)} title="Modifier">
+                        <Edit2 size={15} />
+                      </button>
+                      <button className="tpl-act-btn tpl-act-delete" onClick={() => handleDelete(tpl._id)} title="Supprimer">
+                        <Trash2 size={15} />
                       </button>
                     </div>
                   </div>
-                  
-                  <div className="template-card-body">
-                    <div className="subject-preview">
-                      <span className="label">Sujet de l'email</span>
-                      <p className="subject-text">{tpl.subject}</p>
-                    </div>
-                    
-                    <div className="template-links-modern">
-                      {tpl.linkedLevels?.length > 0 && (
-                        <div className="link-group-modern">
-                          <div className="link-header">
-                            <Layers size={14} />
-                            <span className="link-label">Niveaux</span>
-                          </div>
-                          <div className="link-tags-scroll">
-                            {tpl.linkedLevels?.map(l => <span key={l} className="tag-modern level-tag-modern">{l}</span>)}
-                          </div>
-                        </div>
-                      )}
-                      
-                      {tpl.linkedClasses?.length > 0 && (
-                        <div className="link-group-modern">
-                          <div className="link-header">
-                            <Users size={14} />
-                            <span className="link-label">Classes</span>
-                          </div>
-                          <div className="link-tags-scroll">
-                            {tpl.linkedClasses?.map(l => <span key={l} className="tag-modern class-tag-modern">{l}</span>)}
-                          </div>
-                        </div>
-                      )}
-                      
-                      {(!tpl.linkedLevels?.length && !tpl.linkedClasses?.length) && (
-                        <div className="default-badge-modern">
-                          <CheckCircle2 size={14} />
-                          <span>Modèle par défaut</span>
-                        </div>
-                      )}
-                    </div>
 
-                    <div className="card-footer-actions">
-                      <button 
-                        className="btn-use-template" 
-                        onClick={() => {
-                          setSelectedTemplateId(tpl._id)
-                          setActiveTab('distribution')
-                        }}
-                      >
-                        <Send size={16} /> Utiliser ce modèle
-                      </button>
+                  <div className="tpl-card-subject">
+                    <span className="tpl-subject-label">Objet</span>
+                    <span className="tpl-subject-value">{tpl.subject}</span>
+                  </div>
+
+                  {tpl.blocks && tpl.blocks.length > 0 && (
+                    <div className="tpl-card-preview">
+                      <div className="tpl-preview-strip">
+                        {tpl.blocks.slice(0, 3).map((block, i) => (
+                          <div key={i} className={`tpl-preview-block tpl-preview-${block.type}`}>
+                            {block.type === 'heading' && <div className="tpl-mock-heading" />}
+                            {block.type === 'text' && <div className="tpl-mock-text"><div /><div className="short" /></div>}
+                            {block.type === 'image' && <div className="tpl-mock-image"><ImageIcon size={12} /></div>}
+                            {block.type === 'divider' && <div className="tpl-mock-divider" />}
+                            {block.type === 'button' && <div className="tpl-mock-button" />}
+                          </div>
+                        ))}
+                        {tpl.blocks.length > 3 && <div className="tpl-preview-more">+{tpl.blocks.length - 3}</div>}
+                      </div>
                     </div>
+                  )}
+
+                  <div className="tpl-card-links">
+                    {isDefault ? (
+                      <div className="tpl-link-chip tpl-link-default">
+                        <CheckCircle2 size={13} />
+                        <span>Mod\u00e8le par d\u00e9faut</span>
+                      </div>
+                    ) : (
+                      <>
+                        {levelCount > 0 && (
+                          <div className="tpl-link-chip tpl-link-levels" title={tpl.linkedLevels.join(', ')}>
+                            <Layers size={13} />
+                            <span>{levelCount} niveau{levelCount > 1 ? 'x' : ''}</span>
+                          </div>
+                        )}
+                        {classCount > 0 && (
+                          <div className="tpl-link-chip tpl-link-classes" title={tpl.linkedClasses.join(', ')}>
+                            <Users size={13} />
+                            <span>{classCount} classe{classCount > 1 ? 's' : ''}</span>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+
+                  <div className="tpl-card-footer">
+                    <button
+                      className="tpl-use-btn"
+                      onClick={() => {
+                        setSelectedTemplateId(tpl._id)
+                        setActiveTab('distribution')
+                      }}
+                    >
+                      <Send size={14} />
+                      <span>Utiliser</span>
+                    </button>
                   </div>
                 </div>
-              ))}
+                )
+              })}
             </div>
           ) : (
             <div className="template-editor glass-card full-width">
@@ -824,6 +1116,23 @@ export default function AdminEmailTemplates() {
                     />
                     <small className="help-text">Variables: {'{{studentName}}, {{yearName}}, {{level}}, {{className}}, {{schoolName}}'}</small>
                   </div>
+
+                  <div className="form-group flex-1">
+                    <label>Année scolaire</label>
+                    <select
+                      className="modern-input"
+                      value={formState.schoolYearId}
+                      onChange={e => setFormState({...formState, schoolYearId: e.target.value})}
+                    >
+                      <option value="">Toutes les années</option>
+                      {schoolYears
+                        .sort((a, b) => (b.sequence || 0) - (a.sequence || 0))
+                        .map((year: any) => (
+                          <option key={year._id} value={year._id}>{year.name}</option>
+                        ))
+                      }
+                    </select>
+                  </div>
                 </div>
                 
                 <div className="editor-main-layout">
@@ -851,34 +1160,52 @@ export default function AdminEmailTemplates() {
                     <div className="link-section glass-panel">
                       <h4><Package size={16} /> Lier aux Niveaux</h4>
                       <div className="checkbox-grid-compact">
-                        {allLevels?.map(level => (
-                          <label key={level._id || level.name} className="checkbox-label-modern">
-                            <input 
-                              type="checkbox" 
-                              checked={formState.linkedLevels.includes(level.name)}
-                              onChange={() => toggleLevel(level.name)}
-                            />
-                            <span className="check-custom"></span>
-                            {level.name}
-                          </label>
-                        ))}
+                        {allLevels?.map(level => {
+                          const conflict = conflictMap[`level:${level.name}`]
+                          const isConflict = conflict && conflict.templateId !== editingTemplate?._id
+                          return (
+                            <label key={level._id || level.name} className="checkbox-label-modern">
+                              <input 
+                                type="checkbox" 
+                                checked={formState.linkedLevels.includes(level.name)}
+                                onChange={() => toggleLevel(level.name)}
+                              />
+                              <span className="check-custom"></span>
+                              {level.name}
+                              {isConflict && (
+                                <span className="conflict-warning" title={`Déjà assigné à: ${conflict.templateName}`}>
+                                  <AlertTriangle size={12} /> {conflict.templateName}
+                                </span>
+                              )}
+                            </label>
+                          )
+                        })}
                       </div>
                     </div>
                     
                     <div className="link-section glass-panel mt-4">
                       <h4><Layout size={16} /> Lier aux Classes</h4>
                       <div className="checkbox-grid-compact">
-                        {allClasses?.map(cls => (
-                          <label key={cls._id || cls.name} className="checkbox-label-modern">
-                            <input 
-                              type="checkbox" 
-                              checked={formState.linkedClasses.includes(cls.name)}
-                              onChange={() => toggleClass(cls.name)}
-                            />
-                            <span className="check-custom"></span>
-                            {cls.name}
-                          </label>
-                        ))}
+                        {allClasses?.map(cls => {
+                          const conflict = conflictMap[`class:${cls.name}`]
+                          const isConflict = conflict && conflict.templateId !== editingTemplate?._id
+                          return (
+                            <label key={cls._id || cls.name} className="checkbox-label-modern">
+                              <input 
+                                type="checkbox" 
+                                checked={formState.linkedClasses.includes(cls.name)}
+                                onChange={() => toggleClass(cls.name)}
+                              />
+                              <span className="check-custom"></span>
+                              {cls.name}
+                              {isConflict && (
+                                <span className="conflict-warning" title={`Déjà assigné à: ${conflict.templateName}`}>
+                                  <AlertTriangle size={12} /> {conflict.templateName}
+                                </span>
+                              )}
+                            </label>
+                          )
+                        })}
                       </div>
                     </div>
                     
@@ -1275,137 +1602,403 @@ export default function AdminEmailTemplates() {
       )}
 
       {activeTab === 'history' && (
-        <div className="history-layout glass-panel">
-          <div className="history-header">
-            <h3><History size={20} /> Historique des envois</h3>
+        <div className="history-page-v2">
+          {/* Stats Dashboard */}
+          <div className="history-stats-grid">
+            <div className="history-stat-card stat-total">
+              <div className="stat-icon-wrap"><BarChart3 size={20} /></div>
+              <div className="stat-body">
+                <span className="stat-value">{historyStats.total}</span>
+                <span className="stat-label">Envois totaux</span>
+              </div>
+            </div>
+            <div className="history-stat-card stat-sent">
+              <div className="stat-icon-wrap"><MailCheck size={20} /></div>
+              <div className="stat-body">
+                <span className="stat-value">{historyStats.totalEmailsSent}</span>
+                <span className="stat-label">Emails envoyés</span>
+              </div>
+            </div>
+            <div className="history-stat-card stat-students">
+              <div className="stat-icon-wrap"><Users size={20} /></div>
+              <div className="stat-body">
+                <span className="stat-value">{historyStats.totalStudentsNotified}</span>
+                <span className="stat-label">Élèves notifiés</span>
+              </div>
+            </div>
+            <div className="history-stat-card stat-rate">
+              <div className="stat-icon-wrap"><TrendingUp size={20} /></div>
+              <div className="stat-body">
+                <span className="stat-value">{historyStats.successRate}%</span>
+                <span className="stat-label">Taux de réussite</span>
+              </div>
+            </div>
+            <div className="history-stat-card stat-failed">
+              <div className="stat-icon-wrap"><MailX size={20} /></div>
+              <div className="stat-body">
+                <span className="stat-value">{historyStats.totalEmailsFailed}</span>
+                <span className="stat-label">Emails échoués</span>
+              </div>
+            </div>
+            <div className="history-stat-card stat-tests">
+              <div className="stat-icon-wrap"><MailOpen size={20} /></div>
+              <div className="stat-body">
+                <span className="stat-value">{historyStats.testJobs}</span>
+                <span className="stat-label">Envois test</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Filters Bar */}
+          <div className="history-filters-bar">
+            <div className="history-search-wrap">
+              <Search size={16} className="history-search-icon" />
+              <input
+                type="text"
+                placeholder="Rechercher par auteur, année, élève..."
+                className="history-search-input"
+                value={historySearch}
+                onChange={e => { setHistorySearch(e.target.value); setHistoryPage(1) }}
+              />
+            </div>
+            <select className="history-filter-select" value={historyFilterStatus} onChange={e => { setHistoryFilterStatus(e.target.value); setHistoryPage(1) }}>
+              <option value="">Tous les statuts</option>
+              <option value="completed">Terminé</option>
+              <option value="running">En cours</option>
+              <option value="failed">Échoué</option>
+              <option value="queued">En attente</option>
+            </select>
+            <select className="history-filter-select" value={historyFilterType} onChange={e => { setHistoryFilterType(e.target.value); setHistoryPage(1) }}>
+              <option value="">Tous les types</option>
+              <option value="real">Envoi réel</option>
+              <option value="test">Test</option>
+            </select>
+            <select className="history-filter-select" value={historyFilterAuthor} onChange={e => { setHistoryFilterAuthor(e.target.value); setHistoryPage(1) }}>
+              <option value="">Tous les auteurs</option>
+              {historyAuthors.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </select>
+            <select className="history-filter-select" value={historyFilterYear} onChange={e => { setHistoryFilterYear(e.target.value); setHistoryPage(1) }}>
+              <option value="">Toutes les années</option>
+              {historyYears.map(y => <option key={y} value={y}>{y}</option>)}
+            </select>
+            {(historySearch || historyFilterStatus || historyFilterType || historyFilterAuthor || historyFilterYear) && (
+              <button className="history-clear-filters" onClick={() => { setHistorySearch(''); setHistoryFilterStatus(''); setHistoryFilterType(''); setHistoryFilterAuthor(''); setHistoryFilterYear(''); setHistoryPage(1) }}>
+                <X size={14} /> Réinitialiser
+              </button>
+            )}
+            <div className="history-filters-spacer" />
+            <span className="history-count-label">{filteredHistoryJobs.length} résultat{filteredHistoryJobs.length !== 1 ? 's' : ''}</span>
             <button className="btn secondary mini" onClick={fetchAllJobs} disabled={loading}>
               <RefreshCcw size={14} className={loading ? 'spin' : ''} /> Actualiser
             </button>
           </div>
-          
-          <div className="history-table-wrap">
-            <table className="history-table-detailed">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Type / Auteur</th>
-                  <th>Configuration</th>
-                  <th>Résultat</th>
-                  <th>Statut</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {allJobs.length === 0 && !loading && (
-                  <tr>
-                    <td colSpan={6} className="empty-history">Aucun historique trouvé</td>
-                  </tr>
-                )}
-                {allJobs.map(job => {
-                  const isExpanded = expandedJobId === job._id
-                  const template = templates.find(t => t._id === job.options?.templateId)
-                  return (
-                    <React.Fragment key={job._id}>
-                      <tr className={`history-main-row ${isExpanded ? 'expanded' : ''}`} onClick={() => setExpandedJobId(isExpanded ? null : job._id)}>
-                        <td>
-                          <div className="date-time">
-                            <span className="d">{new Date(job.createdAt || job.startedAt).toLocaleDateString()}</span>
-                            <span className="t">{new Date(job.createdAt || job.startedAt).toLocaleTimeString()}</span>
-                          </div>
-                        </td>
-                        <td>
-                          <div className="job-identity">
-                            <span className={`type-badge ${job.isTest ? 'test' : 'real'}`}>
-                              {job.isTest ? 'TEST' : 'ENVOI RÉEL'}
-                            </span>
-                            <span className="author">{job.creatorName || 'Système'}</span>
-                          </div>
-                        </td>
-                        <td>
-                          <div className="job-config-info">
-                            <div className="recipients-icons">
-                              <span className={`icon-pill ${job.options?.includeFather ? 'active' : ''}`} title="Père">P</span>
-                              <span className={`icon-pill ${job.options?.includeMother ? 'active' : ''}`} title="Mère">M</span>
-                              <span className={`icon-pill ${job.options?.includeStudent ? 'active' : ''}`} title="Élève">E</span>
-                            </div>
-                            <span className="quality-badge">{job.options?.quality === 'high' ? 'HD' : 'SD'}</span>
-                            <span className="tpl-name" title={template?.name || 'Automatique'}>
-                              {template?.name || 'Auto'}
-                            </span>
-                          </div>
-                        </td>
-                        <td>
-                          <div className="job-stats-summary">
-                            <span className="stat total" title="Total">{job.totalItems} <Users size={12} /></span>
-                            <span className="stat sent" title="Envoyés">{job.sentItems} <CheckCircle2 size={12} /></span>
-                            {job.failedItems > 0 && <span className="stat failed" title="Échecs">{job.failedItems} <XCircle size={12} /></span>}
-                            {job.skippedItems > 0 && <span className="stat skipped" title="Ignorés">{job.skippedItems} <AlertCircle size={12} /></span>}
-                          </div>
-                        </td>
-                        <td>
-                          <span className={`status-badge ${job.status}`}>
-                            {job.status === 'completed' ? 'Terminé' : job.status === 'running' ? 'En cours' : 'Échec'}
+
+          {/* Job Cards List */}
+          <div className="history-jobs-list">
+            {loading && allJobs.length === 0 && (
+              <div className="history-loading-state">
+                <RefreshCcw size={40} className="spin-slow" />
+                <p>Chargement de l'historique...</p>
+              </div>
+            )}
+
+            {!loading && allJobs.length === 0 && (
+              <div className="history-empty-state">
+                <div className="empty-icon-wrap"><History size={64} /></div>
+                <h3>Aucun envoi enregistré</h3>
+                <p>Les envois d'emails apparaîtront ici une fois distribués.</p>
+              </div>
+            )}
+
+            {!loading && allJobs.length > 0 && filteredHistoryJobs.length === 0 && (
+              <div className="history-empty-state">
+                <div className="empty-icon-wrap"><Search size={64} /></div>
+                <h3>Aucun résultat</h3>
+                <p>Aucun envoi ne correspond à vos filtres.</p>
+                <button className="btn secondary" onClick={() => { setHistorySearch(''); setHistoryFilterStatus(''); setHistoryFilterType(''); setHistoryFilterAuthor(''); setHistoryFilterYear(''); setHistoryPage(1) }}>
+                  Effacer les filtres
+                </button>
+              </div>
+            )}
+
+            {pagedHistoryJobs.map(job => {
+              const isExpanded = expandedJobId === job._id
+              const template = templates.find(t => t._id === job.options?.templateId)
+              const duration = getJobDuration(job)
+              const sentCount = job.sentEmails || job.sentItems || 0
+              const failedCount = job.failedEmails || job.failedItems || 0
+              const skippedCount = job.skippedItems || 0
+              const partialCount = job.partialItems || 0
+              const totalEmailCount = job.totalEmails || job.totalItems || 0
+              const progressPct = job.totalItems > 0 ? Math.round((job.processedItems / job.totalItems) * 100) : 0
+              const authorName = job.creatorInfo?.displayName || job.creatorName || 'Système'
+              const authorRole = job.creatorInfo?.role || job.batchInfo?.creatorRole || ''
+
+              return (
+                <div key={job._id} className={`history-job-card ${isExpanded ? 'expanded' : ''} ${job.status}`}>
+                  <div className="job-card-main" onClick={() => setExpandedJobId(isExpanded ? null : job._id)}>
+                    <div className={`job-status-indicator ${job.status}`}>
+                      {job.status === 'completed' && <CheckCircle2 size={18} />}
+                      {job.status === 'running' && <RefreshCcw size={18} className="spin" />}
+                      {job.status === 'failed' && <XCircle size={18} />}
+                      {job.status === 'queued' && <Clock size={18} />}
+                    </div>
+                    <div className="job-card-content">
+                      <div className="job-card-top-row">
+                        <div className="job-card-title-area">
+                          <span className={`type-badge ${job.isTest ? 'test' : 'real'}`}>
+                            {job.isTest ? 'TEST' : 'ENVOI RÉEL'}
                           </span>
-                        </td>
-                        <td>
-                          <button className="btn-icon">
-                            {isExpanded ? <Plus size={16} style={{ transform: 'rotate(45deg)' }} /> : <Eye size={16} />}
-                          </button>
-                        </td>
-                      </tr>
-                      {isExpanded && (
-                        <tr className="history-details-row">
-                          <td colSpan={6}>
-                            <div className="job-details-content">
-                              <div className="details-header">
-                                <h4>Détail de l'envoi</h4>
-                                {job.error && <div className="job-global-error">Erreur globale: {job.error}</div>}
-                              </div>
-                              <div className="items-list-scroll">
-                                <table className="job-items-table">
-                                  <thead>
-                                    <tr>
-                                      <th>Élève</th>
-                                      <th>Destinataires</th>
-                                      <th>Statut</th>
-                                      <th>Détail / Erreur</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {job.items?.map((item, idx) => (
-                                      <tr key={idx}>
-                                        <td>{item.studentName || 'Élève inconnu'}</td>
-                                        <td>
-                                          <div className="item-recipients">
-                                            {item.recipients?.map((r, ri) => (
-                                              <span key={ri} className="recipient-pill" title={r}>{r}</span>
-                                            ))}
-                                            {!item.recipients?.length && <span className="text-muted">Aucun</span>}
-                                          </div>
-                                        </td>
-                                        <td>
-                                          <span className={`status-pill-small ${item.status}`}>
-                                            {item.status === 'sent' ? 'Envoyé' : item.status === 'skipped' ? 'Ignoré' : 'Échec'}
-                                          </span>
-                                        </td>
-                                        <td className="item-error-cell">{item.error || '-'}</td>
-                                      </tr>
-                                    ))}
-                                    {(!job.items || job.items.length === 0) && (
-                                      <tr><td colSpan={4} className="text-center p-4 text-muted">Aucun détail disponible pour cet envoi</td></tr>
-                                    )}
-                                  </tbody>
-                                </table>
-                              </div>
-                            </div>
-                          </td>
-                        </tr>
+                          <span className="job-author-name">
+                            <User size={13} /> {authorName}
+                          </span>
+                          {authorRole && (
+                            <span className={`job-author-role role-${authorRole.toLowerCase()}`}>
+                              {authorRole}
+                            </span>
+                          )}
+                        </div>
+                        <div className="job-card-date-area">
+                          <Calendar size={13} />
+                          <span className="job-date">{new Date(job.createdAt || job.startedAt || '').toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                          <span className="job-time">{new Date(job.createdAt || job.startedAt || '').toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</span>
+                          {duration && (
+                            <span className="job-duration"><Clock size={12} /> {duration}</span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="job-card-meta-row">
+                        {job.batchInfo?.yearName && (
+                          <span className="job-meta-chip chip-year"><Layers size={12} /> {job.batchInfo.yearName}</span>
+                        )}
+                        {job.batchInfo?.semester && (
+                          <span className="job-meta-chip chip-semester"><Calendar size={12} /> {job.batchInfo.semester}</span>
+                        )}
+                        {job.batchInfo?.groupLabel && (
+                          <span className="job-meta-chip chip-group"><FolderArchive size={12} /> {job.batchInfo.groupLabel}</span>
+                        )}
+                        <span className="job-meta-sep">|</span>
+                        <span className="job-recipients-config">
+                          <span className={`icon-pill ${job.options?.includeFather ? 'active' : ''}`} title="Père">P</span>
+                          <span className={`icon-pill ${job.options?.includeMother ? 'active' : ''}`} title="Mère">M</span>
+                          <span className={`icon-pill ${job.options?.includeStudent ? 'active' : ''}`} title="Élève">E</span>
+                        </span>
+                        {job.options?.quality && (
+                          <span className="quality-badge">{job.options.quality === 'high' ? 'HD' : 'SD'}</span>
+                        )}
+                        {template && (
+                          <span className="job-template-chip"><Mail size={12} /> {template.name}</span>
+                        )}
+                        {job.options?.testEmailOverride && (
+                          <span className="job-override-chip" title={`Envoyé à: ${job.options.testEmailOverride}`}>@ {job.options.testEmailOverride}</span>
+                        )}
+                      </div>
+                      <div className="job-card-stats-row">
+                        <div className="job-stat-group">
+                          <span className="js-stat js-total" title="Total élèves"><Users size={13} /> {job.totalItems}</span>
+                          <span className="js-stat js-sent" title="Envoyés"><MailCheck size={13} /> {sentCount}</span>
+                          {partialCount > 0 && <span className="js-stat js-partial" title="Partiels"><AlertCircle size={13} /> {partialCount}</span>}
+                          {skippedCount > 0 && <span className="js-stat js-skipped" title="Ignorés"><AlertTriangle size={13} /> {skippedCount}</span>}
+                          {failedCount > 0 && <span className="js-stat js-failed" title="Échoués"><MailX size={13} /> {failedCount}</span>}
+                        </div>
+                        {totalEmailCount > 0 && (
+                          <div className="job-emails-count">
+                            <Mail size={12} /> {job.sentEmails || 0}/{totalEmailCount} emails
+                          </div>
+                        )}
+                        <div className="job-progress-bar-wrap">
+                          <div className="job-progress-bar">
+                            <div className={`job-progress-fill status-${job.status}`} style={{ width: `${progressPct}%` }} />
+                          </div>
+                          <span className="job-progress-pct">{progressPct}%</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="job-expand-btn">
+                      {isExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                    </div>
+                  </div>
+
+                  {isExpanded && (
+                    <div className="job-card-details">
+                      <div className="details-top-bar">
+                        <h4>Détail de l'envoi</h4>
+                        <div className="details-summary-pills">
+                          <span className="detail-pill pill-sent">{sentCount} envoyé{sentCount !== 1 ? 's' : ''}</span>
+                          {failedCount > 0 && <span className="detail-pill pill-failed">{failedCount} échoué{failedCount !== 1 ? 's' : ''}</span>}
+                          {skippedCount > 0 && <span className="detail-pill pill-skipped">{skippedCount} ignoré{skippedCount !== 1 ? 's' : ''}</span>}
+                          {partialCount > 0 && <span className="detail-pill pill-partial">{partialCount} partiel{partialCount !== 1 ? 's' : ''}</span>}
+                        </div>
+                      </div>
+                      {job.error && (
+                        <div className="job-global-error-banner">
+                          <AlertCircle size={16} /> Erreur globale: {job.error}
+                        </div>
                       )}
-                    </React.Fragment>
-                  )
-                })}
-              </tbody>
-            </table>
+                      <div className="details-time-info">
+                        {job.startedAt && (
+                          <span><Clock size={13} /> Début: {new Date(job.startedAt).toLocaleString('fr-FR')}</span>
+                        )}
+                        {job.completedAt && (
+                          <span><CheckCircle2 size={13} /> Fin: {new Date(job.completedAt).toLocaleString('fr-FR')}</span>
+                        )}
+                        {duration && (
+                          <span><TrendingUp size={13} /> Durée: {duration}</span>
+                        )}
+                      </div>
+                      {job.options?.customMessage && (
+                        <div className="details-custom-msg">
+                          <Mail size={13} /> Message personnalisé: {job.options.customMessage}
+                        </div>
+                      )}
+                      <div className="details-items-list">
+                        <table className="job-items-table-v2">
+                          <thead>
+                            <tr>
+                              <th>Élève</th>
+                              <th>Destinataires</th>
+                              <th>Statut</th>
+                              <th>Détail</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {job.items?.map((item, idx) => (
+                              <tr key={idx} className={`item-row-${item.status}`}>
+                                <td>
+                                  <div className="item-student-cell">
+                                    <User size={14} />
+                                    <span>{item.studentName || 'Élève inconnu'}</span>
+                                  </div>
+                                </td>
+                                <td>
+                                  <div className="item-recipients-v2">
+                                    {item.recipientDetails && item.recipientDetails.length > 0 ? (
+                                      item.recipientDetails.map((rd, ri) => (
+                                        <span key={ri} className={`recipient-chip rc-${rd.status} rc-${rd.type}`} title={rd.error || rd.email}>
+                                          <span className="rc-type">{rd.type === 'father' ? 'P' : rd.type === 'mother' ? 'M' : rd.type === 'student' ? 'E' : '@'}</span>
+                                          <span className="rc-email">{rd.email}</span>
+                                          {rd.status === 'failed' && <XCircle size={10} className="rc-failed-icon" />}
+                                          {rd.status === 'sent' && <CheckCircle size={10} className="rc-sent-icon" />}
+                                        </span>
+                                      ))
+                                    ) : (
+                                      item.recipients?.map((r, ri) => (
+                                        <span key={ri} className="recipient-chip rc-default" title={r}>{r}</span>
+                                      ))
+                                    )}
+                                    {(!item.recipients?.length && !item.recipientDetails?.length) && (
+                                      <span className="no-recipients">Aucun</span>
+                                    )}
+                                  </div>
+                                </td>
+                                <td>
+                                  <span className={`item-status-badge isb-${item.status}`}>
+                                    {item.status === 'sent' ? 'Envoyé' : item.status === 'skipped' ? 'Ignoré' : item.status === 'partial' ? 'Partiel' : item.status === 'failed' ? 'Échoué' : 'En attente'}
+                                  </span>
+                                </td>
+                                <td className="item-error-cell">
+                                  {item.error ? (
+                                    <span className="item-error-text" title={item.error}>{item.error}</span>
+                                  ) : (
+                                    <span className="item-no-error">—</span>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                            {(!job.items || job.items.length === 0) && (
+                              <tr><td colSpan={4} className="no-items-row">Aucun détail disponible pour cet envoi</td></tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Pagination */}
+          {historyTotalPages > 1 && (
+            <div className="history-pagination">
+              <button className="page-btn" disabled={historyPage <= 1} onClick={() => setHistoryPage(p => p - 1)}>
+                Précédent
+              </button>
+              <span className="page-info">Page {historyPage} / {historyTotalPages}</span>
+              <button className="page-btn" disabled={historyPage >= historyTotalPages} onClick={() => setHistoryPage(p => p + 1)}>
+                Suivant
+              </button>
+            </div>
+          )}          
+        </div>
+      )}
+
+      {/* Import from server modal */}
+      {showImportModal && (
+        <div className="modal-overlay" onClick={() => setShowImportModal(false)}>
+          <div className="import-modal" onClick={e => e.stopPropagation()}>
+            <div className="import-modal-header">
+              <div className="import-modal-title">
+                <FolderArchive size={20} />
+                <h3>Importer un modèle</h3>
+              </div>
+              <button className="modal-close-btn" onClick={() => setShowImportModal(false)}>
+                <X size={20} />
+              </button>
+            </div>
+            <div className="import-modal-body">
+              {loadingExports ? (
+                <div className="import-loading">
+                  <RefreshCcw size={28} className="spin-slow" />
+                  <p>Chargement des exports...</p>
+                </div>
+              ) : serverExports.length === 0 ? (
+                <div className="import-empty">
+                  <Archive size={48} />
+                  <h4>Aucun export trouvé</h4>
+                  <p>Le dossier des exports est vide. Exportez d'abord un modèle pour pouvoir le réimporter.</p>
+                </div>
+              ) : (
+                <div className="import-file-list">
+                  <p className="import-hint">
+                    Sélectionnez un fichier exporté depuis le dossier du serveur:
+                  </p>
+                  {serverExports.map((file, idx) => (
+                    <div key={idx} className="import-file-item">
+                      <div className="import-file-info">
+                        <div className="import-file-name">
+                          <Archive size={16} />
+                          <span>{file.fileName}</span>
+                        </div>
+                        <div className="import-file-meta">
+                          <span>{(file.size / 1024).toFixed(1)} Ko</span>
+                          <span className="meta-sep">&middot;</span>
+                          <span>{new Date(file.mtime).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                          {file.exportedByName && (
+                            <>
+                              <span className="meta-sep">&middot;</span>
+                              <span>{file.exportedByName}</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                      <button
+                        className="btn-import-pick"
+                        disabled={importing}
+                        onClick={() => handleImportFromServer(file.fileName)}
+                      >
+                        {importing ? (
+                          <RefreshCcw size={14} className="spin" />
+                        ) : (
+                          <Upload size={14} />
+                        )}
+                        Importer
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
