@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import api from '../api'
 import { useSchoolYear } from '../context/SchoolYearContext'
 import './AdminGradebookToggleBatch.css'
@@ -35,6 +35,34 @@ type SummaryResponse = {
   totals: { on: number; total: number; off: number }
 }
 
+type DropdownLevelBucket = {
+  itemLevel: string
+  relation: 'current' | 'past' | 'future'
+  sem1: { selected: number; total: number }
+  sem2: { selected: number; total: number }
+}
+
+type DropdownMatrixRow = {
+  classId: string
+  className: string
+  level: string
+  byItemLevel: DropdownLevelBucket[]
+}
+
+type DropdownSummaryLevelRow = {
+  level: string
+  selected: number
+  total: number
+  missing: number
+}
+
+type DropdownSummaryResponse = {
+  classes: { classId: string; className: string; level: string; selected: number; total: number; missing: number }[]
+  levels: DropdownSummaryLevelRow[]
+  classMatrix: DropdownMatrixRow[]
+  totals: { selected: number; total: number; missing: number }
+}
+
 type Lang = 'poly' | 'arabic' | 'english'
 const LANG_LABELS: Record<Lang, string> = { poly: 'Poly', arabic: 'Arabe', english: 'Anglais' }
 const LANGS: Lang[] = ['poly', 'arabic', 'english']
@@ -46,6 +74,7 @@ export default function AdminGradebookToggleBatch() {
   const [selectedYearId, setSelectedYearId] = useState('')
   const [levels, setLevels] = useState<LevelDoc[]>([])
   const [summary, setSummary] = useState<SummaryResponse | null>(null)
+  const [dropdownSummary, setDropdownSummary] = useState<DropdownSummaryResponse | null>(null)
   const [toggleLevel, setToggleLevel] = useState('ALL')
 
   const [loading, setLoading] = useState(false)
@@ -68,8 +97,12 @@ export default function AdminGradebookToggleBatch() {
 
   /* ─── load summary ─── */
   const loadSummary = async (yearId: string, level: string) => {
-    const r = await api.get('/admin-extras/gradebooks/toggles/summary', { params: { schoolYearId: yearId, toggleLevel: level } })
-    setSummary(r.data as SummaryResponse)
+    const [toggleRes, dropdownRes] = await Promise.all([
+      api.get('/admin-extras/gradebooks/toggles/summary', { params: { schoolYearId: yearId, toggleLevel: level } }),
+      api.get('/admin-extras/gradebooks/dropdowns/summary', { params: { schoolYearId: yearId, toggleLevel: level } }),
+    ])
+    setSummary(toggleRes.data as SummaryResponse)
+    setDropdownSummary(dropdownRes.data as DropdownSummaryResponse)
   }
 
   useEffect(() => {
@@ -91,6 +124,14 @@ export default function AdminGradebookToggleBatch() {
     return Array.from(set).sort((a, b) => (levelOrder.get(a) ?? 99) - (levelOrder.get(b) ?? 99))
   }, [summary, sortedLevels])
 
+  const allDropdownItemLevels = useMemo(() => {
+    if (!dropdownSummary?.classMatrix?.length) return [] as string[]
+    const set = new Set<string>()
+    dropdownSummary.classMatrix.forEach(row => row.byItemLevel.forEach(b => set.add(b.itemLevel)))
+    const levelOrder = new Map(sortedLevels.map((l, i) => [l.name.toUpperCase(), i]))
+    return Array.from(set).sort((a, b) => (levelOrder.get(a) ?? 99) - (levelOrder.get(b) ?? 99))
+  }, [dropdownSummary, sortedLevels])
+
   /* ─── relation map: for each item level, determine if any class considers it past/future ─── */
   const itemLevelRelation = useMemo(() => {
     const map = new Map<string, Set<'current' | 'past' | 'future'>>()
@@ -100,6 +141,15 @@ export default function AdminGradebookToggleBatch() {
     }))
     return map
   }, [summary])
+
+  const dropdownItemLevelRelation = useMemo(() => {
+    const map = new Map<string, Set<'current' | 'past' | 'future'>>()
+    dropdownSummary?.classMatrix?.forEach(row => row.byItemLevel.forEach(b => {
+      if (!map.has(b.itemLevel)) map.set(b.itemLevel, new Set())
+      map.get(b.itemLevel)!.add(b.relation)
+    }))
+    return map
+  }, [dropdownSummary])
 
   const isBusy = loading || !!submittingKey
 
@@ -194,6 +244,15 @@ export default function AdminGradebookToggleBatch() {
   /* ─── helpers ─── */
   const pct = (on: number, total: number) => total === 0 ? 0 : Math.round((on / total) * 100)
   const cellSum = (b: ItemLevelBucket) => ({ on: b.poly.on + b.arabic.on + b.english.on, total: b.poly.total + b.arabic.total + b.english.total })
+  const dropdownRowSum = (row: DropdownMatrixRow) => {
+    let selected = 0
+    let total = 0
+    row.byItemLevel.forEach(b => {
+      selected += b.sem1.selected + b.sem2.selected
+      total += b.sem1.total + b.sem2.total
+    })
+    return { selected, total }
+  }
 
   /* ─── render ─── */
   return (
@@ -342,6 +401,124 @@ export default function AdminGradebookToggleBatch() {
             )}
             <span className="tgl-legend-item"><strong>ON</strong>/Total = toggles activés sur le total</span>
           </div>
+        </div>
+      )}
+
+      {/* Dropdown appreciations matrix */}
+      {dropdownSummary && dropdownSummary.classMatrix?.length > 0 && allDropdownItemLevels.length > 0 && (
+        <div className="tgl-section">
+          <div className="tgl-section-head">
+            <div>
+              <h2>Appréciations sélectionnées</h2>
+              <p>Nombre de champs appréciation sélectionnés sur le total disponible, par classe, niveau et semestre.</p>
+            </div>
+            <div className="tgl-dropdown-stats">
+              <span><strong>{dropdownSummary.totals.selected}</strong> sélectionnées</span>
+              <span><strong>{dropdownSummary.totals.missing}</strong> non sélectionnées</span>
+              <span><strong>{dropdownSummary.totals.total}</strong> total</span>
+            </div>
+          </div>
+
+          <div className="tgl-matrix-wrap tgl-dropdown-wrap">
+            <table className="tgl-matrix tgl-dropdown-matrix">
+              <thead>
+                <tr>
+                  <th className="tgl-th-class" rowSpan={2}>Classe</th>
+                  <th className="tgl-th-class" rowSpan={2}>Niv.</th>
+                  {allDropdownItemLevels.map(lvl => {
+                    const rels = dropdownItemLevelRelation.get(lvl)
+                    const onlyPast = rels?.has('past') && !rels?.has('current') && !rels?.has('future')
+                    const onlyFuture = rels?.has('future') && !rels?.has('current') && !rels?.has('past')
+                    const isMixed = (rels?.size ?? 0) > 1
+                    return (
+                      <th key={lvl} colSpan={2} className={`tgl-th-level ${onlyPast ? 'tgl-th-past' : ''} ${onlyFuture ? 'tgl-th-future' : ''}`}>
+                        <div className="tgl-th-level-inner">
+                          <span className="tgl-th-level-name">{lvl}</span>
+                          {onlyPast && <span className="tgl-th-tag tgl-tag-past">passé</span>}
+                          {onlyFuture && <span className="tgl-th-tag tgl-tag-future">futur</span>}
+                          {isMixed && <span className="tgl-th-tag tgl-tag-mixed">mixte</span>}
+                        </div>
+                      </th>
+                    )
+                  })}
+                  <th className="tgl-th-total" rowSpan={2}>Total</th>
+                </tr>
+                <tr>
+                  {allDropdownItemLevels.map(lvl => (
+                    <Fragment key={lvl}>
+                      <th key={`${lvl}-s1`} className="tgl-th-lang">Sem. 1</th>
+                      <th key={`${lvl}-s2`} className="tgl-th-lang">Sem. 2</th>
+                    </Fragment>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {dropdownSummary.classMatrix.map(row => {
+                  const bucketMap = new Map(row.byItemLevel.map(b => [b.itemLevel, b]))
+                  const rowTotals = dropdownRowSum(row)
+                  return (
+                    <tr key={row.classId}>
+                      <td className="tgl-td-class">{row.className}</td>
+                      <td className="tgl-td-level">{row.level || '—'}</td>
+                      {allDropdownItemLevels.map(lvl => {
+                        const bucket = bucketMap.get(lvl)
+                        const isPast = bucket?.relation === 'past'
+                        const isFuture = bucket?.relation === 'future'
+                        const cells = bucket ? [bucket.sem1, bucket.sem2] : [{ selected: 0, total: 0 }, { selected: 0, total: 0 }]
+                        return cells.map((cell, idx) => {
+                          const isEmpty = cell.total === 0
+                          return (
+                            <td key={`${lvl}-${idx}`} className={`tgl-td-cell ${isPast ? 'tgl-past' : ''} ${isFuture ? 'tgl-future' : ''} ${isEmpty ? 'tgl-empty' : ''}`}>
+                              {isEmpty ? (
+                                <span className="tgl-dash">—</span>
+                              ) : (
+                                <div className="tgl-app-cell">
+                                  <span className={`tgl-cell-count ${cell.selected === cell.total ? 'all-on' : cell.selected === 0 ? 'all-off' : ''}`}>
+                                    {cell.selected}/{cell.total}
+                                  </span>
+                                  <span className="tgl-app-pct">{pct(cell.selected, cell.total)}%</span>
+                                </div>
+                              )}
+                            </td>
+                          )
+                        })
+                      })}
+                      <td className="tgl-td-total">
+                        <span className={`tgl-cell-count ${rowTotals.selected === rowTotals.total && rowTotals.total > 0 ? 'all-on' : rowTotals.selected === 0 ? 'all-off' : ''}`}>
+                          {rowTotals.selected}/{rowTotals.total}
+                        </span>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+
+            <div className="tgl-legend">
+              <span className="tgl-legend-item"><strong>Sélectionnées</strong>/Total = appréciations choisies sur les champs disponibles</span>
+              {dropdownSummary.classMatrix.some(r => r.byItemLevel.some(b => b.relation === 'past')) && (
+                <span className="tgl-legend-item"><span className="tgl-legend-past" /> = niveau passé</span>
+              )}
+              {dropdownSummary.classMatrix.some(r => r.byItemLevel.some(b => b.relation === 'future')) && (
+                <span className="tgl-legend-item"><span className="tgl-legend-future" /> = niveau futur</span>
+              )}
+            </div>
+          </div>
+
+          {dropdownSummary.levels.length > 0 && (
+            <div className="tgl-level-cards tgl-app-level-cards">
+              {dropdownSummary.levels.map(lv => (
+                <div key={lv.level} className="tgl-level-card">
+                  <div className="tgl-level-card-header">
+                    <span className="tgl-level-badge">{lv.level}</span>
+                    <span className="tgl-level-pct">{pct(lv.selected, lv.total)}%</span>
+                  </div>
+                  <div className="tgl-level-bar"><div className="tgl-level-bar-fill tgl-app-bar-fill" style={{ width: `${pct(lv.selected, lv.total)}%` }} /></div>
+                  <div className="tgl-level-detail">{lv.selected} sélectionnées / {lv.total} total</div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

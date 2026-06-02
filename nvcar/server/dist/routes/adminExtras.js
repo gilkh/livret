@@ -803,6 +803,47 @@ function extractToggleItems(block, blockIdx, pageIdx, assignmentData) {
     }
     return results;
 }
+function extractDropdownItems(block, blockIdx, pageIdx, assignmentData) {
+    if (block?.type !== 'dropdown')
+        return [];
+    const props = block?.props || {};
+    const blockId = typeof props.blockId === 'string' && props.blockId.trim() ? props.blockId.trim() : null;
+    const keyStable = blockId ? `dropdown_${blockId}` : null;
+    const keyLegacy = props.dropdownNumber
+        ? `dropdown_${props.dropdownNumber}`
+        : props.variableName || `dropdown_${pageIdx}_${blockIdx}`;
+    const key = keyStable || keyLegacy;
+    const options = Array.isArray(props.options) && props.options.length > 0
+        ? props.options
+        : Array.isArray(props.appreciations)
+            ? props.appreciations.map((entry) => entry?.option).filter(Boolean)
+            : [];
+    if (!Array.isArray(options) || options.length === 0)
+        return [];
+    const levels = [];
+    if (Array.isArray(props.levels)) {
+        props.levels.forEach((value) => {
+            const normalized = String(value || '').trim().toUpperCase();
+            if (normalized)
+                levels.push(normalized);
+        });
+    }
+    if (typeof props.level === 'string') {
+        const normalized = String(props.level || '').trim().toUpperCase();
+        if (normalized)
+            levels.push(normalized);
+    }
+    const semestersRaw = Array.isArray(props.semesters) && props.semesters.length > 0 ? props.semesters : [1, 2];
+    const semesters = Array.from(new Set(semestersRaw
+        .map((value) => Number(value))
+        .filter((value) => [1, 2].includes(value))));
+    return [{
+            key,
+            value: String((keyStable ? assignmentData?.[keyStable] : undefined) ?? assignmentData?.[keyLegacy] ?? ''),
+            levels: Array.from(new Set(levels)),
+            semesters: semesters.length > 0 ? semesters : [1, 2]
+        }];
+}
 // Admin: Batch update gradebook toggle items by class or level
 exports.adminExtrasRouter.post('/gradebooks/toggles/batch-update', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
     try {
@@ -1337,6 +1378,212 @@ exports.adminExtrasRouter.get('/gradebooks/toggles/summary', (0, auth_1.requireA
     }
     catch (e) {
         return res.status(500).json({ error: 'toggle_summary_failed', message: e.message });
+    }
+});
+// Admin: Get dropdown appreciation summary counts by class, item level, and semester
+exports.adminExtrasRouter.get('/gradebooks/dropdowns/summary', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
+    try {
+        const schoolYearIdRaw = String(req.query?.schoolYearId || '').trim();
+        const toggleLevelRaw = String(req.query?.toggleLevel || 'ALL').trim().toUpperCase();
+        const targetYear = schoolYearIdRaw
+            ? await SchoolYear_1.SchoolYear.findById(schoolYearIdRaw).lean()
+            : await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
+        if (!targetYear) {
+            return res.status(400).json({ error: 'school_year_not_found' });
+        }
+        const schoolYearId = String(targetYear._id);
+        const classDocs = await Class_1.ClassModel.find({ schoolYearId }).lean();
+        const classIds = classDocs.map(c => String(c._id));
+        const classIdCandidates = [...classIds, ...classDocs.map(c => c._id)];
+        const classLevelById = new Map(classDocs.map(c => [String(c._id), String(c.level || '').toUpperCase()]));
+        const levelsMeta = await Level_1.Level.find({}).sort({ order: 1 }).lean();
+        const levelOrder = new Map();
+        levelsMeta.forEach((level, index) => {
+            const key = String(level?.name || '').trim().toUpperCase();
+            if (!key)
+                return;
+            const ord = Number.isFinite(Number(level?.order)) ? Number(level.order) : index + 1;
+            levelOrder.set(key, ord);
+        });
+        const emptyResponse = {
+            schoolYearId,
+            toggleLevel: toggleLevelRaw,
+            classes: classDocs.map(cls => ({
+                classId: String(cls._id),
+                className: cls.name,
+                level: cls.level || '',
+                selected: 0,
+                total: 0,
+                missing: 0
+            })),
+            levels: [],
+            classMatrix: [],
+            totals: { selected: 0, total: 0, missing: 0 }
+        };
+        if (classIds.length === 0)
+            return res.json(emptyResponse);
+        const enrollments = await Enrollment_1.Enrollment.find({
+            classId: { $in: classIdCandidates },
+            status: { $nin: ['archived', 'left'] }
+        }).select('studentId classId').lean();
+        const studentClassMap = new Map();
+        enrollments.forEach(enrollment => {
+            if (!enrollment?.studentId || !enrollment?.classId)
+                return;
+            studentClassMap.set(String(enrollment.studentId), String(enrollment.classId));
+        });
+        const studentIds = Array.from(studentClassMap.keys());
+        if (studentIds.length === 0)
+            return res.json(emptyResponse);
+        const assignments = await TemplateAssignment_1.TemplateAssignment.find({ studentId: { $in: studentIds } })
+            .select('studentId templateId templateVersion data')
+            .lean();
+        const templateIds = Array.from(new Set(assignments.map(a => String(a.templateId))));
+        const templates = await GradebookTemplate_1.GradebookTemplate.find({ _id: { $in: templateIds } }).select('pages currentVersion versionHistory').lean();
+        const templateMap = new Map(templates.map(t => [String(t._id), t]));
+        const classMetaById = new Map();
+        classDocs.forEach(cls => {
+            classMetaById.set(String(cls._id), {
+                className: cls.name,
+                level: cls.level || ''
+            });
+        });
+        const countersByClass = new Map();
+        classIds.forEach(classId => countersByClass.set(classId, { selected: 0, total: 0 }));
+        const matrixByClass = new Map();
+        classIds.forEach(classId => matrixByClass.set(classId, new Map()));
+        const ensureSemesterBucket = () => ({
+            sem1: { selected: 0, total: 0 },
+            sem2: { selected: 0, total: 0 },
+        });
+        const shouldIncludeDropdown = (dropdownLevels, assignmentLevel) => {
+            if (toggleLevelRaw === 'ALL')
+                return true;
+            if (dropdownLevels.length === 0)
+                return assignmentLevel === toggleLevelRaw;
+            return dropdownLevels.includes(toggleLevelRaw);
+        };
+        for (const assignment of assignments) {
+            const classId = studentClassMap.get(String(assignment.studentId));
+            if (!classId)
+                continue;
+            const templateRaw = templateMap.get(String(assignment.templateId));
+            const template = templateRaw ? (0, templateUtils_1.getVersionedTemplate)(templateRaw, assignment.templateVersion) : null;
+            const templatePages = Array.isArray(template?.pages) ? template.pages : [];
+            const assignmentData = assignment.data && typeof assignment.data === 'object' ? assignment.data : {};
+            const classCounters = countersByClass.get(classId);
+            if (!classCounters)
+                continue;
+            const assignmentLevel = String(classLevelById.get(String(classId)) || '').toUpperCase();
+            templatePages.forEach((page, pageIndex) => {
+                const blocks = Array.isArray(page?.blocks) ? page.blocks : [];
+                blocks.forEach((block, blockIndex) => {
+                    const dropdowns = extractDropdownItems(block, blockIndex, pageIndex, assignmentData);
+                    if (dropdowns.length === 0)
+                        return;
+                    dropdowns.forEach(dropdown => {
+                        if (!shouldIncludeDropdown(dropdown.levels, assignmentLevel))
+                            return;
+                        const itemLevels = dropdown.levels.length > 0 ? dropdown.levels : [assignmentLevel || 'Sans niveau'];
+                        itemLevels.forEach(itemLevel => {
+                            dropdown.semesters.forEach(semester => {
+                                classCounters.total += 1;
+                                if (dropdown.value)
+                                    classCounters.selected += 1;
+                                const classMatrix = matrixByClass.get(String(classId));
+                                if (!classMatrix)
+                                    return;
+                                if (!classMatrix.has(itemLevel))
+                                    classMatrix.set(itemLevel, ensureSemesterBucket());
+                                const bucket = classMatrix.get(itemLevel);
+                                const semesterKey = semester === 2 ? 'sem2' : 'sem1';
+                                bucket[semesterKey].total += 1;
+                                if (dropdown.value)
+                                    bucket[semesterKey].selected += 1;
+                            });
+                        });
+                    });
+                });
+            });
+        }
+        const classes = classIds.map(classId => {
+            const counters = countersByClass.get(classId) || { selected: 0, total: 0 };
+            const meta = classMetaById.get(classId) || { className: classId, level: '' };
+            return {
+                classId,
+                className: meta.className,
+                level: meta.level,
+                selected: counters.selected,
+                total: counters.total,
+                missing: Math.max(counters.total - counters.selected, 0)
+            };
+        }).sort((a, b) => a.className.localeCompare(b.className, 'fr', { sensitivity: 'base' }));
+        const levelMap = new Map();
+        classes.forEach(item => {
+            const levelKey = String(item.level || 'Sans niveau');
+            if (!levelMap.has(levelKey))
+                levelMap.set(levelKey, { selected: 0, total: 0 });
+            const counters = levelMap.get(levelKey);
+            counters.selected += item.selected;
+            counters.total += item.total;
+        });
+        const levels = Array.from(levelMap.entries())
+            .map(([level, counters]) => ({
+            level,
+            selected: counters.selected,
+            total: counters.total,
+            missing: Math.max(counters.total - counters.selected, 0)
+        }))
+            .sort((a, b) => a.level.localeCompare(b.level, 'fr', { sensitivity: 'base', numeric: true }));
+        const classMatrix = classIds.map(classId => {
+            const meta = classMetaById.get(classId) || { className: classId, level: '' };
+            const rawMatrix = matrixByClass.get(classId) || new Map();
+            const classLevel = String(meta.level || '').toUpperCase();
+            const classLevelOrder = levelOrder.get(classLevel);
+            const byItemLevel = [];
+            for (const [lvl, bucket] of rawMatrix.entries()) {
+                const lvlOrder = levelOrder.get(lvl);
+                let relation = 'current';
+                if (classLevel && lvl !== classLevel && Number.isFinite(classLevelOrder) && Number.isFinite(lvlOrder)) {
+                    if (Number(lvlOrder) < Number(classLevelOrder))
+                        relation = 'past';
+                    else if (Number(lvlOrder) > Number(classLevelOrder))
+                        relation = 'future';
+                }
+                byItemLevel.push({ itemLevel: lvl, relation, ...bucket });
+            }
+            byItemLevel.sort((a, b) => {
+                const oa = levelOrder.get(a.itemLevel) ?? 99;
+                const ob = levelOrder.get(b.itemLevel) ?? 99;
+                return oa - ob;
+            });
+            return {
+                classId,
+                className: meta.className,
+                level: meta.level,
+                byItemLevel
+            };
+        }).sort((a, b) => a.className.localeCompare(b.className, 'fr', { sensitivity: 'base' }));
+        const totals = classes.reduce((acc, cls) => {
+            acc.selected += cls.selected;
+            acc.total += cls.total;
+            return acc;
+        }, { selected: 0, total: 0 });
+        return res.json({
+            schoolYearId,
+            toggleLevel: toggleLevelRaw,
+            classes,
+            levels,
+            classMatrix,
+            totals: {
+                selected: totals.selected,
+                total: totals.total,
+                missing: Math.max(totals.total - totals.selected, 0)
+            }
+        });
+    }
+    catch (e) {
+        return res.status(500).json({ error: 'dropdown_summary_failed', message: e.message });
     }
 });
 // Admin: Sign gradebook (Unrestricted)
@@ -2631,6 +2878,49 @@ const adminComputeTeacherCompletionForSemester = (languageCompletionMap, languag
         return false;
     return languages.every(code => adminIsLanguageCompletedForSemester(languageCompletionMap, code, semester));
 };
+const adminExtractDropdownAppreciations = (template, assignment, studentLevel, semester) => {
+    const data = assignment?.data || {};
+    const drops = [];
+    const pages = Array.isArray(template?.pages) ? template.pages : [];
+    pages.forEach((page, pageIdx) => {
+        const blocks = Array.isArray(page?.blocks) ? page.blocks : [];
+        blocks.forEach((block, blockIdx) => {
+            if (block?.type !== 'dropdown')
+                return;
+            const props = block.props || {};
+            const semesters = Array.isArray(props.semesters) && props.semesters.length > 0 ? props.semesters : [1, 2];
+            if (!semesters.map(Number).includes(semester))
+                return;
+            const dropdownLevels = Array.isArray(props.levels) ? props.levels : [];
+            if (dropdownLevels.length > 0 && studentLevel) {
+                const levelMatch = dropdownLevels.some((level) => adminNormalizeLevel(level) === adminNormalizeLevel(studentLevel));
+                if (!levelMatch)
+                    return;
+            }
+            const blockId = typeof props.blockId === 'string' && props.blockId.trim() ? props.blockId.trim() : null;
+            const stableKey = blockId ? `dropdown_${blockId}` : null;
+            const legacyKey = props.dropdownNumber
+                ? `dropdown_${props.dropdownNumber}`
+                : props.variableName || `dropdown_${pageIdx}_${blockIdx}`;
+            const dataKey = stableKey || legacyKey;
+            const optionSet = Array.isArray(props.options) && props.options.length > 0
+                ? props.options
+                : Array.isArray(props.appreciations)
+                    ? props.appreciations.map((entry) => entry?.option).filter(Boolean)
+                    : [];
+            drops.push({
+                dataKey,
+                legacyKey,
+                label: props.label || `Appreciation ${props.dropdownNumber || drops.length + 1}`,
+                options: optionSet.map((option) => String(option || '')).filter(Boolean),
+                value: (stableKey ? data?.[stableKey] : undefined) ?? data?.[legacyKey] ?? '',
+                pageIndex: pageIdx,
+                blockIndex: blockIdx
+            });
+        });
+    });
+    return drops;
+};
 // GET /admin-extras/gradebooks/languages/status
 exports.adminExtrasRouter.get('/gradebooks/languages/status', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
     try {
@@ -2672,8 +2962,8 @@ exports.adminExtrasRouter.get('/gradebooks/languages/status', (0, auth_1.require
             studentId: { $in: studentIds }
         }).lean();
         const templateIds = [...new Set(assignments.map(a => String(a.templateId)).filter(Boolean))];
-        const templates = await GradebookTemplate_1.GradebookTemplate.find({ _id: { $in: templateIds } }).select('name').lean();
-        const templateMap = new Map(templates.map(t => [String(t._id), t.name]));
+        const templates = await GradebookTemplate_1.GradebookTemplate.find({ _id: { $in: templateIds } }).lean();
+        const templateMap = new Map(templates.map(t => [String(t._id), t]));
         const resultStudents = enrollments.map(enrollment => {
             const sid = String(enrollment.studentId);
             const student = studentMap.get(sid);
@@ -2698,13 +2988,19 @@ exports.adminExtrasRouter.get('/gradebooks/languages/status', (0, auth_1.require
                         languagesStatus.ar = isDone;
                 });
             }
+            const template = assignment ? templateMap.get(String(assignment.templateId)) : null;
+            const versionedTemplate = template ? (0, templateUtils_1.getVersionedTemplate)(template, assignment.templateVersion) : null;
+            const studentLevel = adminNormalizeLevel(classDoc.level || '');
             return {
                 studentId: sid,
                 firstName: student?.firstName || '',
                 lastName: student?.lastName || '',
                 assignmentId: assignment ? String(assignment._id) : null,
-                templateName: assignment ? (templateMap.get(String(assignment.templateId)) || 'Gradebook') : null,
-                languages: languagesStatus
+                templateName: assignment ? (template?.name || 'Gradebook') : null,
+                languages: languagesStatus,
+                appreciations: assignment && versionedTemplate
+                    ? adminExtractDropdownAppreciations(versionedTemplate, assignment, studentLevel, semester)
+                    : []
             };
         });
         // Sort students by lastName, firstName
@@ -2727,6 +3023,68 @@ exports.adminExtrasRouter.get('/gradebooks/languages/status', (0, auth_1.require
     catch (e) {
         console.error(e);
         res.status(500).json({ error: 'fetch_failed', message: e.message });
+    }
+});
+// POST /admin-extras/gradebooks/languages/appreciation
+exports.adminExtrasRouter.post('/gradebooks/languages/appreciation', (0, auth_1.requireAuth)(['ADMIN']), async (req, res) => {
+    try {
+        const assignmentId = String(req.body.assignmentId || '').trim();
+        const dataKey = String(req.body.dataKey || '').trim();
+        const value = String(req.body.value || '');
+        const semesterRaw = Number(req.body.semester);
+        if (!assignmentId)
+            return res.status(400).json({ error: 'missing_assignment_id' });
+        if (!dataKey)
+            return res.status(400).json({ error: 'missing_data_key' });
+        const activeSchoolYear = await SchoolYear_1.SchoolYear.findOne({ active: true }).lean();
+        const semester = [1, 2].includes(semesterRaw)
+            ? semesterRaw
+            : (activeSchoolYear?.activeSemester || 1);
+        const assignment = await TemplateAssignment_1.TemplateAssignment.findById(assignmentId);
+        if (!assignment)
+            return res.status(404).json({ error: 'assignment_not_found' });
+        const template = await GradebookTemplate_1.GradebookTemplate.findById(assignment.templateId).lean();
+        if (!template)
+            return res.status(404).json({ error: 'template_not_found' });
+        const enrollment = await Enrollment_1.Enrollment.findOne({ studentId: assignment.studentId }).sort({ _id: -1 }).lean();
+        const classDoc = enrollment?.classId ? await Class_1.ClassModel.findById(enrollment.classId).lean() : null;
+        const studentLevel = adminNormalizeLevel(classDoc?.level || '');
+        const versionedTemplate = (0, templateUtils_1.getVersionedTemplate)(template, assignment.templateVersion);
+        const dropdowns = adminExtractDropdownAppreciations(versionedTemplate, assignment, studentLevel, semester);
+        const dropdown = dropdowns.find(d => d.dataKey === dataKey);
+        if (!dropdown)
+            return res.status(400).json({ error: 'invalid_dropdown_key' });
+        if (value && dropdown.options.length > 0 && !dropdown.options.includes(value)) {
+            return res.status(400).json({ error: 'invalid_dropdown_value' });
+        }
+        const nextData = { ...(assignment.data || {}), [dataKey]: value };
+        assignment.data = nextData;
+        assignment.dataVersion = (assignment.dataVersion || 1) + 1;
+        await assignment.save();
+        const adminId = req.user.userId;
+        const student = await Student_1.Student.findById(assignment.studentId).lean();
+        await (0, auditLogger_1.logAudit)({
+            userId: adminId,
+            action: 'UPDATE_TEMPLATE_DATA',
+            details: {
+                assignmentId,
+                semester,
+                dataKey,
+                label: dropdown.label,
+                value,
+                templateId: assignment.templateId,
+                templateName: template?.name,
+                studentId: assignment.studentId,
+                studentName: student ? `${student.firstName} ${student.lastName}` : 'Unknown',
+                triggeredBy: 'ADMIN_GRADEBOOKS_LANGUAGES_PAGE'
+            },
+            req,
+        });
+        res.json({ success: true, dataKey, value, dataVersion: assignment.dataVersion });
+    }
+    catch (e) {
+        console.error(e);
+        res.status(500).json({ error: 'appreciation_update_failed', message: e.message });
     }
 });
 // POST /admin-extras/gradebooks/languages/toggle

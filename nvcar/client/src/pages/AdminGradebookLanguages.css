@@ -1,6 +1,6 @@
 .admin-gradebook-languages-page {
   padding: 24px;
-  max-width: 1300px;
+  max-width: 1480px;
   margin: 0 auto;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   color: #1e293b;
@@ -189,6 +189,74 @@
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 16px;
+}
+
+.appreciation-overview {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 20px;
+  border-left: 4px solid #2563eb;
+}
+
+.appreciation-overview-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #eff6ff;
+  color: #2563eb;
+  border: 1px solid #bfdbfe;
+  flex-shrink: 0;
+}
+
+.appreciation-overview-label {
+  color: #475569;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+.appreciation-overview-counts {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  flex-wrap: wrap;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.appreciation-overview-counts .selected-count,
+.appreciation-overview-counts .missing-count {
+  font-size: 24px;
+  font-weight: 850;
+  line-height: 1;
+}
+
+.selected-count {
+  color: #059669;
+}
+
+.missing-count {
+  color: #dc2626;
+}
+
+.count-separator {
+  color: #cbd5e1;
+  font-weight: 800;
+}
+
+.appreciation-overview-subtitle {
+  margin-top: 4px;
+  color: #94a3b8;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 @media (max-width: 900px) {
@@ -494,11 +562,13 @@
 /* Students Table styling */
 .table-container {
   padding: 0;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
 .students-table {
   width: 100%;
+  min-width: 1240px;
   border-collapse: collapse;
   text-align: left;
   font-size: 14px;
@@ -579,6 +649,99 @@
   padding: 4px 8px;
   border-radius: 6px;
   display: inline-block;
+}
+
+.appreciations-panel {
+  min-width: 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.appreciations-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.appreciations-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+}
+
+.appreciation-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.appreciation-field > span {
+  color: #475569;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.appreciation-select-wrap {
+  position: relative;
+}
+
+.appreciation-select-wrap select {
+  width: 100%;
+  min-height: 36px;
+  padding: 8px 32px 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background: white;
+  color: #0f172a;
+  font-size: 12px;
+  font-weight: 600;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.appreciation-select-wrap select:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
+}
+
+.appreciation-select-wrap select:disabled {
+  cursor: not-allowed;
+  opacity: 0.68;
+}
+
+.appreciation-spinner {
+  position: absolute;
+  right: 10px;
+  top: 10px;
+  color: #2563eb;
+  background: white;
+}
+
+.no-appreciations-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: #f8fafc;
+  border: 1px dashed #cbd5e1;
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .center-header, .center-cell {
