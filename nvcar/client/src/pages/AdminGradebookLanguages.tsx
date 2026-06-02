@@ -11,7 +11,8 @@ import {
   X,
   Languages,
   BookOpen,
-  Users
+  Users,
+  MessageSquareText
 } from 'lucide-react'
 import api from '../api'
 import './AdminGradebookLanguages.css'
@@ -22,6 +23,12 @@ interface StudentLanguageStatus {
   lastName: string
   assignmentId: string | null
   templateName: string | null
+  appreciations?: {
+    dataKey: string
+    label: string
+    options: string[]
+    value: string
+  }[]
   languages: {
     fr: boolean
     en: boolean
@@ -125,18 +132,32 @@ export default function AdminGradebookLanguages() {
   // Stat counts
   const stats = useMemo(() => {
     const total = students.filter(s => !!s.assignmentId).length
-    if (total === 0) return { fr: 0, en: 0, ar: 0, total: 0 }
+    if (total === 0) return { fr: 0, en: 0, ar: 0, total: 0, appreciationsSelected: 0, appreciationsMissing: 0, appreciationsTotal: 0 }
     
     let fr = 0, en = 0, ar = 0
+    let appreciationsSelected = 0
+    let appreciationsTotal = 0
     students.forEach(s => {
       if (s.assignmentId) {
         if (s.languages.fr) fr++
         if (s.languages.en) en++
         if (s.languages.ar) ar++
+        ;(s.appreciations || []).forEach(app => {
+          appreciationsTotal++
+          if (app.value) appreciationsSelected++
+        })
       }
     })
     
-    return { fr, en, ar, total }
+    return {
+      fr,
+      en,
+      ar,
+      total,
+      appreciationsSelected,
+      appreciationsMissing: appreciationsTotal - appreciationsSelected,
+      appreciationsTotal
+    }
   }, [students])
 
   const showToast = (type: 'success' | 'error', message: string) => {
@@ -218,6 +239,47 @@ export default function AdminGradebookLanguages() {
         )
       } else {
         showToast('error', 'Erreur lors de la mise à jour.')
+      }
+    } catch (e: any) {
+      console.error(e)
+      showToast('error', e.response?.data?.message || 'Une erreur est survenue.')
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  const handleUpdateAppreciation = async (
+    student: StudentLanguageStatus,
+    dataKey: string,
+    value: string
+  ) => {
+    if (!student.assignmentId) return
+    const loadingKey = `${student.studentId}-appreciation-${dataKey}`
+    setActionLoading(loadingKey)
+
+    try {
+      const res = await api.post('/admin-extras/gradebooks/languages/appreciation', {
+        assignmentId: student.assignmentId,
+        dataKey,
+        value,
+        semester: selectedSemester
+      })
+
+      if (res.data.success) {
+        setStudents(prev =>
+          prev.map(s => {
+            if (s.studentId !== student.studentId) return s
+            return {
+              ...s,
+              appreciations: (s.appreciations || []).map(app =>
+                app.dataKey === dataKey ? { ...app, value } : app
+              )
+            }
+          })
+        )
+        showToast('success', `Appréciation mise à jour pour ${student.firstName} ${student.lastName}`)
+      } else {
+        showToast('error', 'Erreur lors de la mise à jour de l’appréciation.')
       }
     } catch (e: any) {
       console.error(e)
@@ -464,6 +526,25 @@ export default function AdminGradebookLanguages() {
             )
           })()}
         </div>
+
+        <div className="appreciation-overview glass">
+          <div className="appreciation-overview-icon">
+            <MessageSquareText size={20} />
+          </div>
+          <div>
+            <div className="appreciation-overview-label">Appréciations</div>
+            <div className="appreciation-overview-counts">
+              <span className="selected-count">{stats.appreciationsSelected}</span>
+              <span>sélectionnée(s)</span>
+              <span className="count-separator">/</span>
+              <span className="missing-count">{stats.appreciationsMissing}</span>
+              <span>non sélectionnée(s)</span>
+            </div>
+            <div className="appreciation-overview-subtitle">
+              {stats.appreciationsTotal} champ(s) pour la classe et le semestre affichés
+            </div>
+          </div>
+        </div>
       </section>
 
       {/* Actions and Search */}
@@ -524,6 +605,7 @@ export default function AdminGradebookLanguages() {
                 <th className="center-header">Polyvalent</th>
                 <th className="center-header">Anglais</th>
                 <th className="center-header">Arabe</th>
+                <th>Appréciations</th>
                 <th className="center-header">Actions Globales</th>
               </tr>
             </thead>
@@ -611,6 +693,47 @@ export default function AdminGradebookLanguages() {
                             <><X size={14} /> En attente</>
                           )}
                         </button>
+                      ) : '-'}
+                    </td>
+
+                    <td>
+                      {hasAssignment ? (
+                        (student.appreciations || []).length > 0 ? (
+                          <div className="appreciations-panel">
+                            <div className="appreciations-summary">
+                              <MessageSquareText size={14} />
+                              <span>
+                                {(student.appreciations || []).filter(app => !!app.value).length}
+                                /{(student.appreciations || []).length} sélectionnée(s)
+                              </span>
+                            </div>
+                            <div className="appreciations-grid">
+                              {(student.appreciations || []).map(app => {
+                                const loadingKey = `${student.studentId}-appreciation-${app.dataKey}`
+                                return (
+                                  <label className="appreciation-field" key={app.dataKey}>
+                                    <span title={app.label}>{app.label}</span>
+                                    <div className="appreciation-select-wrap">
+                                      <select
+                                        value={app.value || ''}
+                                        onChange={e => handleUpdateAppreciation(student, app.dataKey, e.target.value)}
+                                        disabled={actionLoading !== null}
+                                      >
+                                        <option value="">Sélectionner...</option>
+                                        {app.options.map(option => (
+                                          <option key={option} value={option}>{option}</option>
+                                        ))}
+                                      </select>
+                                      {actionLoading === loadingKey && <div className="mini-spinner appreciation-spinner" />}
+                                    </div>
+                                  </label>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="no-appreciations-tag">Aucune appréciation</span>
+                        )
                       ) : '-'}
                     </td>
 

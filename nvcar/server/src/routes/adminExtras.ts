@@ -2907,6 +2907,56 @@ const adminComputeTeacherCompletionForSemester = (languageCompletionMap: Record<
     return languages.every(code => adminIsLanguageCompletedForSemester(languageCompletionMap, code, semester))
 }
 
+const adminExtractDropdownAppreciations = (template: any, assignment: any, studentLevel: string, semester: number) => {
+    const data = assignment?.data || {}
+    const drops: any[] = []
+    const pages = Array.isArray(template?.pages) ? template.pages : []
+
+    pages.forEach((page: any, pageIdx: number) => {
+        const blocks = Array.isArray(page?.blocks) ? page.blocks : []
+        blocks.forEach((block: any, blockIdx: number) => {
+            if (block?.type !== 'dropdown') return
+
+            const props = block.props || {}
+            const semesters = Array.isArray(props.semesters) && props.semesters.length > 0 ? props.semesters : [1, 2]
+            if (!semesters.map(Number).includes(semester)) return
+
+            const dropdownLevels = Array.isArray(props.levels) ? props.levels : []
+            if (dropdownLevels.length > 0 && studentLevel) {
+                const levelMatch = dropdownLevels.some((level: any) =>
+                    adminNormalizeLevel(level) === adminNormalizeLevel(studentLevel)
+                )
+                if (!levelMatch) return
+            }
+
+            const blockId = typeof props.blockId === 'string' && props.blockId.trim() ? props.blockId.trim() : null
+            const stableKey = blockId ? `dropdown_${blockId}` : null
+            const legacyKey = props.dropdownNumber
+                ? `dropdown_${props.dropdownNumber}`
+                : props.variableName || `dropdown_${pageIdx}_${blockIdx}`
+            const dataKey = stableKey || legacyKey
+
+            const optionSet = Array.isArray(props.options) && props.options.length > 0
+                ? props.options
+                : Array.isArray(props.appreciations)
+                    ? props.appreciations.map((entry: any) => entry?.option).filter(Boolean)
+                    : []
+
+            drops.push({
+                dataKey,
+                legacyKey,
+                label: props.label || `Appreciation ${props.dropdownNumber || drops.length + 1}`,
+                options: optionSet.map((option: any) => String(option || '')).filter(Boolean),
+                value: (stableKey ? data?.[stableKey] : undefined) ?? data?.[legacyKey] ?? '',
+                pageIndex: pageIdx,
+                blockIndex: blockIdx
+            })
+        })
+    })
+
+    return drops
+}
+
 // GET /admin-extras/gradebooks/languages/status
 adminExtrasRouter.get('/gradebooks/languages/status', requireAuth(['ADMIN']), async (req, res) => {
     try {
@@ -2958,8 +3008,8 @@ adminExtrasRouter.get('/gradebooks/languages/status', requireAuth(['ADMIN']), as
         }).lean()
 
         const templateIds = [...new Set(assignments.map(a => String(a.templateId)).filter(Boolean))]
-        const templates = await GradebookTemplate.find({ _id: { $in: templateIds } }).select('name').lean()
-        const templateMap = new Map(templates.map(t => [String(t._id), t.name]))
+        const templates = await GradebookTemplate.find({ _id: { $in: templateIds } }).lean()
+        const templateMap = new Map(templates.map(t => [String(t._id), t]))
 
         const resultStudents = enrollments.map(enrollment => {
             const sid = String(enrollment.studentId)
@@ -2986,13 +3036,20 @@ adminExtrasRouter.get('/gradebooks/languages/status', requireAuth(['ADMIN']), as
                 })
             }
 
+            const template = assignment ? templateMap.get(String(assignment.templateId)) : null
+            const versionedTemplate = template ? getVersionedTemplate(template, (assignment as any).templateVersion) : null
+            const studentLevel = adminNormalizeLevel(classDoc.level || '')
+
             return {
                 studentId: sid,
                 firstName: student?.firstName || '',
                 lastName: student?.lastName || '',
                 assignmentId: assignment ? String(assignment._id) : null,
-                templateName: assignment ? (templateMap.get(String(assignment.templateId)) || 'Gradebook') : null,
-                languages: languagesStatus
+                templateName: assignment ? (template?.name || 'Gradebook') : null,
+                languages: languagesStatus,
+                appreciations: assignment && versionedTemplate
+                    ? adminExtractDropdownAppreciations(versionedTemplate, assignment, studentLevel, semester)
+                    : []
             }
         })
 
@@ -3016,6 +3073,72 @@ adminExtrasRouter.get('/gradebooks/languages/status', requireAuth(['ADMIN']), as
     } catch (e: any) {
         console.error(e)
         res.status(500).json({ error: 'fetch_failed', message: e.message })
+    }
+})
+
+// POST /admin-extras/gradebooks/languages/appreciation
+adminExtrasRouter.post('/gradebooks/languages/appreciation', requireAuth(['ADMIN']), async (req, res) => {
+    try {
+        const assignmentId = String(req.body.assignmentId || '').trim()
+        const dataKey = String(req.body.dataKey || '').trim()
+        const value = String(req.body.value || '')
+        const semesterRaw = Number(req.body.semester)
+
+        if (!assignmentId) return res.status(400).json({ error: 'missing_assignment_id' })
+        if (!dataKey) return res.status(400).json({ error: 'missing_data_key' })
+
+        const activeSchoolYear = await SchoolYear.findOne({ active: true }).lean()
+        const semester = [1, 2].includes(semesterRaw)
+            ? semesterRaw
+            : (activeSchoolYear?.activeSemester || 1)
+
+        const assignment = await TemplateAssignment.findById(assignmentId)
+        if (!assignment) return res.status(404).json({ error: 'assignment_not_found' })
+
+        const template = await GradebookTemplate.findById(assignment.templateId).lean()
+        if (!template) return res.status(404).json({ error: 'template_not_found' })
+
+        const enrollment = await Enrollment.findOne({ studentId: assignment.studentId }).sort({ _id: -1 }).lean()
+        const classDoc = enrollment?.classId ? await ClassModel.findById(enrollment.classId).lean() : null
+        const studentLevel = adminNormalizeLevel(classDoc?.level || '')
+        const versionedTemplate = getVersionedTemplate(template, (assignment as any).templateVersion)
+        const dropdowns = adminExtractDropdownAppreciations(versionedTemplate, assignment, studentLevel, semester)
+        const dropdown = dropdowns.find(d => d.dataKey === dataKey)
+
+        if (!dropdown) return res.status(400).json({ error: 'invalid_dropdown_key' })
+        if (value && dropdown.options.length > 0 && !dropdown.options.includes(value)) {
+            return res.status(400).json({ error: 'invalid_dropdown_value' })
+        }
+
+        const nextData = { ...((assignment as any).data || {}), [dataKey]: value }
+        ;(assignment as any).data = nextData
+        ;(assignment as any).dataVersion = ((assignment as any).dataVersion || 1) + 1
+        await assignment.save()
+
+        const adminId = (req as any).user.userId
+        const student = await Student.findById(assignment.studentId).lean()
+        await logAudit({
+            userId: adminId,
+            action: 'UPDATE_TEMPLATE_DATA',
+            details: {
+                assignmentId,
+                semester,
+                dataKey,
+                label: dropdown.label,
+                value,
+                templateId: assignment.templateId,
+                templateName: template?.name,
+                studentId: assignment.studentId,
+                studentName: student ? `${student.firstName} ${student.lastName}` : 'Unknown',
+                triggeredBy: 'ADMIN_GRADEBOOKS_LANGUAGES_PAGE'
+            },
+            req,
+        })
+
+        res.json({ success: true, dataKey, value, dataVersion: (assignment as any).dataVersion })
+    } catch (e: any) {
+        console.error(e)
+        res.status(500).json({ error: 'appreciation_update_failed', message: e.message })
     }
 })
 
