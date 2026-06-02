@@ -881,6 +881,54 @@ function extractToggleItems(block: any, blockIdx: number, pageIdx: number, assig
     return results
 }
 
+function extractDropdownItems(block: any, blockIdx: number, pageIdx: number, assignmentData: any): { key: string, value: string, levels: string[], semesters: number[] }[] {
+    if (block?.type !== 'dropdown') return []
+
+    const props = block?.props || {}
+    const blockId = typeof props.blockId === 'string' && props.blockId.trim() ? props.blockId.trim() : null
+    const keyStable = blockId ? `dropdown_${blockId}` : null
+    const keyLegacy = props.dropdownNumber
+        ? `dropdown_${props.dropdownNumber}`
+        : props.variableName || `dropdown_${pageIdx}_${blockIdx}`
+    const key = keyStable || keyLegacy
+
+    const options = Array.isArray(props.options) && props.options.length > 0
+        ? props.options
+        : Array.isArray(props.appreciations)
+            ? props.appreciations.map((entry: any) => entry?.option).filter(Boolean)
+            : []
+
+    if (!Array.isArray(options) || options.length === 0) return []
+
+    const levels: string[] = []
+    if (Array.isArray(props.levels)) {
+        props.levels.forEach((value: unknown) => {
+            const normalized = String(value || '').trim().toUpperCase()
+            if (normalized) levels.push(normalized)
+        })
+    }
+    if (typeof props.level === 'string') {
+        const normalized = String(props.level || '').trim().toUpperCase()
+        if (normalized) levels.push(normalized)
+    }
+
+    const semestersRaw = Array.isArray(props.semesters) && props.semesters.length > 0 ? props.semesters : [1, 2]
+    const semesters: number[] = Array.from(
+        new Set<number>(
+            semestersRaw
+                .map((value: unknown) => Number(value))
+                .filter((value: number) => [1, 2].includes(value))
+        )
+    )
+
+    return [{
+        key,
+        value: String((keyStable ? assignmentData?.[keyStable] : undefined) ?? assignmentData?.[keyLegacy] ?? ''),
+        levels: Array.from(new Set(levels)),
+        semesters: semesters.length > 0 ? semesters : [1, 2]
+    }]
+}
+
 // Admin: Batch update gradebook toggle items by class or level
 adminExtrasRouter.post('/gradebooks/toggles/batch-update', requireAuth(['ADMIN']), async (req, res) => {
     try {
@@ -1450,6 +1498,232 @@ adminExtrasRouter.get('/gradebooks/toggles/summary', requireAuth(['ADMIN']), asy
         })
     } catch (e: any) {
         return res.status(500).json({ error: 'toggle_summary_failed', message: e.message })
+    }
+})
+
+// Admin: Get dropdown appreciation summary counts by class, item level, and semester
+adminExtrasRouter.get('/gradebooks/dropdowns/summary', requireAuth(['ADMIN']), async (req, res) => {
+    try {
+        const schoolYearIdRaw = String(req.query?.schoolYearId || '').trim()
+        const toggleLevelRaw = String(req.query?.toggleLevel || 'ALL').trim().toUpperCase()
+
+        const targetYear = schoolYearIdRaw
+            ? await SchoolYear.findById(schoolYearIdRaw).lean()
+            : await SchoolYear.findOne({ active: true }).lean()
+
+        if (!targetYear) {
+            return res.status(400).json({ error: 'school_year_not_found' })
+        }
+
+        const schoolYearId = String((targetYear as any)._id)
+        const classDocs = await ClassModel.find({ schoolYearId }).lean()
+        const classIds = classDocs.map(c => String((c as any)._id))
+        const classIdCandidates: any[] = [...classIds, ...classDocs.map(c => (c as any)._id)]
+        const classLevelById = new Map<string, string>(classDocs.map(c => [String((c as any)._id), String((c as any).level || '').toUpperCase()]))
+
+        const levelsMeta = await Level.find({}).sort({ order: 1 }).lean()
+        const levelOrder = new Map<string, number>()
+        levelsMeta.forEach((level: any, index: number) => {
+            const key = String(level?.name || '').trim().toUpperCase()
+            if (!key) return
+            const ord = Number.isFinite(Number(level?.order)) ? Number(level.order) : index + 1
+            levelOrder.set(key, ord)
+        })
+
+        const emptyResponse = {
+            schoolYearId,
+            toggleLevel: toggleLevelRaw,
+            classes: classDocs.map(cls => ({
+                classId: String((cls as any)._id),
+                className: (cls as any).name,
+                level: (cls as any).level || '',
+                selected: 0,
+                total: 0,
+                missing: 0
+            })),
+            levels: [] as any[],
+            classMatrix: [] as any[],
+            totals: { selected: 0, total: 0, missing: 0 }
+        }
+
+        if (classIds.length === 0) return res.json(emptyResponse)
+
+        const enrollments = await Enrollment.find({
+            classId: { $in: classIdCandidates },
+            status: { $nin: ['archived', 'left'] }
+        }).select('studentId classId').lean()
+
+        const studentClassMap = new Map<string, string>()
+        enrollments.forEach(enrollment => {
+            if (!enrollment?.studentId || !enrollment?.classId) return
+            studentClassMap.set(String(enrollment.studentId), String(enrollment.classId))
+        })
+
+        const studentIds = Array.from(studentClassMap.keys())
+        if (studentIds.length === 0) return res.json(emptyResponse)
+
+        const assignments = await TemplateAssignment.find({ studentId: { $in: studentIds } })
+            .select('studentId templateId templateVersion data')
+            .lean()
+
+        const templateIds = Array.from(new Set(assignments.map(a => String(a.templateId))))
+        const templates = await GradebookTemplate.find({ _id: { $in: templateIds } }).select('pages currentVersion versionHistory').lean()
+        const templateMap = new Map<string, any>(templates.map(t => [String((t as any)._id), t]))
+
+        const classMetaById = new Map<string, { className: string, level: string }>()
+        classDocs.forEach(cls => {
+            classMetaById.set(String((cls as any)._id), {
+                className: (cls as any).name,
+                level: (cls as any).level || ''
+            })
+        })
+
+        const countersByClass = new Map<string, { selected: number, total: number }>()
+        classIds.forEach(classId => countersByClass.set(classId, { selected: 0, total: 0 }))
+
+        const matrixByClass = new Map<string, Map<string, { sem1: { selected: number, total: number }, sem2: { selected: number, total: number } }>>()
+        classIds.forEach(classId => matrixByClass.set(classId, new Map()))
+
+        const ensureSemesterBucket = () => ({
+            sem1: { selected: 0, total: 0 },
+            sem2: { selected: 0, total: 0 },
+        })
+
+        const shouldIncludeDropdown = (dropdownLevels: string[], assignmentLevel: string) => {
+            if (toggleLevelRaw === 'ALL') return true
+            if (dropdownLevels.length === 0) return assignmentLevel === toggleLevelRaw
+            return dropdownLevels.includes(toggleLevelRaw)
+        }
+
+        for (const assignment of assignments as any[]) {
+            const classId = studentClassMap.get(String(assignment.studentId))
+            if (!classId) continue
+
+            const templateRaw = templateMap.get(String(assignment.templateId))
+            const template = templateRaw ? getVersionedTemplate(templateRaw, (assignment as any).templateVersion) : null
+            const templatePages = Array.isArray((template as any)?.pages) ? (template as any).pages : []
+            const assignmentData = assignment.data && typeof assignment.data === 'object' ? assignment.data : {}
+            const classCounters = countersByClass.get(classId)
+            if (!classCounters) continue
+
+            const assignmentLevel = String(classLevelById.get(String(classId)) || '').toUpperCase()
+
+            templatePages.forEach((page: any, pageIndex: number) => {
+                const blocks = Array.isArray(page?.blocks) ? page.blocks : []
+                blocks.forEach((block: any, blockIndex: number) => {
+                    const dropdowns = extractDropdownItems(block, blockIndex, pageIndex, assignmentData)
+                    if (dropdowns.length === 0) return
+
+                    dropdowns.forEach(dropdown => {
+                        if (!shouldIncludeDropdown(dropdown.levels, assignmentLevel)) return
+
+                        const itemLevels = dropdown.levels.length > 0 ? dropdown.levels : [assignmentLevel || 'Sans niveau']
+                        itemLevels.forEach(itemLevel => {
+                            dropdown.semesters.forEach(semester => {
+                                classCounters.total += 1
+                                if (dropdown.value) classCounters.selected += 1
+
+                                const classMatrix = matrixByClass.get(String(classId))
+                                if (!classMatrix) return
+                                if (!classMatrix.has(itemLevel)) classMatrix.set(itemLevel, ensureSemesterBucket())
+                                const bucket = classMatrix.get(itemLevel)!
+                                const semesterKey = semester === 2 ? 'sem2' : 'sem1'
+                                bucket[semesterKey].total += 1
+                                if (dropdown.value) bucket[semesterKey].selected += 1
+                            })
+                        })
+                    })
+                })
+            })
+        }
+
+        const classes = classIds.map(classId => {
+            const counters = countersByClass.get(classId) || { selected: 0, total: 0 }
+            const meta = classMetaById.get(classId) || { className: classId, level: '' }
+            return {
+                classId,
+                className: meta.className,
+                level: meta.level,
+                selected: counters.selected,
+                total: counters.total,
+                missing: Math.max(counters.total - counters.selected, 0)
+            }
+        }).sort((a, b) => a.className.localeCompare(b.className, 'fr', { sensitivity: 'base' }))
+
+        const levelMap = new Map<string, { selected: number, total: number }>()
+        classes.forEach(item => {
+            const levelKey = String(item.level || 'Sans niveau')
+            if (!levelMap.has(levelKey)) levelMap.set(levelKey, { selected: 0, total: 0 })
+            const counters = levelMap.get(levelKey)!
+            counters.selected += item.selected
+            counters.total += item.total
+        })
+
+        const levels = Array.from(levelMap.entries())
+            .map(([level, counters]) => ({
+                level,
+                selected: counters.selected,
+                total: counters.total,
+                missing: Math.max(counters.total - counters.selected, 0)
+            }))
+            .sort((a, b) => a.level.localeCompare(b.level, 'fr', { sensitivity: 'base', numeric: true }))
+
+        const classMatrix = classIds.map(classId => {
+            const meta = classMetaById.get(classId) || { className: classId, level: '' }
+            const rawMatrix = matrixByClass.get(classId) || new Map()
+            const classLevel = String(meta.level || '').toUpperCase()
+            const classLevelOrder = levelOrder.get(classLevel)
+            const byItemLevel: Array<{
+                itemLevel: string
+                relation: 'current' | 'past' | 'future'
+                sem1: { selected: number; total: number }
+                sem2: { selected: number; total: number }
+            }> = []
+
+            for (const [lvl, bucket] of rawMatrix.entries()) {
+                const lvlOrder = levelOrder.get(lvl)
+                let relation: 'current' | 'past' | 'future' = 'current'
+                if (classLevel && lvl !== classLevel && Number.isFinite(classLevelOrder) && Number.isFinite(lvlOrder)) {
+                    if (Number(lvlOrder) < Number(classLevelOrder)) relation = 'past'
+                    else if (Number(lvlOrder) > Number(classLevelOrder)) relation = 'future'
+                }
+                byItemLevel.push({ itemLevel: lvl, relation, ...bucket })
+            }
+
+            byItemLevel.sort((a, b) => {
+                const oa = levelOrder.get(a.itemLevel) ?? 99
+                const ob = levelOrder.get(b.itemLevel) ?? 99
+                return oa - ob
+            })
+
+            return {
+                classId,
+                className: meta.className,
+                level: meta.level,
+                byItemLevel
+            }
+        }).sort((a, b) => a.className.localeCompare(b.className, 'fr', { sensitivity: 'base' }))
+
+        const totals = classes.reduce((acc, cls) => {
+            acc.selected += cls.selected
+            acc.total += cls.total
+            return acc
+        }, { selected: 0, total: 0 })
+
+        return res.json({
+            schoolYearId,
+            toggleLevel: toggleLevelRaw,
+            classes,
+            levels,
+            classMatrix,
+            totals: {
+                selected: totals.selected,
+                total: totals.total,
+                missing: Math.max(totals.total - totals.selected, 0)
+            }
+        })
+    } catch (e: any) {
+        return res.status(500).json({ error: 'dropdown_summary_failed', message: e.message })
     }
 })
 

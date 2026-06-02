@@ -385,6 +385,76 @@
   font-size: 16px;
   margin: 0 0 12px;
 }
+.tgl-section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+.tgl-section-head h2 {
+  margin-bottom: 4px;
+}
+.tgl-section-head p {
+  margin: 0;
+  color: #6b7280;
+  font-size: 13px;
+}
+.tgl-dropdown-stats {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.tgl-dropdown-stats span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 700;
+}
+.tgl-dropdown-stats strong {
+  color: #0f172a;
+  font-size: 15px;
+}
+.tgl-dropdown-wrap {
+  border-color: #bfdbfe;
+}
+.tgl-dropdown-matrix .tgl-th-level {
+  background: #eff6ff;
+}
+.tgl-app-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.tgl-app-pct {
+  color: #94a3b8;
+  font-size: 10px;
+  font-weight: 700;
+}
+.tgl-app-level-cards {
+  margin-top: 12px;
+}
+.tgl-app-bar-fill {
+  background: #2563eb;
+}
+
+@media (max-width: 760px) {
+  .tgl-section-head {
+    flex-direction: column;
+  }
+  .tgl-dropdown-stats {
+    justify-content: flex-start;
+  }
+}
 
 /* ─── Level cards ─── */
 .tgl-level-cards {
