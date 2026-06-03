@@ -1496,9 +1496,22 @@ teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data', require
                     if (allowedSemesters.length > 0 && !allowedSemesters.includes(activeSemester) && !isTeacherQualifiedForException) {
                         return res.status(403).json({ error: 'semester_mismatch', details: { activeSemester, allowedSemesters } })
                     }
-                }
 
-                sanitizedPatch[key] = value
+                    // Sync keys: write to both stableKey and legacyKey
+                    const blockId = typeof dropdownBlock?.props?.blockId === 'string' && dropdownBlock.props.blockId.trim() ? dropdownBlock.props.blockId.trim() : null
+                    const stableKey = blockId ? `dropdown_${blockId}` : null
+                    const legacyKey = dropdownBlock.props.dropdownNumber
+                        ? `dropdown_${dropdownBlock.props.dropdownNumber}`
+                        : dropdownBlock.props.variableName ? dropdownBlock.props.variableName : null
+
+                    if (stableKey) sanitizedPatch[stableKey] = value
+                    if (legacyKey) sanitizedPatch[legacyKey] = value
+                    if (!stableKey && !legacyKey) {
+                        sanitizedPatch[key] = value
+                    }
+                } else {
+                    sanitizedPatch[key] = value
+                }
                 continue
             }
 
@@ -1519,9 +1532,15 @@ teacherTemplatesRouter.patch('/template-assignments/:assignmentId/data', require
                 if (allowedSemesters.length > 0 && !allowedSemesters.includes(activeSemester) && !isTeacherQualifiedForException) {
                     return res.status(403).json({ error: 'semester_mismatch', details: { activeSemester, allowedSemesters } })
                 }
-            }
 
-            sanitizedPatch[key] = value
+                // Sync keys: write to both stableKey and legacyKey (variable name is the legacyKey)
+                const blockId = typeof variableBlock?.props?.blockId === 'string' && variableBlock.props.blockId.trim() ? variableBlock.props.blockId.trim() : null
+                const stableKey = blockId ? `dropdown_${blockId}` : null
+                if (stableKey) sanitizedPatch[stableKey] = value
+                sanitizedPatch[key] = value
+            } else {
+                sanitizedPatch[key] = value
+            }
         }
 
         const updated = await TemplateAssignment.findByIdAndUpdate(

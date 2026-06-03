@@ -3181,6 +3181,36 @@ const adminComputeTeacherCompletionForSemester = (languageCompletionMap: Record<
     return languages.every(code => adminIsLanguageCompletedForSemester(languageCompletionMap, code, semester))
 }
 
+const adminNormalizeText = (v: any) => String(v || '').trim()
+
+const adminResolveBaseOptionValue = (block: any, rawValue: string) => {
+    const val = adminNormalizeText(rawValue)
+    if (!val) return ''
+
+    const appreciations = Array.isArray(block?.props?.appreciations)
+        ? block.props.appreciations
+        : []
+
+    // 1. Check direct option match
+    let found = appreciations.find((entry: any) => adminNormalizeText(entry?.option) === val)
+    if (found) return found.option
+
+    // 2. Check femaleText match
+    found = appreciations.find((entry: any) => adminNormalizeText(entry?.femaleText) === val)
+    if (found) return found.option
+
+    // 3. Check maleText match
+    found = appreciations.find((entry: any) => adminNormalizeText(entry?.maleText) === val)
+    if (found) return found.option
+
+    // 4. Fallback to options array
+    const options = Array.isArray(block?.props?.options) ? block.props.options : []
+    const matchedOpt = options.find((opt: any) => adminNormalizeText(opt) === val)
+    if (matchedOpt) return matchedOpt
+
+    return val
+}
+
 const adminExtractDropdownAppreciations = (template: any, assignment: any, studentLevel: string, semester: number) => {
     const data = assignment?.data || {}
     const drops: any[] = []
@@ -3216,12 +3246,15 @@ const adminExtractDropdownAppreciations = (template: any, assignment: any, stude
                     ? props.appreciations.map((entry: any) => entry?.option).filter(Boolean)
                     : []
 
+            const rawVal = (stableKey ? data?.[stableKey] : undefined) ?? data?.[legacyKey] ?? ''
+            const resolvedVal = adminResolveBaseOptionValue(block, rawVal)
+
             drops.push({
                 dataKey,
                 legacyKey,
                 label: props.label || `Appreciation ${props.dropdownNumber || drops.length + 1}`,
                 options: optionSet.map((option: any) => String(option || '')).filter(Boolean),
-                value: (stableKey ? data?.[stableKey] : undefined) ?? data?.[legacyKey] ?? '',
+                value: resolvedVal,
                 pageIndex: pageIdx,
                 blockIndex: blockIdx
             })
@@ -3357,6 +3390,8 @@ adminExtrasRouter.post('/gradebooks/languages/appreciation', requireAuth(['ADMIN
         const dataKey = String(req.body.dataKey || '').trim()
         const value = String(req.body.value || '')
         const semesterRaw = Number(req.body.semester)
+        const classIdHint = String(req.body.classId || '').trim()  // optional hint from client
+        const schoolYearIdHint = String(req.body.schoolYearId || '').trim()  // optional hint from client
 
         if (!assignmentId) return res.status(400).json({ error: 'missing_assignment_id' })
         if (!dataKey) return res.status(400).json({ error: 'missing_data_key' })
@@ -3372,20 +3407,45 @@ adminExtrasRouter.post('/gradebooks/languages/appreciation', requireAuth(['ADMIN
         const template = await GradebookTemplate.findById(assignment.templateId).lean()
         if (!template) return res.status(404).json({ error: 'template_not_found' })
 
-        const enrollment = await Enrollment.findOne({ studentId: assignment.studentId }).sort({ _id: -1 }).lean()
-        const classDoc = enrollment?.classId ? await ClassModel.findById(enrollment.classId).lean() : null
+        // Resolve student level: prefer classId hint (same class used when rendering dropdowns in GET /status),
+        // then fall back to school-year-scoped enrollment, then bare latest enrollment.
+        let classDoc: any = null
+        if (classIdHint) {
+            classDoc = await ClassModel.findById(classIdHint).lean()
+        }
+        if (!classDoc) {
+            const targetSchoolYearId = schoolYearIdHint || (activeSchoolYear ? String(activeSchoolYear._id) : null)
+            const enrollmentQuery: any = { studentId: assignment.studentId }
+            if (targetSchoolYearId) enrollmentQuery.schoolYearId = targetSchoolYearId
+            const enrollment = await Enrollment.findOne(enrollmentQuery).sort({ _id: -1 }).lean()
+            if (enrollment?.classId) {
+                classDoc = await ClassModel.findById(enrollment.classId).lean()
+            }
+        }
         const studentLevel = adminNormalizeLevel(classDoc?.level || '')
         const versionedTemplate = getVersionedTemplate(template, (assignment as any).templateVersion)
         const dropdowns = adminExtractDropdownAppreciations(versionedTemplate, assignment, studentLevel, semester)
-        const dropdown = dropdowns.find(d => d.dataKey === dataKey)
+        let dropdown = dropdowns.find(d => d.dataKey === dataKey)
+
+        // Fallback: if the level-filtered search found nothing, try without level filtering
+        // (handles edge cases where the dropdown has no level restrictions)
+        if (!dropdown) {
+            const allDropdowns = adminExtractDropdownAppreciations(versionedTemplate, assignment, '', semester)
+            dropdown = allDropdowns.find(d => d.dataKey === dataKey)
+        }
 
         if (!dropdown) return res.status(400).json({ error: 'invalid_dropdown_key' })
-        if (value && dropdown.options.length > 0 && !dropdown.options.includes(value)) {
+        if (value && dropdown.options.length > 0 && !dropdown.options.map((o: string) => o.trim()).includes(value.trim())) {
             return res.status(400).json({ error: 'invalid_dropdown_value' })
         }
 
-        const nextData = { ...((assignment as any).data || {}), [dataKey]: value }
+        const nextData = { ...((assignment as any).data || {}) }
+        nextData[dataKey] = value
+        if (dropdown.legacyKey && dropdown.legacyKey !== dataKey) {
+            nextData[dropdown.legacyKey] = value
+        }
         ;(assignment as any).data = nextData
+        ;(assignment as any).markModified('data')
         ;(assignment as any).dataVersion = ((assignment as any).dataVersion || 1) + 1
         await assignment.save()
 

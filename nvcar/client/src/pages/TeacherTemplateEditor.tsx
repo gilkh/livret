@@ -1452,9 +1452,15 @@ export default function TeacherTemplateEditor() {
                                                                 }}
                                                             >
                                                                 {(() => {
-                                                                    const currentValue = b.props.dropdownNumber
-                                                                        ? assignment?.data?.[`dropdown_${b.props.dropdownNumber}`]
-                                                                        : b.props.variableName ? assignment?.data?.[b.props.variableName] : ''
+                                                                    const blockId = typeof b?.props?.blockId === 'string' && b.props.blockId.trim() ? b.props.blockId.trim() : null
+                                                                    const stableKey = blockId ? `dropdown_${blockId}` : null
+                                                                    const legacyKey = b.props.dropdownNumber
+                                                                        ? `dropdown_${b.props.dropdownNumber}`
+                                                                        : b.props.variableName || null
+                                                                    const currentValue =
+                                                                        (stableKey ? assignment?.data?.[stableKey] : undefined) ??
+                                                                        (legacyKey ? assignment?.data?.[legacyKey] : undefined) ??
+                                                                        ''
                                                                     const displayValue = resolveDropdownDisplayValue({ dropdownBlock: b, rawValue: currentValue, studentSex: student?.sex })
                                                                     return displayValue || 'Sélectionner...'
                                                                 })()}

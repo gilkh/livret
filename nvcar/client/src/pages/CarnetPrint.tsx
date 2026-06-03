@@ -1047,10 +1047,15 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                     })()}
 
                                     {b.type === 'dropdown' && (() => {
-                                        // Only render if a value is selected
-                                        const rawValue = b.props.dropdownNumber
-                                            ? assignment?.data?.[`dropdown_${b.props.dropdownNumber}`]
-                                            : b.props.variableName ? assignment?.data?.[b.props.variableName] : ''
+                                        const blockId = typeof b?.props?.blockId === 'string' && b.props.blockId.trim() ? b.props.blockId.trim() : null
+                                        const stableKey = blockId ? `dropdown_${blockId}` : null
+                                        const legacyKey = b.props.dropdownNumber
+                                            ? `dropdown_${b.props.dropdownNumber}`
+                                            : b.props.variableName || null
+                                        const rawValue =
+                                            (stableKey ? assignment?.data?.[stableKey] : undefined) ??
+                                            (legacyKey ? assignment?.data?.[legacyKey] : undefined) ??
+                                            ''
                                         const currentValue = resolveDropdownDisplayValue({
                                             dropdownBlock: b,
                                             rawValue,
@@ -1080,9 +1085,16 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
 
                                     {b.type === 'dropdown_reference' && (() => {
                                         const dropdownNum = b.props.dropdownNumber || 1
+                                        const referencedBlock = findDropdownBlockByReference(template?.pages || [], { dropdownNumber: dropdownNum })
+                                        const blockId = typeof referencedBlock?.props?.blockId === 'string' && referencedBlock.props.blockId.trim() ? referencedBlock.props.blockId.trim() : null
+                                        const stableKey = blockId ? `dropdown_${blockId}` : null
+                                        const legacyKey = dropdownNum ? `dropdown_${dropdownNum}` : null
+                                        const rawValue =
+                                            (stableKey ? assignment?.data?.[stableKey] : undefined) ??
+                                            (legacyKey ? assignment?.data?.[legacyKey] : undefined)
                                         const value = resolveDropdownDisplayValue({
-                                            dropdownBlock: findDropdownBlockByReference(template?.pages || [], { dropdownNumber: dropdownNum }),
-                                            rawValue: assignment?.data?.[`dropdown_${dropdownNum}`],
+                                            dropdownBlock: referencedBlock,
+                                            rawValue,
                                             studentSex: student?.sex,
                                         })
                                         // Don't render if no value
