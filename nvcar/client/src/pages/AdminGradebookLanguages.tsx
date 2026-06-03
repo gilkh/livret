@@ -262,7 +262,9 @@ export default function AdminGradebookLanguages() {
         assignmentId: student.assignmentId,
         dataKey,
         value,
-        semester: selectedSemester
+        semester: selectedSemester,
+        classId: selectedClassId,
+        schoolYearId: selectedYearId
       })
 
       if (res.data.success) {
