@@ -21,6 +21,7 @@ import { StudentCompetencyStatus } from '../models/StudentCompetencyStatus'
 import { logAudit } from '../utils/auditLogger'
 import { computeSignaturePeriodId, resolveEndOfYearSignaturePeriod } from '../utils/readinessUtils'
 import { buildSignatureSnapshot } from '../utils/signatureSnapshot'
+import { isAssignmentEffectivelyCompleteForSemester } from '../utils/languageCompletionUtils'
 import mongoose from 'mongoose'
 import { checkAndAssignTemplates, mergeAssignmentDataIntoTemplate } from '../utils/templateUtils'
 import { withCache, clearCache } from '../utils/cache'
@@ -570,13 +571,26 @@ subAdminTemplatesRouter.get('/pending-signatures', requireAuth(['SUBADMIN', 'AEF
             const finalSig = findSig('end_of_year')
 
             const isPromoted = promotionDateMap.has(String(assignment.studentId))
+
+            // Effective completion: trust the explicit flag first, but fall back
+            // to languageCompletions (the same signal used by /teacher-progress)
+            // so a fully filled carnet is signable even if the teacher never
+            // explicitly marked the assignment as done.
+            const rawIsCompletedSem1 = !!(assignment as any).isCompletedSem1 || !!assignment.isCompleted
+            const rawIsCompletedSem2 = !!(assignment as any).isCompletedSem2
+            const levelForCompletion = classInfo?.level || ''
+            const isCompletedSem1 = rawIsCompletedSem1
+                || isAssignmentEffectivelyCompleteForSemester(assignment, 1, levelForCompletion)
+            const isCompletedSem2 = rawIsCompletedSem2
+                || isAssignmentEffectivelyCompleteForSemester(assignment, 2, levelForCompletion)
+
             return {
                 _id: assignment._id,
                 studentId: assignment.studentId,
                 status: assignment.status,
                 isCompleted: assignment.isCompleted,
-                isCompletedSem1: (assignment as any).isCompletedSem1 || assignment.isCompleted || false,
-                isCompletedSem2: (assignment as any).isCompletedSem2 || false,
+                isCompletedSem1,
+                isCompletedSem2,
                 completedAt: assignment.completedAt,
                 template: template ? { name: template.name } : undefined,
                 student: student ? { firstName: student.firstName, lastName: student.lastName, avatarUrl: student.avatarUrl, sex: student.sex } : undefined,
@@ -1983,20 +1997,6 @@ subAdminTemplatesRouter.post('/templates/sign-class/:classId', requireAuth(['SUB
                 ]
             })
         }
-        if (!canBypass) {
-            if (type === 'end_of_year') {
-                query.isCompletedSem2 = true
-            } else {
-                // status is a UI-only hint; use the authoritative boolean fields
-                andConditions.push({
-                    $or: [
-                        { isCompletedSem1: true },
-                        { isCompleted: true },
-                        { status: 'completed' }
-                    ]
-                })
-            }
-        }
         if (andConditions.length > 0) {
             query.$and = andConditions
         }
@@ -2004,8 +2004,35 @@ subAdminTemplatesRouter.post('/templates/sign-class/:classId', requireAuth(['SUB
         // Get all template assignments for these students
         const templateAssignments = await TemplateAssignment.find(query).lean()
 
+        // Determine the active semester for the bulk sign (1 for standard, 2 for end_of_year)
+        const activeSemesterForCheck: 1 | 2 = type === 'end_of_year' ? 2 : 1
+
+        // Pre-fetch teacher class assignments once - used to evaluate
+        // languageCompletions for the active semester.
+        const teacherClassAssignmentsForBulk = await TeacherClassAssignment.find({ classId }).lean()
+
+        // Filter assignments to only those that are effectively complete for
+        // the active semester. We trust the explicit flag first, but fall
+        // back to languageCompletions (the same signal used by
+        // /teacher-progress) so a fully filled carnet is signable even if
+        // the teacher never explicitly marked the assignment as done.
+        const signableAssignments = templateAssignments.filter((a: any) => {
+            if (canBypass) return true
+            if (activeSemesterForCheck === 1) {
+                if (a.isCompletedSem1 || a.isCompleted) return true
+            } else {
+                if (a.isCompletedSem2) return true
+            }
+            return isAssignmentEffectivelyCompleteForSemester(
+                a,
+                activeSemesterForCheck,
+                classLevelForBulk || '',
+                teacherClassAssignmentsForBulk
+            )
+        })
+
         // Filter out those already signed for the CURRENT period
-        const assignmentIds = templateAssignments.map(a => String(a._id))
+        const assignmentIds = signableAssignments.map(a => String(a._id))
         const existingSignatures = await TemplateSignature.find({ templateAssignmentId: { $in: assignmentIds } }).lean()
         const signedIds = new Set(
             existingSignatures
@@ -2017,7 +2044,7 @@ subAdminTemplatesRouter.post('/templates/sign-class/:classId', requireAuth(['SUB
                 .map((s: any) => String((s as any).templateAssignmentId))
         )
 
-        const toSign = templateAssignments.filter(a => !signedIds.has(String(a._id)))
+        const toSign = signableAssignments.filter(a => !signedIds.has(String(a._id)))
 
         let createdCount = 0
         let skippedCount = 0
@@ -2025,6 +2052,15 @@ subAdminTemplatesRouter.post('/templates/sign-class/:classId', requireAuth(['SUB
 
         for (const assignment of toSign) {
             try {
+                // If the explicit flag isn't set, we relied on languageCompletions
+                // to mark this as signable. In that case we need to skip the
+                // completion check inside signTemplateAssignment, otherwise it
+                // would still throw not_completed_sem*.
+                const hasExplicitFlag = activeSemesterForCheck === 1
+                    ? (!!(assignment as any).isCompletedSem1 || !!(assignment as any).isCompleted)
+                    : !!(assignment as any).isCompletedSem2
+                const skipCompletionCheck = canBypass || !hasExplicitFlag
+
                 await signTemplateAssignment({
                     templateAssignmentId: String(assignment._id),
                     signerId: subAdminId,
@@ -2035,7 +2071,7 @@ subAdminTemplatesRouter.post('/templates/sign-class/:classId', requireAuth(['SUB
                     level: classLevelForBulk,
                     signaturePeriodId: signaturePeriodIdForBulk || undefined,
                     signatureSchoolYearId: signatureSchoolYearIdForBulk || undefined,
-                    skipCompletionCheck: canBypass
+                    skipCompletionCheck
                 })
                 createdCount++
             } catch (err: any) {

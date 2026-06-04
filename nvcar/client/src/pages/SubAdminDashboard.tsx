@@ -1243,6 +1243,16 @@ export default function SubAdminDashboard() {
                                             const levelSigning = !!signingLevel[level]
                                             const levelUndoing = !!undoingLevel[level]
                                             const canUndoLevel = levelSignedCount > 0 && !loading
+                                            const levelSignDisabledReason = !loading
+                                                ? (hasSignature === false
+                                                    ? 'Vous devez d\u2019abord t\u00e9l\u00e9verser votre signature'
+                                                    : (levelUnsignedCount === 0
+                                                        ? `Aucun carnet ${activeSemesterLabel} termin\u00e9 \u00e0 signer dans ce niveau`
+                                                        : ''))
+                                                : 'Chargement en cours\u2026'
+                                            const levelSignTitle = canSignLevel
+                                                ? `Signer en lot pour ${activeSemesterLabel}`
+                                                : (levelSignDisabledReason || `Signer en lot pour ${activeSemesterLabel}`)
                                             return (
                                                 <div style={actionRailStyle}>
                                                     <button
@@ -1260,7 +1270,7 @@ export default function SubAdminDashboard() {
                                                         disabled={!canSignLevel || levelSigning}
                                                         className="btn"
                                                         style={actionBtnStyle('sign', canSignLevel && !levelSigning)}
-                                                        title={`Signer en lot pour ${activeSemesterLabel}`}
+                                                        title={levelSignTitle}
                                                     >
                                                         <PenTool size={14} />
                                                         {levelSigning ? '…' : `${activeSemester === 2 ? 'S2' : 'S1'} (${levelUnsignedCount})`}
@@ -1294,6 +1304,16 @@ export default function SubAdminDashboard() {
                                             const classSigning = !!signingClass[key]
                                             const canUndoClass = classSignedCount > 0 && !loading
                                             const classUndoing = !!undoingClass[key]
+                                            const classSignDisabledReason = !loading
+                                                ? (hasSignature === false
+                                                    ? 'Vous devez d\u2019abord t\u00e9l\u00e9verser votre signature'
+                                                    : (classUnsignedCount === 0
+                                                        ? `Aucun carnet ${activeSemesterLabel} termin\u00e9 \u00e0 signer dans cette classe`
+                                                        : ''))
+                                                : 'Chargement en cours\u2026'
+                                            const classSignTitle = canSignClass
+                                                ? `Signer en lot cette classe (${activeSemesterLabel})`
+                                                : (classSignDisabledReason || `Signer en lot cette classe (${activeSemesterLabel})`)
 
                                             return (
                                                 <div key={className} style={{ border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden' }}>
@@ -1339,7 +1359,7 @@ export default function SubAdminDashboard() {
                                                                     disabled={!canSignClass || classSigning}
                                                                     className="btn"
                                                                     style={actionBtnStyle('sign', canSignClass && !classSigning)}
-                                                                    title={`Signer en lot cette classe (${activeSemesterLabel})`}
+                                                                    title={classSignTitle}
                                                                 >
                                                                     <PenTool size={14} />
                                                                     {classSigning ? '…' : `${activeSemester === 2 ? 'S2' : 'S1'} (${classUnsignedCount})`}
