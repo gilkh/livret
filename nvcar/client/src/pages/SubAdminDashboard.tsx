@@ -1238,7 +1238,9 @@ export default function SubAdminDashboard() {
                                             const canExportLevel = levelAssignmentIds.length > 0
                                             const levelTemplates = Object.values(groupedAllTemplates[level] || {}).flat()
                                             const levelUnsignedCount = getUnsignedCountForSemester(levelTemplates)
-                                            const levelSignedCount = levelTemplates.length - levelUnsignedCount
+                                            const levelSignedCount = activeSemester === 2
+                                                ? levelTemplates.filter(isSem2Signed).length
+                                                : levelTemplates.filter(isSem1Signed).length
                                             const canSignLevel = levelUnsignedCount > 0 && hasSignature !== false && !loading
                                             const levelSigning = !!signingLevel[level]
                                             const levelUndoing = !!undoingLevel[level]
@@ -1299,7 +1301,9 @@ export default function SubAdminDashboard() {
                                             const classAssignmentIds = getClassAssignmentIds(level, className)
                                             const canExportClass = classAssignmentIds.length > 0
                                             const classUnsignedCount = getUnsignedCountForSemester(templates)
-                                            const classSignedCount = totalCount - classUnsignedCount
+                                            const classSignedCount = activeSemester === 2
+                                                ? templates.filter(isSem2Signed).length
+                                                : templates.filter(isSem1Signed).length
                                             const canSignClass = classUnsignedCount > 0 && hasSignature !== false && !loading
                                             const classSigning = !!signingClass[key]
                                             const canUndoClass = classSignedCount > 0 && !loading
