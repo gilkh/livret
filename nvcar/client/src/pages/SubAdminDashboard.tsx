@@ -1540,7 +1540,7 @@ export default function SubAdminDashboard() {
                                                                                             <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 6 }}>
                                                                                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11 }}>
                                                                                                     <span style={{ color: '#64748b' }}>Mi-année</span>
-                                                                                                    {p.signatures?.standard ? (
+                                                                                                    {isSem1Signed(p) ? (
                                                                                                         <span style={{ color: '#059669', display: 'flex', alignItems: 'center', gap: 3, fontWeight: 500 }}>
                                                                                                             ✓ Signé
                                                                                                         </span>
@@ -1552,7 +1552,7 @@ export default function SubAdminDashboard() {
                                                                                                 </div>
                                                                                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11 }}>
                                                                                                     <span style={{ color: '#64748b' }}>Fin d'année</span>
-                                                                                                    {p.signatures?.final ? (
+                                                                                                    {isSem2Signed(p) ? (
                                                                                                         <span style={{ color: '#059669', display: 'flex', alignItems: 'center', gap: 3, fontWeight: 500 }}>
                                                                                                             ✓ Signé
                                                                                                         </span>
