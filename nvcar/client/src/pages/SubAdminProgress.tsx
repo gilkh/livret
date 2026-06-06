@@ -461,6 +461,9 @@ export default function SubAdminProgress() {
                         const levelStudents = Object.values(baseGrouped[level]).flat()
                         const levelAverage = calculateAverage(levelStudents, level)
                         const levelCategoryAverages = calculateCategoryAverages(levelStudents, level)
+                        const levelFilteredCount = averageFilterActive
+                            ? levelStudents.filter(s => displayStudents.includes(s)).length
+                            : 0
                         const isExpanded = expandedLevels.has(level)
 
                         return (
@@ -481,6 +484,11 @@ export default function SubAdminProgress() {
                                                 </svg>
                                                 {levelStudents.length} élèves
                                             </span>
+                                            {averageFilterActive && levelFilteredCount > 0 && (
+                                                <span className="progress-filtered-count">
+                                                    🎯 {levelFilteredCount} filtré{levelFilteredCount > 1 ? 's' : ''}
+                                                </span>
+                                            )}
                                         </div>
                                     </div>
                                     <div className="progress-level-header-right">
@@ -509,6 +517,9 @@ export default function SubAdminProgress() {
                                             const classStudents = baseGrouped[level][className]
                                             const classAverage = calculateAverage(classStudents, level)
                                             const classCategoryAverages = calculateCategoryAverages(classStudents, level)
+                                            const filteredClassCount = averageFilterActive
+                                                ? classStudents.filter(s => displayStudents.includes(s)).length
+                                                : 0
                                             const classKey = `${level}-${className}`
                                             const isClassExpanded = expandedClasses.has(classKey)
 
@@ -523,6 +534,11 @@ export default function SubAdminProgress() {
                                                             <span className="progress-class-count">
                                                                 {classStudents.length} élèves
                                                             </span>
+                                                            {averageFilterActive && filteredClassCount > 0 && (
+                                                                <span className="progress-filtered-count">
+                                                                    🎯 {filteredClassCount}
+                                                                </span>
+                                                            )}
                                                         </div>
                                                         <div className="progress-class-header-right">
                                                             <span className={`progress-class-avg ${getProgressClass(classAverage)}`}>
@@ -637,15 +653,25 @@ export default function SubAdminProgress() {
             {/* Content - Grid View */}
             {!loading && !error && filteredStudents.length > 0 && viewMode === 'grid' && (
                 <div className="progress-grid-view">
-                    {sortedLevels.map(level => (
+                    {sortedLevels.map(level => {
+                        const gridLevelStudents = Object.values(baseGrouped[level]).flat()
+                        const gridLevelFilteredCount = averageFilterActive
+                            ? gridLevelStudents.filter(s => displayStudents.includes(s)).length
+                            : 0
+                        return (
                         <div key={level} className="progress-level-section">
                             <div className="progress-level-header" style={{ cursor: 'default' }}>
                                 <div className="progress-level-header-left">
                                     <span className="progress-level-badge">{level}</span>
                                     <div className="progress-level-info">
                                         <span className="progress-level-student-count">
-                                            {Object.values(baseGrouped[level]).flat().length} élèves
+                                            {gridLevelStudents.length} élèves
                                         </span>
+                                        {averageFilterActive && gridLevelFilteredCount > 0 && (
+                                            <span className="progress-filtered-count">
+                                                🎯 {gridLevelFilteredCount} filtré{gridLevelFilteredCount > 1 ? 's' : ''}
+                                            </span>
+                                        )}
                                     </div>
                                 </div>
                             </div>
@@ -653,6 +679,9 @@ export default function SubAdminProgress() {
                             <div className="progress-level-content">
                                 {Object.keys(baseGrouped[level]).sort().map(className => {
                                     const classStudents = baseGrouped[level][className]
+                                    const gridFilteredCount = averageFilterActive
+                                        ? classStudents.filter(s => displayStudents.includes(s)).length
+                                        : 0
 
                                     return (
                                         <div key={`${level}-${className}`} className="progress-class-section">
@@ -662,6 +691,11 @@ export default function SubAdminProgress() {
                                                     <span className="progress-class-count">
                                                         {classStudents.length} élèves
                                                     </span>
+                                                    {averageFilterActive && gridFilteredCount > 0 && (
+                                                        <span className="progress-filtered-count">
+                                                            🎯 {gridFilteredCount}
+                                                        </span>
+                                                    )}
                                                 </div>
                                             </div>
 
@@ -738,7 +772,8 @@ export default function SubAdminProgress() {
                                 })}
                             </div>
                         </div>
-                    ))}
+                        )
+                    })}
                 </div>
             )}
 
