@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import api from '../api'
-import { ChevronDown, ChevronRight, Search, Filter, Save, Check, CheckCircle, AlertCircle, ChevronsUp, ChevronsDown, Upload, Download, Plus, X, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, Search, Filter, Save, Check, AlertCircle, ChevronsUp, ChevronsDown, Upload, Download, Plus, X, Trash2 } from 'lucide-react'
 
 type Block = { type: string; props?: any }
 type Page = { title?: string; blocks?: Block[] }
@@ -273,6 +273,13 @@ export default function AdminAppreciations() {
   const [deleteConfirm, setDeleteConfirm] = useState<{
     templateId: string, pageIndex: number, blockIndex: number, option: string, confirms: number
   } | null>(null)
+
+  // Auto-reset delete confirm after 3s of inactivity
+  useEffect(() => {
+    if (!deleteConfirm) return
+    const timer = setTimeout(() => setDeleteConfirm(null), 3000)
+    return () => clearTimeout(timer)
+  }, [deleteConfirm])
 
   useEffect(() => {
     const loadData = async () => {
@@ -616,35 +623,41 @@ export default function AdminAppreciations() {
     if (!csvImportReview) return
     const { templateId, changes } = csvImportReview
 
+    // Group changes by blockIndex for single-pass application
+    const changesByBlock = new Map<number, CsvChange[]>()
+    for (const change of changes) {
+      if (!changesByBlock.has(change.blockIndex)) changesByBlock.set(change.blockIndex, [])
+      changesByBlock.get(change.blockIndex)!.push(change)
+    }
+
     setTemplates(prev =>
       prev.map(template => {
         if (template._id !== templateId) return template
-        let tpl = { ...template, pages: (template.pages || []).map(p => ({ ...p, blocks: (p.blocks || []).map(b => ({ ...b, props: { ...(b.props || {}) } })) })) }
-
-        for (const change of changes) {
-          tpl = {
-            ...tpl,
-            pages: (tpl.pages || []).map((page) => ({
-              ...page,
-              blocks: (page.blocks || []).map((block, bIdx) => {
-                if (block.type !== 'dropdown' || bIdx !== change.blockIndex || block.props?.dropdownNumber !== change.dropdownNumber) return block
+        return {
+          ...template,
+          pages: (template.pages || []).map(page => ({
+            ...page,
+            blocks: (page.blocks || []).map((block, bIdx) => {
+              const blockChanges = changesByBlock.get(bIdx)
+              if (!blockChanges || block.type !== 'dropdown') return block
+              let props = { ...(block.props || {}) }
+              let options = [...(props.options || [])]
+              let apps = [...(props.appreciations || [])]
+              for (const change of blockChanges) {
                 if (change.type === 'modified_text') {
-                  const apps = (block.props.appreciations || []).map((a: any) =>
+                  apps = apps.map((a: any) =>
                     normalizeText(a.option) === normalizeText(change.option) ? { ...a, [change.field]: change.newValue } : a
                   )
-                  return { ...block, props: { ...block.props, appreciations: apps } }
                 }
                 if (change.type === 'new_option') {
-                  const options = [...(block.props.options || []), change.option]
-                  const apps = [...(block.props.appreciations || []), { option: change.option, maleText: change.maleText, femaleText: change.femaleText }]
-                  return { ...block, props: { ...block.props, options, appreciations: apps } }
+                  options.push(change.option)
+                  apps.push({ option: change.option, maleText: change.maleText, femaleText: change.femaleText })
                 }
-                return block
-              })
-            }))
-          }
+              }
+              return { ...block, props: { ...props, options, appreciations: apps } }
+            })
+          }))
         }
-        return tpl
       })
     )
     setCsvImportReview(null)
@@ -781,7 +794,7 @@ export default function AdminAppreciations() {
               onChange={e => setSelectedTemplate(e.target.value)}
               className="custom-input"
             >
-              <option value="" disabled>Sélectionnez un template</option>
+              <option value="all">Tous les templates</option>
               {templates.map(t => (
                 <option key={t._id} value={t._id}>{t.name}</option>
               ))}
