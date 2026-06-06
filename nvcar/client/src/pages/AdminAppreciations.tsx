@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import api from '../api'
-import { ChevronDown, ChevronRight, Search, Filter, Save, Check, CheckCircle, AlertCircle, ChevronsUp, ChevronsDown, Upload, X } from 'lucide-react'
+import { ChevronDown, ChevronRight, Search, Filter, Save, Check, CheckCircle, AlertCircle, ChevronsUp, ChevronsDown, Upload, Download, Plus, X } from 'lucide-react'
 
 type Block = { type: string; props?: any }
 type Page = { title?: string; blocks?: Block[] }
@@ -69,6 +69,147 @@ const syncTemplateDropdownAppreciations = (template: Template): Template => ({
     : [],
 })
 
+type ParsedCsvRow = {
+  blockIndex: number
+  dropdownNumber: number
+  dropdownLabel: string
+  option: string
+  maleText: string
+  femaleText: string
+}
+
+type CsvChange =
+  | {
+      type: 'modified_text'
+      blockIndex: number
+      dropdownNumber: number
+      dropdownLabel: string
+      option: string
+      field: 'maleText' | 'femaleText'
+      oldValue: string
+      newValue: string
+    }
+  | {
+      type: 'new_option'
+      blockIndex: number
+      dropdownNumber: number
+      dropdownLabel: string
+      option: string
+      maleText: string
+      femaleText: string
+    }
+
+const csvEscape = (value: string) => {
+  if (value.includes(',') || value.includes('"') || value.includes('\n') || value.includes('\r')) {
+    return '"' + value.replace(/"/g, '""') + '"'
+  }
+  return value
+}
+
+const parseCsv = (text: string): ParsedCsvRow[] => {
+  // Strip BOM
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1)
+
+  const rows: string[][] = []
+  let current: string[] = []
+  let field = ''
+  let inQuotes = false
+  let i = 0
+
+  while (i < text.length) {
+    const ch = text[i]
+    if (inQuotes) {
+      if (ch === '"') {
+        if (i + 1 < text.length && text[i + 1] === '"') {
+          field += '"'
+          i += 2
+          continue
+        }
+        inQuotes = false
+        i++
+        continue
+      }
+      field += ch
+      i++
+    } else {
+      if (ch === '"') {
+        inQuotes = true
+        i++
+      } else if (ch === ',') {
+        current.push(field)
+        field = ''
+        i++
+      } else if (ch === '\r') {
+        i++
+      } else if (ch === '\n') {
+        current.push(field)
+        field = ''
+        rows.push(current)
+        current = []
+        i++
+      } else {
+        field += ch
+        i++
+      }
+    }
+  }
+  // last field
+  current.push(field)
+  if (current.length > 1 || current[0] !== '') rows.push(current)
+
+  if (rows.length < 2) return []
+
+  // Skip header row
+  return rows.slice(1).map(row => ({
+    blockIndex: parseInt(row[0] || '0', 10),
+    dropdownNumber: parseInt(row[1] || '0', 10),
+    dropdownLabel: (row[2] || '').trim(),
+    option: (row[3] || '').trim(),
+    maleText: (row[4] || '').trim(),
+    femaleText: (row[5] || '').trim(),
+  })).filter(r => r.option)
+}
+
+const computeCsvDiff = (template: Template, parsedRows: ParsedCsvRow[]): { changes: CsvChange[], warnings: string[] } => {
+  const changes: CsvChange[] = []
+  const warnings: string[] = []
+
+  // Build lookup: blockIndex -> { appreciations, label }
+  const dropdownMap = new Map<number, { appreciations: { option: string, maleText: string, femaleText: string }[], label: string }>()
+  ;(template.pages || []).forEach((page) => {
+    ;(page.blocks || []).forEach((block, blockIdx) => {
+      if (block?.type !== 'dropdown') return
+      const dn = block.props?.dropdownNumber
+      if (dn == null) return
+      dropdownMap.set(blockIdx, {
+        appreciations: buildAppreciations(block),
+        label: normalizeText(block.props?.label) || `Dropdown ${dn}`,
+      })
+    })
+  })
+
+  for (const row of parsedRows) {
+    const dd = dropdownMap.get(row.blockIndex)
+    if (!dd) {
+      warnings.push(`Block #${row.blockIndex} (${row.dropdownLabel}) introuvable dans le template.`)
+      continue
+    }
+    const existing = dd.appreciations.find(a => normalizeText(a.option) === normalizeText(row.option))
+    if (existing) {
+      if (normalizeText(existing.maleText) !== normalizeText(row.maleText)) {
+        changes.push({ type: 'modified_text', blockIndex: row.blockIndex, dropdownNumber: row.dropdownNumber, dropdownLabel: dd.label, option: row.option, field: 'maleText', oldValue: existing.maleText, newValue: row.maleText })
+      }
+      if (normalizeText(existing.femaleText) !== normalizeText(row.femaleText)) {
+        changes.push({ type: 'modified_text', blockIndex: row.blockIndex, dropdownNumber: row.dropdownNumber, dropdownLabel: dd.label, option: row.option, field: 'femaleText', oldValue: existing.femaleText, newValue: row.femaleText })
+      }
+    } else {
+      changes.push({ type: 'new_option', blockIndex: row.blockIndex, dropdownNumber: row.dropdownNumber, dropdownLabel: dd.label, option: row.option, maleText: row.maleText, femaleText: row.femaleText })
+    }
+  }
+
+  return { changes, warnings }
+}
+
 export default function AdminAppreciations() {
   const [templates, setTemplates] = useState<Template[]>([])
   const [loading, setLoading] = useState(true)
@@ -104,6 +245,19 @@ export default function AdminAppreciations() {
   } | null>(null)
   const [importGender, setImportGender] = useState<'maleText' | 'femaleText'>('maleText')
   const [importData, setImportData] = useState('')
+
+  // Add Option State
+  const [newOptionForm, setNewOptionForm] = useState<{
+    templateId: string, pageIndex: number, blockIndex: number,
+    option: string, maleText: string, femaleText: string
+  } | null>(null)
+
+  // CSV Import Review State
+  const [csvImportReview, setCsvImportReview] = useState<{
+    templateId: string, changes: CsvChange[], warnings: string[]
+  } | null>(null)
+  const csvFileInputRef = useRef<HTMLInputElement>(null)
+  const csvImportTemplateIdRef = useRef<string>('')
 
   useEffect(() => {
     const loadData = async () => {
@@ -362,8 +516,129 @@ export default function AdminAppreciations() {
     setCollapsedDropdowns(new Set(dropdownTemplates.flatMap(t => t.dropdowns.map((d: any) => d.id))))
   }
 
+  const exportCSV = (template: Template) => {
+    const header = 'block_index,dropdown_number,dropdown_label,option,male_text,female_text'
+    const rows: string[] = []
+    ;(template.pages || []).forEach((page) => {
+      ;(page.blocks || []).forEach((block, blockIdx) => {
+        if (block?.type !== 'dropdown') return
+        const dn = block.props?.dropdownNumber ?? 0
+        const label = normalizeText(block.props?.label) || `Dropdown ${dn}`
+        const apps = buildAppreciations(block)
+        apps.forEach((a: any) => {
+          rows.push([String(blockIdx), String(dn), csvEscape(label), csvEscape(a.option), csvEscape(a.maleText), csvEscape(a.femaleText)].join(','))
+        })
+      })
+    })
+    const csvContent = '\uFEFF' + header + '\r\n' + rows.join('\r\n')
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = (template.name || 'template').replace(/[^\w]+/g, '_') + '_appreciations.csv'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const handleAddOption = () => {
+    if (!newOptionForm) return
+    const optName = normalizeText(newOptionForm.option)
+    if (!optName) return
+
+    setTemplates(prev =>
+      prev.map(template => {
+        if (template._id !== newOptionForm.templateId) return template
+        return {
+          ...template,
+          pages: (template.pages || []).map((page, pIdx) => {
+            if (pIdx !== newOptionForm.pageIndex) return page
+            return {
+              ...page,
+              blocks: (page.blocks || []).map((block, bIdx) => {
+                if (bIdx !== newOptionForm.blockIndex || block.type !== 'dropdown') return block
+                const options = Array.isArray(block.props?.options) ? [...block.props.options] : []
+                // Check duplicate
+                if (options.some((o: unknown) => normalizeText(o) === optName)) return block
+                options.push(optName)
+                const appreciations = Array.isArray(block.props?.appreciations) ? [...block.props.appreciations] : []
+                appreciations.push({ option: optName, maleText: newOptionForm.maleText, femaleText: newOptionForm.femaleText })
+                return { ...block, props: { ...block.props, options, appreciations } }
+              })
+            }
+          })
+        }
+      })
+    )
+    setNewOptionForm(null)
+  }
+
+  const handleCsvFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const templateId = csvImportTemplateIdRef.current
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string
+      if (!text) return
+      try {
+        const parsed = parseCsv(text)
+        if (parsed.length === 0) { alert('Le fichier CSV est vide ou invalide.'); return }
+        const tpl = templates.find(t => t._id === templateId)
+        if (!tpl) { alert('Template introuvable.'); return }
+        const { changes, warnings } = computeCsvDiff(tpl, parsed)
+        if (changes.length === 0 && warnings.length === 0) { alert('Aucune différence détectée.'); return }
+        setCsvImportReview({ templateId, changes, warnings })
+      } catch (err) {
+        alert('Erreur lors de la lecture du CSV.')
+      }
+    }
+    reader.readAsText(file, 'UTF-8')
+    // Reset input so same file can be re-selected
+    e.target.value = ''
+  }
+
+  const applyCsvChanges = () => {
+    if (!csvImportReview) return
+    const { templateId, changes } = csvImportReview
+
+    setTemplates(prev =>
+      prev.map(template => {
+        if (template._id !== templateId) return template
+        let tpl = { ...template, pages: (template.pages || []).map(p => ({ ...p, blocks: (p.blocks || []).map(b => ({ ...b, props: { ...(b.props || {}) } })) })) }
+
+        for (const change of changes) {
+          tpl = {
+            ...tpl,
+            pages: (tpl.pages || []).map((page) => ({
+              ...page,
+              blocks: (page.blocks || []).map((block, bIdx) => {
+                if (block.type !== 'dropdown' || bIdx !== change.blockIndex || block.props?.dropdownNumber !== change.dropdownNumber) return block
+                if (change.type === 'modified_text') {
+                  const apps = (block.props.appreciations || []).map((a: any) =>
+                    normalizeText(a.option) === normalizeText(change.option) ? { ...a, [change.field]: change.newValue } : a
+                  )
+                  return { ...block, props: { ...block.props, appreciations: apps } }
+                }
+                if (change.type === 'new_option') {
+                  const options = [...(block.props.options || []), change.option]
+                  const apps = [...(block.props.appreciations || []), { option: change.option, maleText: change.maleText, femaleText: change.femaleText }]
+                  return { ...block, props: { ...block.props, options, appreciations: apps } }
+                }
+                return block
+              })
+            }))
+          }
+        }
+        return tpl
+      })
+    )
+    setCsvImportReview(null)
+  }
+
   return (
     <div className="container" style={{ maxWidth: 1200, margin: '0 auto', padding: '20px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
+      {/* Hidden CSV file input */}
+      <input ref={csvFileInputRef} type="file" accept=".csv" style={{ display: 'none' }} onChange={handleCsvFile} />
       <style>{`
         .appreciation-row { transition: all 0.2s ease; }
         .appreciation-row:hover { background-color: #f8fafc !important; transform: translateX(4px); box-shadow: inset 2px 0 0 0 #e2e8f0; }
@@ -573,19 +848,39 @@ export default function AdminAppreciations() {
                       </span>
                     )}
                     {isTemplateExpanded && (
-                      <button
-                        className="btn-modern"
-                        disabled={saveState?.busy}
-                        onClick={(e) => { e.stopPropagation(); saveTemplate(template); }}
-                        style={{
-                          background: saveState?.busy ? '#94a3b8' : '#2563eb',
-                          color: '#fff',
-                          cursor: saveState?.busy ? 'not-allowed' : 'pointer',
-                        }}
-                      >
-                        <Save size={16} />
-                        {saveState?.busy ? 'En cours...' : 'Enregistrer'}
-                      </button>
+                      <>
+                        <button
+                          className="btn-modern"
+                          onClick={(e) => { e.stopPropagation(); exportCSV(template); }}
+                          style={{ background: '#f0fdf4', color: '#15803d', border: '1px solid #bbf7d0' }}
+                        >
+                          <Download size={16} /> Export CSV
+                        </button>
+                        <button
+                          className="btn-modern"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            csvImportTemplateIdRef.current = template._id!
+                            csvFileInputRef.current?.click()
+                          }}
+                          style={{ background: '#eff6ff', color: '#2563eb', border: '1px solid #dbeafe' }}
+                        >
+                          <Upload size={16} /> Import CSV
+                        </button>
+                        <button
+                          className="btn-modern"
+                          disabled={saveState?.busy}
+                          onClick={(e) => { e.stopPropagation(); saveTemplate(template); }}
+                          style={{
+                            background: saveState?.busy ? '#94a3b8' : '#2563eb',
+                            color: '#fff',
+                            cursor: saveState?.busy ? 'not-allowed' : 'pointer',
+                          }}
+                        >
+                          <Save size={16} />
+                          {saveState?.busy ? 'En cours...' : 'Enregistrer'}
+                        </button>
+                      </>
                     )}
                   </div>
                 </div>
@@ -876,6 +1171,100 @@ export default function AdminAppreciations() {
                                   </div>
                                 ))}
                               </div>
+
+                              {/* Add Option Button / Form */}
+                              {(() => {
+                                const form = newOptionForm
+                                const isFormOpen = form !== null && form.templateId === template._id && form.pageIndex === dropdown.pageIndex && form.blockIndex === dropdown.blockIndex
+                                const existingOptions = dropdown.appreciations.map((a: any) => normalizeText(a.option))
+                                const isDuplicate = isFormOpen && existingOptions.includes(normalizeText(form!.option))
+
+                                if (isFormOpen && form) {
+                                  return (
+                                    <div style={{ margin: '12px 0 4px', padding: 16, background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10 }}>
+                                      <div style={{ fontSize: 13, fontWeight: 700, color: '#15803d', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+                                        <Plus size={14} /> Nouvelle Option
+                                      </div>
+                                      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                        <div>
+                                          <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 4 }}>Nom de l'option</label>
+                                          <input
+                                            type="text"
+                                            value={form.option}
+                                            onChange={e => setNewOptionForm({ ...form, option: e.target.value })}
+                                            placeholder="Ex: Excellent"
+                                            className="custom-input"
+                                            style={{ borderColor: isDuplicate ? '#ef4444' : undefined }}
+                                          />
+                                          {isDuplicate && <span style={{ fontSize: 11, color: '#ef4444', marginTop: 2 }}>Cette option existe déjà.</span>}
+                                        </div>
+                                        <div>
+                                          <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 4 }}>Version masculine</label>
+                                          <textarea
+                                            rows={2}
+                                            value={form.maleText}
+                                            onChange={e => setNewOptionForm({ ...form, maleText: e.target.value })}
+                                            placeholder="Ex: Il a fait un excellent travail..."
+                                            style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #cbd5e1', fontFamily: 'inherit', fontSize: 14, resize: 'vertical' }}
+                                            onFocus={e => e.target.style.borderColor = '#3b82f6'}
+                                            onBlur={e => e.target.style.borderColor = '#cbd5e1'}
+                                          />
+                                        </div>
+                                        <div>
+                                          <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 4 }}>Version féminine</label>
+                                          <textarea
+                                            rows={2}
+                                            value={form.femaleText}
+                                            onChange={e => setNewOptionForm({ ...form, femaleText: e.target.value })}
+                                            placeholder="Ex: Elle a fait un excellent travail..."
+                                            style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #cbd5e1', fontFamily: 'inherit', fontSize: 14, resize: 'vertical' }}
+                                            onFocus={e => e.target.style.borderColor = '#ec4899'}
+                                            onBlur={e => e.target.style.borderColor = '#cbd5e1'}
+                                          />
+                                        </div>
+                                        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                                          <button className="btn secondary" onClick={() => setNewOptionForm(null)}>Annuler</button>
+                                          <button
+                                            className="btn"
+                                            disabled={!normalizeText(form.option) || isDuplicate}
+                                            onClick={handleAddOption}
+                                            style={{ background: '#15803d', padding: '8px 16px' }}
+                                          >
+                                            <Plus size={14} /> Ajouter
+                                          </button>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  )
+                                }
+
+                                return (
+                                  <button
+                                    onClick={() => setNewOptionForm({ templateId: template._id!, pageIndex: dropdown.pageIndex, blockIndex: dropdown.blockIndex, option: '', maleText: '', femaleText: '' })}
+                                    style={{
+                                      width: '100%',
+                                      margin: '12px 0 4px',
+                                      padding: '10px',
+                                      border: '2px dashed #cbd5e1',
+                                      background: 'transparent',
+                                      color: '#64748b',
+                                      borderRadius: 8,
+                                      cursor: 'pointer',
+                                      fontSize: 13,
+                                      fontWeight: 600,
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      gap: 6,
+                                      transition: 'all 0.2s'
+                                    }}
+                                    onMouseEnter={e => { e.currentTarget.style.borderColor = '#3b82f6'; e.currentTarget.style.color = '#2563eb' }}
+                                    onMouseLeave={e => { e.currentTarget.style.borderColor = '#cbd5e1'; e.currentTarget.style.color = '#64748b' }}
+                                  >
+                                    <Plus size={14} /> Ajouter une option
+                                  </button>
+                                )
+                              })()}
                             </div>
                           )}
                         </div>
@@ -1036,6 +1425,134 @@ export default function AdminAppreciations() {
           </div>
         </div>
       )}
+
+      {/* CSV Import Review Modal */}
+      {csvImportReview && (() => {
+        const modCount = csvImportReview.changes.filter(c => c.type === 'modified_text').length
+        const newCount = csvImportReview.changes.filter(c => c.type === 'new_option').length
+        const tpl = templates.find(t => t._id === csvImportReview.templateId)
+
+        // Group changes by blockIndex
+        const grouped = new Map<number, { blockIdx: number, dn: number, label: string, mods: CsvChange[], news: CsvChange[] }>()
+        csvImportReview.changes.forEach(c => {
+          if (!grouped.has(c.blockIndex)) grouped.set(c.blockIndex, { blockIdx: c.blockIndex, dn: c.dropdownNumber, label: c.dropdownLabel, mods: [], news: [] })
+          const g = grouped.get(c.blockIndex)!
+          if (c.type === 'modified_text') g.mods.push(c)
+          else g.news.push(c)
+        })
+
+        return (
+          <div className="modal-overlay" onClick={() => setCsvImportReview(null)}>
+            <div className="modal" onClick={e => e.stopPropagation()} style={{ width: 'min(850px, 95vw)', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
+              <div className="modal-header">
+                <div>
+                  <h3 className="modal-title">Import CSV — Vérification des changements</h3>
+                  <p style={{ margin: '4px 0 0', fontSize: 12, color: '#64748b' }}>{tpl?.name || 'Template'}</p>
+                </div>
+                <button className="icon-btn" onClick={() => setCsvImportReview(null)}><X size={20} /></button>
+              </div>
+
+              <div className="modal-body" style={{ overflowY: 'auto' }}>
+                {/* Summary */}
+                <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
+                  {modCount > 0 && (
+                    <span style={{ fontSize: 13, fontWeight: 700, color: '#2563eb', background: '#eff6ff', padding: '6px 12px', borderRadius: 8, border: '1px solid #dbeafe' }}>
+                      {modCount} modification{modCount > 1 ? 's' : ''}
+                    </span>
+                  )}
+                  {newCount > 0 && (
+                    <span style={{ fontSize: 13, fontWeight: 700, color: '#15803d', background: '#f0fdf4', padding: '6px 12px', borderRadius: 8, border: '1px solid #bbf7d0' }}>
+                      {newCount} nouvelle{newCount > 1 ? 's' : ''} option{newCount > 1 ? 's' : ''}
+                    </span>
+                  )}
+                </div>
+
+                {/* Warnings */}
+                {csvImportReview.warnings.length > 0 && (
+                  <div style={{ padding: '10px 14px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, marginBottom: 16, fontSize: 12, color: '#92400e' }}>
+                    <div style={{ fontWeight: 700, marginBottom: 4 }}>Avertissements :</div>
+                    {csvImportReview.warnings.map((w, i) => <div key={i}>• {w}</div>)}
+                  </div>
+                )}
+
+                {/* Grouped changes */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  {Array.from(grouped.entries()).map(([blockIdx, g]) => (
+                    <div key={blockIdx} style={{ border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden' }}>
+                      <div style={{ padding: '10px 14px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', fontWeight: 700, fontSize: 13, color: '#1e293b' }}>
+                        {g.label} #{g.dn}
+                      </div>
+                      <div style={{ padding: 12 }}>
+                        {/* Modifications */}
+                        {g.mods.length > 0 && (
+                          <div style={{ marginBottom: g.news.length > 0 ? 12 : 0 }}>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 8 }}>Modifications</div>
+                            {g.mods.map((c, i) => c.type === 'modified_text' && (
+                              <div key={i} style={{ padding: '10px 12px', background: i % 2 === 0 ? '#fff' : '#f8fafc', borderRadius: 6, fontSize: 13, marginBottom: 8, border: '1px solid #e2e8f0' }}>
+                                {/* Option name + sex badge */}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                                  <span style={{ fontWeight: 700, color: '#1e293b' }}>{c.option}</span>
+                                  <span style={{ fontSize: 10, fontWeight: 700, color: c.field === 'maleText' ? '#3b82f6' : '#ec4899', background: c.field === 'maleText' ? '#eff6ff' : '#fdf2f8', padding: '2px 8px', borderRadius: 4 }}>
+                                    {c.field === 'maleText' ? '♂ Masculin' : '♀ Féminin'}
+                                  </span>
+                                </div>
+                                {/* Before */}
+                                <div style={{ marginBottom: 6 }}>
+                                  <div style={{ fontSize: 10, fontWeight: 700, color: '#dc2626', textTransform: 'uppercase', marginBottom: 2 }}>Avant</div>
+                                  <div style={{ padding: '6px 10px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 4, color: '#991b1b', fontSize: 12, lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                                    {c.oldValue || '(vide)'}
+                                  </div>
+                                </div>
+                                {/* After */}
+                                <div>
+                                  <div style={{ fontSize: 10, fontWeight: 700, color: '#15803d', textTransform: 'uppercase', marginBottom: 2 }}>Après</div>
+                                  <div style={{ padding: '6px 10px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 4, color: '#166534', fontSize: 12, lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                                    {c.newValue || '(vide)'}
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {/* New options */}
+                        {g.news.length > 0 && (
+                          <div>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: '#15803d', textTransform: 'uppercase', marginBottom: 8 }}>Nouvelles options</div>
+                            {g.news.map((c, i) => c.type === 'new_option' && (
+                              <div key={i} style={{ padding: '10px 12px', borderLeft: '3px solid #15803d', background: '#f0fdf4', borderRadius: 4, marginBottom: 8, fontSize: 13 }}>
+                                <div style={{ fontWeight: 700, color: '#1e293b', marginBottom: 6 }}>{c.option}</div>
+                                <div style={{ marginBottom: 4 }}>
+                                  <span style={{ fontSize: 10, fontWeight: 700, color: '#3b82f6', textTransform: 'uppercase' }}>♂ Masculin</span>
+                                  <div style={{ color: '#475569', fontSize: 12, lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word', marginTop: 2 }}>{c.maleText || '(vide)'}</div>
+                                </div>
+                                <div>
+                                  <span style={{ fontSize: 10, fontWeight: 700, color: '#ec4899', textTransform: 'uppercase' }}>♀ Féminin</span>
+                                  <div style={{ color: '#475569', fontSize: 12, lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word', marginTop: 2 }}>{c.femaleText || '(vide)'}</div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="modal-footer" style={{ padding: '12px 20px', background: '#f8fafc', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                <button className="btn secondary" onClick={() => setCsvImportReview(null)}>Refuser</button>
+                <button
+                  className="btn"
+                  onClick={applyCsvChanges}
+                  style={{ background: '#15803d', padding: '10px 20px', display: 'flex', alignItems: 'center', gap: 6 }}
+                >
+                  <Check size={16} /> Approuver tout ({csvImportReview.changes.length})
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }
