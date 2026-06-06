@@ -72,6 +72,7 @@ const syncTemplateDropdownAppreciations = (template: Template): Template => ({
 type ParsedCsvRow = {
   blockIndex: number
   dropdownNumber: number
+  rowNumber: number
   dropdownLabel: string
   option: string
   maleText: string
@@ -83,6 +84,7 @@ type CsvChange =
       type: 'modified_text'
       blockIndex: number
       dropdownNumber: number
+      rowNumber: number
       dropdownLabel: string
       levels: string[]
       semesters: number[]
@@ -95,6 +97,7 @@ type CsvChange =
       type: 'new_option'
       blockIndex: number
       dropdownNumber: number
+      rowNumber: number
       dropdownLabel: string
       levels: string[]
       semesters: number[]
@@ -167,10 +170,11 @@ const parseCsv = (text: string): ParsedCsvRow[] => {
   return rows.slice(1).map(row => ({
     blockIndex: parseInt(row[0] || '0', 10),
     dropdownNumber: parseInt(row[1] || '0', 10),
-    dropdownLabel: (row[2] || '').trim(),
-    option: (row[3] || '').trim(),
-    maleText: (row[4] || '').trim(),
-    femaleText: (row[5] || '').trim(),
+    rowNumber: parseInt(row[2] || '0', 10),
+    dropdownLabel: (row[3] || '').trim(),
+    option: (row[4] || '').trim(),
+    maleText: (row[5] || '').trim(),
+    femaleText: (row[6] || '').trim(),
   })).filter(r => r.option)
 }
 
@@ -203,13 +207,13 @@ const computeCsvDiff = (template: Template, parsedRows: ParsedCsvRow[]): { chang
     const existing = dd.appreciations.find(a => normalizeText(a.option) === normalizeText(row.option))
     if (existing) {
       if (normalizeText(existing.maleText) !== normalizeText(row.maleText)) {
-        changes.push({ type: 'modified_text', blockIndex: row.blockIndex, dropdownNumber: row.dropdownNumber, dropdownLabel: dd.label, levels: dd.levels, semesters: dd.semesters, option: row.option, field: 'maleText', oldValue: existing.maleText, newValue: row.maleText })
+        changes.push({ type: 'modified_text', blockIndex: row.blockIndex, dropdownNumber: row.dropdownNumber, rowNumber: row.rowNumber, dropdownLabel: dd.label, levels: dd.levels, semesters: dd.semesters, option: row.option, field: 'maleText', oldValue: existing.maleText, newValue: row.maleText })
       }
       if (normalizeText(existing.femaleText) !== normalizeText(row.femaleText)) {
-        changes.push({ type: 'modified_text', blockIndex: row.blockIndex, dropdownNumber: row.dropdownNumber, dropdownLabel: dd.label, levels: dd.levels, semesters: dd.semesters, option: row.option, field: 'femaleText', oldValue: existing.femaleText, newValue: row.femaleText })
+        changes.push({ type: 'modified_text', blockIndex: row.blockIndex, dropdownNumber: row.dropdownNumber, rowNumber: row.rowNumber, dropdownLabel: dd.label, levels: dd.levels, semesters: dd.semesters, option: row.option, field: 'femaleText', oldValue: existing.femaleText, newValue: row.femaleText })
       }
     } else {
-      changes.push({ type: 'new_option', blockIndex: row.blockIndex, dropdownNumber: row.dropdownNumber, dropdownLabel: dd.label, levels: dd.levels, semesters: dd.semesters, option: row.option, maleText: row.maleText, femaleText: row.femaleText })
+      changes.push({ type: 'new_option', blockIndex: row.blockIndex, dropdownNumber: row.dropdownNumber, rowNumber: row.rowNumber, dropdownLabel: dd.label, levels: dd.levels, semesters: dd.semesters, option: row.option, maleText: row.maleText, femaleText: row.femaleText })
     }
   }
 
@@ -528,7 +532,7 @@ export default function AdminAppreciations() {
   }
 
   const exportCSV = (template: Template) => {
-    const header = 'block_index,dropdown_number,dropdown_label,option,male_text,female_text'
+    const header = 'block_index,dropdown_number,row_number,dropdown_label,option,male_text,female_text'
     const rows: string[] = []
     ;(template.pages || []).forEach((page) => {
       ;(page.blocks || []).forEach((block, blockIdx) => {
@@ -536,8 +540,8 @@ export default function AdminAppreciations() {
         const dn = block.props?.dropdownNumber ?? 0
         const label = normalizeText(block.props?.label) || `Dropdown ${dn}`
         const apps = buildAppreciations(block)
-        apps.forEach((a: any) => {
-          rows.push([String(blockIdx), String(dn), csvEscape(label), csvEscape(a.option), csvEscape(a.maleText), csvEscape(a.femaleText)].join(','))
+        apps.forEach((a: any, i: number) => {
+          rows.push([String(blockIdx), String(dn), String(i + 1), csvEscape(label), csvEscape(a.option), csvEscape(a.maleText), csvEscape(a.femaleText)].join(','))
         })
       })
     })
@@ -1575,6 +1579,7 @@ export default function AdminAppreciations() {
                               <div key={i} style={{ padding: '10px 12px', background: i % 2 === 0 ? '#fff' : '#f8fafc', borderRadius: 6, fontSize: 13, marginBottom: 8, border: '1px solid #e2e8f0' }}>
                                 {/* Option name + sex badge */}
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                                  <span style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', background: '#f1f5f9', padding: '2px 6px', borderRadius: 4 }}>#{c.rowNumber}</span>
                                   <span style={{ fontWeight: 700, color: '#1e293b' }}>{c.option}</span>
                                   <span style={{ fontSize: 10, fontWeight: 700, color: c.field === 'maleText' ? '#3b82f6' : '#ec4899', background: c.field === 'maleText' ? '#eff6ff' : '#fdf2f8', padding: '2px 8px', borderRadius: 4 }}>
                                     {c.field === 'maleText' ? '♂ Masculin' : '♀ Féminin'}
@@ -1604,7 +1609,10 @@ export default function AdminAppreciations() {
                             <div style={{ fontSize: 11, fontWeight: 700, color: '#15803d', textTransform: 'uppercase', marginBottom: 8 }}>Nouvelles options</div>
                             {g.news.map((c, i) => c.type === 'new_option' && (
                               <div key={i} style={{ padding: '10px 12px', borderLeft: '3px solid #15803d', background: '#f0fdf4', borderRadius: 4, marginBottom: 8, fontSize: 13 }}>
-                                <div style={{ fontWeight: 700, color: '#1e293b', marginBottom: 6 }}>{c.option}</div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                                  <span style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', background: '#f1f5f9', padding: '2px 6px', borderRadius: 4 }}>#{c.rowNumber}</span>
+                                  <span style={{ fontWeight: 700, color: '#1e293b' }}>{c.option}</span>
+                                </div>
                                 <div style={{ marginBottom: 4 }}>
                                   <span style={{ fontSize: 10, fontWeight: 700, color: '#3b82f6', textTransform: 'uppercase' }}>♂ Masculin</span>
                                   <div style={{ color: '#475569', fontSize: 12, lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word', marginTop: 2 }}>{c.maleText || '(vide)'}</div>
