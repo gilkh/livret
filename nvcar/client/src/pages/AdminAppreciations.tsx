@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import api from '../api'
-import { ChevronDown, ChevronRight, Search, Filter, Save, Check, CheckCircle, AlertCircle, ChevronsUp, ChevronsDown, Upload, Download, Plus, X } from 'lucide-react'
+import { ChevronDown, ChevronRight, Search, Filter, Save, Check, CheckCircle, AlertCircle, ChevronsUp, ChevronsDown, Upload, Download, Plus, X, Trash2 } from 'lucide-react'
 
 type Block = { type: string; props?: any }
 type Page = { title?: string; blocks?: Block[] }
@@ -84,6 +84,8 @@ type CsvChange =
       blockIndex: number
       dropdownNumber: number
       dropdownLabel: string
+      levels: string[]
+      semesters: number[]
       option: string
       field: 'maleText' | 'femaleText'
       oldValue: string
@@ -94,6 +96,8 @@ type CsvChange =
       blockIndex: number
       dropdownNumber: number
       dropdownLabel: string
+      levels: string[]
+      semesters: number[]
       option: string
       maleText: string
       femaleText: string
@@ -174,8 +178,8 @@ const computeCsvDiff = (template: Template, parsedRows: ParsedCsvRow[]): { chang
   const changes: CsvChange[] = []
   const warnings: string[] = []
 
-  // Build lookup: blockIndex -> { appreciations, label }
-  const dropdownMap = new Map<number, { appreciations: { option: string, maleText: string, femaleText: string }[], label: string }>()
+  // Build lookup: blockIndex -> { appreciations, label, levels, semesters }
+  const dropdownMap = new Map<number, { appreciations: { option: string, maleText: string, femaleText: string }[], label: string, levels: string[], semesters: number[] }>()
   ;(template.pages || []).forEach((page) => {
     ;(page.blocks || []).forEach((block, blockIdx) => {
       if (block?.type !== 'dropdown') return
@@ -184,6 +188,8 @@ const computeCsvDiff = (template: Template, parsedRows: ParsedCsvRow[]): { chang
       dropdownMap.set(blockIdx, {
         appreciations: buildAppreciations(block),
         label: normalizeText(block.props?.label) || `Dropdown ${dn}`,
+        levels: Array.isArray(block.props?.levels) ? block.props.levels : [],
+        semesters: Array.isArray(block.props?.semesters) && block.props.semesters.length > 0 ? block.props.semesters : [1, 2],
       })
     })
   })
@@ -197,13 +203,13 @@ const computeCsvDiff = (template: Template, parsedRows: ParsedCsvRow[]): { chang
     const existing = dd.appreciations.find(a => normalizeText(a.option) === normalizeText(row.option))
     if (existing) {
       if (normalizeText(existing.maleText) !== normalizeText(row.maleText)) {
-        changes.push({ type: 'modified_text', blockIndex: row.blockIndex, dropdownNumber: row.dropdownNumber, dropdownLabel: dd.label, option: row.option, field: 'maleText', oldValue: existing.maleText, newValue: row.maleText })
+        changes.push({ type: 'modified_text', blockIndex: row.blockIndex, dropdownNumber: row.dropdownNumber, dropdownLabel: dd.label, levels: dd.levels, semesters: dd.semesters, option: row.option, field: 'maleText', oldValue: existing.maleText, newValue: row.maleText })
       }
       if (normalizeText(existing.femaleText) !== normalizeText(row.femaleText)) {
-        changes.push({ type: 'modified_text', blockIndex: row.blockIndex, dropdownNumber: row.dropdownNumber, dropdownLabel: dd.label, option: row.option, field: 'femaleText', oldValue: existing.femaleText, newValue: row.femaleText })
+        changes.push({ type: 'modified_text', blockIndex: row.blockIndex, dropdownNumber: row.dropdownNumber, dropdownLabel: dd.label, levels: dd.levels, semesters: dd.semesters, option: row.option, field: 'femaleText', oldValue: existing.femaleText, newValue: row.femaleText })
       }
     } else {
-      changes.push({ type: 'new_option', blockIndex: row.blockIndex, dropdownNumber: row.dropdownNumber, dropdownLabel: dd.label, option: row.option, maleText: row.maleText, femaleText: row.femaleText })
+      changes.push({ type: 'new_option', blockIndex: row.blockIndex, dropdownNumber: row.dropdownNumber, dropdownLabel: dd.label, levels: dd.levels, semesters: dd.semesters, option: row.option, maleText: row.maleText, femaleText: row.femaleText })
     }
   }
 
@@ -258,6 +264,11 @@ export default function AdminAppreciations() {
   } | null>(null)
   const csvFileInputRef = useRef<HTMLInputElement>(null)
   const csvImportTemplateIdRef = useRef<string>('')
+
+  // Delete Appreciation State (triple confirm)
+  const [deleteConfirm, setDeleteConfirm] = useState<{
+    templateId: string, pageIndex: number, blockIndex: number, option: string, confirms: number
+  } | null>(null)
 
   useEffect(() => {
     const loadData = async () => {
@@ -635,6 +646,43 @@ export default function AdminAppreciations() {
     setCsvImportReview(null)
   }
 
+  const handleDeleteAppreciation = (templateId: string, pageIndex: number, blockIndex: number, option: string) => {
+    const current = deleteConfirm
+    // If not yet confirming this row, start at confirm 1
+    if (!current || current.templateId !== templateId || current.pageIndex !== pageIndex || current.blockIndex !== blockIndex || current.option !== option) {
+      setDeleteConfirm({ templateId, pageIndex, blockIndex, option, confirms: 1 })
+      return
+    }
+    const next = current.confirms + 1
+    if (next < 3) {
+      setDeleteConfirm({ ...current, confirms: next })
+      return
+    }
+    // 3 confirms reached – delete
+    setTemplates(prev =>
+      prev.map(template => {
+        if (template._id !== templateId) return template
+        return {
+          ...template,
+          pages: (template.pages || []).map((page, pIdx) => {
+            if (pIdx !== pageIndex) return page
+            return {
+              ...page,
+              blocks: (page.blocks || []).map((block, bIdx) => {
+                if (bIdx !== blockIndex || block.type !== 'dropdown') return block
+                const optNorm = normalizeText(option)
+                const options = (block.props?.options || []).filter((o: unknown) => normalizeText(o) !== optNorm)
+                const appreciations = (block.props?.appreciations || []).filter((a: any) => normalizeText(a?.option) !== optNorm)
+                return { ...block, props: { ...block.props, options, appreciations } }
+              })
+            }
+          })
+        }
+      })
+    )
+    setDeleteConfirm(null)
+  }
+
   return (
     <div className="container" style={{ maxWidth: 1200, margin: '0 auto', padding: '20px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
       {/* Hidden CSV file input */}
@@ -989,15 +1037,43 @@ export default function AdminAppreciations() {
                                   }}
                                 >
                                   {/* Option Title Row */}
-                                  <div style={{ 
-                                      fontSize: 11, 
-                                      fontWeight: 800, 
-                                      color: '#64748b', 
-                                      textTransform: 'uppercase', 
-                                      marginBottom: 12, 
+                                  <div style={{
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'space-between',
+                                      marginBottom: 12,
                                       paddingLeft: 132 // 40 + 16 + 60 + 16 (col1 + gap + col2 + gap)
                                   }}>
-                                    OPTION: {entry.option}
+                                    <span style={{ fontSize: 11, fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>
+                                      OPTION: {entry.option}
+                                    </span>
+                                    {(() => {
+                                      const dc = deleteConfirm
+                                      const isActive = dc && dc.templateId === template._id && dc.pageIndex === dropdown.pageIndex && dc.blockIndex === dropdown.blockIndex && dc.option === entry.option
+                                      const confirms = isActive ? dc.confirms : 0
+                                      const labels = ['Supprimer', 'Confirmer ?', 'Vraiment sûr ?']
+                                      return (
+                                        <button
+                                          onClick={() => handleDeleteAppreciation(template._id!, dropdown.pageIndex, dropdown.blockIndex, entry.option)}
+                                          style={{
+                                            display: 'flex', alignItems: 'center', gap: 4,
+                                            fontSize: 11, fontWeight: 700,
+                                            padding: '3px 8px', borderRadius: 4,
+                                            border: '1px solid',
+                                            cursor: 'pointer',
+                                            transition: 'all 0.15s',
+                                            ...(confirms === 0 ? { color: '#94a3b8', background: '#f8fafc', borderColor: '#e2e8f0' }
+                                              : confirms === 1 ? { color: '#ea580c', background: '#fff7ed', borderColor: '#fed7aa' }
+                                              : { color: '#dc2626', background: '#fef2f2', borderColor: '#fecaca' }
+                                            )
+                                          }}
+                                        >
+                                          <Trash2 size={12} />
+                                          {labels[confirms] || labels[0]}
+                                          {confirms > 0 && <span style={{ fontSize: 10, opacity: 0.7 }}>({confirms}/3)</span>}
+                                        </button>
+                                      )
+                                    })()}
                                   </div>
 
                                   {/* Grid Row */}
@@ -1433,9 +1509,9 @@ export default function AdminAppreciations() {
         const tpl = templates.find(t => t._id === csvImportReview.templateId)
 
         // Group changes by blockIndex
-        const grouped = new Map<number, { blockIdx: number, dn: number, label: string, mods: CsvChange[], news: CsvChange[] }>()
+        const grouped = new Map<number, { blockIdx: number, dn: number, label: string, levels: string[], semesters: number[], mods: CsvChange[], news: CsvChange[] }>()
         csvImportReview.changes.forEach(c => {
-          if (!grouped.has(c.blockIndex)) grouped.set(c.blockIndex, { blockIdx: c.blockIndex, dn: c.dropdownNumber, label: c.dropdownLabel, mods: [], news: [] })
+          if (!grouped.has(c.blockIndex)) grouped.set(c.blockIndex, { blockIdx: c.blockIndex, dn: c.dropdownNumber, label: c.dropdownLabel, levels: c.levels, semesters: c.semesters, mods: [], news: [] })
           const g = grouped.get(c.blockIndex)!
           if (c.type === 'modified_text') g.mods.push(c)
           else g.news.push(c)
@@ -1479,8 +1555,16 @@ export default function AdminAppreciations() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                   {Array.from(grouped.entries()).map(([blockIdx, g]) => (
                     <div key={blockIdx} style={{ border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden' }}>
-                      <div style={{ padding: '10px 14px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', fontWeight: 700, fontSize: 13, color: '#1e293b' }}>
-                        {g.label} #{g.dn}
+                      <div style={{ padding: '10px 14px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', fontWeight: 700, fontSize: 13, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                        <span>{g.label} #{g.dn}</span>
+                        {g.levels.length > 0 && (
+                          <span style={{ fontSize: 11, fontWeight: 600, color: '#0369a1', background: '#e0f2fe', padding: '2px 8px', borderRadius: 999 }}>
+                            {g.levels.join(', ')}
+                          </span>
+                        )}
+                        <span style={{ fontSize: 11, fontWeight: 600, color: '#7e22ce', background: '#f3e8ff', padding: '2px 8px', borderRadius: 999 }}>
+                          {g.semesters.map(s => `S${s}`).join(', ')}
+                        </span>
                       </div>
                       <div style={{ padding: 12 }}>
                         {/* Modifications */}
