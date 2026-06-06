@@ -117,6 +117,29 @@
     box-shadow: none;
 }
 
+.export-filter-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 22px;
+    height: 22px;
+    padding: 0 6px;
+    background: rgba(255, 255, 255, 0.25);
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 700;
+    color: white;
+    line-height: 1;
+    animation: badge-pop 0.25s ease;
+}
+
+@keyframes badge-pop {
+    0% { transform: scale(0.6); opacity: 0; }
+    60% { transform: scale(1.15); }
+    100% { transform: scale(1); opacity: 1; }
+}
+
 .progress-header-right {
     display: flex;
     align-items: center;
@@ -203,10 +226,10 @@
     gap: 16px;
     background: white;
     padding: 16px 20px;
-    border-radius: var(--progress-radius-lg);
+    border-radius: var(--progress-radius-lg) var(--progress-radius-lg) 0 0;
     box-shadow: var(--progress-shadow-sm);
     border: 1px solid var(--progress-border);
-    margin-bottom: 24px;
+    border-bottom: none;
     flex-wrap: wrap;
 }
 
@@ -289,6 +312,157 @@
 
 .progress-view-btn:hover:not(.active) {
     background: rgba(255, 255, 255, 0.5);
+}
+
+/* Average Threshold Filter Bar */
+.progress-threshold-bar {
+    background: white;
+    padding: 14px 20px 16px;
+    border-radius: 0 0 var(--progress-radius-lg) var(--progress-radius-lg);
+    box-shadow: var(--progress-shadow-sm);
+    border: 1px solid var(--progress-border);
+    border-top: 1px dashed var(--progress-border);
+    margin-bottom: 24px;
+}
+
+.progress-threshold-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--progress-text-secondary);
+    margin-bottom: 10px;
+}
+
+.progress-threshold-control {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+}
+
+.progress-threshold-slider {
+    flex: 1;
+    min-width: 180px;
+    max-width: 360px;
+    height: 6px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: linear-gradient(90deg, var(--progress-danger) 0%, var(--progress-warning) 50%, var(--progress-success) 100%);
+    border-radius: 3px;
+    outline: none;
+    cursor: pointer;
+}
+
+.progress-threshold-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: white;
+    border: 2px solid var(--progress-primary);
+    cursor: pointer;
+    box-shadow: 0 2px 6px rgba(99, 102, 241, 0.3);
+    transition: transform 0.15s ease;
+}
+
+.progress-threshold-slider::-webkit-slider-thumb:hover {
+    transform: scale(1.2);
+}
+
+.progress-threshold-slider::-moz-range-thumb {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: white;
+    border: 2px solid var(--progress-primary);
+    cursor: pointer;
+    box-shadow: 0 2px 6px rgba(99, 102, 241, 0.3);
+}
+
+.progress-threshold-input-wrap {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.progress-threshold-input {
+    width: 54px;
+    padding: 6px 8px;
+    border: 1px solid var(--progress-border);
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 600;
+    text-align: center;
+    color: var(--progress-text-main);
+    background: var(--progress-bg-page);
+    transition: all 0.2s ease;
+}
+
+.progress-threshold-input:focus {
+    outline: none;
+    border-color: var(--progress-primary);
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.1);
+}
+
+.progress-threshold-unit {
+    font-size: 13px;
+    color: var(--progress-text-light);
+    font-weight: 500;
+}
+
+.progress-threshold-toggle {
+    padding: 7px 14px;
+    border: 1px solid var(--progress-border);
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    background: var(--progress-bg-page);
+    color: var(--progress-text-secondary);
+    transition: all 0.2s ease;
+}
+
+.progress-threshold-toggle:hover {
+    background: #f1f5f9;
+}
+
+.progress-threshold-toggle.active {
+    background: linear-gradient(135deg, #dbeafe, #eff6ff);
+    border-color: rgba(59, 130, 246, 0.3);
+    color: #1d4ed8;
+}
+
+.progress-threshold-clear {
+    padding: 7px 14px;
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    background: var(--progress-danger-light);
+    color: #b91c1c;
+    transition: all 0.2s ease;
+}
+
+.progress-threshold-clear:hover {
+    background: #fecaca;
+}
+
+.progress-threshold-info {
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--progress-text-secondary);
+    padding: 6px 12px;
+    background: #fef3c7;
+    border-radius: 6px;
+    display: inline-block;
+}
+
+.progress-threshold-info strong {
+    color: #b45309;
 }
 
 /* Level Section */
@@ -1109,6 +1283,21 @@
 
     .progress-filter-select {
         width: 100%;
+    }
+
+    .progress-threshold-control {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+    }
+
+    .progress-threshold-slider {
+        max-width: none;
+        width: 100%;
+    }
+
+    .progress-threshold-input-wrap {
+        align-self: flex-start;
     }
 
     .progress-class-grid-cards {

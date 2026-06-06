@@ -80,6 +80,8 @@ export default function SubAdminProgress() {
     const [viewMode, setViewMode] = useState<ViewMode>('table')
     const [expandedLevels, setExpandedLevels] = useState<Set<string>>(new Set())
     const [expandedClasses, setExpandedClasses] = useState<Set<string>>(new Set())
+    const [averageThreshold, setAverageThreshold] = useState<number>(60)
+    const [averageFilterActive, setAverageFilterActive] = useState(false)
 
     useEffect(() => {
         const loadData = async () => {
@@ -101,7 +103,7 @@ export default function SubAdminProgress() {
         loadData()
     }, [])
 
-    // Filter students based on search and level filter
+    // Base filter: search + level only (no threshold - used for structure and averages)
     const filteredStudents = useMemo(() => {
         return students.filter(student => {
             const matchesSearch = searchTerm === '' ||
@@ -114,8 +116,17 @@ export default function SubAdminProgress() {
         })
     }, [students, searchTerm, selectedLevel])
 
-    // Group students by level and class
-    const grouped = useMemo(() => {
+    // Display filter: applies threshold on top of base filter (used for student list display)
+    const displayStudents = useMemo(() => {
+        if (!averageFilterActive) return filteredStudents
+        return filteredStudents.filter(student => {
+            const safeLevelsData = Array.isArray(student.levelsData) ? student.levelsData : []
+            return safeLevelsData.some(l => l.percentage < averageThreshold)
+        })
+    }, [filteredStudents, averageFilterActive, averageThreshold])
+
+    // Group students by level and class (from base filter - for structure and averages)
+    const baseGrouped = useMemo(() => {
         return filteredStudents.reduce((acc, student) => {
             const level = student.currentLevel || 'Sans niveau'
             const className = student.className || 'Sans classe'
@@ -128,7 +139,7 @@ export default function SubAdminProgress() {
         }, {} as Record<string, Record<string, StudentProgress[]>>)
     }, [filteredStudents])
 
-    const sortedLevels = Object.keys(grouped).sort()
+    const sortedLevels = Object.keys(baseGrouped).sort()
     const allLevels = [...new Set(students.map(s => s.currentLevel || 'Sans niveau'))].sort()
 
     // Calculate statistics
@@ -216,9 +227,10 @@ export default function SubAdminProgress() {
     }
 
     const exportToExcel = () => {
-        if (!filteredStudents.length) return
+        const exportData = averageFilterActive ? displayStudents : filteredStudents
+        if (!exportData.length) return
 
-        const rows = filteredStudents.map(student => {
+        const rows = exportData.map(student => {
             const levelData = student.levelsData.find(l => l.level === student.currentLevel) || student.levelsData[0]
             const row: any = {
                 'Nom': student.lastName,
@@ -254,7 +266,7 @@ export default function SubAdminProgress() {
         })
         worksheet['!cols'] = cols
 
-        XLSX.writeFile(workbook, `Progression_Eleves_${new Date().toISOString().split('T')[0]}.xlsx`)
+        XLSX.writeFile(workbook, `Progression_Eleves_${averageFilterActive ? 'Filtree_' : ''}${new Date().toISOString().split('T')[0]}.xlsx`)
     }
 
     return (
@@ -274,10 +286,13 @@ export default function SubAdminProgress() {
                     <button 
                         className="btn-export-excel" 
                         onClick={exportToExcel}
-                        disabled={filteredStudents.length === 0}
+                        disabled={averageFilterActive ? displayStudents.length === 0 : filteredStudents.length === 0}
                     >
                         <FileDown size={18} />
                         <span>Télécharger Excel</span>
+                        {averageFilterActive && (
+                            <span className="export-filter-badge">{displayStudents.length}</span>
+                        )}
                     </button>
                 </div>
             </header>
@@ -318,6 +333,7 @@ export default function SubAdminProgress() {
 
             {/* Filter Bar */}
             {!loading && !error && students.length > 0 && (
+                <>
                 <div className="progress-filter-bar">
                     <div className="progress-search-wrapper">
                         <span className="progress-search-icon">🔍</span>
@@ -354,6 +370,59 @@ export default function SubAdminProgress() {
                         </button>
                     </div>
                 </div>
+                {/* Average Threshold Filter */}
+                <div className="progress-threshold-bar">
+                    <div className="progress-threshold-label">
+                        <span>🎯</span>
+                        <span>Filtrer par moyenne minimale</span>
+                    </div>
+                    <div className="progress-threshold-control">
+                        <input
+                            type="range"
+                            className="progress-threshold-slider"
+                            min={0}
+                            max={100}
+                            value={averageThreshold}
+                            onChange={e => setAverageThreshold(Number(e.target.value))}
+                        />
+                        <div className="progress-threshold-input-wrap">
+                            <input
+                                type="number"
+                                className="progress-threshold-input"
+                                min={0}
+                                max={100}
+                                value={averageThreshold}
+                                onChange={e => {
+                                    const v = Math.min(100, Math.max(0, Number(e.target.value) || 0))
+                                    setAverageThreshold(v)
+                                }}
+                            />
+                            <span className="progress-threshold-unit">%</span>
+                        </div>
+                        <button
+                            className={`progress-threshold-toggle ${averageFilterActive ? 'active' : ''}`}
+                            onClick={() => setAverageFilterActive(prev => !prev)}
+                            title={averageFilterActive ? 'Désactiver le filtre' : 'Activer le filtre'}
+                        >
+                            {averageFilterActive ? '✅ Activé' : '⚪ Inactif'}
+                        </button>
+                        {averageFilterActive && (
+                            <button
+                                className="progress-threshold-clear"
+                                onClick={() => setAverageFilterActive(false)}
+                                title="Effacer le filtre"
+                            >
+                                ✕ Effacer
+                            </button>
+                        )}
+                    </div>
+                    {averageFilterActive && (
+                        <div className="progress-threshold-info">
+                            Affichage des élèves avec une moyenne inférieure à <strong>{averageThreshold}%</strong>
+                        </div>
+                    )}
+                </div>
+                </>
             )}
 
             {/* Loading State */}
@@ -389,7 +458,7 @@ export default function SubAdminProgress() {
             {!loading && !error && filteredStudents.length > 0 && viewMode === 'table' && (
                 <div className="progress-content">
                     {sortedLevels.map(level => {
-                        const levelStudents = Object.values(grouped[level]).flat()
+                        const levelStudents = Object.values(baseGrouped[level]).flat()
                         const levelAverage = calculateAverage(levelStudents, level)
                         const levelCategoryAverages = calculateCategoryAverages(levelStudents, level)
                         const isExpanded = expandedLevels.has(level)
@@ -436,12 +505,12 @@ export default function SubAdminProgress() {
 
                                 {isExpanded && (
                                     <div className="progress-level-content">
-                                        {Object.keys(grouped[level]).sort().map(className => {
-                                            const classStudents = grouped[level][className]
+                                        {Object.keys(baseGrouped[level]).sort().map(className => {
+                                            const classStudents = baseGrouped[level][className]
                                             const classAverage = calculateAverage(classStudents, level)
                                             const classCategoryAverages = calculateCategoryAverages(classStudents, level)
                                             const classKey = `${level}-${className}`
-                                            const isClassExpanded = expandedClasses.has(classKey) || expandedClasses.size === 0
+                                            const isClassExpanded = expandedClasses.has(classKey)
 
                                             return (
                                                 <div key={className} className="progress-class-section">
@@ -468,9 +537,14 @@ export default function SubAdminProgress() {
                                                                 </div>
                                                             ))}
                                                         </div>
+                                                        <span className={`progress-collapse-icon ${isClassExpanded ? 'expanded' : ''}`}>
+                                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                <polyline points="6 9 12 15 18 9" />
+                                                            </svg>
+                                                        </span>
                                                     </div>
 
-                                                    {(isClassExpanded || !expandedClasses.has(classKey)) && (
+                                                    {isClassExpanded && (
                                                         <div className="progress-student-table-wrapper">
                                                             <table className="progress-student-table">
                                                                 <thead>
@@ -482,7 +556,7 @@ export default function SubAdminProgress() {
                                                                     </tr>
                                                                 </thead>
                                                                 <tbody>
-                                                                    {classStudents.map(student => {
+                                                                    {classStudents.filter(s => displayStudents.includes(s)).map(student => {
                                                                         const safeLevelsData = Array.isArray(student.levelsData) ? student.levelsData : []
                                                                         const levels = safeLevelsData.length > 0
                                                                             ? safeLevelsData
@@ -570,15 +644,15 @@ export default function SubAdminProgress() {
                                     <span className="progress-level-badge">{level}</span>
                                     <div className="progress-level-info">
                                         <span className="progress-level-student-count">
-                                            {Object.values(grouped[level]).flat().length} élèves
+                                            {Object.values(baseGrouped[level]).flat().length} élèves
                                         </span>
                                     </div>
                                 </div>
                             </div>
 
                             <div className="progress-level-content">
-                                {Object.keys(grouped[level]).sort().map(className => {
-                                    const classStudents = grouped[level][className]
+                                {Object.keys(baseGrouped[level]).sort().map(className => {
+                                    const classStudents = baseGrouped[level][className]
 
                                     return (
                                         <div key={`${level}-${className}`} className="progress-class-section">
@@ -592,7 +666,7 @@ export default function SubAdminProgress() {
                                             </div>
 
                                             <div className="progress-class-grid-cards">
-                                                {classStudents.map(student => {
+                                                {classStudents.filter(s => displayStudents.includes(s)).map(student => {
                                                     const safeLevelsData = Array.isArray(student.levelsData) ? student.levelsData : []
                                                     const primaryLevel = safeLevelsData.find(l => l.level === student.currentLevel) || safeLevelsData[0]
 
@@ -674,6 +748,14 @@ export default function SubAdminProgress() {
                     <div className="progress-empty-icon">🔍</div>
                     <h3>Aucun résultat</h3>
                     <p>Aucun élève ne correspond à vos critères de recherche. Essayez de modifier vos filtres.</p>
+                </div>
+            )}
+            {/* No students match threshold filter */}
+            {!loading && !error && filteredStudents.length > 0 && averageFilterActive && displayStudents.length === 0 && (
+                <div className="progress-empty">
+                    <div className="progress-empty-icon">📉</div>
+                    <h3>Aucun élève sous le seuil</h3>
+                    <p>Aucun élève n'a une moyenne inférieure à {averageThreshold}%. Ajustez le seuil ou désactivez le filtre.</p>
                 </div>
             )}
         </div>
