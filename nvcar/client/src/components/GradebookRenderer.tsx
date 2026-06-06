@@ -620,7 +620,7 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                                         (stableKey ? assignment?.data?.[stableKey] : undefined) ??
                                                         (legacyKey ? assignment?.data?.[legacyKey] : undefined) ??
                                                         ''
-                                                    const displayValue = resolveDropdownDisplayValue({ dropdownBlock: b, rawValue: currentValue, studentSex: (student as any)?.sex })
+                                                    const displayValue = resolveDropdownDisplayValue({ dropdownBlock: b, rawValue: currentValue, studentSex: (student as any)?.sex, studentFirstName: student?.firstName, studentLastName: student?.lastName })
                                                     return displayValue || 'Sélectionner...'
                                                 })()}
                                             </div>
@@ -639,7 +639,9 @@ export const GradebookRenderer: React.FC<GradebookRendererProps> = ({ template, 
                                         const displayValue = resolveDropdownDisplayValue({
                                             dropdownBlock: findDropdownBlockByReference(template?.pages || [], { dropdownNumber: dropdownNum }),
                                             rawValue: value,
-                                            studentSex: (student as any)?.sex
+                                            studentSex: (student as any)?.sex,
+                                            studentFirstName: student?.firstName,
+                                            studentLastName: student?.lastName
                                         })
                                         if (!displayValue) return null
                                         return (

@@ -741,7 +741,7 @@ export default function TemplateReviewPreview({ template, student, assignment, s
                                                                 (stableKey ? getScopedData(stableKey, blockLevel) : undefined) ??
                                                                 (legacyKey ? getScopedData(legacyKey, blockLevel) : undefined) ??
                                                                 ''
-                                                            const displayValue = resolveDropdownDisplayValue({ dropdownBlock: b, rawValue: currentValue, studentSex: student?.sex })
+                                                            const displayValue = resolveDropdownDisplayValue({ dropdownBlock: b, rawValue: currentValue, studentSex: student?.sex, studentFirstName: student?.firstName, studentLastName: student?.lastName })
                                                             return displayValue || 'Sélectionner...'
                                                         })()}
                                                         <div style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>▼</div>
@@ -761,7 +761,9 @@ export default function TemplateReviewPreview({ template, student, assignment, s
                                             const displayValue = resolveDropdownDisplayValue({
                                                 dropdownBlock: findDropdownBlockByReference(template?.pages || [], { dropdownNumber: dropdownNum }),
                                                 rawValue: value,
-                                                studentSex: student?.sex
+                                                studentSex: student?.sex,
+                                                studentFirstName: student?.firstName,
+                                                studentLastName: student?.lastName
                                             })
                                             if (!displayValue) return null
                                             return (

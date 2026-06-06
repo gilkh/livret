@@ -1461,7 +1461,7 @@ export default function TeacherTemplateEditor() {
                                                                         (stableKey ? assignment?.data?.[stableKey] : undefined) ??
                                                                         (legacyKey ? assignment?.data?.[legacyKey] : undefined) ??
                                                                         ''
-                                                                    const displayValue = resolveDropdownDisplayValue({ dropdownBlock: b, rawValue: currentValue, studentSex: student?.sex })
+                                                                    const displayValue = resolveDropdownDisplayValue({ dropdownBlock: b, rawValue: currentValue, studentSex: student?.sex, studentFirstName: student?.firstName, studentLastName: student?.lastName })
                                                                     return displayValue || 'Sélectionner...'
                                                                 })()}
                                                                 <div style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>▼</div>
@@ -1543,7 +1543,7 @@ export default function TeacherTemplateEditor() {
                                                                             onMouseEnter={(e) => e.currentTarget.style.background = '#e8ecf8'}
                                                                             onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}
                                                                         >
-                                                                            {resolveDropdownDisplayValue({ dropdownBlock: b, rawValue: opt, studentSex: student?.sex })}
+                                                                            {resolveDropdownDisplayValue({ dropdownBlock: b, rawValue: opt, studentSex: student?.sex, studentFirstName: student?.firstName, studentLastName: student?.lastName })}
                                                                         </div>
                                                                     ))}
                                                                 </div>
@@ -1557,7 +1557,9 @@ export default function TeacherTemplateEditor() {
                                                     const displayValue = resolveDropdownDisplayValue({
                                                         dropdownBlock: findDropdownBlockByReference(template?.pages || [], { dropdownNumber: dropdownNum }),
                                                         rawValue: raw,
-                                                        studentSex: student?.sex
+                                                        studentSex: student?.sex,
+                                                        studentFirstName: student?.firstName,
+                                                        studentLastName: student?.lastName
                                                     })
                                                     // Hide if no value selected (same as SubAdmin view)
                                                     if (!displayValue) return null

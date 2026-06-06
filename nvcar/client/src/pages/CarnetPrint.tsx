@@ -1060,6 +1060,8 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                             dropdownBlock: b,
                                             rawValue,
                                             studentSex: student?.sex,
+                                            studentFirstName: student?.firstName,
+                                            studentLastName: student?.lastName,
                                         })
                                         if (!currentValue) return null
                                         return (
@@ -1096,6 +1098,8 @@ export default function CarnetPrint({ mode }: { mode?: 'saved' | 'preview' }) {
                                             dropdownBlock: referencedBlock,
                                             rawValue,
                                             studentSex: student?.sex,
+                                            studentFirstName: student?.firstName,
+                                            studentLastName: student?.lastName,
                                         })
                                         // Don't render if no value
                                         if (!value) return null

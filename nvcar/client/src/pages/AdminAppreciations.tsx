@@ -392,6 +392,30 @@ export default function AdminAppreciations() {
           </div>
         </div>
 
+        {/* Placeholders Legend */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 20,
+          padding: '10px 16px',
+          marginBottom: 20,
+          background: '#fffbeb',
+          borderRadius: 10,
+          border: '1px solid #fde68a',
+          fontSize: 13,
+          color: '#92400e',
+        }}>
+          <span style={{ fontWeight: 700, whiteSpace: 'nowrap' }}>Variables disponibles :</span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <code style={{ background: '#fef3c7', padding: '2px 8px', borderRadius: 4, fontWeight: 700, fontFamily: 'monospace', fontSize: 12 }}>{`<<first_name>>`}</code>
+            <span style={{ color: '#a16207' }}>→ Prénom de l'élève</span>
+          </span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <code style={{ background: '#fef3c7', padding: '2px 8px', borderRadius: 4, fontWeight: 700, fontFamily: 'monospace', fontSize: 12 }}>{`<<last_name>>`}</code>
+            <span style={{ color: '#a16207' }}>→ Nom de l'élève</span>
+          </span>
+        </div>
+
         {/* Filters Section */}
         <div style={{
           display: 'flex',

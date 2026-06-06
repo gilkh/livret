@@ -40,10 +40,14 @@ export const resolveDropdownDisplayValue = ({
   dropdownBlock,
   rawValue,
   studentSex,
+  studentFirstName,
+  studentLastName,
 }: {
   dropdownBlock: any
   rawValue: unknown
   studentSex?: unknown
+  studentFirstName?: string
+  studentLastName?: string
 }) => {
   const selected = normalizeText(rawValue)
   if (!selected) return ''
@@ -52,8 +56,13 @@ export const resolveDropdownDisplayValue = ({
   if (!appreciation) return selected
 
   const sex = normalizeStudentSex(studentSex)
-  if (sex === 'female') return normalizeText(appreciation?.femaleText) || selected
-  if (sex === 'male') return normalizeText(appreciation?.maleText) || selected
+  let result = selected
+  if (sex === 'female') result = normalizeText(appreciation?.femaleText) || selected
+  else if (sex === 'male') result = normalizeText(appreciation?.maleText) || selected
 
-  return selected
+  // Replace student name placeholders
+  result = result.replace(/<<first_name>>/g, studentFirstName || '')
+  result = result.replace(/<<last_name>>/g, studentLastName || '')
+
+  return result
 }
