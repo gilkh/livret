@@ -46,8 +46,8 @@ classesRouter.delete('/:id/with-students', requireAuth(['ADMIN']), async (req, r
     const cls = await ClassModel.findById(id).lean()
     if (!cls) return res.status(404).json({ error: 'class_not_found' })
 
-    // Find all enrollments for this class
-    const enrollments = await Enrollment.find({ classId: id }).lean()
+    // Find all active enrollments for this class (excluding left students)
+    const enrollments = await Enrollment.find({ classId: id, status: { $ne: 'left' } }).lean()
     const studentIds = enrollments.map(e => e.studentId)
 
     const results = {

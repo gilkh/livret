@@ -172,10 +172,11 @@ export async function checkAndAssignTemplates(studentId: string, level: string, 
 
     if (classIdsInLevel.length === 0) return
 
-    // Find enrollments in these classes (excluding the current student)
+    // Find enrollments in these classes (excluding the current student and left students)
     const enrollments = await Enrollment.find({
       classId: { $in: classIdsInLevel },
-      studentId: { $ne: studentId }
+      studentId: { $ne: studentId },
+      status: { $ne: 'left' }
     }).lean()
 
     if (enrollments.length === 0) return

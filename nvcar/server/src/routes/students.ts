@@ -728,7 +728,7 @@ studentsRouter.patch('/:id/competencies/bulk', requireAuth(['TEACHER', 'ADMIN', 
 
 studentsRouter.get('/by-class/:classId', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), async (req, res) => {
   const { classId } = req.params
-  const enrolls = await Enrollment.find({ classId }).lean()
+  const enrolls = await Enrollment.find({ classId, status: { $ne: 'left' } }).lean()
   const ids = enrolls.map(e => e.studentId)
   const students = await Student.find({ _id: { $in: ids } }).lean()
   res.json(students)
@@ -1370,9 +1370,9 @@ studentsRouter.post('/:id/mark-leaving', requireAuth(['ADMIN', 'SUBADMIN']), asy
       await enrollment.save()
     }
 
-    // Also mark any pending enrollments (for next year) as left
+    // Also mark any pending enrollments (e.g., for next year) as left, excluding the current year (already handled above)
     await Enrollment.updateMany(
-      { studentId: id, status: 'active' },
+      { studentId: id, status: 'active', schoolYearId: { $ne: String(activeYear._id) } },
       { status: 'left', promotionStatus: 'left' }
     )
 
@@ -1404,6 +1404,21 @@ studentsRouter.post('/:id/undo-leaving', requireAuth(['ADMIN', 'SUBADMIN']), asy
     }
 
     const leftSchoolYearId = student.leftSchoolYearId
+    const leftAtDate = student.leftAt
+    const leftByUser = student.leftBy
+
+    // Record this leave/undo cycle in history before clearing
+    if (leftAtDate) {
+      student.leftPeriods = student.leftPeriods || []
+      student.leftPeriods.push({
+        leftAt: leftAtDate,
+        returnedAt: new Date(),
+        schoolYearId: leftSchoolYearId,
+        leftBy: leftByUser,
+        returnedBy: adminId,
+        reason: 'undo'
+      })
+    }
 
     // Restore student status
     student.status = 'active'
@@ -1477,6 +1492,19 @@ studentsRouter.post('/:id/mark-returned', requireAuth(['ADMIN', 'SUBADMIN']), as
       if (String(targetClass.schoolYearId) !== String(targetYearId)) {
         return res.status(400).json({ error: 'class_year_mismatch', message: 'The selected class does not belong to the target school year' })
       }
+    }
+
+    // Record this leave/return cycle in history
+    if (student.leftAt) {
+      student.leftPeriods = student.leftPeriods || []
+      student.leftPeriods.push({
+        leftAt: student.leftAt,
+        returnedAt: new Date(),
+        schoolYearId: student.leftSchoolYearId || targetYearId,
+        leftBy: student.leftBy,
+        returnedBy: adminId,
+        reason: 'return'
+      })
     }
 
     // Restore student status

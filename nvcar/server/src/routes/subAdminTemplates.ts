@@ -319,8 +319,8 @@ subAdminTemplatesRouter.get('/classes', requireAuth(['SUBADMIN', 'AEFE']), async
             }
         }
 
-        // Get students in these classes
-        const enrollments = await Enrollment.find({ classId: { $in: relevantClassIds } }).lean()
+        // Get students in these classes (excluding left students)
+        const enrollments = await Enrollment.find({ classId: { $in: relevantClassIds }, status: { $ne: 'left' } }).lean()
         const studentIds = enrollments.map(e => e.studentId)
 
         // Get template assignments for these students
@@ -479,8 +479,8 @@ subAdminTemplatesRouter.get('/pending-signatures', requireAuth(['SUBADMIN', 'AEF
             }
         }
 
-        // Get students in these classes
-        const enrollments = await Enrollment.find({ classId: { $in: classIds } }).lean()
+        // Get students in these classes (excluding left students)
+        const enrollments = await Enrollment.find({ classId: { $in: classIds }, status: { $ne: 'left' } }).lean()
         const studentIds = enrollments.map(e => e.studentId)
 
         // Get class details for mapping
@@ -1896,8 +1896,8 @@ subAdminTemplatesRouter.post('/templates/sign-class/:classId', requireAuth(['SUB
         const subAdminId = (req as any).user.userId
         const { classId } = req.params
 
-        // Get all students in this class
-        const enrollments = await Enrollment.find({ classId }).lean()
+        // Get all students in this class (excluding left students)
+        const enrollments = await Enrollment.find({ classId, status: { $ne: 'left' } }).lean()
         const studentIds = enrollments.map(e => e.studentId)
 
         // Verify authorization: Sub-admin must be assigned to at least one teacher of this class
@@ -2106,7 +2106,7 @@ subAdminTemplatesRouter.post('/templates/unsign-class/:classId', requireAuth(['S
         const subAdminId = (req as any).user.userId
         const { classId } = req.params
 
-        const enrollments = await Enrollment.find({ classId }).lean()
+        const enrollments = await Enrollment.find({ classId, status: { $ne: 'left' } }).lean()
         const studentIds = enrollments.map(e => e.studentId)
 
         // Authorization mirrors sign-class

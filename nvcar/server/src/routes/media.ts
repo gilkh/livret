@@ -317,7 +317,7 @@ mediaRouter.post('/import-photos', requireAuth(['ADMIN', 'SUBADMIN']), upload.si
     const classes = await ClassModel.find(classQuery).lean()
     const classByName = new Map<string, any>(classes.map(c => [String(c.name).toLowerCase(), c]))
     const classById = new Map<string, any>(classes.map(c => [String(c._id), c]))
-    const enrollQuery = activeYear ? { schoolYearId: String(activeYear._id) } : {}
+    const enrollQuery = activeYear ? { schoolYearId: String(activeYear._id), status: { $ne: 'left' } } : { status: { $ne: 'left' } }
     const enrollments = await Enrollment.find(enrollQuery).lean()
     const enrollByClass = new Map<string, string[]>()
     const classByStudent = new Map<string, any>()

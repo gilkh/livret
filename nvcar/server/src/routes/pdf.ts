@@ -1025,7 +1025,7 @@ pdfRouter.get('/student/:id', requireAuth(['ADMIN', 'SUBADMIN', 'TEACHER']), asy
 pdfRouter.get('/class/:classId/batch', requireAuth(['ADMIN', 'SUBADMIN']), async (req, res) => {
   const { classId } = req.params
   const { templateId, pwd } = req.query as any
-  const enrolls = await Enrollment.find({ classId }).lean()
+  const enrolls = await Enrollment.find({ classId, status: { $ne: 'left' } }).lean()
   const studentIds = enrolls.map(e => e.studentId)
   const students = await Student.find({ _id: { $in: studentIds } }).lean()
   res.setHeader('Content-Type', 'application/zip')

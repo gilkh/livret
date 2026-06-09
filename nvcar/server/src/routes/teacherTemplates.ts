@@ -223,8 +223,8 @@ teacherTemplatesRouter.get('/classes/:classId/students', requireAuth(['TEACHER',
         const assignment = await TeacherClassAssignment.findOne({ teacherId, classId }).lean()
         if (!assignment) return res.status(403).json({ error: 'not_assigned_to_class' })
 
-        // Get students in class
-        const enrollments = await Enrollment.find({ classId }).lean()
+        // Get students in class (excluding left students)
+        const enrollments = await Enrollment.find({ classId, status: { $ne: 'left' } }).lean()
         const studentIds = enrollments.map(e => e.studentId)
         const students = await Student.find({ _id: { $in: studentIds } }).select('firstName lastName avatarUrl dateOfBirth sex').lean()
 
@@ -1047,8 +1047,8 @@ teacherTemplatesRouter.get('/classes/:classId/assignments', requireAuth(['TEACHE
         const classDoc = await ClassModel.findById(classId).lean()
         const studentLevel = normalizeLevel((classDoc as any)?.level || '')
 
-        // Get students in class
-        const enrollments = await Enrollment.find({ classId }).lean()
+        // Get students in class (excluding left students)
+        const enrollments = await Enrollment.find({ classId, status: { $ne: 'left' } }).lean()
         const studentIds = enrollments.map(e => e.studentId)
 
         // Get all template assignments for these students where teacher is assigned
@@ -1129,8 +1129,8 @@ teacherTemplatesRouter.get('/classes/:classId/completion-stats', requireAuth(['T
         const classDoc = await ClassModel.findById(classId).lean()
         const studentLevel = normalizeLevel((classDoc as any)?.level || '')
 
-        // Get students in class
-        const enrollments = await Enrollment.find({ classId }).lean()
+        // Get students in class (excluding left students)
+        const enrollments = await Enrollment.find({ classId, status: { $ne: 'left' } }).lean()
         const studentIds = enrollments.map(e => e.studentId)
 
         // Get all template assignments for these students where teacher is assigned

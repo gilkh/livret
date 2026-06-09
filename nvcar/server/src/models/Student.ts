@@ -26,6 +26,15 @@ const studentSchema = new Schema({
   returnedAt: { type: Date },
   returnedSchoolYearId: { type: String }, // The school year when the student returned
   returnedBy: { type: String }, // Admin who marked the student as returned
+  // Track all leave/return cycles for historical audit
+  leftPeriods: [{
+    leftAt: { type: Date },
+    returnedAt: { type: Date },
+    schoolYearId: { type: String },
+    leftBy: { type: String },
+    returnedBy: { type: String },
+    reason: { type: String } // 'undo' or 'return'
+  }],
   promotions: [{
     schoolYearId: { type: String },
     date: { type: Date },

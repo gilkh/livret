@@ -222,7 +222,7 @@ templateAssignmentsRouter.delete('/bulk-level/:templateId/:level', requireAuth([
 
         if (classIds.length === 0) return res.json({ ok: true, count: 0 })
 
-        const enrollments = await Enrollment.find({ classId: { $in: classIds } }).lean()
+        const enrollments = await Enrollment.find({ classId: { $in: classIds }, status: { $ne: 'left' } }).lean()
         const studentIds = enrollments.map(e => e.studentId)
 
         if (studentIds.length === 0) return res.json({ ok: true, count: 0 })

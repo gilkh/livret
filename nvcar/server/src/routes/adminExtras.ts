@@ -694,7 +694,7 @@ adminExtrasRouter.get('/all-gradebooks', requireAuth(['ADMIN']), async (req, res
             const classMap = new Map(classes.map(c => [String(c._id), c]))
 
             // Get ALL enrollments
-            const enrollments = await Enrollment.find({ classId: { $in: classIds } }).lean()
+            const enrollments = await Enrollment.find({ classId: { $in: classIds }, status: { $ne: 'left' } }).lean()
             const studentIds = enrollments.map(e => String(e.studentId))
             const studentClassMap = new Map(enrollments.map(e => [String(e.studentId), String(e.classId)]))
 
@@ -770,7 +770,7 @@ adminExtrasRouter.get('/appreciations/usage', requireAuth(['ADMIN']), async (req
 
         const cacheKey = `admin-appreciations-usage-${activeSchoolYear._id}`
         const result = await withCache(cacheKey, async () => {
-            const enrollments = await Enrollment.find({ schoolYearId: activeSchoolYear._id }).lean()
+            const enrollments = await Enrollment.find({ schoolYearId: activeSchoolYear._id, status: { $ne: 'left' } }).lean()
             const studentIds = enrollments.map(e => e.studentId)
             const classIds = enrollments.map(e => e.classId).filter(Boolean)
 
@@ -2275,15 +2275,17 @@ adminExtrasRouter.post('/ps-onboarding/batch-sign', requireAuth(['ADMIN']), asyn
             targetEnrollments = await Enrollment.find({
                 studentId: { $in: studentIds },
                 schoolYearId,
-                classId: { $in: fromClassIds }
+                classId: { $in: fromClassIds },
+                status: { $ne: 'left' }
             }).lean()
         } else if (scope === 'class' && classId) {
-            targetEnrollments = await Enrollment.find({ schoolYearId, classId }).lean()
+            targetEnrollments = await Enrollment.find({ schoolYearId, classId, status: { $ne: 'left' } }).lean()
         } else {
             // All PS students
             targetEnrollments = await Enrollment.find({
                 schoolYearId,
-                classId: { $in: fromClassIds }
+                classId: { $in: fromClassIds },
+                status: { $ne: 'left' }
             }).lean()
         }
 
@@ -2471,14 +2473,16 @@ adminExtrasRouter.post('/ps-onboarding/batch-unsign', requireAuth(['ADMIN']), as
             targetEnrollments = await Enrollment.find({
                 studentId: { $in: studentIds },
                 schoolYearId,
-                classId: { $in: fromClassIds }
+                classId: { $in: fromClassIds },
+                status: { $ne: 'left' }
             }).lean()
         } else if (scope === 'class' && classId) {
-            targetEnrollments = await Enrollment.find({ schoolYearId, classId }).lean()
+            targetEnrollments = await Enrollment.find({ schoolYearId, classId, status: { $ne: 'left' } }).lean()
         } else {
             targetEnrollments = await Enrollment.find({
                 schoolYearId,
-                classId: { $in: fromClassIds }
+                classId: { $in: fromClassIds },
+                status: { $ne: 'left' }
             }).lean()
         }
 
@@ -2578,14 +2582,16 @@ adminExtrasRouter.post('/ps-onboarding/batch-promote', requireAuth(['ADMIN']), a
             targetEnrollments = await Enrollment.find({
                 studentId: { $in: studentIds },
                 schoolYearId,
-                classId: { $in: fromClassIds }
+                classId: { $in: fromClassIds },
+                status: { $ne: 'left' }
             }).lean()
         } else if (scope === 'class' && classId) {
-            targetEnrollments = await Enrollment.find({ schoolYearId, classId }).lean()
+            targetEnrollments = await Enrollment.find({ schoolYearId, classId, status: { $ne: 'left' } }).lean()
         } else {
             targetEnrollments = await Enrollment.find({
                 schoolYearId,
-                classId: { $in: fromClassIds }
+                classId: { $in: fromClassIds },
+                status: { $ne: 'left' }
             }).lean()
         }
 
@@ -2839,14 +2845,16 @@ adminExtrasRouter.post('/ps-onboarding/batch-unpromote', requireAuth(['ADMIN']),
             targetEnrollments = await Enrollment.find({
                 studentId: { $in: studentIds },
                 schoolYearId,
-                classId: { $in: fromClassIds }
+                classId: { $in: fromClassIds },
+                status: { $ne: 'left' }
             }).lean()
         } else if (scope === 'class' && classId) {
-            targetEnrollments = await Enrollment.find({ schoolYearId, classId }).lean()
+            targetEnrollments = await Enrollment.find({ schoolYearId, classId, status: { $ne: 'left' } }).lean()
         } else {
             targetEnrollments = await Enrollment.find({
                 schoolYearId,
-                classId: { $in: fromClassIds }
+                classId: { $in: fromClassIds },
+                status: { $ne: 'left' }
             }).lean()
         }
 
@@ -2980,14 +2988,16 @@ adminExtrasRouter.post('/ps-onboarding/batch-export', requireAuth(['ADMIN']), as
             targetEnrollments = await Enrollment.find({
                 studentId: { $in: studentIds },
                 schoolYearId,
-                classId: { $in: fromClassIds }
+                classId: { $in: fromClassIds },
+                status: { $ne: 'left' }
             }).lean()
         } else if (scope === 'class' && classId) {
-            targetEnrollments = await Enrollment.find({ schoolYearId, classId }).lean()
+            targetEnrollments = await Enrollment.find({ schoolYearId, classId, status: { $ne: 'left' } }).lean()
         } else {
             targetEnrollments = await Enrollment.find({
                 schoolYearId,
-                classId: { $in: fromClassIds }
+                classId: { $in: fromClassIds },
+                status: { $ne: 'left' }
             }).lean()
         }
 
@@ -3195,11 +3205,11 @@ const adminResolveBaseOptionValue = (block: any, rawValue: string) => {
     let found = appreciations.find((entry: any) => adminNormalizeText(entry?.option) === val)
     if (found) return found.option
 
-    // 2. Check femaleText match
+    // 2. Check femaleText match → return the base option
     found = appreciations.find((entry: any) => adminNormalizeText(entry?.femaleText) === val)
     if (found) return found.option
 
-    // 3. Check maleText match
+    // 3. Check maleText match → return the base option
     found = appreciations.find((entry: any) => adminNormalizeText(entry?.maleText) === val)
     if (found) return found.option
 
@@ -3208,6 +3218,28 @@ const adminResolveBaseOptionValue = (block: any, rawValue: string) => {
     const matchedOpt = options.find((opt: any) => adminNormalizeText(opt) === val)
     if (matchedOpt) return matchedOpt
 
+    // 5. Case-insensitive fallback against appreciations options
+    const valLower = val.toLowerCase()
+    for (const entry of appreciations) {
+        const opt = adminNormalizeText(entry?.option)
+        if (opt && opt.toLowerCase() === valLower) return entry.option
+    }
+    for (const opt of options) {
+        const optStr = adminNormalizeText(opt)
+        if (optStr && optStr.toLowerCase() === valLower) return opt
+    }
+
+    // 6. Partial/contains fallback against appreciations options
+    for (const entry of appreciations) {
+        const opt = adminNormalizeText(entry?.option)
+        if (opt && (opt.toLowerCase().includes(valLower) || valLower.includes(opt.toLowerCase()))) return entry.option
+    }
+    for (const opt of options) {
+        const optStr = adminNormalizeText(opt)
+        if (optStr && (optStr.toLowerCase().includes(valLower) || valLower.includes(optStr.toLowerCase()))) return opt
+    }
+
+    // Return original value as last resort (will show as "Sélectionner..." in UI)
     return val
 }
 
@@ -3249,12 +3281,30 @@ const adminExtractDropdownAppreciations = (template: any, assignment: any, stude
             const rawVal = (stableKey ? data?.[stableKey] : undefined) ?? data?.[legacyKey] ?? ''
             const resolvedVal = adminResolveBaseOptionValue(block, rawVal)
 
+            // Ensure the value is actually in the optionSet; if not, try to find a match
+            const finalOptions = optionSet.map((option: any) => String(option || '')).filter(Boolean)
+            let finalValue = resolvedVal
+            if (finalValue && finalOptions.length > 0 && !finalOptions.includes(finalValue)) {
+                const normVal = adminNormalizeText(finalValue).toLowerCase()
+                const matched = finalOptions.find((opt: string) => adminNormalizeText(opt).toLowerCase() === normVal)
+                if (matched) {
+                    finalValue = matched
+                } else {
+                    // Partial match fallback
+                    const partial = finalOptions.find((opt: string) => {
+                        const normOpt = adminNormalizeText(opt).toLowerCase()
+                        return normOpt.includes(normVal) || normVal.includes(normOpt)
+                    })
+                    finalValue = partial || ''
+                }
+            }
+
             drops.push({
                 dataKey,
                 legacyKey,
                 label: props.label || `Appreciation ${props.dropdownNumber || drops.length + 1}`,
-                options: optionSet.map((option: any) => String(option || '')).filter(Boolean),
-                value: resolvedVal,
+                options: finalOptions,
+                value: finalValue,
                 pageIndex: pageIdx,
                 blockIndex: blockIdx
             })
