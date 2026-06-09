@@ -1,7 +1,10 @@
-import { User, Calendar, Hash, Phone, Clock, Trash2, Mail, Edit2, Crop, Trash, Upload } from 'lucide-react'
-import { useRef, useState } from 'react'
+import { User, Calendar, Hash, Phone, Clock, Trash2, Mail, Edit2, Crop, Trash, Upload, UserMinus, UserPlus, Undo2 } from 'lucide-react'
+import { useRef, useState, useEffect } from 'react'
 import ImageCropper from '../ImageCropper'
 import { getCroppedImg } from '../../utils/imageUtils'
+
+type YearOption = { _id: string; name: string; active: boolean }
+type ClassOption = { _id: string; name: string; level: string; schoolYearId: string }
 
 interface StudentDetailsProps {
   student: any
@@ -10,17 +13,35 @@ interface StudentDetailsProps {
   onPhotoRemove: (studentId: string) => void
   onDelete?: (studentId: string) => void
   onEdit?: () => void
+  onMarkLeft?: (studentId: string) => void
+  onReturnStudent?: (studentId: string, yearId: string, classId?: string) => void
+  onUndoLeft?: (studentId: string) => void
+  availableYears?: YearOption[]
+  availableClasses?: ClassOption[]
 }
 
-export default function StudentDetails({ student, history, onPhotoUpload, onPhotoRemove, onDelete, onEdit }: StudentDetailsProps) {
+export default function StudentDetails({ student, history, onPhotoUpload, onPhotoRemove, onDelete, onEdit, onMarkLeft, onReturnStudent, onUndoLeft, availableYears, availableClasses }: StudentDetailsProps) {
   const photoInputRef = useRef<HTMLInputElement>(null)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [showLeftConfirm, setShowLeftConfirm] = useState(false)
+  const [markingLeft, setMarkingLeft] = useState(false)
+  const [returnYearId, setReturnYearId] = useState('')
+  const [returnClassId, setReturnClassId] = useState('')
 
   // Cropping State
   const [imageToCrop, setImageToCrop] = useState<string | null>(null)
   const [isCropping, setIsCropping] = useState(false)
   const [processing, setProcessing] = useState(false)
+
+  // Initialize return year when a left student is selected (MUST be before early return)
+  useEffect(() => {
+    if (student?.status === 'left' && availableYears && availableYears.length > 0) {
+      const activeYear = availableYears.find(y => y.active)
+      setReturnYearId(activeYear ? activeYear._id : availableYears[availableYears.length - 1]._id)
+      setReturnClassId('')
+    }
+  }, [student?._id, student?.status])
 
   if (!student) {
     return (
@@ -46,6 +67,34 @@ export default function StudentDetails({ student, history, onPhotoUpload, onPhot
     } finally {
       setDeleting(false)
     }
+  }
+
+  const handleMarkLeft = async () => {
+    if (!onMarkLeft) return
+    setMarkingLeft(true)
+    try {
+      await onMarkLeft(student._id)
+      setShowLeftConfirm(false)
+    } catch (e) {
+      console.error('Mark left failed:', e)
+    } finally {
+      setMarkingLeft(false)
+    }
+  }
+
+  // Filter classes for the selected return year
+  const returnYearClasses = (availableClasses || []).filter(c => c.schoolYearId === returnYearId)
+  const classesByLevel: Record<string, ClassOption[]> = {}
+  returnYearClasses.forEach(c => {
+    const level = c.level || 'Autre'
+    if (!classesByLevel[level]) classesByLevel[level] = []
+    classesByLevel[level].push(c)
+  })
+  const sortedReturnLevels = Object.keys(classesByLevel).sort()
+
+  const handleReturn = () => {
+    if (!onReturnStudent) return
+    onReturnStudent(student._id, returnYearId, returnClassId || undefined)
   }
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -331,6 +380,141 @@ export default function StudentDetails({ student, history, onPhotoUpload, onPhot
           </div>
         </div>
 
+        {/* Return/Undo Card — shown for left students */}
+        {student.status === 'left' && (onReturnStudent || onUndoLeft) && (
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 12, letterSpacing: '0.05em' }}>Réintégration</div>
+            <div style={{ background: '#f0fdf4', borderRadius: 12, padding: 16, border: '1px solid #bbf7d0' }}>
+              {onReturnStudent && availableYears && (
+                <>
+                  <div style={{ marginBottom: 12 }}>
+                    <label style={{ fontSize: 12, color: '#475569', fontWeight: 600, display: 'block', marginBottom: 4 }}>Année scolaire:</label>
+                    <select
+                      value={returnYearId}
+                      onChange={e => { setReturnYearId(e.target.value); setReturnClassId('') }}
+                      style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #e2e8f0', background: 'white', fontSize: 13 }}
+                    >
+                      {availableYears.map(y => (
+                        <option key={y._id} value={y._id}>{y.name} {y.active ? '(Active)' : ''}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div style={{ marginBottom: 12 }}>
+                    <label style={{ fontSize: 12, color: '#475569', fontWeight: 600, display: 'block', marginBottom: 4 }}>Classe (optionnel):</label>
+                    <select
+                      value={returnClassId}
+                      onChange={e => setReturnClassId(e.target.value)}
+                      style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #e2e8f0', background: 'white', fontSize: 13 }}
+                    >
+                      <option value="">Non assigné</option>
+                      {sortedReturnLevels.map(level => (
+                        <optgroup key={level} label={level}>
+                          {classesByLevel[level].map(c => (
+                            <option key={c._id} value={c._id}>{c.name}</option>
+                          ))}
+                        </optgroup>
+                      ))}
+                    </select>
+                  </div>
+                  <button
+                    onClick={handleReturn}
+                    disabled={!returnYearId}
+                    style={{
+                      width: '100%',
+                      padding: '12px 16px',
+                      background: '#10b981',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: 8,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 8,
+                      fontWeight: 600,
+                      fontSize: 14,
+                      transition: 'all 0.2s'
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.background = '#059669'}
+                    onMouseLeave={e => e.currentTarget.style.background = '#10b981'}
+                  >
+                    <UserPlus size={16} />
+                    Réintégrer l'élève
+                  </button>
+                  <p style={{ fontSize: 11, color: '#065f46', marginTop: 8, marginBottom: 0, textAlign: 'center' }}>
+                    {returnClassId
+                      ? "L'élève sera directement affecté à la classe sélectionnée."
+                      : "L'élève sera placé dans \"En attente d'affectation\"."}
+                  </p>
+                </>
+              )}
+              {onUndoLeft && (
+                <button
+                  onClick={() => onUndoLeft(student._id)}
+                  style={{
+                    width: '100%',
+                    padding: '10px 16px',
+                    marginTop: 10,
+                    background: '#f1f5f9',
+                    color: '#475569',
+                    border: '1px solid #cbd5e1',
+                    borderRadius: 8,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                    fontWeight: 600,
+                    fontSize: 13,
+                    transition: 'all 0.2s'
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.background = '#e2e8f0'}
+                  onMouseLeave={e => e.currentTarget.style.background = '#f1f5f9'}
+                >
+                  <Undo2 size={14} />
+                  Annuler le départ
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Mark as Left Card — shown for active students */}
+        {onMarkLeft && student.status !== 'left' && (
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 12, letterSpacing: '0.05em' }}>Départ</div>
+            <div style={{ background: '#fffbeb', borderRadius: 12, padding: 16, border: '1px solid #fde68a' }}>
+              <button
+                onClick={() => setShowLeftConfirm(true)}
+                style={{
+                  width: '100%',
+                  padding: '12px 16px',
+                  background: '#f59e0b',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: 8,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8,
+                  fontWeight: 600,
+                  fontSize: 14,
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = '#d97706'}
+                onMouseLeave={e => e.currentTarget.style.background = '#f59e0b'}
+              >
+                <UserMinus size={16} />
+                Il a quitté l'école
+              </button>
+              <p style={{ fontSize: 11, color: '#92400e', marginTop: 8, marginBottom: 0, textAlign: 'center' }}>
+                L'élève sera retiré de sa classe et son carnet sera archivé.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Actions Card */}
         {onDelete && (
           <div>
@@ -434,6 +618,80 @@ export default function StudentDetails({ student, history, onPhotoUpload, onPhot
                 }}
               >
                 {deleting ? 'Suppression...' : 'Supprimer'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Mark as Left Confirmation Modal */}
+      {showLeftConfirm && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0,0,0,0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000
+        }}>
+          <div style={{
+            background: 'white',
+            borderRadius: 16,
+            padding: 24,
+            maxWidth: 400,
+            width: '90%',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)'
+          }}>
+            <h3 style={{ margin: '0 0 12px', color: '#92400e' }}>Il a quitté l'école</h3>
+            <p style={{ color: '#64748b', marginBottom: 24 }}>
+              Êtes-vous sûr de vouloir marquer <strong>{student.firstName} {student.lastName}</strong> comme ayant quitté l'école?
+              <br /><br />
+              Cette action va:
+            </p>
+            <ul style={{ color: '#64748b', marginBottom: 24, paddingLeft: 20 }}>
+              <li>Retirer l'élève de sa classe actuelle</li>
+              <li>Archiver son carnet (snapshot)</li>
+              <li>Le placer dans la liste "Élèves partis"</li>
+            </ul>
+            <p style={{ fontSize: 12, color: '#059669', marginBottom: 24 }}>
+              ✓ Vous pourrez annuler cette action ou réintégrer l'élève plus tard.
+            </p>
+            <div style={{ display: 'flex', gap: 12 }}>
+              <button
+                onClick={() => setShowLeftConfirm(false)}
+                style={{
+                  flex: 1,
+                  padding: '12px 16px',
+                  background: '#f1f5f9',
+                  color: '#475569',
+                  border: 'none',
+                  borderRadius: 8,
+                  cursor: 'pointer',
+                  fontWeight: 600
+                }}
+              >
+                Annuler
+              </button>
+              <button
+                onClick={handleMarkLeft}
+                disabled={markingLeft}
+                style={{
+                  flex: 1,
+                  padding: '12px 16px',
+                  background: '#f59e0b',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: 8,
+                  cursor: markingLeft ? 'not-allowed' : 'pointer',
+                  fontWeight: 600,
+                  opacity: markingLeft ? 0.7 : 1
+                }}
+              >
+                {markingLeft ? 'En cours...' : 'Confirmer le départ'}
               </button>
             </div>
           </div>

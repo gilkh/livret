@@ -721,6 +721,7 @@
 }
 .icon-btn-row:hover { background: white; box-shadow: var(--shadow-sm); }
 .icon-btn-row.edit:hover { color: var(--primary-color); }
+.icon-btn-row.leave:hover { color: #f59e0b; }
 .icon-btn-row.delete:hover { color: var(--danger-color); }
 
 .empty-list-msg {

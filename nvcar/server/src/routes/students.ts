@@ -1446,7 +1446,7 @@ studentsRouter.post('/:id/undo-leaving', requireAuth(['ADMIN', 'SUBADMIN']), asy
 // Mark a student as returned to school
 studentsRouter.post('/:id/mark-returned', requireAuth(['ADMIN', 'SUBADMIN']), async (req, res) => {
   const { id } = req.params
-  const { returnSchoolYearId } = req.body // The year they're returning to
+  const { returnSchoolYearId, classId } = req.body // The year they're returning to, and optional class assignment
   const adminId = (req as any).user.userId
 
   try {
@@ -1469,6 +1469,16 @@ studentsRouter.post('/:id/mark-returned', requireAuth(['ADMIN', 'SUBADMIN']), as
     const targetYear = await SchoolYear.findById(targetYearId).lean()
     if (!targetYear) return res.status(400).json({ error: 'invalid_school_year' })
 
+    // Validate classId if provided
+    let targetClass: any = null
+    if (classId) {
+      targetClass = await ClassModel.findById(classId).lean()
+      if (!targetClass) return res.status(400).json({ error: 'invalid_class' })
+      if (String(targetClass.schoolYearId) !== String(targetYearId)) {
+        return res.status(400).json({ error: 'class_year_mismatch', message: 'The selected class does not belong to the target school year' })
+      }
+    }
+
     // Restore student status
     student.status = 'active'
     student.returnedAt = new Date()
@@ -1477,7 +1487,7 @@ studentsRouter.post('/:id/mark-returned', requireAuth(['ADMIN', 'SUBADMIN']), as
     // Keep leftAt, leftSchoolYearId, leftBy for historical record
     await student.save()
 
-    // Create a new enrollment for the return year (without class assignment - they'll be in "En attente d'affectation")
+    // Create a new enrollment for the return year
     const existingEnrollment = await Enrollment.findOne({
       studentId: id,
       schoolYearId: targetYearId
@@ -1487,17 +1497,22 @@ studentsRouter.post('/:id/mark-returned', requireAuth(['ADMIN', 'SUBADMIN']), as
       // Update existing enrollment
       existingEnrollment.status = 'active'
       existingEnrollment.promotionStatus = 'pending'
-      existingEnrollment.classId = undefined // Remove class assignment so they appear in unassigned
+      existingEnrollment.classId = targetClass ? classId : undefined
       await existingEnrollment.save()
     } else {
-      // Create new enrollment without class
+      // Create new enrollment (with or without class)
       await Enrollment.create({
         studentId: id,
         schoolYearId: targetYearId,
         status: 'active',
-        promotionStatus: 'pending'
-        // No classId - student will appear in "En attente d'affectation"
+        promotionStatus: 'pending',
+        classId: targetClass ? classId : undefined
       })
+    }
+
+    // Assign templates when a class is provided
+    if (targetClass && targetClass.level) {
+      await checkAndAssignTemplates(id, targetClass.level, targetYearId, classId, adminId)
     }
 
     await logAudit({
@@ -1507,12 +1522,19 @@ studentsRouter.post('/:id/mark-returned', requireAuth(['ADMIN', 'SUBADMIN']), as
         studentId: id, 
         studentName: `${student.firstName} ${student.lastName}`,
         returnSchoolYearId: targetYearId,
-        returnSchoolYearName: targetYear.name
+        returnSchoolYearName: targetYear.name,
+        classId: targetClass ? classId : undefined,
+        className: targetClass ? targetClass.name : undefined
       },
       req
     })
 
-    res.json({ ok: true, student, returnedToYear: targetYear.name })
+    res.json({
+      ok: true,
+      student,
+      returnedToYear: targetYear.name,
+      assignedClass: targetClass ? targetClass.name : undefined
+    })
   } catch (e: any) {
     console.error('Mark returned error:', e)
     res.status(500).json({ error: 'mark_returned_failed', message: e.message })

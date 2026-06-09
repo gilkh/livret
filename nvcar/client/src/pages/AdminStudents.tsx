@@ -489,6 +489,42 @@ export default function AdminStudents({ isTab }: { isTab?: boolean } = {}) {
     }
   }
 
+  const markStudentAsLeaving = async (studentId: string) => {
+    await api.post(`/students/${studentId}/mark-leaving`)
+    await loadStudents(selectedYearId)
+    await loadLeftStudents(selectedYearId)
+    setSelectedStudent(null)
+    setStudentHistory([])
+  }
+
+  const returnStudent = async (studentId: string, yearId: string, classId?: string) => {
+    try {
+      const r = await api.post(`/students/${studentId}/mark-returned`, { returnSchoolYearId: yearId, classId })
+      const classMsg = r.data.assignedClass ? ` dans ${r.data.assignedClass}` : ''
+      alert(`Élève réintégré pour l'année ${r.data.returnedToYear}${classMsg}`)
+      await loadStudents(selectedYearId)
+      await loadLeftStudents(selectedYearId)
+      setSelectedStudent(null)
+      setStudentHistory([])
+    } catch (e: any) {
+      alert(e.response?.data?.message || 'Erreur lors de la réintégration')
+    }
+  }
+
+  const undoStudentLeaving = async (studentId: string) => {
+    if (!confirm('Êtes-vous sûr de vouloir annuler le départ de cet élève ?')) return
+    try {
+      await api.post(`/students/${studentId}/undo-leaving`)
+      alert('Départ annulé')
+      await loadStudents(selectedYearId)
+      await loadLeftStudents(selectedYearId)
+      setSelectedStudent(null)
+      setStudentHistory([])
+    } catch (e: any) {
+      alert(e.response?.data?.message || 'Erreur lors de l\'annulation')
+    }
+  }
+
   const handleCompleteClass = async () => {
     if (!selectedClass) return
     const classId = getClassIdByName(selectedClass)
@@ -873,6 +909,7 @@ export default function AdminStudents({ isTab }: { isTab?: boolean } = {}) {
           selectedClass={selectedClass}
           viewUnassigned={viewUnassigned}
           viewLeft={viewLeft}
+          leftCount={leftStudents.length}
           onSelectClass={(cls) => { setSelectedClass(cls); setViewUnassigned(false); setViewLeft(false); setSelectedStudent(null) }}
           onViewUnassigned={() => { setViewUnassigned(true); setSelectedClass(null); setViewLeft(false); setSelectedStudent(null) }}
           onViewLeft={() => { setViewLeft(true); setViewUnassigned(false); setSelectedClass(null); setSelectedStudent(null) }}
@@ -904,6 +941,11 @@ export default function AdminStudents({ isTab }: { isTab?: boolean } = {}) {
           onPhotoRemove={removeStudentPhoto}
           onDelete={handleDeleteStudent}
           onEdit={() => setShowStudentModal(true)}
+          onMarkLeft={markStudentAsLeaving}
+          onReturnStudent={returnStudent}
+          onUndoLeft={undoStudentLeaving}
+          availableYears={years}
+          availableClasses={classes}
         />
       </div>
 

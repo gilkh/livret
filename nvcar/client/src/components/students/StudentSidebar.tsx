@@ -14,6 +14,7 @@ interface StudentSidebarProps {
   selectedClass: string | null
   viewUnassigned: boolean
   viewLeft?: boolean
+  leftCount?: number
   onSelectClass: (cls: string | null) => void
   onViewUnassigned: () => void
   onViewLeft?: () => void
@@ -32,6 +33,7 @@ export default function StudentSidebar({
   selectedClass,
   viewUnassigned,
   viewLeft,
+  leftCount,
   onSelectClass,
   onViewUnassigned,
   onViewLeft,
@@ -103,6 +105,9 @@ export default function StudentSidebar({
               <UserMinus size={16} />
               <span>Élèves partis</span>
             </div>
+            <span className="pill" style={{ background: viewLeft ? '#fee2e2' : '#f1f5f9', color: viewLeft ? '#991b1b' : '#64748b', fontSize: 11, padding: '2px 8px' }}>
+              {leftCount ?? 0}
+            </span>
           </div>
         )}
 

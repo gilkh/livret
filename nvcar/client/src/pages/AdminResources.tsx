@@ -200,6 +200,9 @@ export default function AdminResources({ isTab }: { isTab?: boolean } = {}) {
       if (selectedYear) {
         await loadUnassignedStudents(selectedYear._id)
       }
+      if (selectedClassId) {
+        await loadStudents(selectedClassId)
+      }
       await loadLeftStudents()
     } catch (e: any) {
       showToast(e.response?.data?.message || 'Erreur lors du marquage', 'error')
@@ -220,12 +223,17 @@ export default function AdminResources({ isTab }: { isTab?: boolean } = {}) {
     }
   }
 
-  const markStudentAsReturned = async (studentId: string, returnSchoolYearId: string) => {
+  const markStudentAsReturned = async (studentId: string, returnSchoolYearId: string, classId?: string) => {
     try {
-      const r = await api.post(`/students/${studentId}/mark-returned`, { returnSchoolYearId })
-      showToast(`Élève réintégré pour l'année ${r.data.returnedToYear}`, 'success')
+      const r = await api.post(`/students/${studentId}/mark-returned`, { returnSchoolYearId, classId })
+      const classMsg = r.data.assignedClass ? ` dans la classe ${r.data.assignedClass}` : ''
+      showToast(`Élève réintégré pour l'année ${r.data.returnedToYear}${classMsg}`, 'success')
       if (selectedYear) {
         await loadUnassignedStudents(selectedYear._id)
+        await loadClasses(selectedYear._id)
+      }
+      if (selectedClassId) {
+        await loadStudents(selectedClassId)
       }
       await loadLeftStudents()
       setShowReturnModal(false)
@@ -872,6 +880,9 @@ export default function AdminResources({ isTab }: { isTab?: boolean } = {}) {
                         <button onClick={() => startEditStudent(s)} className="icon-btn-row edit">
                           <Edit2 size={14} />
                         </button>
+                        <button onClick={() => markStudentAsLeaving(s._id)} className="icon-btn-row leave" title="Marquer comme parti">
+                          <UserMinus size={14} />
+                        </button>
                         <button onClick={() => deleteStudent(s._id)} className="icon-btn-row delete">
                           <Trash2 size={14} />
                         </button>
@@ -1075,6 +1086,7 @@ export default function AdminResources({ isTab }: { isTab?: boolean } = {}) {
         }}
         student={studentToReturn}
         years={years}
+        classes={classes}
         onReturn={markStudentAsReturned}
       />
     </div>
@@ -1376,24 +1388,39 @@ function ReturnStudentModal({
   isOpen, 
   onClose, 
   student, 
-  years, 
+  years,
+  classes,
   onReturn 
 }: { 
   isOpen: boolean; 
   onClose: () => void; 
   student: StudentDoc | null;
   years: Year[];
-  onReturn: (studentId: string, yearId: string) => void;
+  classes?: ClassDoc[];
+  onReturn: (studentId: string, yearId: string, classId?: string) => void;
 }) {
   const [selectedYearId, setSelectedYearId] = useState('')
+  const [selectedClassId, setSelectedClassId] = useState('')
 
   useEffect(() => {
     if (isOpen && years.length > 0) {
-      // Default to the active year or the most recent year
       const activeYear = years.find(y => y.active)
       setSelectedYearId(activeYear ? activeYear._id : years[years.length - 1]._id)
+      setSelectedClassId('')
     }
   }, [isOpen, years])
+
+  // Filter classes by selected year
+  const yearClasses = (classes || []).filter(c => c.schoolYearId === selectedYearId)
+
+  // Group classes by level
+  const classesByLevel: Record<string, ClassDoc[]> = {}
+  yearClasses.forEach(c => {
+    const level = c.level || 'Autre'
+    if (!classesByLevel[level]) classesByLevel[level] = []
+    classesByLevel[level].push(c)
+  })
+  const sortedLevels = Object.keys(classesByLevel).sort()
 
   if (!isOpen || !student) return null
 
@@ -1420,7 +1447,7 @@ function ReturnStudentModal({
             <label>Année scolaire de retour:</label>
             <select 
               value={selectedYearId} 
-              onChange={e => setSelectedYearId(e.target.value)}
+              onChange={e => { setSelectedYearId(e.target.value); setSelectedClassId('') }}
               className="clean-select"
             >
               {years.map(y => (
@@ -1431,9 +1458,31 @@ function ReturnStudentModal({
             </select>
           </div>
 
+          <div className="return-year-select" style={{ marginTop: 12 }}>
+            <label>Classe (optionnel):</label>
+            <select
+              value={selectedClassId}
+              onChange={e => setSelectedClassId(e.target.value)}
+              className="clean-select"
+            >
+              <option value="">Non assigné (en attente d'affectation)</option>
+              {sortedLevels.map(level => (
+                <optgroup key={level} label={level}>
+                  {classesByLevel[level].map(c => (
+                    <option key={c._id} value={c._id}>{c.name}</option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+          </div>
+
           <div className="return-info-note">
             <AlertCircle size={14} />
-            <span>L'élève sera placé dans "En attente d'affectation" pour l'année sélectionnée.</span>
+            <span>
+              {selectedClassId
+                ? "L'élève sera directement affecté à la classe sélectionnée."
+                : "L'élève sera placé dans \"En attente d'affectation\" pour l'année sélectionnée."}
+            </span>
           </div>
         </div>
 
@@ -1441,7 +1490,7 @@ function ReturnStudentModal({
           <button className="modal-btn secondary" onClick={onClose}>Annuler</button>
           <button
             className="modal-btn primary"
-            onClick={() => onReturn(student._id, selectedYearId)}
+            onClick={() => onReturn(student._id, selectedYearId, selectedClassId || undefined)}
             disabled={!selectedYearId}
           >
             <UserPlus size={16} />
