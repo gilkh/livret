@@ -730,7 +730,8 @@ studentsRouter.get('/by-class/:classId', requireAuth(['ADMIN', 'SUBADMIN', 'TEAC
   const { classId } = req.params
   const enrolls = await Enrollment.find({ classId, status: { $ne: 'left' } }).lean()
   const ids = enrolls.map(e => e.studentId)
-  const students = await Student.find({ _id: { $in: ids } }).lean()
+  // Exclude students marked as left at the student level too (defense in depth)
+  const students = await Student.find({ _id: { $in: ids }, status: { $ne: 'left' } }).lean()
   res.json(students)
 })
 
@@ -1363,16 +1364,9 @@ studentsRouter.post('/:id/mark-leaving', requireAuth(['ADMIN', 'SUBADMIN']), asy
     student.leftBy = adminId
     await student.save()
 
-    // Update enrollment status if exists
-    if (enrollment) {
-      enrollment.status = 'left'
-      enrollment.promotionStatus = 'left'
-      await enrollment.save()
-    }
-
-    // Also mark any pending enrollments (e.g., for next year) as left, excluding the current year (already handled above)
+    // Robustly mark ALL non-left enrollments for this student in the active year as left
     await Enrollment.updateMany(
-      { studentId: id, status: 'active', schoolYearId: { $ne: String(activeYear._id) } },
+      { studentId: id, schoolYearId: String(activeYear._id), status: { $ne: 'left' } },
       { status: 'left', promotionStatus: 'left' }
     )
 
