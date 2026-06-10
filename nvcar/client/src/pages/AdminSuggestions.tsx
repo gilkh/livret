@@ -11,6 +11,7 @@ type Suggestion = {
     blockIndex?: number
     originalText: string
     suggestedText: string
+    recipientRole?: 'father' | 'mother'
     status: 'pending' | 'approved' | 'rejected'
     adminComment?: string
     createdAt: string
@@ -216,6 +217,7 @@ export default function AdminSuggestions() {
                             <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
                                 <th style={{ padding: '12px 16px', fontWeight: 600, color: '#475569' }}>Élève</th>
                                 <th style={{ padding: '12px 16px', fontWeight: 600, color: '#475569' }}>Adresse e-mail saisie</th>
+                                <th style={{ padding: '12px 16px', fontWeight: 600, color: '#475569' }}>Destinataire</th>
                                 <th style={{ padding: '12px 16px', fontWeight: 600, color: '#475569' }}>Envoyé par</th>
                                 <th style={{ padding: '12px 16px', fontWeight: 600, color: '#475569' }}>Date d'envoi</th>
                             </tr>
@@ -223,7 +225,7 @@ export default function AdminSuggestions() {
                         <tbody>
                             {alternativeEmails.length === 0 ? (
                                 <tr>
-                                    <td colSpan={4} style={{ padding: '24px', textAlign: 'center', color: '#94a3b8' }}>
+                                    <td colSpan={5} style={{ padding: '24px', textAlign: 'center', color: '#94a3b8' }}>
                                         Aucun envoi vers une adresse alternative enregistré
                                     </td>
                                 </tr>
@@ -232,6 +234,15 @@ export default function AdminSuggestions() {
                                     <tr key={ae._id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                                         <td style={{ padding: '12px 16px', fontWeight: 600, color: '#0f172a' }}>{ae.originalText}</td>
                                         <td style={{ padding: '12px 16px', color: '#2563eb', fontFamily: 'monospace' }}>{ae.suggestedText}</td>
+                                        <td style={{ padding: '12px 16px' }}>
+                                            {ae.recipientRole === 'father' ? (
+                                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 10px', borderRadius: 12, background: '#dbeafe', color: '#1d4ed8', fontSize: 12, fontWeight: 600 }}>👨 Père</span>
+                                            ) : ae.recipientRole === 'mother' ? (
+                                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 10px', borderRadius: 12, background: '#fce7f3', color: '#be185d', fontSize: 12, fontWeight: 600 }}>👩 Mère</span>
+                                            ) : (
+                                                <span style={{ color: '#94a3b8', fontSize: 12 }}>—</span>
+                                            )}
+                                        </td>
                                         <td style={{ padding: '12px 16px', color: '#475569' }}>
                                             {ae.subAdmin?.displayName || ae.subAdmin?.email || 'Sous-admin'}
                                         </td>

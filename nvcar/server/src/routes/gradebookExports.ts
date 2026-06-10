@@ -484,7 +484,9 @@ async function runEmailJob(jobId: string, batch: any, files: any[], options: Ema
     // Concurrency pool — 3 workers process files in parallel (#2)
     const CONCURRENCY = 3
     const fileQueue = [...files]
+    // Dedup key: email + studentId + type — so siblings sharing a parent email each get their own email
     const sentEmailsGlobal = new Set<string>()
+    const dedupKey = (email: string, studentId: string, type: string) => `${email}:${studentId}:${type}`
 
     const processFile = async (file: any) => {
       const level = String(file?.level || '').trim()
@@ -520,12 +522,13 @@ async function runEmailJob(jobId: string, batch: any, files: any[], options: Ema
               detail.error = validation.reason || 'Email invalide'
               failedCount++
               recipientDetails.push(detail)
-              sentEmailsGlobal.add(rec.email)
+              sentEmailsGlobal.add(dedupKey(rec.email, String(file.studentId || ''), rec.type))
               continue
             }
 
-            // Skip duplicates already sent in this job
-            if (sentEmailsGlobal.has(rec.email)) {
+            // Skip true duplicates (same email + same student + same type) already sent in this job
+            const dk = dedupKey(rec.email, String(file.studentId || ''), rec.type)
+            if (sentEmailsGlobal.has(dk)) {
               detail.status = 'sent'
               sentCount++
               recipientDetails.push(detail)
@@ -547,7 +550,7 @@ async function runEmailJob(jobId: string, batch: any, files: any[], options: Ema
               })
               detail.status = 'sent'
               sentCount++
-              sentEmailsGlobal.add(rec.email)
+              sentEmailsGlobal.add(dk)
             } catch (mailErr: any) {
               detail.status = 'failed'
               detail.error = mailErr.message
@@ -609,9 +612,23 @@ async function runEmailJob(jobId: string, batch: any, files: any[], options: Ema
       }
     }
 
+    // Cancellation flag — checked by workers before each file
+    let cancelled = false
+    const checkCancelled = async (): Promise<boolean> => {
+      try {
+        const current = await EmailJob.findById(jobId).select('status').lean()
+        return current?.status === 'cancelled'
+      } catch { return false }
+    }
+
     // Worker pool: each worker drains the shared queue
     const workers = Array.from({ length: CONCURRENCY }, () => (async () => {
       while (fileQueue.length > 0) {
+        if (cancelled) break
+        // Check DB for cancellation every 3 files processed
+        if ((fileQueue.length % 3) === 0) {
+          if (await checkCancelled()) { cancelled = true; break }
+        }
         const file = fileQueue.shift()
         if (!file) break
         try {
@@ -622,6 +639,22 @@ async function runEmailJob(jobId: string, batch: any, files: any[], options: Ema
       }
     })())
     await Promise.all(workers)
+
+    // If cancelled, mark remaining pending items as skipped
+    if (cancelled) {
+      await EmailJob.updateOne(
+        { _id: jobId },
+        { 
+          $set: { 
+            status: 'cancelled', 
+            completedAt: new Date(),
+            'items.$[elem].status': 'skipped',
+            'items.$[elem].error': 'Annulé par l\'utilisateur'
+          }
+        },
+        { arrayFilters: [{ 'elem.status': 'pending' }] }
+      )
+    }
   } catch (error: any) {
     await EmailJob.updateOne({ _id: jobId }, { status: 'failed', error: error.message, completedAt: new Date() })
   } finally {
@@ -928,11 +961,13 @@ gradebookExportsRouter.post('/batches/:batchId/send', requireAuth(['ADMIN', 'SUB
     if (overrideEmail && String(overrideEmail).trim() && files.length === 1) {
       const file = files[0]
       const studentName = `${file.firstName || ''} ${file.lastName || ''}`.trim()
+      const recipientRole = includeFather ? 'father' : includeMother ? 'mother' : undefined
       await TemplateChangeSuggestion.create({
         subAdminId: String((req as any).user?.id || (req as any).user?.userId || ''),
         type: 'alternative_email',
         originalText: studentName,
         suggestedText: String(overrideEmail).trim().toLowerCase(),
+        recipientRole,
         status: 'approved'
       })
     }
@@ -952,6 +987,39 @@ gradebookExportsRouter.post('/batches/:batchId/send', requireAuth(['ADMIN', 'SUB
     res.json({ jobId })
   } catch (error: any) {
     res.status(500).json({ error: 'send_failed', message: error.message })
+  }
+})
+
+// SMTP pre-check: verify stored SMTP settings are valid before launching a batch
+gradebookExportsRouter.post('/smtp-check', requireAuth(['ADMIN', 'SUBADMIN', 'AEFE']), async (_req, res) => {
+  try {
+    const transporter = await createSmtpTransporter()
+    if (!transporter) {
+      return res.status(400).json({ success: false, error: 'SMTP non configuré. Veuillez configurer les paramètres SMTP dans les réglages.' })
+    }
+    await transporter.verify()
+    try { await transporter.close() } catch { /* ignore */ }
+    res.json({ success: true, message: 'Connexion SMTP OK' })
+  } catch (err: any) {
+    res.status(400).json({ success: false, error: err.message || 'Erreur de connexion SMTP' })
+  }
+})
+
+// Cancel a running email job
+gradebookExportsRouter.post('/email-jobs/:jobId/cancel', requireAuth(['ADMIN', 'SUBADMIN', 'AEFE']), async (req, res) => {
+  try {
+    const job = await EmailJob.findById(req.params.jobId)
+    if (!job) return res.status(404).json({ error: 'job_not_found' })
+    if (job.status !== 'running' && job.status !== 'queued') {
+      return res.status(400).json({ error: 'job_not_cancellable', message: 'Ce job ne peut pas être annulé' })
+    }
+    await EmailJob.updateOne(
+      { _id: job._id },
+      { $set: { status: 'cancelled', completedAt: new Date() } }
+    )
+    res.json({ success: true, message: 'Distribution annulée' })
+  } catch (err: any) {
+    res.status(500).json({ error: 'cancel_failed', message: err.message })
   }
 })
 

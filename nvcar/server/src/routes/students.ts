@@ -982,6 +982,42 @@ studentsRouter.post('/complete-class/:classId', requireAuth(['ADMIN', 'SUBADMIN'
   }
 })
 
+// Bulk-set emails (father, mother, student) for every student in a class
+studentsRouter.post('/reset-emails/:classId', requireAuth(['ADMIN']), async (req, res) => {
+  const { classId } = req.params
+  const { fatherEmail, motherEmail, studentEmail } = req.body
+  try {
+    const cls = await ClassModel.findById(classId).lean()
+    if (!cls) return res.status(404).json({ error: 'class_not_found' })
+
+    const enrollments = await Enrollment.find({ classId, status: { $ne: 'left' } }).lean()
+    const studentIds = enrollments.map(e => e.studentId)
+
+    if (studentIds.length === 0) {
+      return res.json({ updated: 0, message: 'Aucun élève dans cette classe' })
+    }
+
+    const setEmails: Record<string, string> = {}
+    if (fatherEmail !== undefined) setEmails.fatherEmail = fatherEmail
+    if (motherEmail !== undefined) setEmails.motherEmail = motherEmail
+    if (studentEmail !== undefined) setEmails.studentEmail = studentEmail
+
+    if (Object.keys(setEmails).length === 0) {
+      return res.status(400).json({ error: 'no_email_fields_provided' })
+    }
+
+    const result = await Student.updateMany(
+      { _id: { $in: studentIds } },
+      { $set: setEmails }
+    )
+
+    res.json({ updated: result.modifiedCount, total: studentIds.length, fields: Object.keys(setEmails) })
+  } catch (e: any) {
+    console.error('Reset emails error:', e)
+    res.status(500).json({ error: 'reset_emails_failed', message: e.message })
+  }
+})
+
 studentsRouter.post('/:studentId/promote', requireAuth(['ADMIN']), async (req, res) => {
   try {
     const adminId = (req as any).user.userId

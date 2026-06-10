@@ -7,7 +7,7 @@ import FileDropZone from '../components/students/FileDropZone'
 import YearManagerModal from '../components/students/YearManagerModal'
 import StudentFormModal from '../components/students/StudentFormModal'
 import BatchImportPreviewModal from '../components/students/BatchImportPreviewModal'
-import { Upload, CheckCircle, Trash2, Search, X, AlertTriangle, ImageOff, Copy, Download } from 'lucide-react'
+import { Upload, CheckCircle, Trash2, Search, X, AlertTriangle, ImageOff, Copy, Download, Mail } from 'lucide-react'
 import * as XLSX from 'xlsx'
 
 import { StudentDoc as Student } from '../types/student'
@@ -58,6 +58,11 @@ export default function AdminStudents({ isTab }: { isTab?: boolean } = {}) {
   const [showDeleteClassModal, setShowDeleteClassModal] = useState(false)
   const [deleteStep, setDeleteStep] = useState(1)
   const [deletingClass, setDeletingClass] = useState(false)
+  const [resettingEmails, setResettingEmails] = useState(false)
+  const [showResetEmailsModal, setShowResetEmailsModal] = useState(false)
+  const [resetFatherEmail, setResetFatherEmail] = useState('')
+  const [resetMotherEmail, setResetMotherEmail] = useState('')
+  const [resetStudentEmail, setResetStudentEmail] = useState('')
   const [deleteClassResult, setDeleteClassResult] = useState<{ studentsDeleted: number; enrollmentsDeleted: number; errors: any[] } | null>(null)
 
   // View State
@@ -567,6 +572,46 @@ export default function AdminStudents({ isTab }: { isTab?: boolean } = {}) {
     }
   }
 
+  const openResetEmailsModal = () => {
+    if (!selectedClass) return
+    setResetFatherEmail('')
+    setResetMotherEmail('')
+    setResetStudentEmail('')
+    setShowResetEmailsModal(true)
+  }
+
+  const handleResetEmails = async () => {
+    if (!selectedClass) return
+    const classId = getClassIdByName(selectedClass)
+    if (!classId) {
+      alert('Impossible de trouver l\'ID de la classe')
+      return
+    }
+
+    if (!resetFatherEmail && !resetMotherEmail && !resetStudentEmail) {
+      alert('Veuillez remplir au moins un champ email.')
+      return
+    }
+
+    setResettingEmails(true)
+    try {
+      const body: Record<string, string> = {}
+      if (resetFatherEmail) body.fatherEmail = resetFatherEmail
+      if (resetMotherEmail) body.motherEmail = resetMotherEmail
+      if (resetStudentEmail) body.studentEmail = resetStudentEmail
+
+      const res = await api.post(`/students/reset-emails/${classId}`, body)
+      alert(`Emails réinitialisés: ${res.data.updated} élève(s) sur ${res.data.total}`)
+      setShowResetEmailsModal(false)
+      await loadStudents(selectedYearId)
+      setSelectedStudent(null)
+    } catch (err: any) {
+      alert('Erreur: ' + (err.response?.data?.message || err.message))
+    } finally {
+      setResettingEmails(false)
+    }
+  }
+
   const openDeleteClassModal = () => {
     setShowDeleteClassModal(true)
     setDeleteStep(1)
@@ -799,6 +844,15 @@ export default function AdminStudents({ isTab }: { isTab?: boolean } = {}) {
               >
                 <Trash2 size={14} />
                 <span>Supprimer ({selectedClass})</span>
+              </button>
+              <button
+                className="btn"
+                onClick={openResetEmailsModal}
+                disabled={resettingEmails}
+                style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 10px', fontSize: 12, whiteSpace: 'nowrap', background: '#f59e0b', borderColor: '#f59e0b' }}
+              >
+                <Mail size={14} />
+                <span>{resettingEmails ? 'Réinitialisation...' : `Reset Emails (${selectedClass})`}</span>
               </button>
             </div>
           )}
@@ -1614,6 +1668,76 @@ export default function AdminStudents({ isTab }: { isTab?: boolean } = {}) {
           onConfirm={confirmBatchImport}
           onCancel={() => { setShowImportPreview(false); setImportPreviewRows(null); }}
         />
+      )}
+
+      {/* Reset Emails Modal */}
+      {showResetEmailsModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
+          <div style={{ background: '#fff', borderRadius: 16, padding: 28, width: 420, maxWidth: '90vw', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
+              <div style={{ width: 40, height: 40, borderRadius: 10, background: '#fef3c7', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Mail size={20} color="#b45309" />
+              </div>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 16 }}>Réinitialiser les emails</h3>
+                <p style={{ margin: 0, fontSize: 13, color: '#64748b' }}>Classe: <strong>{selectedClass}</strong></p>
+              </div>
+            </div>
+            <p style={{ margin: '0 0 16px 0', fontSize: 13, color: '#475569' }}>
+              Laissez un champ vide pour ne pas modifier cet email. Tous les élèves actifs de la classe seront mis à jour.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#334155', marginBottom: 4 }}>Email des pères</label>
+                <input
+                  type="text"
+                  value={resetFatherEmail}
+                  onChange={e => setResetFatherEmail(e.target.value)}
+                  placeholder="ex: 1, ou père@exemple.com"
+                  style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 14, boxSizing: 'border-box' }}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#334155', marginBottom: 4 }}>Email des mères</label>
+                <input
+                  type="text"
+                  value={resetMotherEmail}
+                  onChange={e => setResetMotherEmail(e.target.value)}
+                  placeholder="ex: 1, ou mère@exemple.com"
+                  style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 14, boxSizing: 'border-box' }}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#334155', marginBottom: 4 }}>Email des élèves</label>
+                <input
+                  type="text"
+                  value={resetStudentEmail}
+                  onChange={e => setResetStudentEmail(e.target.value)}
+                  placeholder="ex: 1, ou eleve@exemple.com"
+                  style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 14, boxSizing: 'border-box' }}
+                />
+              </div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 24 }}>
+              <button
+                className="btn secondary"
+                onClick={() => setShowResetEmailsModal(false)}
+                disabled={resettingEmails}
+                style={{ padding: '8px 16px', fontSize: 13 }}
+              >
+                Annuler
+              </button>
+              <button
+                className="btn"
+                onClick={handleResetEmails}
+                disabled={resettingEmails}
+                style={{ padding: '8px 16px', fontSize: 13, background: '#f59e0b', borderColor: '#f59e0b' }}
+              >
+                {resettingEmails ? 'Application...' : 'Appliquer'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

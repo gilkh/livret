@@ -21,7 +21,7 @@ export interface IEmailJob extends Document {
   batchId: Types.ObjectId
   createdBy: Types.ObjectId
   creatorName?: string
-  status: 'queued' | 'running' | 'completed' | 'failed'
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
   totalItems: number
   processedItems: number
   sentItems: number
@@ -53,7 +53,7 @@ const emailJobSchema = new Schema<IEmailJob>({
   batchId: { type: Schema.Types.ObjectId, ref: 'ExportedGradebookBatch', required: true, index: true },
   createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
   creatorName: { type: String },
-  status: { type: String, enum: ['queued', 'running', 'completed', 'failed'], default: 'queued' },
+  status: { type: String, enum: ['queued', 'running', 'completed', 'failed', 'cancelled'], default: 'queued' },
   totalItems: { type: Number, default: 0 },
   processedItems: { type: Number, default: 0 },
   sentItems: { type: Number, default: 0 },

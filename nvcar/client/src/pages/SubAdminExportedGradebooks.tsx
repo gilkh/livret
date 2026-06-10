@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { FileDown, RefreshCcw, Mail, Eye, Archive, CheckCircle2, XCircle, AlertCircle, Send, CheckSquare, Square, FolderArchive, MailPlus, Trash2, Users, X, Download, Sparkles } from 'lucide-react'
+import { FileDown, RefreshCcw, Mail, Eye, Archive, CheckCircle2, XCircle, AlertCircle, Send, CheckSquare, Square, FolderArchive, MailPlus, Trash2, Users, X, Download, Sparkles, StopCircle } from 'lucide-react'
 import api from '../api'
 import './SubAdminExportedGradebooks.css'
 
@@ -58,7 +58,7 @@ type RecipientStatus = {
 
 type EmailJob = {
   id: string
-  status: 'queued' | 'running' | 'completed' | 'failed'
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
   totalItems: number
   processedItems: number
   sentItems: number
@@ -142,6 +142,9 @@ export default function SubAdminExportedGradebooks() {
   const [jobHistory, setJobHistory] = useState<EmailJob[]>([])
   const [historyLoading, setHistoryLoading] = useState(false)
   const [jobSearchQuery, setJobSearchQuery] = useState('')
+  const [smtpChecking, setSmtpChecking] = useState(false)
+  const [smtpError, setSmtpError] = useState('')
+  const [cancelLoading, setCancelLoading] = useState(false)
 
   useEffect(() => {
     setJobSearchQuery('')
@@ -436,7 +439,7 @@ export default function SubAdminExportedGradebooks() {
         const response = await api.get(`/gradebook-exports/email-jobs/${jobId}`)
         if (cancelled) return
         setEmailJob(response.data)
-        if (response.data?.status === 'completed' || response.data?.status === 'failed') {
+        if (response.data?.status === 'completed' || response.data?.status === 'failed' || response.data?.status === 'cancelled') {
           loadJobHistory(selectedContext 
             ? libraryTree[selectedContext.level]?.[selectedContext.className || '']?.[selectedContext.semester || '']?.batches[0]?._id
             : selectedLot?.batches[0]?._id)
@@ -506,6 +509,22 @@ export default function SubAdminExportedGradebooks() {
         }
       })
       return
+    }
+
+    // SMTP pre-check before actually sending
+    setSmtpError('')
+    setSmtpChecking(true)
+    try {
+      const smtpRes = await api.post('/gradebook-exports/smtp-check')
+      if (!smtpRes.data?.success) {
+        setSmtpError(smtpRes.data?.error || 'Erreur SMTP')
+        return
+      }
+    } catch (smtpErr: any) {
+      setSmtpError(smtpErr.response?.data?.error || 'Erreur de connexion SMTP. Vérifiez les paramètres SMTP dans les réglages.')
+      return
+    } finally {
+      setSmtpChecking(false)
     }
 
     try {
@@ -597,6 +616,22 @@ export default function SubAdminExportedGradebooks() {
       return
     }
 
+    // SMTP pre-check before actually sending
+    setSmtpError('')
+    setSmtpChecking(true)
+    try {
+      const smtpRes = await api.post('/gradebook-exports/smtp-check')
+      if (!smtpRes.data?.success) {
+        setSmtpError(smtpRes.data?.error || 'Erreur SMTP')
+        return
+      }
+    } catch (smtpErr: any) {
+      setSmtpError(smtpErr.response?.data?.error || 'Erreur de connexion SMTP. Vérifiez les paramètres SMTP dans les réglages.')
+      return
+    } finally {
+      setSmtpChecking(false)
+    }
+
     try {
       setSendLoading(true)
       
@@ -633,6 +668,20 @@ export default function SubAdminExportedGradebooks() {
       setJobId(res.data.jobId)
       setRightTab('history')
     } catch (e: any) { setError(e.response?.data?.message || 'Erreur envoi') } finally { setSendLoading(false) }
+  }
+
+  const cancelJob = async (id: string) => {
+    setCancelLoading(true)
+    try {
+      await api.post(`/gradebook-exports/email-jobs/${id}/cancel`)
+      // Poll immediately to reflect updated status
+      const res = await api.get(`/gradebook-exports/email-jobs/${id}`)
+      setEmailJob(res.data)
+    } catch (e: any) {
+      setError(e.response?.data?.message || 'Erreur annulation')
+    } finally {
+      setCancelLoading(false)
+    }
   }
 
   const downloadFileUrl = (fileId: string, batchId: string) => {
@@ -1132,6 +1181,23 @@ export default function SubAdminExportedGradebooks() {
                     </div>
                   </div>
 
+                  {smtpError && (
+                    <div className="smtp-error-banner animate-fade-in" style={{ 
+                      background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 10, 
+                      padding: '10px 14px', display: 'flex', alignItems: 'flex-start', gap: 10 
+                    }}>
+                      <AlertCircle size={16} style={{ color: '#dc2626', flexShrink: 0, marginTop: 1 }} />
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 600, fontSize: 13, color: '#991b1b', marginBottom: 2 }}>Erreur SMTP — Envoi impossible</div>
+                        <div style={{ fontSize: 12, color: '#b91c1c' }}>{smtpError}</div>
+                        <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>Vérifiez les paramètres SMTP dans les réglages admin.</div>
+                      </div>
+                      <button onClick={() => setSmtpError('')} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+                        <X size={14} style={{ color: '#9ca3af' }} />
+                      </button>
+                    </div>
+                  )}
+
                   <div className="action-footer" style={{ display: 'flex', flexDirection: 'column', gap: 10, borderBottom: selectedFileIds.length === 1 ? '1px solid #e2e8f0' : 'none', paddingBottom: selectedFileIds.length === 1 ? 16 : 0 }}>
                     <button className="btn secondary" style={{ width: '100%' }} onClick={previewEmail} disabled={(!selectedLot && !selectedContext) || selectedFileIds.length === 0 || previewLoading}>
                       {previewLoading ? <RefreshCcw size={16} className="spin" /> : <Eye size={16} />} Aperçu du modèle d'email
@@ -1140,13 +1206,15 @@ export default function SubAdminExportedGradebooks() {
                       className="btn btn-primary" 
                       style={{ width: '100%' }} 
                       onClick={() => sendEmails()} 
-                      disabled={(!selectedLot && !selectedContext) || selectedFileIds.length === 0 || sendLoading || getStandardRecipientsCount() === 0}
+                      disabled={(!selectedLot && !selectedContext) || selectedFileIds.length === 0 || sendLoading || smtpChecking || getStandardRecipientsCount() === 0}
                       title={getStandardRecipientsCount() === 0 && selectedFileIds.length > 0 ? 'Aucun destinataire disponible pour la sélection actuelle' : ''}
                     >
-                      <Send size={18} />
-                      {selectedFileIds.length > 0
-                        ? `Envoyer — ${selectedFileIds.length} carnet${selectedFileIds.length > 1 ? 's' : ''} · ${getStandardRecipientsCount()} destinataire${getStandardRecipientsCount() !== 1 ? 's' : ''}`
-                        : 'Lancer la distribution'
+                      {smtpChecking ? <RefreshCcw size={18} className="spin" /> : <Send size={18} />}
+                      {smtpChecking 
+                        ? 'Vérification SMTP...'
+                        : selectedFileIds.length > 0
+                          ? `Envoyer — ${selectedFileIds.length} carnet${selectedFileIds.length > 1 ? 's' : ''} · ${getStandardRecipientsCount()} destinataire${getStandardRecipientsCount() !== 1 ? 's' : ''}`
+                          : 'Lancer la distribution'
                       }
                     </button>
                   </div>
@@ -1207,7 +1275,7 @@ export default function SubAdminExportedGradebooks() {
                           type="button"
                           className="alt-btn-send"
                           onClick={() => sendOverrideEmails()}
-                          disabled={sendLoading || !overrideEmail.trim() || !overrideEmail.includes('@') || (!overrideIncludeFather && !overrideIncludeMother)}
+                          disabled={sendLoading || smtpChecking || !overrideEmail.trim() || !overrideEmail.includes('@') || (!overrideIncludeFather && !overrideIncludeMother)}
                         >
                           <Send size={14} /> Envoyer
                         </button>
@@ -1220,8 +1288,27 @@ export default function SubAdminExportedGradebooks() {
                   {emailJob && (
                     <div className={`job-status-card ${emailJob.status} animate-fade-in`} style={{ marginTop: 12 }}>
                       <div className="status-header">
-                        <span className="status-title">Distribution en cours</span>
+                        <span className="status-title">
+                          {emailJob.status === 'running' ? 'Distribution en cours' : emailJob.status === 'cancelled' ? 'Distribution annulée' : emailJob.status === 'completed' ? 'Distribution terminée' : emailJob.status === 'failed' ? 'Distribution échouée' : 'Distribution'}
+                        </span>
                         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                          {(emailJob.status === 'running' || emailJob.status === 'queued') && (
+                            <button 
+                              className="btn-stop-mini"
+                              onClick={() => cancelJob(jobId)}
+                              disabled={cancelLoading}
+                              title="Arrêter la distribution"
+                              style={{
+                                display: 'flex', alignItems: 'center', gap: 4,
+                                background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6,
+                                color: '#dc2626', fontSize: 11, fontWeight: 600, padding: '3px 8px',
+                                cursor: cancelLoading ? 'wait' : 'pointer'
+                              }}
+                            >
+                              {cancelLoading ? <RefreshCcw size={11} className="spin" /> : <StopCircle size={11} />}
+                              Stop
+                            </button>
+                          )}
                           <span className={`status-tag ${emailJob.status}`}>{emailJob.status}</span>
                           <button 
                             className="btn-close-mini" 
@@ -1237,7 +1324,7 @@ export default function SubAdminExportedGradebooks() {
                           className="status-bar-fill" 
                           style={{ 
                             width: `${(emailJob.totalEmails ?? emailJob.totalItems) > 0 ? ((emailJob.processedEmails ?? emailJob.processedItems) / (emailJob.totalEmails ?? emailJob.totalItems)) * 100 : 0}%`,
-                            background: emailJob.status === 'completed' ? '#22c55e' : undefined
+                            background: emailJob.status === 'completed' ? '#22c55e' : emailJob.status === 'cancelled' ? '#f59e0b' : emailJob.status === 'failed' ? '#ef4444' : undefined
                           }} 
                         />
                       </div>
@@ -1387,7 +1474,7 @@ export default function SubAdminExportedGradebooks() {
                                       className="status-bar-fill" 
                                       style={{ 
                                         width: `${(emailJob.totalEmails ?? emailJob.totalItems) > 0 ? ((emailJob.processedEmails ?? emailJob.processedItems) / (emailJob.totalEmails ?? emailJob.totalItems)) * 100 : 0}%`,
-                                        background: emailJob.status === 'completed' ? '#22c55e' : emailJob.status === 'failed' ? '#ef4444' : undefined
+                                        background: emailJob.status === 'completed' ? '#22c55e' : emailJob.status === 'cancelled' ? '#f59e0b' : emailJob.status === 'failed' ? '#ef4444' : undefined
                                       }} 
                                     />
                                   </div>
@@ -1398,7 +1485,26 @@ export default function SubAdminExportedGradebooks() {
                                     {((emailJob.failedEmails ?? emailJob.failedItems) > 0) && (
                                       <span style={{ color: '#dc2626' }}> · {emailJob.failedEmails ?? emailJob.failedItems} échecs</span>
                                     )}
+                                    {emailJob.status === 'cancelled' && (
+                                      <span style={{ color: '#d97706', fontWeight: 600 }}> · Annulé</span>
+                                    )}
                                   </span>
+                                  {(emailJob.status === 'running' || emailJob.status === 'queued') && (
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); cancelJob(jid) }}
+                                      disabled={cancelLoading}
+                                      title="Arrêter la distribution"
+                                      style={{
+                                        display: 'flex', alignItems: 'center', gap: 3,
+                                        background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 5,
+                                        color: '#dc2626', fontSize: 10, fontWeight: 600, padding: '2px 6px',
+                                        cursor: cancelLoading ? 'wait' : 'pointer', flexShrink: 0
+                                      }}
+                                    >
+                                      {cancelLoading ? <RefreshCcw size={10} className="spin" /> : <StopCircle size={10} />}
+                                      Stop
+                                    </button>
+                                  )}
                                 </div>
 
                                 {emailJob.items.length > 5 && (

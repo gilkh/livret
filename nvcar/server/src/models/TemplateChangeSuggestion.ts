@@ -10,6 +10,7 @@ const templateChangeSuggestionSchema = new Schema({
     blockId: { type: String },
     originalText: { type: String },
     suggestedText: { type: String, required: true },
+    recipientRole: { type: String, enum: ['father', 'mother'] },
     status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
     adminComment: { type: String },
     createdAt: { type: Date, default: () => new Date() },
