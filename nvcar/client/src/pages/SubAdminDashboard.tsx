@@ -69,6 +69,10 @@ export default function SubAdminDashboard() {
     const [signingLevel, setSigningLevel] = useState<Record<string, boolean>>({})
     const [undoingClass, setUndoingClass] = useState<Record<string, boolean>>({})
     const [undoingLevel, setUndoingLevel] = useState<Record<string, boolean>>({})
+    const [signProgressLevel, setSignProgressLevel] = useState<Record<string, { current: number; total: number }>>({})
+    const [signProgressClass, setSignProgressClass] = useState<Record<string, { current: number; total: number }>>({})
+    const [undoProgressLevel, setUndoProgressLevel] = useState<Record<string, { current: number; total: number }>>({})
+    const [undoProgressClass, setUndoProgressClass] = useState<Record<string, { current: number; total: number }>>({})
     const [actionMessage, setActionMessage] = useState('')
     const [levelSignConfirm, setLevelSignConfirm] = useState<{ level: string; unsignedCount: number } | null>(null)
     const [versionConfirm, setVersionConfirm] = useState<{
@@ -310,6 +314,43 @@ export default function SubAdminDashboard() {
         return fallback?._id || null
     }
 
+    /** Animate progress from 0 to `target` with ease-in (slow start, fast end) over `duration` ms.
+     *  Returns a cleanup function that stops the animation. */
+    const animateProgress = (
+        setter: React.Dispatch<React.SetStateAction<Record<string, { current: number; total: number }>>>,
+        key: string,
+        target: number,
+        total: number,
+        duration = 1200,
+    ): (() => void) => {
+        if (target <= 0) {
+            setter(prev => ({ ...prev, [key]: { current: 0, total } }))
+            return () => {}
+        }
+        const start = performance.now()
+        let rafId = 0
+        const tick = (now: number) => {
+            const elapsed = now - start
+            // Asymptotic curve: x^3 / (x^3 + c)
+            // Starts slow, accelerates until duration/2, then decelerates asymptotically to 1.
+            // At elapsed == duration, progress is exactly 80%.
+            const c = Math.pow(duration, 3) / 4
+            const eased = Math.pow(elapsed, 3) / (Math.pow(elapsed, 3) + c)
+            
+            // Cap the visual progress at target - 1 so it never reads total until the API finishes
+            const cur = Math.min(Math.round(eased * target), Math.max(0, target - 1))
+            
+            setter(prev => ({ ...prev, [key]: { current: cur, total } }))
+            
+            // Continue running until we are extremely close to the asymptote to save CPU
+            if (eased < 0.999) {
+                rafId = requestAnimationFrame(tick)
+            }
+        }
+        rafId = requestAnimationFrame(tick)
+        return () => cancelAnimationFrame(rafId)
+    }
+
     const signClassBatch = async (level: string, className: string) => {
         const key = `${level}-${className}`
         const classId = findClassId(level, className)
@@ -317,11 +358,16 @@ export default function SubAdminDashboard() {
             setError(`Classe introuvable pour ${className}`)
             return
         }
+        const classTemplates = groupedAllTemplates[level]?.[className] || []
+        const totalToSign = getUnsignedCountForSemester(classTemplates)
 
         try {
             setActionMessage('')
             setError('')
             setSigningClass(prev => ({ ...prev, [key]: true }))
+            setSignProgressClass(prev => ({ ...prev, [key]: { current: 0, total: Math.max(totalToSign, 1) } }))
+            // Start animation immediately with expected total
+            const cancelAnim = animateProgress(setSignProgressClass, key, totalToSign, Math.max(totalToSign, 1), 1200)
             const type = getSignTypeForActiveSemester()
             const r = await api.post(`${apiPrefix}/templates/sign-class/${classId}`, {
                 type,
@@ -329,12 +375,17 @@ export default function SubAdminDashboard() {
             })
             const signed = Number(r?.data?.signed || 0)
             const already = Number(r?.data?.alreadySigned || 0)
+            const finalCount = signed + already
+            // Snap to actual result
+            cancelAnim()
+            setSignProgressClass(prev => ({ ...prev, [key]: { current: finalCount, total: Math.max(totalToSign, 1) } }))
             setActionMessage(`Classe ${className}: ${signed} signé(s), ${already} déjà signé(s) (${activeSemesterLabel}).`)
             await loadData()
         } catch (e: any) {
             setError(e.response?.data?.message || 'Échec de la signature de la classe')
         } finally {
             setSigningClass(prev => ({ ...prev, [key]: false }))
+            setSignProgressClass(prev => { const next = { ...prev }; delete next[key]; return next })
         }
     }
 
@@ -342,10 +393,19 @@ export default function SubAdminDashboard() {
         const classesInLevel = Object.keys(groupedAllTemplates[level] || {})
         if (classesInLevel.length === 0) return
 
+        // Total = sum of all unsigned gradebooks across every class in the level
+        const totalGradebooks = classesInLevel.reduce((sum, cn) => {
+            const tpls = groupedAllTemplates[level]?.[cn] || []
+            return sum + getUnsignedCountForSemester(tpls)
+        }, 0)
+
         try {
             setActionMessage('')
             setError('')
             setSigningLevel(prev => ({ ...prev, [level]: true }))
+            setSignProgressLevel(prev => ({ ...prev, [level]: { current: 0, total: Math.max(totalGradebooks, 1) } }))
+            // Start animation immediately with expected total
+            const cancelAnim = animateProgress(setSignProgressLevel, level, totalGradebooks, Math.max(totalGradebooks, 1), 1800)
 
             const results = await Promise.all(classesInLevel.map(async (className) => {
                 const classId = findClassId(level, className)
@@ -357,11 +417,9 @@ export default function SubAdminDashboard() {
                         type,
                         semester: activeSemester,
                     })
-                    return {
-                        signed: Number(r?.data?.signed || 0),
-                        alreadySigned: Number(r?.data?.alreadySigned || 0),
-                        failed: Number(r?.data?.failed || 0),
-                    }
+                    const signed = Number(r?.data?.signed || 0)
+                    const alreadySigned = Number(r?.data?.alreadySigned || 0)
+                    return { signed, alreadySigned, failed: Number(r?.data?.failed || 0) }
                 } catch {
                     return { signed: 0, alreadySigned: 0, failed: 1 }
                 }
@@ -374,12 +432,17 @@ export default function SubAdminDashboard() {
                 return acc
             }, { signed: 0, alreadySigned: 0, failed: 0 })
 
+            const finalCount = totals.signed + totals.alreadySigned
+            // Snap to actual result
+            cancelAnim()
+            setSignProgressLevel(prev => ({ ...prev, [level]: { current: finalCount, total: Math.max(totalGradebooks, 1) } }))
             setActionMessage(`Niveau ${level}: ${totals.signed} signé(s), ${totals.alreadySigned} déjà signé(s), ${totals.failed} erreur(s) (${activeSemesterLabel}).`)
             await loadData()
         } catch (e: any) {
             setError(e.response?.data?.message || 'Échec de la signature du niveau')
         } finally {
             setSigningLevel(prev => ({ ...prev, [level]: false }))
+            setSignProgressLevel(prev => { const next = { ...prev }; delete next[level]; return next })
         }
     }
 
@@ -390,11 +453,18 @@ export default function SubAdminDashboard() {
             setError(`Classe introuvable pour ${className}`)
             return
         }
+        const classTemplates = groupedAllTemplates[level]?.[className] || []
+        const totalToUndo = activeSemester === 2
+            ? classTemplates.filter(isSem2Signed).length
+            : classTemplates.filter(isSem1Signed).length
 
         try {
             setActionMessage('')
             setError('')
             setUndoingClass(prev => ({ ...prev, [key]: true }))
+            setUndoProgressClass(prev => ({ ...prev, [key]: { current: 0, total: Math.max(totalToUndo, 1) } }))
+            // Start animation immediately with expected total
+            const cancelAnim = animateProgress(setUndoProgressClass, key, totalToUndo, Math.max(totalToUndo, 1), 1200)
             const type = getSignTypeForActiveSemester()
             const r = await api.post(`${apiPrefix}/templates/unsign-class/${classId}`, {
                 type,
@@ -402,12 +472,17 @@ export default function SubAdminDashboard() {
             })
             const unsigned = Number(r?.data?.unsigned || 0)
             const alreadyUnsigned = Number(r?.data?.alreadyUnsigned || 0)
+            const finalCount = unsigned + alreadyUnsigned
+            // Snap to actual result
+            cancelAnim()
+            setUndoProgressClass(prev => ({ ...prev, [key]: { current: finalCount, total: Math.max(totalToUndo, 1) } }))
             setActionMessage(`Annulation classe ${className}: ${unsigned} annulé(s), ${alreadyUnsigned} déjà non signé(s) (${activeSemesterLabel}).`)
             await loadData()
         } catch (e: any) {
-            setError(e.response?.data?.message || 'Échec de l’annulation de signature de la classe')
+            setError(e.response?.data?.message || "Échec de l’annulation de signature de la classe")
         } finally {
             setUndoingClass(prev => ({ ...prev, [key]: false }))
+            setUndoProgressClass(prev => { const next = { ...prev }; delete next[key]; return next })
         }
     }
 
@@ -415,10 +490,22 @@ export default function SubAdminDashboard() {
         const classesInLevel = Object.keys(groupedAllTemplates[level] || {})
         if (classesInLevel.length === 0) return
 
+        // Total = sum of all signed gradebooks across every class in the level
+        const totalGradebooks = classesInLevel.reduce((sum, cn) => {
+            const tpls = groupedAllTemplates[level]?.[cn] || []
+            const signedCount = activeSemester === 2
+                ? tpls.filter(isSem2Signed).length
+                : tpls.filter(isSem1Signed).length
+            return sum + signedCount
+        }, 0)
+
         try {
             setActionMessage('')
             setError('')
             setUndoingLevel(prev => ({ ...prev, [level]: true }))
+            setUndoProgressLevel(prev => ({ ...prev, [level]: { current: 0, total: Math.max(totalGradebooks, 1) } }))
+            // Start animation immediately with expected total
+            const cancelAnim = animateProgress(setUndoProgressLevel, level, totalGradebooks, Math.max(totalGradebooks, 1), 1800)
 
             const results = await Promise.all(classesInLevel.map(async (className) => {
                 const classId = findClassId(level, className)
@@ -430,11 +517,9 @@ export default function SubAdminDashboard() {
                         type,
                         semester: activeSemester,
                     })
-                    return {
-                        unsigned: Number(r?.data?.unsigned || 0),
-                        alreadyUnsigned: Number(r?.data?.alreadyUnsigned || 0),
-                        failed: Number(r?.data?.failed || 0),
-                    }
+                    const unsigned = Number(r?.data?.unsigned || 0)
+                    const alreadyUnsigned = Number(r?.data?.alreadyUnsigned || 0)
+                    return { unsigned, alreadyUnsigned, failed: Number(r?.data?.failed || 0) }
                 } catch {
                     return { unsigned: 0, alreadyUnsigned: 0, failed: 1 }
                 }
@@ -447,12 +532,17 @@ export default function SubAdminDashboard() {
                 return acc
             }, { unsigned: 0, alreadyUnsigned: 0, failed: 0 })
 
+            const finalCount = totals.unsigned + totals.alreadyUnsigned
+            // Snap to actual result
+            cancelAnim()
+            setUndoProgressLevel(prev => ({ ...prev, [level]: { current: finalCount, total: Math.max(totalGradebooks, 1) } }))
             setActionMessage(`Annulation niveau ${level}: ${totals.unsigned} annulé(s), ${totals.alreadyUnsigned} déjà non signé(s), ${totals.failed} erreur(s) (${activeSemesterLabel}).`)
             await loadData()
         } catch (e: any) {
-            setError(e.response?.data?.message || 'Échec de l’annulation de signature du niveau')
+            setError(e.response?.data?.message || "Échec de l’annulation de signature du niveau")
         } finally {
             setUndoingLevel(prev => ({ ...prev, [level]: false }))
+            setUndoProgressLevel(prev => { const next = { ...prev }; delete next[level]; return next })
         }
     }
 
@@ -594,10 +684,12 @@ export default function SubAdminDashboard() {
         borderRadius: 12,
         background: '#f8fafc',
         border: '1px solid #e2e8f0',
-        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.8)'
+        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.8)',
+        position: 'relative' as const,
+        zIndex: 10
     }
 
-    const actionBtnStyle = (variant: 'download' | 'sign' | 'undo', enabled: boolean) => {
+    const actionBtnStyle = (variant: 'download' | 'sign' | 'undo' | 'allSigned', enabled: boolean) => {
         const base = {
             height: 32,
             padding: '0 10px',
@@ -630,6 +722,18 @@ export default function SubAdminDashboard() {
                 color: 'white',
                 border: '1px solid #2563eb',
                 boxShadow: enabled ? '0 1px 2px rgba(37,99,235,0.35)' : 'none'
+            }
+        }
+
+        if (variant === 'allSigned') {
+            return {
+                ...base,
+                background: '#fee2e2',
+                color: '#b91c1c',
+                border: '1px solid #fca5a5',
+                boxShadow: 'none',
+                opacity: 1,
+                cursor: 'default'
             }
         }
 
@@ -1255,6 +1359,10 @@ export default function SubAdminDashboard() {
                                             const levelSignTitle = canSignLevel
                                                 ? `Signer en lot pour ${activeSemesterLabel}`
                                                 : (levelSignDisabledReason || `Signer en lot pour ${activeSemesterLabel}`)
+                                            const levelAllSigned = levelUnsignedCount === 0 && levelSignedCount > 0
+                                            const levelSignVariant: 'sign' | 'allSigned' = levelAllSigned ? 'allSigned' : 'sign'
+                                            const levelSignProgress = signProgressLevel[level]
+                                            const levelUndoProgress = undoProgressLevel[level]
                                             return (
                                                 <div style={actionRailStyle}>
                                                     <button
@@ -1267,25 +1375,63 @@ export default function SubAdminDashboard() {
                                                         <Download size={14} />
                                                         {activeSemester === 2 ? 'S2' : 'S1'} ({levelAssignmentIds.length})
                                                     </button>
-                                                    <button
-                                                        onClick={() => setLevelSignConfirm({ level, unsignedCount: levelUnsignedCount })}
-                                                        disabled={!canSignLevel || levelSigning}
-                                                        className="btn"
-                                                        style={actionBtnStyle('sign', canSignLevel && !levelSigning)}
-                                                        title={levelSignTitle}
-                                                    >
-                                                        <PenTool size={14} />
-                                                        {levelSigning ? '…' : `${activeSemester === 2 ? 'S2' : 'S1'} (${levelUnsignedCount})`}
-                                                    </button>
-                                                    <button
-                                                        onClick={() => undoLevelBatch(level)}
-                                                        disabled={!canUndoLevel || levelUndoing}
-                                                        className="btn"
-                                                        style={actionBtnStyle('undo', canUndoLevel && !levelUndoing)}
-                                                        title={`Annuler les signatures de ${activeSemesterLabel}`}
-                                                    >
-                                                        <RotateCcw size={14} /> {activeSemester === 2 ? 'S2' : 'S1'} ({levelSignedCount})
-                                                    </button>
+                                                    <div style={{ position: 'relative' }}>
+                                                        {levelSigning && levelSignProgress && (
+                                                            <div style={{
+                                                                position: 'absolute', bottom: '100%', left: 0, right: 0, marginBottom: 6,
+                                                                padding: '5px 8px', background: 'white', color: '#1e293b', borderRadius: 6,
+                                                                fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap', zIndex: 1000,
+                                                                boxShadow: '0 4px 16px rgba(0,0,0,0.14), 0 1px 4px rgba(0,0,0,0.08)', border: '1px solid #e2e8f0', minWidth: 80, textAlign: 'center' as const
+                                                            }}>
+                                                                <div style={{ marginBottom: 3 }}>Signing {levelSignProgress.current}/{levelSignProgress.total}</div>
+                                                                <div style={{ height: 3, background: '#e2e8f0', borderRadius: 2, overflow: 'hidden' }}>
+                                                                    <div style={{ height: '100%', width: `${(levelSignProgress.current / levelSignProgress.total) * 100}%`, background: '#34d399', borderRadius: 2, transition: 'width 0.3s ease' }} />
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                        <button
+                                                            onClick={() => setLevelSignConfirm({ level, unsignedCount: levelUnsignedCount })}
+                                                            disabled={!canSignLevel || levelSigning}
+                                                            className="btn"
+                                                            style={actionBtnStyle(levelSignVariant, canSignLevel && !levelSigning)}
+                                                            title={levelAllSigned ? `Tous les carnets ${activeSemesterLabel} sont déjà signés` : levelSignTitle}
+                                                        >
+                                                            <PenTool size={14} />
+                                                            {levelSigning
+                                                                ? (levelSignProgress ? `${levelSignProgress.current}/${levelSignProgress.total}` : '…')
+                                                                : levelAllSigned
+                                                                    ? `✓ ${activeSemester === 2 ? 'S2' : 'S1'} (${levelSignedCount})`
+                                                                    : `${activeSemester === 2 ? 'S2' : 'S1'} (${levelUnsignedCount})`
+                                                            }
+                                                        </button>
+                                                    </div>
+                                                    <div style={{ position: 'relative' }}>
+                                                        {levelUndoing && levelUndoProgress && (
+                                                            <div style={{
+                                                                position: 'absolute', bottom: '100%', left: 0, right: 0, marginBottom: 6,
+                                                                padding: '5px 8px', background: 'white', color: '#1e293b', borderRadius: 6,
+                                                                fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap', zIndex: 1000,
+                                                                boxShadow: '0 4px 16px rgba(0,0,0,0.14), 0 1px 4px rgba(0,0,0,0.08)', border: '1px solid #e2e8f0', minWidth: 80, textAlign: 'center' as const
+                                                            }}>
+                                                                <div style={{ marginBottom: 3 }}>Undoing {levelUndoProgress.current}/{levelUndoProgress.total}</div>
+                                                                <div style={{ height: 3, background: '#e2e8f0', borderRadius: 2, overflow: 'hidden' }}>
+                                                                    <div style={{ height: '100%', width: `${(levelUndoProgress.current / levelUndoProgress.total) * 100}%`, background: '#f59e0b', borderRadius: 2, transition: 'width 0.3s ease' }} />
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                        <button
+                                                            onClick={() => undoLevelBatch(level)}
+                                                            disabled={!canUndoLevel || levelUndoing}
+                                                            className="btn"
+                                                            style={actionBtnStyle('undo', canUndoLevel && !levelUndoing)}
+                                                            title={`Annuler les signatures de ${activeSemesterLabel}`}
+                                                        >
+                                                            <RotateCcw size={14} /> {levelUndoing
+                                                                ? (levelUndoProgress ? `${levelUndoProgress.current}/${levelUndoProgress.total}` : '…')
+                                                                : `${activeSemester === 2 ? 'S2' : 'S1'} (${levelSignedCount})`
+                                                            }
+                                                        </button>
+                                                    </div>
                                                 </div>
                                             )
                                         })()}
@@ -1319,8 +1465,12 @@ export default function SubAdminDashboard() {
                                                 ? `Signer en lot cette classe (${activeSemesterLabel})`
                                                 : (classSignDisabledReason || `Signer en lot cette classe (${activeSemesterLabel})`)
 
+                                            const classAllSigned = classUnsignedCount === 0 && classSignedCount > 0
+                                            const classSignVariant: 'sign' | 'allSigned' = classAllSigned ? 'allSigned' : 'sign'
+                                            const classSignProgress = signProgressClass[key]
+                                            const classUndoProgress = undoProgressClass[key]
                                             return (
-                                                <div key={className} style={{ border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden' }}>
+                                                <div key={className} style={{ border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'visible' }}>
                                                     <div
                                                         onClick={() => toggleClass(level, className)}
                                                         style={{
@@ -1355,31 +1505,69 @@ export default function SubAdminDashboard() {
                                                                     <Download size={14} />
                                                                     {activeSemester === 2 ? 'S2' : 'S1'} ({classAssignmentIds.length})
                                                                 </button>
-                                                                <button
-                                                                    onClick={(e) => {
-                                                                        e.stopPropagation()
-                                                                        signClassBatch(level, className)
-                                                                    }}
-                                                                    disabled={!canSignClass || classSigning}
-                                                                    className="btn"
-                                                                    style={actionBtnStyle('sign', canSignClass && !classSigning)}
-                                                                    title={classSignTitle}
-                                                                >
-                                                                    <PenTool size={14} />
-                                                                    {classSigning ? '…' : `${activeSemester === 2 ? 'S2' : 'S1'} (${classUnsignedCount})`}
-                                                                </button>
-                                                                <button
-                                                                    onClick={(e) => {
-                                                                        e.stopPropagation()
-                                                                        undoClassBatch(level, className)
-                                                                    }}
-                                                                    disabled={!canUndoClass || classUndoing}
-                                                                    className="btn"
-                                                                    style={actionBtnStyle('undo', canUndoClass && !classUndoing)}
-                                                                    title={`Annuler les signatures de ${activeSemesterLabel} pour cette classe`}
-                                                                >
-                                                                    <RotateCcw size={14} /> {activeSemester === 2 ? 'S2' : 'S1'} ({classSignedCount})
-                                                                </button>
+                                                                <div style={{ position: 'relative' }}>
+                                                                    {classSigning && classSignProgress && (
+                                                                        <div style={{
+                                                                            position: 'absolute', bottom: '100%', left: 0, right: 0, marginBottom: 6,
+                                                                            padding: '5px 8px', background: 'white', color: '#1e293b', borderRadius: 6,
+                                                                            fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap', zIndex: 1000,
+                                                                            boxShadow: '0 4px 16px rgba(0,0,0,0.14), 0 1px 4px rgba(0,0,0,0.08)', border: '1px solid #e2e8f0', minWidth: 80, textAlign: 'center' as const
+                                                                        }}>
+                                                                            <div style={{ marginBottom: 3 }}>Signing {classSignProgress.current}/{classSignProgress.total}</div>
+                                                                            <div style={{ height: 3, background: '#e2e8f0', borderRadius: 2, overflow: 'hidden' }}>
+                                                                                <div style={{ height: '100%', width: `${(classSignProgress.current / classSignProgress.total) * 100}%`, background: '#34d399', borderRadius: 2, transition: 'width 0.3s ease' }} />
+                                                                            </div>
+                                                                        </div>
+                                                                    )}
+                                                                    <button
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation()
+                                                                            signClassBatch(level, className)
+                                                                        }}
+                                                                        disabled={!canSignClass || classSigning}
+                                                                        className="btn"
+                                                                        style={actionBtnStyle(classSignVariant, canSignClass && !classSigning)}
+                                                                        title={classAllSigned ? `Tous les carnets ${activeSemesterLabel} sont déjà signés` : classSignTitle}
+                                                                    >
+                                                                        <PenTool size={14} />
+                                                                        {classSigning
+                                                                            ? (classSignProgress ? `${classSignProgress.current}/${classSignProgress.total}` : '…')
+                                                                            : classAllSigned
+                                                                                ? `✓ ${activeSemester === 2 ? 'S2' : 'S1'} (${classSignedCount})`
+                                                                                : `${activeSemester === 2 ? 'S2' : 'S1'} (${classUnsignedCount})`
+                                                                        }
+                                                                    </button>
+                                                                </div>
+                                                                <div style={{ position: 'relative' }}>
+                                                                    {classUndoing && classUndoProgress && (
+                                                                        <div style={{
+                                                                            position: 'absolute', bottom: '100%', left: 0, right: 0, marginBottom: 6,
+                                                                            padding: '5px 8px', background: 'white', color: '#1e293b', borderRadius: 6,
+                                                                            fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap', zIndex: 1000,
+                                                                            boxShadow: '0 4px 16px rgba(0,0,0,0.14), 0 1px 4px rgba(0,0,0,0.08)', border: '1px solid #e2e8f0', minWidth: 80, textAlign: 'center' as const
+                                                                        }}>
+                                                                            <div style={{ marginBottom: 3 }}>Undoing {classUndoProgress.current}/{classUndoProgress.total}</div>
+                                                                            <div style={{ height: 3, background: '#e2e8f0', borderRadius: 2, overflow: 'hidden' }}>
+                                                                                <div style={{ height: '100%', width: `${(classUndoProgress.current / classUndoProgress.total) * 100}%`, background: '#f59e0b', borderRadius: 2, transition: 'width 0.3s ease' }} />
+                                                                            </div>
+                                                                        </div>
+                                                                    )}
+                                                                    <button
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation()
+                                                                            undoClassBatch(level, className)
+                                                                        }}
+                                                                        disabled={!canUndoClass || classUndoing}
+                                                                        className="btn"
+                                                                        style={actionBtnStyle('undo', canUndoClass && !classUndoing)}
+                                                                        title={`Annuler les signatures de ${activeSemesterLabel} pour cette classe`}
+                                                                    >
+                                                                        <RotateCcw size={14} /> {classUndoing
+                                                                            ? (classUndoProgress ? `${classUndoProgress.current}/${classUndoProgress.total}` : '…')
+                                                                            : `${activeSemester === 2 ? 'S2' : 'S1'} (${classSignedCount})`
+                                                                        }
+                                                                    </button>
+                                                                </div>
                                                             </span>
                                                         </div>
                                                     </div>
