@@ -38,7 +38,7 @@ import { simulationsRouter } from './routes/simulations'
 import { templatePropagationRouter } from './routes/templatePropagation'
 import { errorLogsRouter } from './routes/errorLogs'
 import { integrityRouter } from './routes/integrity'
-import { gradebookExportsRouter } from './routes/gradebookExports'
+import { gradebookExportsRouter, cleanupStaleEmailJobs } from './routes/gradebookExports'
 import { emailTemplatesRouter } from './routes/emailTemplates'
 import compression from 'compression'
 
@@ -104,6 +104,10 @@ export const createApp = () => {
   connectDb()
     .then(async () => {
       console.log('mongo connected')
+
+      // Clean up any email jobs left in running/queued state from a previous crash (#7)
+      cleanupStaleEmailJobs().catch(e => console.error('[EMAIL] stale job cleanup error:', e))
+
       const admin = await User.findOne({ email: 'admin' })
       if (!admin) {
         const hash = await bcrypt.hash('admin', 10)

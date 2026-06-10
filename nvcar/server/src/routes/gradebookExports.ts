@@ -407,8 +407,9 @@ async function runEmailJob(jobId: string, batch: any, files: any[], options: Ema
       return { valid: false, reason: `Le domaine '${domain}' n'existe pas ou est injoignable` }
     }
   }
+  let transporter: any
   try {
-    const transporter = await createSmtpTransporter()
+    transporter = await createSmtpTransporter()
     if (!transporter) throw new Error('SMTP not configured')
 
     // #11: verify SMTP connection before starting the batch
@@ -427,51 +428,90 @@ async function runEmailJob(jobId: string, batch: any, files: any[], options: Ema
       jobSchoolYearId = sy?._id?.toString()
     }
 
-    // #12: wrap sendMail with a hard 15-second timeout per email
-    const sendMailWithTimeout = (mailOptions: any): Promise<void> =>
-      Promise.race([
-        transporter.sendMail(mailOptions) as Promise<any>,
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('SMTP timeout après 15 secondes')), 15_000)
-        )
-      ])
+    const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 
-    for (const file of files) {
+    // #12: sendMail with a hard 15-second timeout — clears timer on success
+    const sendMailWithTimeout = async (mailOptions: any): Promise<void> => {
+      let timer: ReturnType<typeof setTimeout> | undefined
+      try {
+        await Promise.race([
+          transporter!.sendMail(mailOptions) as Promise<any>,
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(() => reject(new Error('SMTP timeout après 15 secondes')), 15_000)
+          })
+        ])
+      } finally {
+        if (timer) clearTimeout(timer)
+      }
+    }
+
+    // Transient SMTP error detection + retry with transporter reconnection
+    const isTransientSmtpError = (err: any): boolean => {
+      const code = String(err?.responseCode || err?.code || '')
+      const msg = String(err?.message || '')
+      if (/^4[0-9]{2}$/.test(code)) return true
+      if (['ECONNRESET', 'ETIMEDOUT', 'ESOCKET', 'ECONNECTION', 'ENOTFOUND'].includes(code)) return true
+      if (/timeout|socket|connection|reset|closed/i.test(msg)) return true
+      return false
+    }
+
+    // Shared reconnect lock — prevents multiple workers from creating orphaned SMTP sockets
+    let reconnecting: Promise<void> | null = null
+    const reconnectTransporter = async (): Promise<void> => {
+      if (reconnecting) return reconnecting
+      reconnecting = (async () => {
+        try { await transporter?.close() } catch { /* ignore */ }
+        const newT = await createSmtpTransporter()
+        if (newT) { await newT.verify(); transporter = newT }
+      })()
+      try { await reconnecting } finally { reconnecting = null }
+    }
+
+    const sendMailWithRetry = async (mailOptions: any): Promise<void> => {
+      try {
+        await sendMailWithTimeout(mailOptions)
+      } catch (err: any) {
+        if (isTransientSmtpError(err)) {
+          await sleep(2000)
+          try { await reconnectTransporter() } catch { /* best-effort */ }
+          await sendMailWithTimeout(mailOptions)
+        } else {
+          throw err
+        }
+      }
+    }
+
+    // Concurrency pool — 3 workers process files in parallel (#2)
+    const CONCURRENCY = 3
+    const fileQueue = [...files]
+    const sentEmailsGlobal = new Set<string>()
+
+    const processFile = async (file: any) => {
       const level = String(file?.level || '').trim()
       const className = String(file?.className || '').trim()
       const template = await resolveEmailTemplate(templateCache, level, className, options.templateId, jobSchoolYearId)
       const emailContent = buildEmailBody(emailSettings, template, file, options, baseUrl)
 
-      let recipientsToProcess = emailContent.recipientsWithTypes.map(r => ({ ...r }))
-      
+      let recipientsToProcess = emailContent.recipientsWithTypes.map((r: any) => ({ ...r }))
       if (options.testEmailOverride) {
         recipientsToProcess = [{ email: options.testEmailOverride, type: 'override' as any }]
       }
 
-      const item: any = {
-        fileId: String(file._id),
-        studentName: `${file.firstName} ${file.lastName}`,
-        recipients: recipientsToProcess.map(r => r.email),
-        recipientDetails: [],
-        status: 'pending'
-      }
+      const recipientDetails: any[] = []
+      let sentCount = 0
+      let failedCount = 0
+      let itemStatus = 'pending'
+      let itemError: string | undefined
 
       try {
         if (recipientsToProcess.length === 0) {
-          item.status = 'skipped'
-          item.error = 'Aucun destinataire valide trouvé'
+          itemStatus = 'skipped'
+          itemError = 'Aucun destinataire valide trouvé'
         } else {
           const absolutePath = resolveGradebookExportPath(file.relativePath)
-          let sentCount = 0
-          let failedCount = 0
-          const sentEmailsForThisFile = new Set<string>()
 
           for (const rec of recipientsToProcess) {
-            const detail: any = {
-              email: rec.email,
-              type: rec.type,
-              status: 'pending'
-            }
+            const detail: any = { email: rec.email, type: rec.type, status: 'pending' }
 
             // Validate email format + DNS before sending
             const validation = await validateEmail(rec.email)
@@ -479,47 +519,16 @@ async function runEmailJob(jobId: string, batch: any, files: any[], options: Ema
               detail.status = 'failed'
               detail.error = validation.reason || 'Email invalide'
               failedCount++
-              item.recipientDetails.push(detail)
-
-              await EmailJob.updateOne(
-                { _id: jobId, "items.fileId": String(file._id) },
-                {
-                  $set: {
-                    "items.$.recipientDetails.$[recFilter].status": "failed",
-                    "items.$.recipientDetails.$[recFilter].error": detail.error
-                  },
-                  $inc: {
-                    processedEmails: 1,
-                    failedEmails: 1
-                  }
-                },
-                {
-                  arrayFilters: [{ "recFilter.email": rec.email, "recFilter.type": rec.type }]
-                }
-              )
+              recipientDetails.push(detail)
+              sentEmailsGlobal.add(rec.email)
               continue
             }
 
-            if (sentEmailsForThisFile.has(rec.email)) {
+            // Skip duplicates already sent in this job
+            if (sentEmailsGlobal.has(rec.email)) {
               detail.status = 'sent'
               sentCount++
-              item.recipientDetails.push(detail)
-
-              await EmailJob.updateOne(
-                { _id: jobId, "items.fileId": String(file._id) },
-                {
-                  $set: {
-                    "items.$.recipientDetails.$[recFilter].status": "sent"
-                  },
-                  $inc: {
-                    processedEmails: 1,
-                    sentEmails: 1
-                  }
-                },
-                {
-                  arrayFilters: [{ "recFilter.email": rec.email }]
-                }
-              )
+              recipientDetails.push(detail)
               continue
             }
 
@@ -528,8 +537,7 @@ async function runEmailJob(jobId: string, batch: any, files: any[], options: Ema
                 emailContent.html,
                 [{ filename: file.fileName, path: absolutePath }]
               )
-
-              await sendMailWithTimeout({
+              await sendMailWithRetry({
                 from: emailContent.fromEmail ? `"${emailContent.fromName}" <${emailContent.fromEmail}>` : smtpSettings.user,
                 to: rec.email,
                 subject: options.testEmailOverride ? `[TEST] ${emailContent.subject}` : emailContent.subject,
@@ -539,83 +547,106 @@ async function runEmailJob(jobId: string, batch: any, files: any[], options: Ema
               })
               detail.status = 'sent'
               sentCount++
-              sentEmailsForThisFile.add(rec.email)
-
-              await EmailJob.updateOne(
-                { _id: jobId, "items.fileId": String(file._id) },
-                {
-                  $set: {
-                    "items.$.recipientDetails.$[recFilter].status": "sent"
-                  },
-                  $inc: {
-                    processedEmails: 1,
-                    sentEmails: 1
-                  }
-                },
-                {
-                  arrayFilters: [{ "recFilter.email": rec.email }]
-                }
-              )
+              sentEmailsGlobal.add(rec.email)
             } catch (mailErr: any) {
               detail.status = 'failed'
               detail.error = mailErr.message
               failedCount++
-
-              await EmailJob.updateOne(
-                { _id: jobId, "items.fileId": String(file._id) },
-                {
-                  $set: {
-                    "items.$.recipientDetails.$[recFilter].status": "failed",
-                    "items.$.recipientDetails.$[recFilter].error": mailErr.message
-                  },
-                  $inc: {
-                    processedEmails: 1,
-                    failedEmails: 1
-                  }
-                },
-                {
-                  arrayFilters: [{ "recFilter.email": rec.email }]
-                }
-              )
             }
-            item.recipientDetails.push(detail)
+            recipientDetails.push(detail)
+            await sleep(200) // 200ms inter-send delay to avoid SMTP throttling (#5)
           }
 
           if (sentCount === recipientsToProcess.length) {
-            item.status = 'sent'
+            itemStatus = 'sent'
           } else if (sentCount > 0) {
-            item.status = 'partial'
+            itemStatus = 'partial'
           } else {
-            item.status = 'failed'
-            item.error = 'Tous les envois ont échoué'
+            itemStatus = 'failed'
+            itemError = 'Tous les envois ont échoué'
           }
         }
       } catch (err: any) {
-        item.status = 'failed'
-        item.error = err.message
+        // Only errors from the sending loop reach here — DB errors are handled below
+        itemStatus = 'failed'
+        itemError = err.message
       }
 
-      await EmailJob.updateOne(
-        { _id: jobId, "items.fileId": String(file._id) },
-        { 
-          $set: { 
-            "items.$.status": item.status,
-            "items.$.error": item.error 
-          },
-          $inc: { 
-            processedItems: 1,
-            sentItems: item.status === 'sent' ? 1 : 0,
-            failedItems: item.status === 'failed' ? 1 : 0,
-            skippedItems: item.status === 'skipped' ? 1 : 0,
-            partialItems: item.status === 'partial' ? 1 : 0
+      // Batched DB update per file (#6) with 3-pass retry + linear backoff
+      // Lives OUTSIDE the sending try/catch so a DB failure never overwrites
+      // an accurate itemStatus/itemError computed from actual send results.
+      const DB_RETRIES = 3
+      for (let attempt = 0; attempt <= DB_RETRIES; attempt++) {
+        try {
+          await EmailJob.updateOne(
+            { _id: jobId, "items.fileId": String(file._id) },
+            {
+              $set: {
+                "items.$.recipientDetails": recipientDetails,
+                "items.$.status": itemStatus,
+                "items.$.error": itemError
+              },
+              $inc: {
+                processedItems: 1,
+                processedEmails: recipientDetails.length,
+                sentItems: itemStatus === 'sent' ? 1 : 0,
+                sentEmails: sentCount,
+                failedItems: itemStatus === 'failed' ? 1 : 0,
+                failedEmails: failedCount,
+                skippedItems: itemStatus === 'skipped' ? 1 : 0,
+                partialItems: itemStatus === 'partial' ? 1 : 0
+              }
+            }
+          )
+          break // DB write succeeded
+        } catch (dbErr: any) {
+          if (attempt === DB_RETRIES) {
+            console.error(`[EMAIL JOB] DB write failed after ${DB_RETRIES + 1} attempts for file ${file._id}:`, dbErr?.message)
+            throw dbErr // propagate to worker catch
           }
+          await sleep(1000 * (attempt + 1)) // 1s, 2s, 3s linear backoff
         }
-      )
+      }
     }
 
-    await EmailJob.updateOne({ _id: jobId }, { status: 'completed', completedAt: new Date() })
+    // Worker pool: each worker drains the shared queue
+    const workers = Array.from({ length: CONCURRENCY }, () => (async () => {
+      while (fileQueue.length > 0) {
+        const file = fileQueue.shift()
+        if (!file) break
+        try {
+          await processFile(file)
+        } catch (err: any) {
+          console.error('[EMAIL JOB] unexpected error processing file:', err?.message)
+        }
+      }
+    })())
+    await Promise.all(workers)
   } catch (error: any) {
     await EmailJob.updateOne({ _id: jobId }, { status: 'failed', error: error.message, completedAt: new Date() })
+  } finally {
+    // #8: always close the SMTP transporter to avoid socket leaks
+    try { await transporter?.close() } catch { /* ignore */ }
+    // Wrap DB queries to prevent unhandled rejections if DB is down during cleanup
+    try {
+      const current = await EmailJob.findById(jobId).lean()
+      if (current && current.status === 'running') {
+        await EmailJob.updateOne({ _id: jobId }, { status: 'completed', completedAt: new Date() })
+      }
+    } catch (finalDbErr: any) {
+      console.error('[EMAIL JOB] finally-block DB error (job status may be stale):', finalDbErr?.message)
+    }
+  }
+}
+
+// Cleanup stale email jobs left in 'running'/'queued' state after server crash (#7)
+export async function cleanupStaleEmailJobs() {
+  const result = await EmailJob.updateMany(
+    { status: { $in: ['running', 'queued'] } },
+    { $set: { status: 'failed', error: 'Server restarted — job did not complete', completedAt: new Date() } }
+  )
+  if ((result as any).modifiedCount > 0) {
+    console.log(`[EMAIL] Cleaned up ${(result as any).modifiedCount} stale email job(s)`)
   }
 }
 
