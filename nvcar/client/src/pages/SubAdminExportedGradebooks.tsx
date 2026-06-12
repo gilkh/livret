@@ -145,6 +145,7 @@ export default function SubAdminExportedGradebooks() {
   const [smtpChecking, setSmtpChecking] = useState(false)
   const [smtpError, setSmtpError] = useState('')
   const [cancelLoading, setCancelLoading] = useState(false)
+  const [showFailedOnly, setShowFailedOnly] = useState(false)
 
   useEffect(() => {
     setJobSearchQuery('')
@@ -407,23 +408,22 @@ export default function SubAdminExportedGradebooks() {
       setScopeLevel('')
       setScopeClassName('')
       setScopeStudentId('')
-      // Fetch global history when no batch is selected
-      loadJobHistory()
-      return
     }
-    const bId = selectedContext 
-      ? libraryTree[selectedContext.level]?.[selectedContext.className || '']?.[selectedContext.semester || '']?.batches[0]?._id
-      : selectedLot?.batches[0]?._id
-    
-    loadJobHistory(bId)
+    // Always load global history (all batches) so no jobs are hidden
+    loadJobHistory()
   }, [selectedGroupKey, selectedContext])
 
-  const loadJobHistory = async (batchId?: string) => {
+  // Reload history whenever the user switches to the history tab
+  useEffect(() => {
+    if (rightTab === 'history') {
+      loadJobHistory()
+    }
+  }, [rightTab])
+
+  const loadJobHistory = async () => {
     try {
       setHistoryLoading(true)
-      // Use the new /mine endpoint for global history, or the batch-specific one
-      const endpoint = batchId ? `/gradebook-exports/batches/${batchId}/email-jobs` : '/gradebook-exports/email-jobs/mine'
-      const res = await api.get(endpoint)
+      const res = await api.get('/gradebook-exports/email-jobs/mine')
       setJobHistory(res.data)
     } finally { setHistoryLoading(false) }
   }
@@ -440,9 +440,7 @@ export default function SubAdminExportedGradebooks() {
         if (cancelled) return
         setEmailJob(response.data)
         if (response.data?.status === 'completed' || response.data?.status === 'failed' || response.data?.status === 'cancelled') {
-          loadJobHistory(selectedContext 
-            ? libraryTree[selectedContext.level]?.[selectedContext.className || '']?.[selectedContext.semester || '']?.batches[0]?._id
-            : selectedLot?.batches[0]?._id)
+          loadJobHistory()
           return // stop polling
         }
       } catch { return } // stop polling on error
@@ -677,6 +675,8 @@ export default function SubAdminExportedGradebooks() {
       // Poll immediately to reflect updated status
       const res = await api.get(`/gradebook-exports/email-jobs/${id}`)
       setEmailJob(res.data)
+      // Reload history so the cancelled job appears updated
+      await loadJobHistory()
     } catch (e: any) {
       setError(e.response?.data?.message || 'Erreur annulation')
     } finally {
@@ -1135,6 +1135,43 @@ export default function SubAdminExportedGradebooks() {
             </div>
 
             <div className="tab-content scrollable">
+              {rightTab === 'history' && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 8px 2px', borderBottom: '1px solid rgba(0,0,0,0.05)' }}>
+                  <button
+                    onClick={() => setShowFailedOnly(f => !f)}
+                    title={showFailedOnly ? 'Afficher tout l\'historique' : 'Afficher uniquement les échecs'}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 4,
+                      background: showFailedOnly ? '#fef2f2' : 'transparent',
+                      border: showFailedOnly ? '1px solid #fecaca' : '1px solid transparent',
+                      borderRadius: 6, padding: '3px 8px', cursor: 'pointer',
+                      color: showFailedOnly ? '#dc2626' : '#64748b',
+                      fontSize: 11, fontWeight: showFailedOnly ? 600 : 400,
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    <XCircle size={12} />
+                    {showFailedOnly ? 'Échecs uniquement' : 'Échecs'}
+                    {(() => {
+                      const failedCount = jobHistory.filter(j => {
+                        const failedE = j.failedEmails ?? j.failedItems ?? 0
+                        if (failedE > 0 || j.status === 'failed') return true
+                        return j.items.some(it => 
+                          it.status === 'failed' || 
+                          it.recipientDetails?.some(rd => rd.status === 'failed')
+                        )
+                      }).length
+                      return failedCount > 0 ? (
+                        <span style={{
+                          background: showFailedOnly ? '#dc2626' : '#ef4444',
+                          color: '#fff', borderRadius: 10, padding: '0 5px',
+                          fontSize: 10, fontWeight: 700, lineHeight: '16px', minWidth: 16, textAlign: 'center'
+                        }}>{failedCount}</span>
+                      ) : null
+                    })()}
+                  </button>
+                </div>
+              )}
               {rightTab === 'config' ? (
                 <div className="config-pane">
                   <div className="config-section">
@@ -1312,7 +1349,7 @@ export default function SubAdminExportedGradebooks() {
                           <span className={`status-tag ${emailJob.status}`}>{emailJob.status}</span>
                           <button 
                             className="btn-close-mini" 
-                            onClick={() => setEmailJob(null)}
+                            onClick={() => { setEmailJob(null); loadJobHistory() }}
                             title="Fermer ce volet (n'efface pas l'historique)"
                           >
                             <X size={14} />
@@ -1402,9 +1439,28 @@ export default function SubAdminExportedGradebooks() {
                     <div className="empty-state mini">Chargement...</div>
                   ) : jobHistory.length === 0 ? (
                     <div className="empty-state mini">Aucun historique</div>
+                  ) : showFailedOnly && jobHistory.filter(j => {
+                      const failedE = j.failedEmails ?? j.failedItems ?? 0
+                      if (failedE > 0 || j.status === 'failed') return true
+                      return j.items.some(it => it.status === 'failed' || it.recipientDetails?.some(rd => rd.status === 'failed'))
+                    }).length === 0 ? (
+                    <div className="empty-state mini" style={{ color: '#16a34a' }}>
+                      <CheckCircle2 size={16} style={{ marginBottom: 4 }} />
+                      Aucun échec
+                    </div>
                   ) : (
                     <div className="history-list">
-                      {jobHistory.map((job) => {
+                      {jobHistory
+                        .filter(job => {
+                          if (!showFailedOnly) return true
+                          const failedE = job.failedEmails ?? job.failedItems ?? 0
+                          if (failedE > 0 || job.status === 'failed') return true
+                          return job.items.some(it =>
+                            it.status === 'failed' ||
+                            it.recipientDetails?.some(rd => rd.status === 'failed')
+                          )
+                        })
+                        .map((job) => {
                         const jid = (job as any)._id || job.id
                         const active = (emailJob as any)?._id === jid || emailJob?.id === jid
                         return (
@@ -1520,7 +1576,12 @@ export default function SubAdminExportedGradebooks() {
 
                                 <div className="inline-items-list scrollable">
                                   {emailJob.items
-                                    .filter(item => !jobSearchQuery || item.studentName.toLowerCase().includes(jobSearchQuery.toLowerCase()))
+                                    .filter(item => {
+                                      if (jobSearchQuery && !item.studentName.toLowerCase().includes(jobSearchQuery.toLowerCase())) return false
+                                      if (!showFailedOnly) return true
+                                      if (item.status === 'failed') return true
+                                      return item.recipientDetails?.some(rd => rd.status === 'failed')
+                                    })
                                     .map((item) => (
                                       <div key={item.fileId} className={`inline-item-row ${item.status}`}>
                                         <div className="inline-item-header">
