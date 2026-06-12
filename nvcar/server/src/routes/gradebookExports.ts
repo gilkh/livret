@@ -922,6 +922,8 @@ gradebookExportsRouter.post('/batches/:batchId/send', requireAuth(['ADMIN', 'SUB
         fileId: String(file._id),
         studentId: String(file.studentId || ''),
         studentName: `${file.firstName} ${file.lastName}`.trim(),
+        level: (file as any).level || '',
+        className: (file as any).className || '',
         recipients: recipientsToProcess.map(r => r.email),
         recipientDetails: recipientsToProcess.map(r => ({
           email: r.email,
@@ -1095,6 +1097,31 @@ gradebookExportsRouter.get('/email-jobs/mine', requireAuth(['ADMIN', 'SUBADMIN',
     }
 
     const jobs = await EmailJob.find(query).sort({ createdAt: -1 }).limit(200).lean()
+
+    // Backfill level/className on items from batch files for older jobs
+    const batchIds = [...new Set(jobs.map(j => j.batchId?.toString()).filter(Boolean))]
+    if (batchIds.length > 0) {
+      const batches = await ExportedGradebookBatch.find({ _id: { $in: batchIds } })
+        .select('_id files').lean()
+      const fileMap = new Map<string, { level?: string; className?: string }>()
+      for (const batch of batches) {
+        for (const f of (batch as any).files || []) {
+          fileMap.set(String(f._id), { level: f.level, className: f.className })
+        }
+      }
+      for (const job of jobs) {
+        for (const item of (job as any).items || []) {
+          if (!item.level && !item.className) {
+            const info = fileMap.get(item.fileId)
+            if (info) {
+              item.level = info.level || ''
+              item.className = info.className || ''
+            }
+          }
+        }
+      }
+    }
+
     res.json(jobs)
   } catch (error: any) {
     res.status(500).json({ error: 'fetch_mine_failed', message: error.message })

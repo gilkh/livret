@@ -11,6 +11,8 @@ export interface IEmailJobItem {
   fileId: string
   studentId: string
   studentName: string
+  level?: string
+  className?: string
   recipients: string[]
   recipientDetails?: IRecipientStatus[]
   status: 'pending' | 'sent' | 'skipped' | 'failed' | 'partial'
@@ -80,6 +82,8 @@ const emailJobSchema = new Schema<IEmailJob>({
     fileId: { type: String },
     studentId: { type: String },
     studentName: { type: String },
+    level: { type: String },
+    className: { type: String },
     recipients: [{ type: String }],
     recipientDetails: [{
       email: { type: String },

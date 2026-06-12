@@ -72,6 +72,8 @@ type EmailJob = {
   items: Array<{
     fileId: string
     studentName: string
+    level?: string
+    className?: string
     recipients: string[]
     recipientDetails?: RecipientStatus[]
     status: 'pending' | 'sent' | 'skipped' | 'failed' | 'partial'
@@ -1483,6 +1485,20 @@ export default function SubAdminExportedGradebooks() {
                                 </span>
                                 <span className={`history-status-badge ${job.status}`}>{job.status}</span>
                               </div>
+                              {(() => {
+                                const classNames = [...new Set(job.items.map(it => it.className).filter(Boolean))] as string[]
+                                const levels = [...new Set(job.items.map(it => it.level).filter(Boolean))] as string[]
+                                const label = classNames.length > 0
+                                  ? classNames.join(', ')
+                                  : levels.length > 0
+                                    ? levels.join(', ')
+                                    : null
+                                return label ? (
+                                  <div style={{ fontSize: 10, color: '#6366f1', fontWeight: 600, marginBottom: 2, display: 'flex', alignItems: 'center', gap: 3 }}>
+                                    <span style={{ opacity: 0.7 }}>•</span> {label}
+                                  </div>
+                                ) : null
+                              })()}
                               <div className="history-item-row">
                                 <span className="history-student-name compact">
                                   {job.items.length === 1 
