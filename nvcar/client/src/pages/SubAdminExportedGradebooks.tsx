@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { FileDown, RefreshCcw, Mail, Eye, Archive, CheckCircle2, XCircle, AlertCircle, Send, CheckSquare, Square, FolderArchive, MailPlus, Trash2, Users, X, Download, Sparkles, StopCircle } from 'lucide-react'
+import { FileDown, RefreshCcw, Mail, Eye, Archive, CheckCircle2, XCircle, AlertCircle, Send, CheckSquare, Square, FolderArchive, MailPlus, Trash2, Users, X, Download, Sparkles, StopCircle, Search } from 'lucide-react'
 import api from '../api'
 import './SubAdminExportedGradebooks.css'
 
@@ -140,6 +140,7 @@ export default function SubAdminExportedGradebooks() {
   const [scopeLevel, setScopeLevel] = useState('')
   const [scopeClassName, setScopeClassName] = useState('')
   const [scopeStudentId, setScopeStudentId] = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
   const [zipDownloadLoading, setZipDownloadLoading] = useState(false)
   const [jobHistory, setJobHistory] = useState<EmailJob[]>([])
   const [historyLoading, setHistoryLoading] = useState(false)
@@ -332,11 +333,21 @@ export default function SubAdminExportedGradebooks() {
     }))
   )
 
+  const allSystemUniquePairs = Array.from(
+    new Map(allSystemFiles.map(f => [`${f.assignmentId}-${f.version}`, f])).values()
+  ).sort((a, b) => `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`))
+
   const uniqueFileVersionPairs = Array.from(
     new Map(allFilesForLot.map(f => [`${f.assignmentId}-${f.version}`, f])).values()
   ).sort((a, b) => `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`))
 
-  const filteredBatchFiles = uniqueFileVersionPairs.filter((file) => {
+  const filteredBatchFiles = (searchQuery ? allSystemUniquePairs : uniqueFileVersionPairs).filter((file) => {
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase()
+      const searchStr = `${file.firstName || ''} ${file.lastName || ''} ${file.emails?.father || ''} ${file.emails?.mother || ''} ${file.emails?.student || ''}`.toLowerCase()
+      if (!searchStr.includes(q)) return false
+      return true
+    }
     if (scopeLevel && String(file.level || '') !== scopeLevel) return false
     if (scopeClassName && String(file.className || '') !== scopeClassName) return false
     if (scopeStudentId && String(file._id) !== scopeStudentId) return false
@@ -915,10 +926,25 @@ export default function SubAdminExportedGradebooks() {
                     {selectedLot.groupLabel}
                   </span>
                 )}
+
+                <div style={{ flex: 1, display: 'flex', justifyContent: 'center', padding: '0 16px' }}>
+                  <div style={{ position: 'relative', width: '100%', maxWidth: '300px' }}>
+                    <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
+                    <input 
+                      type="text"
+                      placeholder="Chercher élèves, parents..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="modern-input"
+                      style={{ width: '100%', paddingLeft: 32, height: 32, fontSize: 13, border: '1px solid #cbd5e1', borderRadius: '6px' }}
+                    />
+                  </div>
+                </div>
               </div>
-              {(selectedLot || selectedContext) && (
+
+              {(selectedLot || selectedContext || searchQuery) && (
                 <div style={{ display: 'flex', gap: 6 }}>
-                  <button className="btn-action-small" onClick={() => setSelectedFileIds(prev => Array.from(new Set([...prev, ...allFilesForLot.map((file) => file._id)])))} title="Tout sélectionner">
+                  <button className="btn-action-small" onClick={() => setSelectedFileIds(prev => Array.from(new Set([...prev, ...filteredBatchFiles.map((file) => file._id)])))} title="Tout sélectionner">
                     <CheckSquare size={14} /> Tout
                   </button>
                   <button className="btn-action-small" onClick={() => setSelectedFileIds([])} title="Tout désélectionner">
@@ -964,14 +990,14 @@ export default function SubAdminExportedGradebooks() {
             </div>
 
             <div className="flex-column" style={{ flex: 1, minHeight: 0 }}>
-              {(!selectedLot && !selectedContext) ? (
+              {(!selectedLot && !selectedContext && !searchQuery) ? (
                 <div className="empty-state">
                   <FolderArchive className="empty-state-icon" />
                   <p>Sélectionnez un niveau ou un lot dans la bibliothèque pour gérer les carnets.</p>
                 </div>
               ) : (
                 <>
-                  <div className="filter-bar">
+                  <div className="filter-bar" style={{ display: searchQuery ? 'none' : 'flex' }}>
                     <select value={scopeLevel} onChange={(e) => { setScopeLevel(e.target.value); setScopeClassName(''); setScopeStudentId('') }} className="modern-select compact">
                       <option value="">Tous les niveaux</option>
                       {levelOptions.map((level) => <option key={level} value={level}>{level}</option>)}
